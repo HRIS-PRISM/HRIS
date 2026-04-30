@@ -108,8 +108,16 @@ const selectSx = {
 // the time portion with T00:00:00 (no Z), anchoring to local midnight.
 const normalizeDateField = (dateStr) => {
   if (!dateStr) return dateStr;
-  // Extract just the YYYY-MM-DD part and re-attach a neutral local midnight time
-  const datePart = String(dateStr).split('T')[0];
+  const s = String(dateStr);
+  if (s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s)) {
+    const d = new Date(s);
+    const ph = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+    const yy = ph.getUTCFullYear();
+    const mm = String(ph.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(ph.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}T00:00:00`;
+  }
+  const datePart = s.split('T')[0];
   return `${datePart}T00:00:00`;
 };
 
@@ -444,8 +452,22 @@ const PAGE_SIZE = 30;
 // ─── Date helper — timezone-safe day extraction ────────────────────────────
 // Splits the ISO string directly instead of using new Date() to avoid
 // UTC-to-local timezone shifts when the app is accessed via a local IP.
-const getDateDay = (dateStr) => (dateStr ?? '').split('T')[0].split('-')[2] ?? '';
-
+// AFTER — always strips timezone before extracting day
+// AFTER — always strips timezone before extracting day
+// Replace getDateDay entirely with this UTC+8 aware version
+const getDateDay = (dateStr) => {
+  if (!dateStr) return '';
+  const s = String(dateStr);
+  // If it has a Z or offset, it's a true UTC timestamp — shift to UTC+8
+  if (s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s)) {
+    const d = new Date(s);
+    // Add 8 hours to get Philippine local time
+    const ph = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+    return String(ph.getUTCDate()).padStart(2, '0');
+  }
+  // Already local (no Z) — safe to split directly
+  return (s.split('T')[0].split('-')[2] ?? '').padStart(2, '0');
+};
 // ─── Main Component ────────────────────────────────────────────────────────
 const DailyTimeRecordFaculty = () => {
   const { socket, connected } = useSocket();
@@ -1339,7 +1361,7 @@ const DailyTimeRecordFaculty = () => {
       // ── FIX: use getDateDay() to avoid UTC→local timezone shift ──
       // Records are already normalized via normalizeRecord() at fetch time,
       // so getDateDay() will always return the correct local calendar day.
-      const record = sourceRecords.find((r) => getDateDay(r.date) === day);
+const record = sourceRecords.find((r) => getDateDay(normalizeRecord(r).date) === day);
 
       let fullDate = null;
       if (record?.date) fullDate = record.date.split('T')[0];
