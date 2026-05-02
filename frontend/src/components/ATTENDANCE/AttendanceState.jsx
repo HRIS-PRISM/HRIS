@@ -7,15 +7,10 @@ import {
   Typography,
   Alert,
   Collapse,
-  Chip,
-  CircularProgress,
-  LinearProgress,
   Fade,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
-  Snackbar,
   alpha,
   styled,
   Card,
@@ -23,11 +18,6 @@ import {
   Fab,
   Zoom,
   TextField,
-  Paper,
-  List,
-  ListItem,
-  Avatar,
-  InputAdornment,
   IconButton,
 } from "@mui/material";
 import {
@@ -39,14 +29,10 @@ import {
   Cancel,
   Info,
   Refresh,
-  Today,
-  ArrowBackIos,
   KeyboardArrowUp,
   KeyboardArrowDown,
   FilterList,
   Close,
-  ExpandMore,
-  ExpandLess,
   SearchOutlined,
   Assignment,
 } from "@mui/icons-material";
@@ -54,6 +40,15 @@ import { Grid } from "@mui/material";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
+import LoadingOverlay from "../LoadingOverlay";
+import SuccessfulOverlay from "../SuccessfulOverlay";
+import {
+  Paper,
+  List,
+  ListItem,
+  CircularProgress,
+  InputAdornment,
+} from "@mui/material";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -151,12 +146,6 @@ const AllAttendanceWireframe = () => (
                 </Box>
               ) : (
                 <Box sx={{ p: 0, display: "flex", flexDirection: "column", gap: 0 }}>
-                  <Box sx={{ px: 3, py: 1.8, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Box sx={{ width: 16, height: 16, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
-                      <Bone w={160} h={11} />
-                    </Box>
-                  </Box>
                   <Box sx={{ px: 2.5, py: 1.1, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accent, display: "grid", gridTemplateColumns: "2fr 1fr 1.5fr 1fr", gap: 1 }}>
                     {Array.from({ length: 4 }).map((_, i) => (
                       <Box key={i} sx={{ height: 9, borderRadius: 4, bgcolor: "rgba(255,255,255,0.36)" }} />
@@ -305,7 +294,7 @@ const toISODateFromRecord = (rawDate) => {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 };
 
-// ─── Employee search field (matches ViewAttendanceRecord style) ────────────
+// ─── Employee search field ─────────────────────────────────────────────────
 const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
   const [query, setQuery]               = useState(value || "");
   const [debouncedQuery, setDebouncedQuery] = useState(value || "");
@@ -464,11 +453,7 @@ const AllAttendanceRecord = () => {
   const [recordDateFilter, setRecordDateFilter] = useState("");
   const [pageLoading, setPageLoading]     = useState(true);
   const [hasSearched, setHasSearched]     = useState(false);
-
-  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
-
-  const showSnackbar = (message, severity = "success") => setSnackbar({ open: true, message, severity });
-  const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
+  const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
 
   const fetchRecordsRef       = useRef(null);
   const requestControllerRef  = useRef(null);
@@ -511,7 +496,10 @@ const AllAttendanceRecord = () => {
       return;
     }
 
-    if (showLoading) setLoading(true);
+    if (showLoading) {
+      setLoading(true);
+      setSuccessOverlayOpen(false);
+    }
     setError("");
 
     if (requestControllerRef.current) requestControllerRef.current.abort();
@@ -550,12 +538,11 @@ const AllAttendanceRecord = () => {
       }
 
       setRecords(filteredData);
-      showSnackbar(`Loaded ${filteredData.length} records`, "success");
+      if (showLoading) setSuccessOverlayOpen(true);
     } catch (err) {
       if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
       console.error("Error fetching attendance records:", err);
       setError("Failed to fetch attendance records");
-      showSnackbar("Failed to fetch attendance records", "error");
     } finally {
       if (showLoading && requestControllerRef.current === controller) setLoading(false);
     }
@@ -634,7 +621,7 @@ const AllAttendanceRecord = () => {
 
   const handleSearch = () => {
     if (!personID || !startDate || !endDate) {
-      showSnackbar("Please enter an employee number and select a period.", "warning");
+      setError("Please enter an employee number and select a period.");
       return;
     }
     setHasSearched(true);
@@ -691,7 +678,6 @@ const AllAttendanceRecord = () => {
             setSelectedMonth(null);
             setHasSearched(false);
             setRecords([]);
-            showSnackbar("Year changed — select a month to load records.", "info");
           }}
           style={{
             width: "100%", padding: "9px 13px", borderRadius: "8px",
@@ -730,7 +716,13 @@ const AllAttendanceRecord = () => {
           </FormControl>
           {selectedMonth !== null && (
             <Box
-              onClick={() => { setSelectedMonth(null); setStartDate(""); setEndDate(""); setRecords([]); setHasSearched(false); }}
+              onClick={() => {
+                setSelectedMonth(null);
+                setStartDate("");
+                setEndDate("");
+                setRecords([]);
+                setHasSearched(false);
+              }}
               sx={{ fontSize: "0.65rem", color: T.accent, cursor: "pointer", fontWeight: 700, "&:hover": { textDecoration: "underline" } }}
             >
               Clear
@@ -738,6 +730,8 @@ const AllAttendanceRecord = () => {
           )}
         </Box>
       </Box>
+
+      {/* Month grid — border always visible, matching AttendanceUserState */}
       <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "6px", mb: 2.5 }}>
         {monthsShort.map((m, idx) => {
           const isSelected = selectedMonth === idx;
@@ -748,10 +742,11 @@ const AllAttendanceRecord = () => {
               sx={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 minHeight: 38, px: 1, py: 0.75, borderRadius: "7px", cursor: "pointer",
-                border: `1px solid ${isSelected ? T.accent : "transparent"}`,
+                // Always-visible border — accent when selected, faint otherwise
+                border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
                 bgcolor: isSelected ? T.accent : "transparent",
                 transition: "all 0.14s ease",
-                "&:hover": isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
+                "&:hover": isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accent}` },
               }}
             >
               <Typography sx={{ fontSize: "0.84rem", fontWeight: isSelected ? 700 : 600, color: isSelected ? "#fff" : T.text, lineHeight: 1, letterSpacing: "0.03em", textAlign: "center", width: "100%" }}>
@@ -840,21 +835,9 @@ const AllAttendanceRecord = () => {
 
   // ─── Render ────────────────────────────────────────────────────────────
   return (
-    <Fade in timeout={400}>
+    <Fade in timeout={150}>
       <Box>
         <style>{shimmerKf}</style>
-
-        {/* Snackbar */}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={5000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        >
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled" sx={{ width: "100%", fontWeight: 600 }}>
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
 
         <Box
           sx={{
@@ -883,7 +866,7 @@ const AllAttendanceRecord = () => {
                     Attendance Record State
                   </Typography>
                   <Typography sx={{ fontSize: "0.82rem", color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
-                    Administrative Panel • Review individual attendance record states
+                    Administrative Panel - Review individual attendance record states
                   </Typography>
                 </Box>
               </Box>
@@ -974,17 +957,6 @@ const AllAttendanceRecord = () => {
 
                 {/* Records area */}
                 <Box sx={{ flexGrow: 1, overflowY: "auto", position: "relative", ...scrollbarSx }}>
-                  {loading && (
-                    <Box sx={{ position: "absolute", inset: 0, zIndex: 2, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "rgba(255,255,255,0.7)", backdropFilter: "blur(3px)" }}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                        <CircularProgress size={20} sx={{ color: T.accent }} />
-                        <Typography sx={{ fontSize: "0.82rem", color: T.muted, fontWeight: 600 }}>
-                          Fetching attendance records…
-                        </Typography>
-                      </Box>
-                    </Box>
-                  )}
-
                   {!hasSearched || !personID ? (
                     <Box sx={{ py: 10, textAlign: "center" }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
@@ -1014,7 +986,7 @@ const AllAttendanceRecord = () => {
                       </Typography>
                     </Box>
                   ) : (
-                    <Fade in timeout={250}>
+                    <Fade in timeout={100}>
                       <Box>
                         {/* Column headers */}
                         <Box
@@ -1159,6 +1131,14 @@ const AllAttendanceRecord = () => {
             <KeyboardArrowUp />
           </Fab>
         </Zoom>
+
+        {/* Unified loading & success overlays — matches AttendanceUserState */}
+        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+        <SuccessfulOverlay
+          open={successOverlayOpen}
+          onClose={() => setSuccessOverlayOpen(false)}
+          message="Attendance records loaded"
+        />
       </Box>
     </Fade>
   );

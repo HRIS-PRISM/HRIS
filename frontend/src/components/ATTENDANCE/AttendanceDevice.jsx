@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
 import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 import {
   Box,
   Typography,
@@ -407,12 +408,13 @@ const FieldInput = styled(TextField)({
   '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
 });
 
+// Compact label for the left panel
 const FormSectionLabel = ({ icon: Icon, children }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
-    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
+    <Icon sx={{ fontSize: 10, color: alpha(T.accent, 0.45) }} />
     <Typography
       sx={{
-        fontSize: '0.68rem',
+        fontSize: '0.62rem',
         fontWeight: 700,
         letterSpacing: '0.09em',
         textTransform: 'uppercase',
@@ -440,6 +442,13 @@ const selectSx = {
     borderColor: T.accent,
     borderWidth: '1.5px',
   },
+};
+
+// Compact select sx for sidebar
+const compactSelectSx = {
+  ...selectSx,
+  fontSize: '0.76rem',
+  '& .MuiSelect-select': { py: '5px !important', fontSize: '0.76rem' },
 };
 
 // ─── Row action button ─────────────────────────────────────────────────────
@@ -680,29 +689,38 @@ const EmployeeSearchField = ({
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
-      <FieldInput
+      <TextField
         fullWidth
         size="small"
         value={query}
         onChange={handleInputChange}
         onFocus={() => setOpen(true)}
-        placeholder="Type name or employee number..."
+        placeholder="Name or employee no..."
         disabled={disabled}
         autoComplete="off"
-        inputProps={{ autoComplete: 'new-password' }}
+        inputProps={{ autoComplete: 'new-password', style: { fontSize: '0.76rem', padding: '5px 8px' } }}
+        sx={{
+          '& .MuiOutlinedInput-root': {
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            '& fieldset': { borderColor: T.accentBorder },
+            '&:hover fieldset': { borderColor: T.accent },
+            '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+          },
+        }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
-              <SearchOutlined sx={{ color: T.muted, fontSize: 16 }} />
+              <SearchOutlined sx={{ color: T.muted, fontSize: 14 }} />
             </InputAdornment>
           ),
           endAdornment: (
             <InputAdornment position="end">
               {loading ? (
-                <CircularProgress size={14} sx={{ color: T.accent }} />
+                <CircularProgress size={12} sx={{ color: T.accent }} />
               ) : query ? (
-                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
-                  <Close sx={{ fontSize: 14, color: T.faint }} />
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.2 }}>
+                  <Close sx={{ fontSize: 12, color: T.faint }} />
                 </IconButton>
               ) : null}
             </InputAdornment>
@@ -719,7 +737,7 @@ const EmployeeSearchField = ({
             right: 0,
             zIndex: 1300,
             mt: 0.5,
-            maxHeight: 280,
+            maxHeight: 240,
             overflow: 'auto',
             borderRadius: '10px',
             border: `1px solid ${T.accentBorder}`,
@@ -732,11 +750,11 @@ const EmployeeSearchField = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 1,
-                py: 2.5,
+                py: 2,
               }}
             >
-              <CircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
+              <CircularProgress size={14} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: '0.76rem', color: T.muted }}>
                 Searching...
               </Typography>
             </Box>
@@ -747,27 +765,18 @@ const EmployeeSearchField = ({
                   key={emp.employeeNumber}
                   onClick={() => handleSelect(emp)}
                   sx={{
-                    py: 1,
+                    py: 0.75,
                     px: 1.5,
                     borderBottom: `1px solid ${T.divider}`,
                     '&:hover': { bgcolor: T.accentFaint },
                     '&:last-child': { borderBottom: 'none' },
                   }}
                 >
-                  <Box
-                    sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.83rem',
-                        fontWeight: 700,
-                        color: T.text,
-                        lineHeight: 1.2,
-                      }}
-                    >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>
                       {formatFullName(emp.fullName)}
                     </Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                    <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>
                       #{emp.employeeNumber}
                     </Typography>
                   </Box>
@@ -775,17 +784,11 @@ const EmployeeSearchField = ({
               ))}
             </List>
           ) : (
-            <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography
-                sx={{
-                  fontSize: '0.78rem',
-                  color: T.faint,
-                  fontStyle: 'italic',
-                }}
-              >
+            <Box sx={{ py: 2, textAlign: 'center' }}>
+              <Typography sx={{ fontSize: '0.74rem', color: T.faint, fontStyle: 'italic' }}>
                 {query.trim().length >= 2
-                  ? `No registered user found for "${query.trim()}"`
-                  : 'Type at least 2 characters to search users'}
+                  ? `No user found for "${query.trim()}"`
+                  : 'Type at least 2 characters'}
               </Typography>
             </Box>
           )}
@@ -817,6 +820,9 @@ const ViewAttendanceRecord = () => {
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
+
+  // ── Unified overlay (matches AllAttendanceRecord) ──
+  const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
 
   const [allUsersDTR, setAllUsersDTR] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
@@ -865,18 +871,8 @@ const ViewAttendanceRecord = () => {
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const monthsShort = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
 
   const getAuthHeaders = () => {
@@ -997,7 +993,10 @@ const ViewAttendanceRecord = () => {
 
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
-    if (showLoading) setLoading(true);
+    if (showLoading) {
+      setLoading(true);
+      setSuccessOverlayOpen(false);
+    }
     setError('');
     try {
       const res = await axios.post(
@@ -1010,6 +1009,7 @@ const ViewAttendanceRecord = () => {
       if (recs.length > 0) {
         setPersonName(recs[0].PersonName);
         showSnackbar(`Loaded ${recs.length} records`, 'success');
+        if (showLoading) setSuccessOverlayOpen(true);
       } else {
         setPersonName('');
         showSnackbar('No records found for this period', 'info');
@@ -1342,25 +1342,22 @@ const ViewAttendanceRecord = () => {
       />
     );
 
-  // ─── Left panel content ────────────────────────────────────────────────
+  // ─── Left panel content — compact, no scroll ──────────────────────────
   const renderLeftPanel = () => (
     <Box
       sx={{
-        px: 3,
+        px: 2,
         py: 1,
         flexGrow: 1,
-        overflowY: 'auto',
+        overflow: 'hidden', // NO scroll
         display: 'flex',
         flexDirection: 'column',
         gap: 0,
-        ...scrollbarSx,
       }}
     >
       {/* View Mode toggle */}
       <FormSectionLabel icon={People}>View Mode</FormSectionLabel>
-      <Box
-        sx={{ display: 'flex', flexDirection: 'column', gap: '2px', mb: 2.5 }}
-      >
+      <Box sx={{ display: 'flex', gap: '4px', mb: 1.25 }}>
         {[
           { val: 'single', label: 'Single User' },
           { val: 'multiple', label: 'All Users' },
@@ -1378,181 +1375,124 @@ const ViewAttendanceRecord = () => {
                 setHasSearchedSingle(false);
               }}
               sx={{
+                flex: 1,
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                px: 1.75,
-                py: 0.9,
-                borderRadius: '7px',
+                justifyContent: 'center',
+                px: 1,
+                py: 0.6,
+                borderRadius: '6px',
                 cursor: 'pointer',
-                border: `1px solid ${isActive ? T.accent : 'transparent'}`,
+                border: `1px solid ${isActive ? T.accent : T.accentBorder}`,
                 bgcolor: isActive ? T.accent : 'transparent',
                 transition: 'all 0.14s ease',
-                '&:hover': isActive
-                  ? {}
-                  : {
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
-                    },
+                '&:hover': isActive ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accent}` },
               }}
             >
               <Typography
                 sx={{
-                  fontSize: '0.8rem',
+                  fontSize: '0.72rem',
                   fontWeight: isActive ? 700 : 500,
                   color: isActive ? '#fff' : T.text,
                   lineHeight: 1,
+                  textAlign: 'center',
                 }}
               >
                 {label}
               </Typography>
-              {isActive && (
-                <Box
-                  sx={{
-                    px: 0.75,
-                    py: 0.2,
-                    borderRadius: '4px',
-                    bgcolor: 'rgba(255,255,255,0.2)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: '0.6rem',
-                      fontWeight: 700,
-                      color: '#fff',
-                      lineHeight: 1,
-                    }}
-                  >
-                    Active
-                  </Typography>
-                </Box>
-              )}
             </Box>
           );
         })}
       </Box>
 
-      {/* Year */}
-      <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-      <Box sx={{ mb: 2.5 }}>
-        <select
-          value={selectedYear}
-          onChange={(e) => {
-            setSelectedYear(parseInt(e.target.value));
-            setSelectedMonth(null);
-            setHasSearchedSingle(false);
-            setRecords([]);
-            setPersonName('');
-            showSnackbar(
-              'Year changed — select a month to load records.',
-              'info',
-            );
-          }}
-          style={{
-            width: '100%',
-            padding: '9px 13px',
-            borderRadius: '8px',
-            border: `1px solid ${T.accentBorder}`,
-            fontSize: '0.82rem',
-            outline: 'none',
-            fontFamily: 'inherit',
-            background: '#fff',
-            color: T.text,
-            cursor: 'pointer',
-          }}
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </Box>
-
-      {/* Month */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          mb: 1.5,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-          <Typography
-            sx={{
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              letterSpacing: '0.09em',
-              textTransform: 'uppercase',
-              color: alpha(T.accent, 0.45),
+      {/* Year + Quick Dates inline */}
+      <Box sx={{ display: 'flex', gap: '6px', mb: 1 }}>
+        <Box sx={{ flex: 1 }}>
+          <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
+          <select
+            value={selectedYear}
+            onChange={(e) => {
+              setSelectedYear(parseInt(e.target.value));
+              setSelectedMonth(null);
+              setHasSearchedSingle(false);
+              setRecords([]);
+              setPersonName('');
+              showSnackbar('Year changed — select a month to load records.', 'info');
+            }}
+            style={{
+              width: '100%',
+              padding: '5px 8px',
+              borderRadius: '6px',
+              border: `1px solid ${T.accentBorder}`,
+              fontSize: '0.74rem',
+              outline: 'none',
+              fontFamily: 'inherit',
+              background: '#fff',
+              color: T.text,
+              cursor: 'pointer',
             }}
           >
-            Month
-          </Typography>
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <FormControl size="small" sx={{ minWidth: 118 }}>
+        <Box sx={{ flex: 1 }}>
+          <FormSectionLabel icon={AccessTime}>Quick</FormSectionLabel>
+          <FormControl size="small" fullWidth>
             <Select
               value=""
               displayEmpty
               onChange={(e) => handleQuickDateSelect(e.target.value)}
               sx={{
-                ...selectSx,
-                fontSize: '0.72rem',
-                '& .MuiSelect-select': { py: '6px', pr: '24px !important' },
+                ...compactSelectSx,
+                '& .MuiSelect-select': { py: '5px !important', fontSize: '0.72rem' },
               }}
               renderValue={() => 'Quick Dates'}
             >
-              <MenuItem value="today" sx={{ fontSize: '0.78rem' }}>
-                Today
-              </MenuItem>
-              <MenuItem value="yesterday" sx={{ fontSize: '0.78rem' }}>
-                Yesterday
-              </MenuItem>
-              <MenuItem value="last7" sx={{ fontSize: '0.78rem' }}>
-                Last 7 Days
-              </MenuItem>
-              <MenuItem value="last15" sx={{ fontSize: '0.78rem' }}>
-                Last 15 Days
-              </MenuItem>
-              <MenuItem value="last30" sx={{ fontSize: '0.78rem' }}>
-                Last 30 Days
-              </MenuItem>
+              <MenuItem value="today" sx={{ fontSize: '0.76rem' }}>Today</MenuItem>
+              <MenuItem value="yesterday" sx={{ fontSize: '0.76rem' }}>Yesterday</MenuItem>
+              <MenuItem value="last7" sx={{ fontSize: '0.76rem' }}>Last 7 Days</MenuItem>
+              <MenuItem value="last15" sx={{ fontSize: '0.76rem' }}>Last 15 Days</MenuItem>
+              <MenuItem value="last30" sx={{ fontSize: '0.76rem' }}>Last 30 Days</MenuItem>
             </Select>
           </FormControl>
-          {selectedMonth !== null && (
-            <Box
-              onClick={() => {
-                setSelectedMonth(null);
-                setStartDate('');
-                setEndDate('');
-                setRecords([]);
-                setPersonName('');
-                setAllUsersDTR([]);
-                setHasSearchedSingle(false);
-              }}
-              sx={{
-                fontSize: '0.65rem',
-                color: T.accent,
-                cursor: 'pointer',
-                fontWeight: 700,
-                '&:hover': { textDecoration: 'underline' },
-              }}
-            >
-              Clear
-            </Box>
-          )}
         </Box>
       </Box>
+
+      {/* Month label row */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.6 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <CalendarToday sx={{ fontSize: 10, color: alpha(T.accent, 0.45) }} />
+          <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>
+            Month
+          </Typography>
+        </Box>
+        {selectedMonth !== null && (
+          <Box
+            onClick={() => {
+              setSelectedMonth(null);
+              setStartDate('');
+              setEndDate('');
+              setRecords([]);
+              setPersonName('');
+              setAllUsersDTR([]);
+              setHasSearchedSingle(false);
+            }}
+            sx={{ fontSize: '0.62rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}
+          >
+            Clear
+          </Box>
+        )}
+      </Box>
+
+      {/* Month grid — compact */}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          gap: '6px',
-          mb: 2.5,
+          gap: '4px',
+          mb: 1.25,
         }}
       >
         {monthsShort.map((m, idx) => {
@@ -1565,31 +1505,24 @@ const ViewAttendanceRecord = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                minHeight: 38,
-                px: 1,
-                py: 0.75,
-                borderRadius: '7px',
+                minHeight: 28,
+                px: 0.5,
+                py: 0.4,
+                borderRadius: '5px',
                 cursor: 'pointer',
-                border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
+                border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
                 bgcolor: isSelected ? T.accent : 'transparent',
                 transition: 'all 0.14s ease',
-                '&:hover': isSelected
-                  ? {}
-                  : {
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
-                    },
+                '&:hover': isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accent}` },
               }}
             >
               <Typography
                 sx={{
-                  fontSize: '0.84rem',
+                  fontSize: '0.74rem',
                   fontWeight: isSelected ? 700 : 600,
                   color: isSelected ? '#fff' : T.text,
                   lineHeight: 1,
-                  letterSpacing: '0.03em',
-                  textAlign: 'center',
-                  width: '100%',
+                  letterSpacing: '0.02em',
                 }}
               >
                 {m}
@@ -1599,112 +1532,66 @@ const ViewAttendanceRecord = () => {
         })}
       </Box>
 
-      {/* All Users: Department filter + Load button */}
+      {/* ── Multiple mode extras ── */}
       {viewMode === 'multiple' && (
         <>
           <FormSectionLabel icon={FilterList}>Department</FormSectionLabel>
-          <Box sx={{ mb: 1.5 }}>
+          <Box sx={{ mb: 0.75 }}>
             <FormControl fullWidth size="small" disabled={loadingDepartments}>
               <Select
                 value={departmentCodeFilter}
-                onChange={(e) => {
-                  setDepartmentCodeFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
+                onChange={(e) => { setDepartmentCodeFilter(e.target.value); setCurrentPage(1); }}
                 displayEmpty
-                sx={selectSx}
+                sx={compactSelectSx}
               >
-                <MenuItem value="" sx={{ fontSize: '0.82rem' }}>
-                  All Departments
-                </MenuItem>
-                <MenuItem value="__UNASSIGNED__" sx={{ fontSize: '0.82rem' }}>
-                  Unassigned
-                </MenuItem>
+                <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All Departments</MenuItem>
+                <MenuItem value="__UNASSIGNED__" sx={{ fontSize: '0.76rem' }}>Unassigned</MenuItem>
                 {departments.map((d) => (
-                  <MenuItem
-                    key={d.id ?? d.code}
-                    value={d.code}
-                    sx={{ fontSize: '0.82rem' }}
-                  >
-                    {d.code}
-                    {d.description ? ` — ${d.description}` : ''}
+                  <MenuItem key={d.id ?? d.code} value={d.code} sx={{ fontSize: '0.76rem' }}>
+                    {d.code}{d.description ? ` — ${d.description}` : ''}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
           </Box>
-          <Box sx={{ mb: 2 }}>
-            <AccentButton
-              variant="contained"
-              fullWidth
-              onClick={fetchAllUsersDTR}
-              disabled={loadingAllUsers || !startDate || !endDate}
-              startIcon={
-                loadingAllUsers ? (
-                  <CircularProgress size={14} sx={{ color: '#fff' }} />
-                ) : (
-                  <People sx={{ fontSize: '16px !important' }} />
-                )
-              }
-              sx={{
-                bgcolor: T.accent,
-                color: '#fff',
-                boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
-                '&:hover': { bgcolor: T.accentDark },
-                '&:disabled': { opacity: 0.5 },
-              }}
-            >
-              {loadingAllUsers ? 'Loading…' : 'Load All Users'}
-            </AccentButton>
-          </Box>
-          <Box
+          <Button
+            variant="contained"
+            fullWidth
+            onClick={fetchAllUsersDTR}
+            disabled={loadingAllUsers || !startDate || !endDate}
+            startIcon={
+              loadingAllUsers
+                ? <CircularProgress size={12} sx={{ color: '#fff' }} />
+                : <People sx={{ fontSize: '14px !important' }} />
+            }
             sx={{
-              px: 1,
-              py: 0.7,
-              borderRadius: 1.25,
-              bgcolor: T.accentFaint,
-              border: `1px solid ${T.accentBorder}`,
+              borderRadius: '6px',
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.74rem',
+              py: 0.6,
+              mb: 0.75,
+              bgcolor: T.accent,
+              color: '#fff',
+              boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+              '&:hover': { bgcolor: T.accentDark },
+              '&:disabled': { opacity: 0.5 },
             }}
           >
-            <Typography
-              sx={{
-                fontSize: '0.58rem',
-                fontWeight: 700,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                color: alpha(T.accent, 0.6),
-                mb: 0.2,
-                lineHeight: 1,
-              }}
-            >
+            {loadingAllUsers ? 'Loading…' : 'Load All Users'}
+          </Button>
+
+          {/* Batch summary — compact */}
+          <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65), mb: 0.3, lineHeight: 1 }}>
               Batch Summary
             </Typography>
-            <Typography
-              sx={{
-                fontSize: '0.78rem',
-                fontWeight: 800,
-                color: T.text,
-                lineHeight: 1.1,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, color: T.text, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {loadingAllUsers
                 ? `${loadPhase || 'Loading…'}`
                 : `${filteredUsers.length} ${filteredUsers.length === 1 ? 'employee' : 'employees'} found`}
             </Typography>
-            <Typography
-              sx={{
-                fontSize: '0.64rem',
-                color: T.muted,
-                mt: 0.1,
-                lineHeight: 1.1,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
+            <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {loadingAllUsers
                 ? `${progressDone} / ${progressTotal} processed`
                 : 'Use filters on the right to narrow the list.'}
@@ -1713,11 +1600,11 @@ const ViewAttendanceRecord = () => {
         </>
       )}
 
-      {/* Single: employee search + fetch button */}
+      {/* ── Single mode extras ── */}
       {viewMode === 'single' && (
-        <Box sx={{ mt: 1 }}>
+        <Box>
           <FormSectionLabel icon={SearchOutlined}>Employee</FormSectionLabel>
-          <Box sx={{ mb: 1.5 }}>
+          <Box sx={{ mb: 0.75 }}>
             <EmployeeSearchField
               value={personID}
               onSelectEmployeeNumber={(next) => {
@@ -1728,74 +1615,44 @@ const ViewAttendanceRecord = () => {
               }}
             />
           </Box>
-          <AccentButton
+          <Button
             variant="contained"
             fullWidth
             onClick={handleSingleSearch}
-            startIcon={<Search sx={{ fontSize: '16px !important' }} />}
+            startIcon={<Search sx={{ fontSize: '14px !important' }} />}
             sx={{
+              borderRadius: '6px',
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.74rem',
+              py: 0.6,
+              mb: 0.75,
               bgcolor: T.accent,
               color: '#fff',
-              boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+              boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
               '&:hover': { bgcolor: T.accentDark },
             }}
           >
             Fetch Records
-          </AccentButton>
-          <Box
-            sx={{
-              mt: 0.75,
-              px: 1,
-              py: 0.7,
-              borderRadius: 1.25,
-              bgcolor: T.accentFaint,
-              border: `1px solid ${T.accentBorder}`,
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: '0.58rem',
-                fontWeight: 700,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                color: alpha(T.accent, 0.6),
-                mb: 0.2,
-                lineHeight: 1,
-              }}
-            >
+          </Button>
+
+          {/* Record summary — compact */}
+          <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65), mb: 0.3, lineHeight: 1 }}>
               Record Summary
             </Typography>
-            <Typography
-              sx={{
-                fontSize: '0.78rem',
-                fontWeight: 800,
-                color: T.text,
-                lineHeight: 1.1,
-              }}
-            >
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, color: T.text, lineHeight: 1.2 }}>
               {loading
                 ? 'Loading records...'
                 : hasSearchedSingle
                   ? `${records.length} ${records.length === 1 ? 'record' : 'records'} found`
                   : 'No records loaded'}
             </Typography>
-            <Typography
-              sx={{
-                fontSize: '0.64rem',
-                color: T.muted,
-                mt: 0.1,
-                lineHeight: 1.1,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
+            <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {loading
                 ? 'Fetching attendance data...'
                 : hasSearchedSingle
-                  ? personName
-                    ? `Results for ${personName}`
-                    : 'Search complete.'
+                  ? personName ? `Results for ${personName}` : 'Search complete.'
                   : 'Select month and fetch records.'}
             </Typography>
           </Box>
@@ -1827,7 +1684,7 @@ const ViewAttendanceRecord = () => {
           </Alert>
         </Snackbar>
 
-        {/* Success Modal */}
+        {/* Batch Success Modal (multiple-user flow) */}
         <Dialog
           open={showSuccessModal}
           onClose={() => setShowSuccessModal(false)}
@@ -1842,35 +1699,13 @@ const ViewAttendanceRecord = () => {
               background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
             }}
           >
-            <Avatar
-              sx={{
-                width: 64,
-                height: 64,
-                mx: 'auto',
-                mb: 2,
-                bgcolor: '#4caf50',
-              }}
-            >
+            <Avatar sx={{ width: 64, height: 64, mx: 'auto', mb: 2, bgcolor: '#4caf50' }}>
               <CheckCircle sx={{ fontSize: 36, color: '#fff' }} />
             </Avatar>
-            <Typography
-              sx={{
-                fontWeight: 800,
-                fontSize: '1.1rem',
-                color: T.accent,
-                mb: 1.5,
-              }}
-            >
+            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.accent, mb: 1.5 }}>
               Records Auto-Saved Successfully!
             </Typography>
-            <Typography
-              sx={{
-                fontSize: '0.85rem',
-                color: T.muted,
-                mb: 3,
-                lineHeight: 1.6,
-              }}
-            >
+            <Typography sx={{ fontSize: '0.85rem', color: T.muted, mb: 3, lineHeight: 1.6 }}>
               {modalMessage}
             </Typography>
             <AccentButton
@@ -1915,152 +1750,43 @@ const ViewAttendanceRecord = () => {
                 overflow: 'hidden',
               }}
             >
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: -50,
-                  right: -50,
-                  width: 200,
-                  height: 200,
-                  borderRadius: '50%',
-                  background:
-                    'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)',
-                }}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: -30,
-                  left: '30%',
-                  width: 150,
-                  height: 150,
-                  borderRadius: '50%',
-                  background:
-                    'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)',
-                }}
-              />
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
                 <Search sx={{ fontSize: 32, color: T.accent }} />
                 <Box>
-                  <Typography
-                    sx={{
-                      fontSize: '1.25rem',
-                      fontWeight: 900,
-                      color: T.accent,
-                      lineHeight: 1.2,
-                      mb: 0.3,
-                    }}
-                  >
+                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
                     Device Attendance Records
                   </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: '0.82rem',
-                      color: T.accentMid,
-                      fontWeight: 700,
-                      opacity: 0.9,
-                    }}
-                  >
-                    Administrative Panel • Auto-saved records from biometric
-                    devices
+                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                    Administrative Panel • Auto-saved records from biometric devices
                   </Typography>
                 </Box>
               </Box>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 2,
-                    py: 0.6,
-                    borderRadius: 5,
-                    bgcolor: alpha('#4caf50', 0.12),
-                    border: '1px solid rgba(76,175,80,0.25)',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: '0.72rem',
-                      color: '#2e7d32',
-                      fontWeight: 700,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                    }}
-                  >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
+                  <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <CheckCircle sx={{ fontSize: 12 }} /> Auto-Save Enabled
                   </Typography>
                 </Box>
                 {viewMode === 'single' && records.length > 0 && (
-                  <Box
-                    sx={{
-                      px: 2.5,
-                      py: 0.75,
-                      borderRadius: 6,
-                      bgcolor: alpha(T.accent, 0.1),
-                      border: `1px solid ${alpha(T.accent, 0.2)}`,
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.8rem',
-                        color: T.accent,
-                        fontWeight: 700,
-                      }}
-                    >
+                  <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
                       {records.length} records
                     </Typography>
                   </Box>
                 )}
                 {viewMode === 'multiple' && allUsersDTR.length > 0 && (
-                  <Box
-                    sx={{
-                      px: 2.5,
-                      py: 0.75,
-                      borderRadius: 6,
-                      bgcolor: alpha(T.accent, 0.1),
-                      border: `1px solid ${alpha(T.accent, 0.2)}`,
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.8rem',
-                        color: T.accent,
-                        fontWeight: 700,
-                      }}
-                    >
+                  <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
                       {allUsersDTR.length} employees
                     </Typography>
                   </Box>
                 )}
                 <Tooltip title="Refresh">
                   <IconButton
-                    onClick={() =>
-                      viewMode === 'single'
-                        ? fetchRecords(true)
-                        : fetchAllUsersDTR()
-                    }
-                    sx={{
-                      bgcolor: alpha(T.accent, 0.08),
-                      color: T.accent,
-                      width: 36,
-                      height: 36,
-                      '&:hover': { bgcolor: alpha(T.accent, 0.15) },
-                    }}
+                    onClick={() => viewMode === 'single' ? fetchRecords(true) : fetchAllUsersDTR()}
+                    sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
                   >
                     <Refresh sx={{ fontSize: 18 }} />
                   </IconButton>
@@ -2071,11 +1797,7 @@ const ViewAttendanceRecord = () => {
 
           {/* Error alert */}
           <Collapse in={!!error}>
-            <Alert
-              severity="error"
-              onClose={() => setError('')}
-              sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}
-            >
+            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>
               {error}
             </Alert>
           </Collapse>
@@ -2089,27 +1811,23 @@ const ViewAttendanceRecord = () => {
                   height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
                   display: 'flex',
                   flexDirection: 'column',
+                  overflow: 'hidden',
                 }}
               >
                 <Box
                   sx={{
-                    px: 3,
-                    py: 1.25,
+                    px: 2,
+                    py: 1,
                     borderBottom: `1px solid ${T.divider}`,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 1.5,
+                    gap: 1,
                     bgcolor: T.accentFaint,
+                    flexShrink: 0,
                   }}
                 >
-                  <FilterList sx={{ fontSize: 15, color: T.accent }} />
-                  <Typography
-                    sx={{
-                      fontSize: '0.82rem',
-                      fontWeight: 700,
-                      color: T.accent,
-                    }}
-                  >
+                  <FilterList sx={{ fontSize: 13, color: T.accent }} />
+                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
                     Attendance Filter
                   </Typography>
                 </Box>
@@ -2127,17 +1845,6 @@ const ViewAttendanceRecord = () => {
                   position: 'relative',
                 }}
               >
-                <LoadingOverlay
-                  open={loading || loadingAllUsers}
-                  message={
-                    loadingAllUsers
-                      ? (progressTotal > 0
-                        ? `Loading all users — ${progressDone} / ${progressTotal}`
-                        : `Loading all users — ${loadPhase || 'Please wait…'}`)
-                      : (personName ? `Loading attendance — ${personName}…` : 'Loading attendance — Fetching records…')
-                  }
-                />
-
                 {/* ── SINGLE USER VIEW ── */}
                 {viewMode === 'single' && (
                   <>
@@ -2151,70 +1858,20 @@ const ViewAttendanceRecord = () => {
                         flexShrink: 0,
                       }}
                     >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          flexWrap: 'wrap',
-                          gap: 1,
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1.5,
-                          }}
-                        >
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                           <Assignment sx={{ fontSize: 15, color: T.accent }} />
-                          <Typography
-                            sx={{
-                              fontSize: '0.88rem',
-                              fontWeight: 700,
-                              color: T.text,
-                            }}
-                          >
+                          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
                             Attendance Records
                           </Typography>
                           {personName && hasSearchedSingle && (
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 0.75,
-                              }}
-                            >
-                              <Box
-                                sx={{
-                                  width: 4,
-                                  height: 4,
-                                  borderRadius: '50%',
-                                  bgcolor: T.faint,
-                                }}
-                              />
-                              <Typography
-                                sx={{
-                                  fontSize: '0.78rem',
-                                  color: T.muted,
-                                  fontWeight: 500,
-                                }}
-                              >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                              <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: T.faint }} />
+                              <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>
                                 {personName}
                               </Typography>
                               {selectedMonth !== null && (
-                                <Box
-                                  sx={{
-                                    fontSize: '0.65rem',
-                                    fontWeight: 700,
-                                    color: T.accent,
-                                    bgcolor: alpha(T.accent, 0.08),
-                                    border: `1px solid ${T.accentBorder}`,
-                                    borderRadius: '5px',
-                                    px: '6px',
-                                    py: '2px',
-                                  }}
-                                >
+                                <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '5px', px: '6px', py: '2px' }}>
                                   {monthsShort[selectedMonth]}
                                 </Box>
                               )}
@@ -2222,36 +1879,11 @@ const ViewAttendanceRecord = () => {
                           )}
                         </Box>
                         {records.length > 0 && (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 1,
-                            }}
-                          >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             {uncategorizedRowCount > 0 && (
-                              <Box
-                                sx={{
-                                  px: 1.5,
-                                  py: 0.3,
-                                  borderRadius: 5,
-                                  bgcolor: 'rgba(244,67,54,0.10)',
-                                  border: '1px solid rgba(244,67,54,0.28)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.5,
-                                }}
-                              >
-                                <Cancel
-                                  sx={{ fontSize: 11, color: '#f44336' }}
-                                />
-                                <Typography
-                                  sx={{
-                                    fontSize: '0.72rem',
-                                    color: '#f44336',
-                                    fontWeight: 700,
-                                  }}
-                                >
+                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
+                                <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
                                   {uncategorizedRowCount} Uncategorized
                                 </Typography>
                               </Box>
@@ -2259,17 +1891,9 @@ const ViewAttendanceRecord = () => {
                             <AccentButton
                               variant="contained"
                               size="small"
-                              startIcon={
-                                <Send sx={{ fontSize: '13px !important' }} />
-                              }
+                              startIcon={<Send sx={{ fontSize: '13px !important' }} />}
                               onClick={handleSendToDTR}
-                              sx={{
-                                fontSize: '0.78rem',
-                                bgcolor: '#2e7d32',
-                                color: '#fff',
-                                boxShadow: `0 2px 8px rgba(46,125,50,0.3)`,
-                                '&:hover': { bgcolor: '#1b5e20' },
-                              }}
+                              sx={{ fontSize: '0.78rem', bgcolor: '#2e7d32', color: '#fff', boxShadow: `0 2px 8px rgba(46,125,50,0.3)`, '&:hover': { bgcolor: '#1b5e20' } }}
                             >
                               View in DTR Module
                             </AccentButton>
@@ -2279,46 +1903,16 @@ const ViewAttendanceRecord = () => {
                     </Box>
 
                     {/* Records area */}
-                    <Box
-                      sx={{
-                        flexGrow: 1,
-                        overflowY: 'auto',
-                        position: 'relative',
-                        ...scrollbarSx,
-                      }}
-                    >
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto', position: 'relative', ...scrollbarSx }}>
                       {!hasSearchedSingle || !personID ? (
                         <Box sx={{ py: 10, textAlign: 'center' }}>
-                          <Box
-                            sx={{
-                              width: 72,
-                              height: 72,
-                              borderRadius: '50%',
-                              bgcolor: T.accentFaint,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mx: 'auto',
-                              mb: 2,
-                            }}
-                          >
-                            <Person
-                              sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
-                            />
+                          <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <Person sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                           </Box>
-                          <Typography
-                            sx={{
-                              fontSize: '0.9rem',
-                              fontWeight: 600,
-                              color: T.muted,
-                              mb: 0.5,
-                            }}
-                          >
+                          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
                             Select an Employee & Period
                           </Typography>
-                          <Typography
-                            sx={{ fontSize: '0.78rem', color: T.faint }}
-                          >
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
                             {!personID
                               ? 'Enter an employee number and select a month from the left panel.'
                               : 'Click Fetch Records to load attendance data.'}
@@ -2326,36 +1920,13 @@ const ViewAttendanceRecord = () => {
                         </Box>
                       ) : records.length === 0 && !loading ? (
                         <Box sx={{ py: 10, textAlign: 'center' }}>
-                          <Box
-                            sx={{
-                              width: 72,
-                              height: 72,
-                              borderRadius: '50%',
-                              bgcolor: T.accentFaint,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mx: 'auto',
-                              mb: 2,
-                            }}
-                          >
-                            <Info
-                              sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
-                            />
+                          <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <Info sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                           </Box>
-                          <Typography
-                            sx={{
-                              fontSize: '0.9rem',
-                              fontWeight: 600,
-                              color: T.muted,
-                              mb: 0.5,
-                            }}
-                          >
+                          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
                             No records found
                           </Typography>
-                          <Typography
-                            sx={{ fontSize: '0.78rem', color: T.faint }}
-                          >
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
                             Try adjusting your date range or employee number.
                           </Typography>
                         </Box>
@@ -2366,8 +1937,7 @@ const ViewAttendanceRecord = () => {
                             <Box
                               sx={{
                                 display: 'grid',
-                                gridTemplateColumns:
-                                  '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                                gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
                                 px: 2.5,
                                 py: 1.25,
                                 bgcolor: T.accent,
@@ -2378,27 +1948,8 @@ const ViewAttendanceRecord = () => {
                                 minWidth: 900,
                               }}
                             >
-                              {[
-                                'EMP ID',
-                                'DATE',
-                                'DAY',
-                                'TIME IN',
-                                'BREAK IN',
-                                'BREAK OUT',
-                                'TIME OUT',
-                                'SPECIAL TYPE',
-                                'SP. IN',
-                                'SP. OUT',
-                              ].map((h) => (
-                                <Typography
-                                  key={h}
-                                  sx={{
-                                    color: '#fff',
-                                    fontSize: '0.6rem',
-                                    fontWeight: 700,
-                                    letterSpacing: '0.07em',
-                                  }}
-                                >
+                              {['EMP ID', 'DATE', 'DAY', 'TIME IN', 'BREAK IN', 'BREAK OUT', 'TIME OUT', 'SPECIAL TYPE', 'SP. IN', 'SP. OUT'].map((h) => (
+                                <Typography key={h} sx={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.07em' }}>
                                   {h}
                                 </Typography>
                               ))}
@@ -2409,55 +1960,20 @@ const ViewAttendanceRecord = () => {
                                 const hasBreakIn = !!record.Time3;
                                 const hasBreakOut = !!record.Time2;
                                 const hasTimeOut = !!record.Time4;
-                                const hasAnyTime =
-                                  hasTimeIn ||
-                                  hasBreakIn ||
-                                  hasBreakOut ||
-                                  hasTimeOut;
-                                const timeInUncategorized =
-                                  hasAnyTime && !hasTimeIn;
-                                const timeOutUncategorized =
-                                  hasAnyTime && !hasTimeOut;
-                                const hasAnyUncategorized =
-                                  timeInUncategorized || timeOutUncategorized;
+                                const hasAnyTime = hasTimeIn || hasBreakIn || hasBreakOut || hasTimeOut;
+                                const timeInUncategorized = hasAnyTime && !hasTimeIn;
+                                const timeOutUncategorized = hasAnyTime && !hasTimeOut;
+                                const hasAnyUncategorized = timeInUncategorized || timeOutUncategorized;
 
                                 let specialTypeBadge = null;
                                 if (record.Time5 || record.Time6) {
-                                  const type =
-                                    record.specialType || 'UNCATEGORIZED';
-                                  const typeLabels = {
-                                    HONORARIUM: 'Honorarium',
-                                    SERVICE: 'Service Credit',
-                                    OVERTIME: 'Overtime',
-                                    UNCATEGORIZED: 'Uncategorized',
-                                  };
-                                  const colors = {
-                                    HONORARIUM: '#4CAF50',
-                                    SERVICE: '#2196F3',
-                                    OVERTIME: '#FF9800',
-                                    UNCATEGORIZED: '#9E9E9E',
-                                  };
-                                  const bc =
-                                    colors[type] || colors.UNCATEGORIZED;
+                                  const type = record.specialType || 'UNCATEGORIZED';
+                                  const typeLabels = { HONORARIUM: 'Honorarium', SERVICE: 'Service Credit', OVERTIME: 'Overtime', UNCATEGORIZED: 'Uncategorized' };
+                                  const colors = { HONORARIUM: '#4CAF50', SERVICE: '#2196F3', OVERTIME: '#FF9800', UNCATEGORIZED: '#9E9E9E' };
+                                  const bc = colors[type] || colors.UNCATEGORIZED;
                                   specialTypeBadge = (
-                                    <Box
-                                      sx={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        px: 1,
-                                        py: 0.3,
-                                        borderRadius: '10px',
-                                        bgcolor: alpha(bc, 0.12),
-                                        border: `1px solid ${alpha(bc, 0.3)}`,
-                                      }}
-                                    >
-                                      <Typography
-                                        sx={{
-                                          fontSize: '0.65rem',
-                                          fontWeight: 700,
-                                          color: bc,
-                                        }}
-                                      >
+                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: '10px', bgcolor: alpha(bc, 0.12), border: `1px solid ${alpha(bc, 0.3)}` }}>
+                                      <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: bc }}>
                                         {typeLabels[type] || 'Uncategorized'}
                                       </Typography>
                                     </Box>
@@ -2469,104 +1985,29 @@ const ViewAttendanceRecord = () => {
                                     key={index}
                                     sx={{
                                       display: 'grid',
-                                      gridTemplateColumns:
-                                        '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                                      gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
                                       px: 2.5,
                                       py: 1.5,
                                       gap: 1,
                                       alignItems: 'center',
                                       minWidth: 900,
-                                      bgcolor: hasAnyUncategorized
-                                        ? 'rgba(244,67,54,0.03)'
-                                        : index % 2 === 0
-                                          ? '#fff'
-                                          : T.rowOdd,
-                                      borderBottom: hasAnyUncategorized
-                                        ? '1px solid rgba(244,67,54,0.12)'
-                                        : `1px solid ${T.divider}`,
+                                      bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.03)' : index % 2 === 0 ? '#fff' : T.rowOdd,
+                                      borderBottom: hasAnyUncategorized ? '1px solid rgba(244,67,54,0.12)' : `1px solid ${T.divider}`,
                                       transition: 'background 0.12s',
-                                      '&:hover': {
-                                        bgcolor: hasAnyUncategorized
-                                          ? 'rgba(244,67,54,0.07)'
-                                          : T.rowHover,
-                                      },
+                                      '&:hover': { bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.07)' : T.rowHover },
                                       '&:last-child': { borderBottom: 'none' },
                                     }}
                                   >
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.78rem',
-                                        color: T.muted,
-                                        fontWeight: 500,
-                                      }}
-                                    >
-                                      {record.PersonID}
-                                    </Typography>
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.78rem',
-                                        fontWeight: 600,
-                                        color: T.text,
-                                      }}
-                                    >
-                                      {record.Date}
-                                    </Typography>
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.78rem',
-                                        color: T.muted,
-                                      }}
-                                    >
-                                      {getDayOfWeek(record.Date)}
-                                    </Typography>
-                                    <TimeCell
-                                      time={record.Time1}
-                                      isUncategorized={timeInUncategorized}
-                                    />
-                                    <TimeCell
-                                      time={record.Time3}
-                                      isUncategorized={false}
-                                    />
-                                    <TimeCell
-                                      time={record.Time2}
-                                      isUncategorized={false}
-                                    />
-                                    <TimeCell
-                                      time={record.Time4}
-                                      isUncategorized={timeOutUncategorized}
-                                    />
-                                    <Box>
-                                      {specialTypeBadge || (
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.75rem',
-                                            color: T.faint,
-                                          }}
-                                        >
-                                          —
-                                        </Typography>
-                                      )}
-                                    </Box>
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.78rem',
-                                        color: T.text,
-                                      }}
-                                    >
-                                      {record.Time5
-                                        ? formatTime(record.Time5)
-                                        : '—'}
-                                    </Typography>
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.78rem',
-                                        color: T.text,
-                                      }}
-                                    >
-                                      {record.Time6
-                                        ? formatTime(record.Time6)
-                                        : '—'}
-                                    </Typography>
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{record.PersonID}</Typography>
+                                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{getDayOfWeek(record.Date)}</Typography>
+                                    <TimeCell time={record.Time1} isUncategorized={timeInUncategorized} />
+                                    <TimeCell time={record.Time3} isUncategorized={false} />
+                                    <TimeCell time={record.Time2} isUncategorized={false} />
+                                    <TimeCell time={record.Time4} isUncategorized={timeOutUncategorized} />
+                                    <Box>{specialTypeBadge || <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>—</Typography>}</Box>
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time5 ? formatTime(record.Time5) : '—'}</Typography>
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
                                   </Box>
                                 );
                               })}
@@ -2578,56 +2019,15 @@ const ViewAttendanceRecord = () => {
 
                     {/* Footer legend */}
                     {records.length > 0 && (
-                      <Box
-                        sx={{
-                          px: 3,
-                          py: 1.25,
-                          borderTop: `1px solid ${T.divider}`,
-                          bgcolor: T.accentFaint,
-                          display: 'flex',
-                          gap: 2.5,
-                          flexWrap: 'wrap',
-                          alignItems: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
+                      <Box sx={{ px: 3, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
                         {[
-                          {
-                            icon: (
-                              <CheckCircle
-                                sx={{ fontSize: 13, color: '#4caf50' }}
-                              />
-                            ),
-                            label: 'Auto-saved from biometric device',
-                          },
-                          {
-                            icon: (
-                              <Info sx={{ fontSize: 13, color: T.accent }} />
-                            ),
-                            label: 'Times in 12-hour format',
-                          },
-                          {
-                            icon: (
-                              <Cancel sx={{ fontSize: 13, color: '#f44336' }} />
-                            ),
-                            label:
-                              'Uncategorized — scanned but no button pressed',
-                          },
+                          { icon: <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />, label: 'Auto-saved from biometric device' },
+                          { icon: <Info sx={{ fontSize: 13, color: T.accent }} />, label: 'Times in 12-hour format' },
+                          { icon: <Cancel sx={{ fontSize: 13, color: '#f44336' }} />, label: 'Uncategorized — scanned but no button pressed' },
                         ].map((item, i) => (
-                          <Box
-                            key={i}
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 0.6,
-                            }}
-                          >
+                          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
                             {item.icon}
-                            <Typography
-                              sx={{ fontSize: '0.7rem', color: T.faint }}
-                            >
-                              {item.label}
-                            </Typography>
+                            <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
                           </Box>
                         ))}
                       </Box>
@@ -2639,58 +2039,14 @@ const ViewAttendanceRecord = () => {
                 {viewMode === 'multiple' && (
                   <>
                     {/* Toolbar */}
-                    <Box
-                      sx={{
-                        px: 3,
-                        py: 2,
-                        borderBottom: `1px solid ${T.divider}`,
-                        bgcolor: T.accentFaint,
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          flexWrap: 'wrap',
-                          gap: 1,
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1.5,
-                          }}
-                        >
+                    <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                           <People sx={{ fontSize: 15, color: T.accent }} />
-                          <Typography
-                            sx={{
-                              fontSize: '0.88rem',
-                              fontWeight: 700,
-                              color: T.text,
-                            }}
-                          >
-                            All Users DTR
-                          </Typography>
+                          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>All Users DTR</Typography>
                           {allUsersDTR.length > 0 && (
-                            <Box
-                              sx={{
-                                px: 1.5,
-                                py: 0.3,
-                                borderRadius: 6,
-                                bgcolor: alpha(T.accent, 0.08),
-                                border: `1px solid ${T.accentBorder}`,
-                              }}
-                            >
-                              <Typography
-                                sx={{
-                                  fontSize: '0.7rem',
-                                  color: T.accent,
-                                  fontWeight: 700,
-                                }}
-                              >
+                            <Box sx={{ px: 1.5, py: 0.3, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: '0.7rem', color: T.accent, fontWeight: 700 }}>
                                 {filteredUsers.length} users
                               </Typography>
                             </Box>
@@ -2701,70 +2057,29 @@ const ViewAttendanceRecord = () => {
                             <IconButton
                               size="small"
                               onClick={fetchAllUsersDTR}
-                              disabled={
-                                loadingAllUsers || !startDate || !endDate
-                              }
-                              sx={{
-                                bgcolor: alpha(T.accent, 0.08),
-                                border: `1px solid ${T.accentBorder}`,
-                                color: T.accent,
-                                width: 32,
-                                height: 32,
-                                '&:hover': { bgcolor: alpha(T.accent, 0.15) },
-                                '&:disabled': { opacity: 0.4 },
-                              }}
+                              disabled={loadingAllUsers || !startDate || !endDate}
+                              sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) }, '&:disabled': { opacity: 0.4 } }}
                             >
-                              {loadingAllUsers ? (
-                                <CircularProgress
-                                  size={14}
-                                  sx={{ color: T.accent }}
-                                />
-                              ) : (
-                                <Refresh sx={{ fontSize: 16 }} />
-                              )}
+                              {loadingAllUsers ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <Refresh sx={{ fontSize: 16 }} />}
                             </IconButton>
                           </Tooltip>
                           {selectedCountInFiltered > 0 && (
                             <AccentButton
                               variant="contained"
                               size="small"
-                              startIcon={
-                                <Send sx={{ fontSize: '13px !important' }} />
-                              }
+                              startIcon={<Send sx={{ fontSize: '13px !important' }} />}
                               onClick={handleBulkSendToDTR}
-                              sx={{
-                                fontSize: '0.78rem',
-                                bgcolor: '#2e7d32',
-                                color: '#fff',
-                                boxShadow: `0 2px 8px rgba(46,125,50,0.3)`,
-                                '&:hover': { bgcolor: '#1b5e20' },
-                              }}
+                              sx={{ fontSize: '0.78rem', bgcolor: '#2e7d32', color: '#fff', boxShadow: `0 2px 8px rgba(46,125,50,0.3)`, '&:hover': { bgcolor: '#1b5e20' } }}
                             >
                               View DTR ({selectedCountInFiltered})
                             </AccentButton>
                           )}
                         </Box>
                       </Box>
-                      {/* Loading bar */}
                       {loadingAllUsers && (
                         <Box sx={{ mt: 1.5 }}>
-                          <LinearProgress
-                            sx={{
-                              height: 3,
-                              borderRadius: 2,
-                              bgcolor: alpha(T.accent, 0.1),
-                              '& .MuiLinearProgress-bar': { bgcolor: T.accent },
-                            }}
-                          />
-                          <Typography
-                            sx={{
-                              fontSize: '0.68rem',
-                              color: T.faint,
-                              mt: 0.4,
-                            }}
-                          >
-                            {loadPhase}
-                          </Typography>
+                          <LinearProgress sx={{ height: 3, borderRadius: 2, bgcolor: alpha(T.accent, 0.1), '& .MuiLinearProgress-bar': { bgcolor: T.accent } }} />
+                          <Typography sx={{ fontSize: '0.68rem', color: T.faint, mt: 0.4 }}>{loadPhase}</Typography>
                         </Box>
                       )}
                     </Box>
@@ -2772,175 +2087,48 @@ const ViewAttendanceRecord = () => {
                     {allUsersDTR.length > 0 ? (
                       <>
                         {/* Filters bar */}
-                        <Box
-                          sx={{
-                            px: 3,
-                            py: 1.5,
-                            borderBottom: `1px solid ${T.divider}`,
-                            bgcolor: alpha(T.accent, 0.02),
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              gap: 1,
-                              flexWrap: 'wrap',
-                              mb: 1,
-                            }}
-                          >
+                        <Box sx={{ px: 3, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: alpha(T.accent, 0.02), flexShrink: 0 }}>
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
                             <FieldInput
                               size="small"
                               placeholder="Search by name or employee number…"
                               value={searchQuery}
-                              onChange={(e) => {
-                                setSearchQuery(e.target.value);
-                                setCurrentPage(1);
-                              }}
+                              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                               sx={{ flex: 1, minWidth: 200 }}
                               InputProps={{
                                 startAdornment: (
                                   <InputAdornment position="start">
-                                    <SearchOutlined
-                                      sx={{ fontSize: 16, color: T.muted }}
-                                    />
+                                    <SearchOutlined sx={{ fontSize: 16, color: T.muted }} />
                                   </InputAdornment>
                                 ),
                               }}
                             />
                             <FormControl size="small" sx={{ minWidth: 130 }}>
-                              <Select
-                                value={recordFilter}
-                                onChange={(e) => {
-                                  setRecordFilter(e.target.value);
-                                  setCurrentPage(1);
-                                }}
-                                sx={selectSx}
-                                displayEmpty
-                              >
-                                <MenuItem
-                                  value="all"
-                                  sx={{ fontSize: '0.82rem' }}
-                                >
-                                  All Records
-                                </MenuItem>
-                                <MenuItem
-                                  value="has"
-                                  sx={{ fontSize: '0.82rem' }}
-                                >
-                                  Has Records
-                                </MenuItem>
-                                <MenuItem
-                                  value="no"
-                                  sx={{ fontSize: '0.82rem' }}
-                                >
-                                  No Records
-                                </MenuItem>
+                              <Select value={recordFilter} onChange={(e) => { setRecordFilter(e.target.value); setCurrentPage(1); }} sx={selectSx} displayEmpty>
+                                <MenuItem value="all" sx={{ fontSize: '0.82rem' }}>All Records</MenuItem>
+                                <MenuItem value="has" sx={{ fontSize: '0.82rem' }}>Has Records</MenuItem>
+                                <MenuItem value="no" sx={{ fontSize: '0.82rem' }}>No Records</MenuItem>
                               </Select>
                             </FormControl>
                             <FormControl size="small" sx={{ minWidth: 80 }}>
-                              <Select
-                                value={rowsPerPage}
-                                onChange={(e) => {
-                                  setRowsPerPage(Number(e.target.value));
-                                  setCurrentPage(1);
-                                }}
-                                sx={selectSx}
-                              >
+                              <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }} sx={selectSx}>
                                 {[10, 20, 50, 100].map((n) => (
-                                  <MenuItem
-                                    key={n}
-                                    value={n}
-                                    sx={{ fontSize: '0.82rem' }}
-                                  >
-                                    {n} rows
-                                  </MenuItem>
+                                  <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>
                                 ))}
                               </Select>
                             </FormControl>
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 0.75,
-                                ml: 'auto',
-                              }}
-                            >
-                              {[
-                                {
-                                  label: '«',
-                                  fn: () => goToPage(1),
-                                  dis: currentPage === 1,
-                                },
-                                {
-                                  label: '‹',
-                                  fn: () => goToPage(currentPage - 1),
-                                  dis: currentPage === 1,
-                                },
-                              ].map(({ label, fn, dis }) => (
-                                <IconButton
-                                  key={label}
-                                  size="small"
-                                  onClick={fn}
-                                  disabled={dis}
-                                  sx={{
-                                    width: 28,
-                                    height: 28,
-                                    color: T.accent,
-                                    border: `1px solid ${T.accentBorder}`,
-                                    borderRadius: '6px',
-                                    '&:disabled': { opacity: 0.35 },
-                                  }}
-                                >
-                                  <Typography
-                                    sx={{ fontSize: '0.8rem', lineHeight: 1 }}
-                                  >
-                                    {label}
-                                  </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, ml: 'auto' }}>
+                              {[{ label: '«', fn: () => goToPage(1), dis: currentPage === 1 }, { label: '‹', fn: () => goToPage(currentPage - 1), dis: currentPage === 1 }].map(({ label, fn, dis }) => (
+                                <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                  <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
                                 </IconButton>
                               ))}
-                              <Typography
-                                sx={{
-                                  fontSize: '0.75rem',
-                                  fontWeight: 600,
-                                  color: T.muted,
-                                  minWidth: 60,
-                                  textAlign: 'center',
-                                }}
-                              >
+                              <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.muted, minWidth: 60, textAlign: 'center' }}>
                                 {currentPage} / {totalPages}
                               </Typography>
-                              {[
-                                {
-                                  label: '›',
-                                  fn: () => goToPage(currentPage + 1),
-                                  dis: currentPage === totalPages,
-                                },
-                                {
-                                  label: '»',
-                                  fn: () => goToPage(totalPages),
-                                  dis: currentPage === totalPages,
-                                },
-                              ].map(({ label, fn, dis }) => (
-                                <IconButton
-                                  key={label}
-                                  size="small"
-                                  onClick={fn}
-                                  disabled={dis}
-                                  sx={{
-                                    width: 28,
-                                    height: 28,
-                                    color: T.accent,
-                                    border: `1px solid ${T.accentBorder}`,
-                                    borderRadius: '6px',
-                                    '&:disabled': { opacity: 0.35 },
-                                  }}
-                                >
-                                  <Typography
-                                    sx={{ fontSize: '0.8rem', lineHeight: 1 }}
-                                  >
-                                    {label}
-                                  </Typography>
+                              {[{ label: '›', fn: () => goToPage(currentPage + 1), dis: currentPage === totalPages }, { label: '»', fn: () => goToPage(totalPages), dis: currentPage === totalPages }].map(({ label, fn, dis }) => (
+                                <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                  <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
                                 </IconButton>
                               ))}
                             </Box>
@@ -2948,225 +2136,54 @@ const ViewAttendanceRecord = () => {
                         </Box>
 
                         {/* Table */}
-                        <Box
-                          sx={{
-                            flexGrow: 1,
-                            overflowY: 'auto',
-                            overflowX: 'auto',
-                            ...scrollbarSx,
-                          }}
-                        >
-                          <Table
-                            stickyHeader
-                            sx={{
-                              tableLayout: 'fixed',
-                              width: '100%',
-                              minWidth: 700,
-                            }}
-                          >
+                        <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+                          <Table stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 700 }}>
                             <TableHead>
-                              <TableRow
-                                sx={{
-                                  '& .MuiTableCell-head': {
-                                    bgcolor: T.accent,
-                                    color: '#fff',
-                                    fontWeight: 700,
-                                    fontSize: '0.75rem',
-                                    py: 1.25,
-                                  },
-                                }}
-                              >
-                                <TableCell
-                                  padding="checkbox"
-                                  sx={{ width: 48 }}
-                                >
+                              <TableRow sx={{ '& .MuiTableCell-head': { bgcolor: T.accent, color: '#fff', fontWeight: 700, fontSize: '0.75rem', py: 1.25 } }}>
+                                <TableCell padding="checkbox" sx={{ width: 48 }}>
                                   <Checkbox
-                                    checked={
-                                      selectedCountInFiltered ===
-                                        filteredUsers.length &&
-                                      filteredUsers.length > 0
-                                    }
-                                    indeterminate={
-                                      selectedCountInFiltered > 0 &&
-                                      selectedCountInFiltered <
-                                        filteredUsers.length
-                                    }
-                                    onChange={(e) =>
-                                      handleSelectAll(e.target.checked)
-                                    }
-                                    sx={{
-                                      color: '#fff',
-                                      '&.Mui-checked': { color: '#fff' },
-                                      '&.MuiCheckbox-indeterminate': {
-                                        color: '#fff',
-                                      },
-                                    }}
+                                    checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0}
+                                    indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length}
+                                    onChange={(e) => handleSelectAll(e.target.checked)}
+                                    sx={{ color: '#fff', '&.Mui-checked': { color: '#fff' }, '&.MuiCheckbox-indeterminate': { color: '#fff' } }}
                                   />
                                 </TableCell>
-                                {[
-                                  'Emp. No.',
-                                  'Full Name',
-                                  'Department',
-                                  'Records',
-                                  'Status',
-                                  'Action',
-                                ].map((h) => (
-                                  <TableCell
-                                    key={h}
-                                    sx={{
-                                      minWidth: h === 'Full Name' ? 180 : 80,
-                                    }}
-                                  >
-                                    {h}
-                                  </TableCell>
+                                {['Emp. No.', 'Full Name', 'Department', 'Records', 'Status', 'Action'].map((h) => (
+                                  <TableCell key={h} sx={{ minWidth: h === 'Full Name' ? 180 : 80 }}>{h}</TableCell>
                                 ))}
                               </TableRow>
                             </TableHead>
                             <TableBody>
                               {paginatedUsers.map((user, idx) => {
-                                const isSelected = selectedUsers.has(
-                                  user.employeeNumber,
-                                );
-                                const dept =
-                                  departmentAssignmentsMap?.[
-                                    user.employeeNumber
-                                  ] || '';
+                                const isSelected = selectedUsers.has(user.employeeNumber);
+                                const dept = departmentAssignmentsMap?.[user.employeeNumber] || '';
                                 return (
                                   <TableRow
                                     key={user.employeeNumber}
-                                    sx={{
-                                      bgcolor: isSelected
-                                        ? alpha(T.accent, 0.06)
-                                        : idx % 2 === 0
-                                          ? '#fff'
-                                          : T.rowOdd,
-                                      '&:hover': { bgcolor: T.rowHover },
-                                      transition: 'background 0.1s',
-                                    }}
+                                    sx={{ bgcolor: isSelected ? alpha(T.accent, 0.06) : idx % 2 === 0 ? '#fff' : T.rowOdd, '&:hover': { bgcolor: T.rowHover }, transition: 'background 0.1s' }}
                                   >
                                     <TableCell padding="checkbox">
-                                      <Checkbox
-                                        checked={isSelected}
-                                        onChange={() =>
-                                          handleUserSelect(user.employeeNumber)
-                                        }
-                                        sx={{
-                                          '&.Mui-checked': { color: T.accent },
-                                        }}
-                                      />
+                                      <Checkbox checked={isSelected} onChange={() => handleUserSelect(user.employeeNumber)} sx={{ '&.Mui-checked': { color: T.accent } }} />
                                     </TableCell>
-                                    <TableCell
-                                      sx={{
-                                        fontSize: '0.78rem',
-                                        color: T.muted,
-                                        fontWeight: 600,
-                                      }}
-                                    >
-                                      #{user.employeeNumber}
-                                    </TableCell>
-                                    <TableCell
-                                      sx={{
-                                        fontSize: '0.82rem',
-                                        fontWeight: 600,
-                                        color: T.text,
-                                        maxWidth: 220,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      {trimmedSearch
-                                        ? highlightMatch(
-                                            user._formattedFullName,
-                                            trimmedSearch,
-                                          )
-                                        : user._formattedFullName}
+                                    <TableCell sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600 }}>#{user.employeeNumber}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {trimmedSearch ? highlightMatch(user._formattedFullName, trimmedSearch) : user._formattedFullName}
                                     </TableCell>
                                     <TableCell>
                                       {dept ? (
-                                        <Box
-                                          sx={{
-                                            px: 1.2,
-                                            py: 0.3,
-                                            borderRadius: 1,
-                                            bgcolor: alpha(T.accent, 0.07),
-                                            border: `1px solid ${T.accentBorder}`,
-                                            display: 'inline-block',
-                                          }}
-                                        >
-                                          <Typography
-                                            sx={{
-                                              fontSize: '0.72rem',
-                                              fontWeight: 700,
-                                              color: T.accent,
-                                            }}
-                                          >
-                                            {dept}
-                                          </Typography>
+                                        <Box sx={{ px: 1.2, py: 0.3, borderRadius: 1, bgcolor: alpha(T.accent, 0.07), border: `1px solid ${T.accentBorder}`, display: 'inline-block' }}>
+                                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent }}>{dept}</Typography>
                                         </Box>
                                       ) : (
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.72rem',
-                                            color: T.faint,
-                                            fontStyle: 'italic',
-                                          }}
-                                        >
-                                          Unassigned
-                                        </Typography>
+                                        <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>
                                       )}
                                     </TableCell>
-                                    <TableCell
-                                      sx={{
-                                        fontSize: '0.82rem',
-                                        fontWeight: 600,
-                                        color: T.text,
-                                      }}
-                                    >
-                                      {user.recordsCount || 0}
-                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{user.recordsCount || 0}</TableCell>
                                     <TableCell>
-                                      <Box
-                                        sx={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: 0.5,
-                                          px: 1.25,
-                                          py: 0.3,
-                                          borderRadius: '12px',
-                                          bgcolor: user.hasRecords
-                                            ? 'rgba(76,175,80,0.1)'
-                                            : T.accentFaint,
-                                          border: `1px solid ${user.hasRecords ? 'rgba(76,175,80,0.25)' : T.accentBorder}`,
-                                        }}
-                                      >
-                                        {user.hasRecords ? (
-                                          <CheckCircle
-                                            sx={{
-                                              fontSize: 11,
-                                              color: '#4caf50',
-                                            }}
-                                          />
-                                        ) : (
-                                          <Cancel
-                                            sx={{
-                                              fontSize: 11,
-                                              color: T.faint,
-                                            }}
-                                          />
-                                        )}
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.7rem',
-                                            fontWeight: 700,
-                                            color: user.hasRecords
-                                              ? '#2e7d32'
-                                              : T.faint,
-                                          }}
-                                        >
-                                          {user.hasRecords
-                                            ? 'Auto-Saved'
-                                            : 'No Records'}
+                                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: user.hasRecords ? 'rgba(76,175,80,0.1)' : T.accentFaint, border: `1px solid ${user.hasRecords ? 'rgba(76,175,80,0.25)' : T.accentBorder}` }}>
+                                        {user.hasRecords ? <CheckCircle sx={{ fontSize: 11, color: '#4caf50' }} /> : <Cancel sx={{ fontSize: 11, color: T.faint }} />}
+                                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: user.hasRecords ? '#2e7d32' : T.faint }}>
+                                          {user.hasRecords ? 'Auto-Saved' : 'No Records'}
                                         </Typography>
                                       </Box>
                                     </TableCell>
@@ -3177,20 +2194,7 @@ const ViewAttendanceRecord = () => {
                                         color="#2e7d32"
                                         hoverBg="rgba(46,125,50,0.08)"
                                         disabled={!user.hasRecords}
-                                        onClick={() =>
-                                          navigate(
-                                            '/daily_time_record_faculty',
-                                            {
-                                              state: {
-                                                employeeNumber:
-                                                  user.employeeNumber,
-                                                fullName: user.fullName,
-                                                startDate,
-                                                endDate,
-                                              },
-                                            },
-                                          )
-                                        }
+                                        onClick={() => navigate('/daily_time_record_faculty', { state: { employeeNumber: user.employeeNumber, fullName: user.fullName, startDate, endDate } })}
                                       />
                                     </TableCell>
                                   </TableRow>
@@ -3200,79 +2204,29 @@ const ViewAttendanceRecord = () => {
                           </Table>
                           {paginatedUsers.length === 0 && (
                             <Box sx={{ py: 8, textAlign: 'center' }}>
-                              <Typography
-                                sx={{
-                                  fontSize: '0.9rem',
-                                  fontWeight: 600,
-                                  color: T.muted,
-                                  mb: 0.5,
-                                }}
-                              >
-                                {allUsersDTR.length === 0
-                                  ? 'No data loaded'
-                                  : 'No users match your filters'}
+                              <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                                {allUsersDTR.length === 0 ? 'No data loaded' : 'No users match your filters'}
                               </Typography>
-                              <Typography
-                                sx={{ fontSize: '0.78rem', color: T.faint }}
-                              >
-                                {allUsersDTR.length === 0
-                                  ? 'Click Load All Users in the left panel.'
-                                  : 'Try adjusting the search or filters.'}
+                              <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                                {allUsersDTR.length === 0 ? 'Click Load All Users in the left panel.' : 'Try adjusting the search or filters.'}
                               </Typography>
                             </Box>
                           )}
                         </Box>
 
                         {/* Footer */}
-                        <Box
-                          sx={{
-                            px: 3,
-                            py: 1.25,
-                            borderTop: `1px solid ${T.divider}`,
-                            bgcolor: T.accentFaint,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            gap: 1.5,
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 1,
-                            }}
-                          >
+                        <Box sx={{ px: 3, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, flexShrink: 0 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <AccentButton
                               variant="text"
                               size="small"
-                              onClick={() =>
-                                handleSelectAll(
-                                  selectedCountInFiltered !==
-                                    filteredUsers.length,
-                                )
-                              }
-                              sx={{
-                                color: T.accent,
-                                fontSize: '0.75rem',
-                                '&:hover': {
-                                  bgcolor: T.accentFaint,
-                                  transform: 'none',
-                                },
-                                '&:active': { transform: 'none' },
-                              }}
+                              onClick={() => handleSelectAll(selectedCountInFiltered !== filteredUsers.length)}
+                              sx={{ color: T.accent, fontSize: '0.75rem', '&:hover': { bgcolor: T.accentFaint, transform: 'none' }, '&:active': { transform: 'none' } }}
                             >
-                              {selectedCountInFiltered ===
-                                filteredUsers.length && filteredUsers.length > 0
-                                ? 'Deselect All'
-                                : 'Select All'}
+                              {selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0 ? 'Deselect All' : 'Select All'}
                             </AccentButton>
                           </Box>
-                          <Typography
-                            sx={{ fontSize: '0.75rem', color: T.muted }}
-                          >
+                          <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
                             {filteredUsers.length > 0
                               ? `Showing ${Math.min(filteredUsers.length, (currentPage - 1) * rowsPerPage + 1)}–${Math.min(filteredUsers.length, currentPage * rowsPerPage)} of ${filteredUsers.length}`
                               : '0 users'}
@@ -3281,53 +2235,14 @@ const ViewAttendanceRecord = () => {
                       </>
                     ) : (
                       /* Empty state */
-                      <Box
-                        sx={{
-                          flexGrow: 1,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            width: 72,
-                            height: 72,
-                            borderRadius: '50%',
-                            bgcolor: T.accentFaint,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            mx: 'auto',
-                            mb: 2,
-                          }}
-                        >
-                          {loadingAllUsers ? (
-                            <CircularProgress sx={{ color: T.accent }} />
-                          ) : (
-                            <People
-                              sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
-                            />
-                          )}
+                      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                          {loadingAllUsers ? <CircularProgress sx={{ color: T.accent }} /> : <People sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />}
                         </Box>
-                        <Typography
-                          sx={{
-                            fontSize: '0.9rem',
-                            fontWeight: 600,
-                            color: T.muted,
-                            mb: 0.5,
-                          }}
-                        >
-                          {loadingAllUsers
-                            ? loadPhase || 'Loading records…'
-                            : !startDate || !endDate
-                              ? 'Select a month first'
-                              : 'No data loaded'}
+                        <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                          {loadingAllUsers ? loadPhase || 'Loading records…' : !startDate || !endDate ? 'Select a month first' : 'No data loaded'}
                         </Typography>
-                        <Typography
-                          sx={{ fontSize: '0.78rem', color: T.faint }}
-                        >
+                        <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
                           {!startDate || !endDate
                             ? 'Pick a year and month from the left panel, then click Load All Users.'
                             : 'Click Load All Users in the left panel to fetch records.'}
@@ -3345,21 +2260,31 @@ const ViewAttendanceRecord = () => {
         <Zoom in={showScrollTop}>
           <Fab
             size="small"
-            sx={{
-              position: 'fixed',
-              bottom: 24,
-              right: 45,
-              zIndex: 1000,
-              bgcolor: T.accent,
-              color: '#fff',
-              '&:hover': { bgcolor: T.accentDark },
-              boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
-            }}
+            sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           >
             <KeyboardArrowUp />
           </Fab>
         </Zoom>
+
+        {/* ── Unified overlays ── */}
+        <LoadingOverlay
+          open={loading || loadingAllUsers}
+          message={
+            loadingAllUsers
+              ? progressTotal > 0
+                ? `Loading all users — ${progressDone} / ${progressTotal}`
+                : `Loading all users — ${loadPhase || 'Please wait…'}`
+              : personName
+                ? `Loading attendance — ${personName}…`
+                : 'Loading attendance…'
+          }
+        />
+        <SuccessfulOverlay
+          open={successOverlayOpen}
+          onClose={() => setSuccessOverlayOpen(false)}
+          message="Attendance records loaded"
+        />
       </Box>
     </Fade>
   );
