@@ -7,12 +7,10 @@ import {
   Typography,
   Alert,
   Collapse,
-  CircularProgress,
   Fade,
   FormControl,
   Select,
   MenuItem,
-  Snackbar,
   alpha,
   styled,
   Card,
@@ -34,12 +32,13 @@ import {
   KeyboardArrowUp,
   KeyboardArrowDown,
   FilterList,
-  Close,
   Assignment,
 } from '@mui/icons-material';
 import { Grid } from '@mui/material';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 
 const T = {
   accent: '#6d2323',
@@ -431,6 +430,7 @@ const AttendanceUserState = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [hasSearched, setHasSearched] = useState(false);
   const [recordDateFilter, setRecordDateFilter] = useState('');
+  const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
@@ -441,18 +441,6 @@ const AttendanceUserState = () => {
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
   const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success',
-  });
-
-  const showSnackbar = (message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity });
-  };
-
-  const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
   useEffect(() => {
     if (!accessLoading) setPageLoading(false);
@@ -476,7 +464,10 @@ const AttendanceUserState = () => {
 
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
-    if (showLoading) setLoading(true);
+    if (showLoading) {
+      setLoading(true);
+      setSuccessOverlayOpen(false);
+    }
     setError('');
     setExpandedRow(null);
 
@@ -512,12 +503,11 @@ const AttendanceUserState = () => {
       setRecords(filteredData);
       setSubmittedID(personID);
       setHasSearched(true);
-      showSnackbar(`Loaded ${filteredData.length} records`, 'success');
+      if (showLoading) setSuccessOverlayOpen(true);
     } catch (err) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
       console.error(err);
       setError('Failed to fetch attendance records');
-      showSnackbar('Failed to fetch attendance records', 'error');
     } finally {
       if (showLoading && requestControllerRef.current === controller) {
         setLoading(false);
@@ -545,11 +535,6 @@ const AttendanceUserState = () => {
   );
 
   useEffect(() => {
-    fetchRecords(false);
-    setHasSearched(true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
     if (!startDate) return;
     const d = new Date(startDate + 'T00:00:00');
     setSelectedYear(d.getFullYear());
@@ -561,6 +546,8 @@ const AttendanceUserState = () => {
       isFirstRender.current = false;
       return;
     }
+    // Only run auto-refresh if the user has already searched at least once
+    if (!hasSearched) return;
 
     fetchRecords();
 
@@ -637,10 +624,7 @@ const AttendanceUserState = () => {
   };
 
   const handleSearch = () => {
-    if (!personID || !startDate || !endDate) {
-      showSnackbar('Please select a valid period.', 'warning');
-      return;
-    }
+    if (!personID || !startDate || !endDate) return;
     setHasSearched(true);
     fetchRecords(true);
   };
@@ -705,7 +689,6 @@ const AttendanceUserState = () => {
             setSelectedMonth(null);
             setHasSearched(false);
             setRecords([]);
-            showSnackbar('Year changed - select a month to load records.', 'info');
           }}
           style={{
             width: '100%',
@@ -796,6 +779,7 @@ const AttendanceUserState = () => {
         </Box>
       </Box>
 
+      {/* Month grid — border always visible */}
       <Box
         sx={{
           display: 'grid',
@@ -819,14 +803,15 @@ const AttendanceUserState = () => {
                 py: 0.75,
                 borderRadius: '7px',
                 cursor: 'pointer',
-                border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
+                // Border is always visible — accent color when selected, faint border otherwise
+                border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
                 bgcolor: isSelected ? T.accent : 'transparent',
                 transition: 'all 0.14s ease',
                 '&:hover': isSelected
                   ? {}
                   : {
                       bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
+                      border: `1px solid ${T.accent}`,
                     },
               }}
             >
@@ -966,25 +951,9 @@ const AttendanceUserState = () => {
   );
 
   return (
-    <Fade in timeout={400}>
+    <Fade in timeout={150}>
       <Box>
         <style>{shimmerKf}</style>
-
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={5000}
-          onClose={handleCloseSnackbar}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert
-            onClose={handleCloseSnackbar}
-            severity={snackbar.severity}
-            variant="filled"
-            sx={{ width: '100%', fontWeight: 600 }}
-          >
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
 
         <Box
           sx={{
@@ -1200,28 +1169,6 @@ const AttendanceUserState = () => {
                 </Box>
 
                 <Box sx={{ flexGrow: 1, overflowY: 'auto', position: 'relative', ...scrollbarSx }}>
-                  {loading && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        zIndex: 2,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        bgcolor: 'rgba(255,255,255,0.7)',
-                        backdropFilter: 'blur(3px)',
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <CircularProgress size={20} sx={{ color: T.accent }} />
-                        <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontWeight: 600 }}>
-                          Fetching attendance records...
-                        </Typography>
-                      </Box>
-                    </Box>
-                  )}
-
                   {!hasSearched || !submittedID ? (
                     <Box sx={{ py: 10, textAlign: 'center' }}>
                       <Box
@@ -1273,7 +1220,7 @@ const AttendanceUserState = () => {
                       </Typography>
                     </Box>
                   ) : (
-                    <Fade in timeout={250}>
+                    <Fade in timeout={100}>
                       <Box>
                         <Box
                           sx={{
@@ -1500,6 +1447,13 @@ const AttendanceUserState = () => {
             <KeyboardArrowUp />
           </Fab>
         </Zoom>
+
+        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+        <SuccessfulOverlay
+          open={successOverlayOpen}
+          onClose={() => setSuccessOverlayOpen(false)}
+          message="Attendance records loaded"
+        />
       </Box>
     </Fade>
   );
