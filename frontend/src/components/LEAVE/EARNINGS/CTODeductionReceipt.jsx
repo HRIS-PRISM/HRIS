@@ -410,6 +410,8 @@ const CTODeductionReceipt = ({
   halfDayDeductDate,
   halfDayPendingDates,
   deductedVlHalfDates = [],
+  /** When set (e.g. from Earnings Attendance Summary “Tardiness” metric), Step 1 uses this instead of re-deriving. */
+  metricsTardinessHrs,
 }) => {
   const [absenceDeductionOptions, setAbsenceDeductionOptions] = useState([]);
   const [tardinessDeductionOptions, setTardinessDeductionOptions] = useState([]);
@@ -762,10 +764,14 @@ const CTODeductionReceipt = ({
     ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
     : 0;
   const tardHrsAdjustedSummary = Math.max(0, tardHrsFromSummary - absentDays * 8);
-  const tardHrs = Math.max(
+  const tardHrsDerived = Math.max(
     lateHrsOfficial > 0 ? lateHrsOfficial : 0,
     tardHrsAdjustedSummary,
   );
+  const tardHrs =
+    metricsTardinessHrs != null && Number.isFinite(Number(metricsTardinessHrs))
+      ? Math.max(0, Number(metricsTardinessHrs))
+      : tardHrsDerived;
   const tardDays = tardHrs / 8;
  
   const isScTardinessDeductionRow = (e) =>
@@ -3924,6 +3930,7 @@ const DeductionReceiptSwitcher = ({
   halfDayDeductDate,
   halfDayPendingDates,
   deductedVlHalfDates,
+  metricsTardinessHrs,
 }) => {
   if (!employee || !attendanceData?.summary) return null;
 
@@ -4925,6 +4932,7 @@ const DeductionReceiptSwitcher = ({
       halfDayDeductDate={halfDayDeductDate}
       halfDayPendingDates={halfDayPendingDates}
       deductedVlHalfDates={deductedVlHalfDates}
+      metricsTardinessHrs={metricsTardinessHrs}
     />
   );
 };

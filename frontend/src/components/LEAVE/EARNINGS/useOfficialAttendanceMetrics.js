@@ -84,7 +84,7 @@ export function useOfficialAttendanceMetrics({
     return {
       absentDays: m.absentDays,
       halfDays: m.halfDays,
-      /** Full-day late shortfall only (matches Attendance Summary “Late Total”) — use for OAR tardiness / earnings */
+      /** Raw full-day late bucket from daily rows; with absent/half-day, Attendance/Earnings use DB overall minus those buckets for “Late Total”. */
       lateHrs: m.lateShortfallSecTotal / 3600,
       absentTimeHrs: m.absentSecTotal / 3600,
       halfDayShortfallHrs: m.halfDayShortfallSecTotal / 3600,

@@ -94,14 +94,17 @@
     postRegularPayrollSubmission,
     payrollAuthHeaders,
   } from "../../utils/regularPayrollFromAttendance";
-  import { computeOfficialAwareAbsenceAndLate } from "../../utils/officialAttendanceFromDailyRows";
+  import {
+    computeOfficialAwareAbsenceAndLate,
+    formatOfficialAttendanceSeconds,
+    parseOfficialTimeToSeconds,
+  } from "../../utils/officialAttendanceFromDailyRows";
   import { fetchAttendanceCalendarMaps } from "../ATTENDANCE/attendanceLeaveIntegration";
 
   /**
-   * When absent + half-day shortfall exist, Earnings overwrites `overallRenderedOfficialTimeTardiness` with
-   * full-day **late-only** shortfall from daily rows (not absent + half + late). When those buckets are 0,
-   * keep the summary row’s saved Overall Tardiness (same as Attendance Summary Late Total column).
-   * Holidays / approved leave / suspensions are excluded from the daily metrics.
+   * Align earnings tardiness with ATTENDANCE/AttendanceSummary `_lateTotal`: saved DB overall tardiness minus
+   * absent + half-day shortfall seconds when those buckets exist; otherwise keep the saved overall (late-only
+   * equals overall). Same calendar exclusions as the attendance module.
    */
   async function mergeSummaryLateOnlyTardiness(summary, employeeNumber, headers) {
     if (!summary?.startDate || !summary?.endDate || !employeeNumber) return summary;
@@ -134,9 +137,25 @@
       const noAbsentNoHalf =
         c.absentSecTotal === 0 && c.halfDayShortfallSecTotal === 0;
       if (noAbsentNoHalf) return { ...summary };
+      const saved = summary.overallRenderedOfficialTimeTardiness;
+      const savedTrim =
+        saved != null && String(saved).trim() !== "" ? String(saved).trim() : "";
+      const overallSec = parseOfficialTimeToSeconds(savedTrim);
+      const lateResolved =
+        overallSec != null
+          ? formatOfficialAttendanceSeconds(
+              Math.max(
+                0,
+                overallSec - c.absentSecTotal - c.halfDayShortfallSecTotal,
+              ),
+            )
+          : c.lateShortfallTime;
       return {
         ...summary,
-        overallRenderedOfficialTimeTardiness: c.lateShortfallTime,
+        ...(overallSec != null && savedTrim
+          ? { _savedOverallTardinessFromRecord: savedTrim }
+          : {}),
+        overallRenderedOfficialTimeTardiness: lateResolved,
       };
     } catch {
       return summary;

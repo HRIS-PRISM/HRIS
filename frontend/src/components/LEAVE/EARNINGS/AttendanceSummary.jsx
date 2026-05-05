@@ -537,7 +537,6 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     absentDays: absentDaysOfficial,
     halfDayDatesOfficial,
     rows: officialRows,
-    lateHrs: lateHrsOfficial,
     absentTimeHrs: absentTimeHrsOfficial,
     halfDayShortfallHrs: halfDayShortfallHrsOfficial,
     renderedHrs: renderedHrsOfficial,
@@ -553,7 +552,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     !officialMetricsLoading &&
     Boolean(officialStart && officialEnd && employee?.employeeNumber);
 
-  /** Matches ATTENDANCE/AttendanceSummary `_lateTotal`: use saved overall tardiness when absent + half-day shortfall are 0; else daily late bucket. */
+  /** Matches ATTENDANCE/AttendanceSummary `_lateTotal`: saved overall minus absent/half shortfall when those buckets exist. */
   const noAbsentNoHalfShortfall =
     canTrustOfficialMetrics &&
     Math.abs(toNum(absentTimeHrsOfficial)) < 1e-9 &&
@@ -609,14 +608,21 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
         toNum(fields.overallRenderedOfficialTimeTardiness),
       ),
     };
+    const overallTardStrForDb =
+      raw._savedOverallTardinessFromRecord != null &&
+      String(raw._savedOverallTardinessFromRecord).trim() !== ""
+        ? raw._savedOverallTardinessFromRecord
+        : raw.overallRenderedOfficialTimeTardiness;
+    const savedTardHrs = parseHHMM(overallTardStrForDb);
+    const absentH = toNum(absentTimeHrsOfficial);
+    const halfH = toNum(halfDayShortfallHrsOfficial);
+    const lateTotalHrsForOar = noAbsentNoHalfShortfall
+      ? savedTardHrs
+      : Math.max(0, savedTardHrs - absentH - halfH);
     const tertiaryProposal = canTrustOfficialMetrics
       ? {
           overallRenderedOfficialTime: hoursToHHMM(toNum(renderedHrsOfficial)),
-          overallRenderedOfficialTimeTardiness: hoursToHHMM(
-            noAbsentNoHalfShortfall
-              ? parseHHMM(raw.overallRenderedOfficialTimeTardiness)
-              : toNum(lateHrsOfficial),
-          ),
+          overallRenderedOfficialTimeTardiness: hoursToHHMM(lateTotalHrsForOar),
         }
       : null;
     const diffSavedForm = overallRecordsDiffer(
@@ -686,13 +692,23 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
 
   const tardHrs = (() => {
     if (!raw) return 0;
-    if (noAbsentNoHalfShortfall) {
+    if (
+      raw._savedOverallTardinessFromRecord != null &&
+      String(raw._savedOverallTardinessFromRecord).trim() !== ""
+    ) {
       return parseHHMM(raw.overallRenderedOfficialTimeTardiness);
     }
+    const savedTardHrs = parseHHMM(raw.overallRenderedOfficialTimeTardiness);
+    if (noAbsentNoHalfShortfall) return savedTardHrs;
     if (canTrustOfficialMetrics) {
-      return toNum(lateHrsOfficial);
+      return Math.max(
+        0,
+        savedTardHrs -
+          toNum(absentTimeHrsOfficial) -
+          toNum(halfDayShortfallHrsOfficial),
+      );
     }
-    return parseHHMM(raw.overallRenderedOfficialTimeTardiness);
+    return savedTardHrs;
   })();
   const stats = attendanceData?.stats || {};
   const lateDays = toNum(stats.late_days);
@@ -700,7 +716,10 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const halfDays = canTrustOfficialMetrics
     ? (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0)
     : toNum(stats.half_days ?? stats.halfDays);
-  const halfDayHrs = halfDays * 4;
+  /** Match ATTENDANCE/AttendanceSummary half-day column: official sched shortfall sum, not fixed 4h × count. */
+  const halfDayHrs = canTrustOfficialMetrics
+    ? toNum(halfDayShortfallHrsOfficial)
+    : halfDays * 4;
   const halfDayDates = useMemo(() => {
     if (canTrustOfficialMetrics) {
       return Array.isArray(halfDayDatesOfficial) ? [...halfDayDatesOfficial] : [];
@@ -1219,6 +1238,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               halfDayDeductDate={nextUndeductedVlHalfDate || null}
               halfDayPendingDates={halfDayDates}
               deductedVlHalfDates={deductedVlHalfDates}
+              metricsTardinessHrs={tardHrsDisplay}
             />
             {summaryUpdateNote ? (
               <Typography
