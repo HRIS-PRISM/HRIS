@@ -879,7 +879,7 @@ const ViewAttendanceRecord = () => {
           '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
         }}
       >
-        Faculty designated
+        Faculty Designated(40hrs)
       </Button>
     </Box>
   );
