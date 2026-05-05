@@ -2270,6 +2270,7 @@ const AttendanceSearch = () => {
     fullControllerRef.current?.abort();
   };
 
+  
   const recordsCount = records.length;
   const fullDaysCount = fullRecords.length;
   const missingCount = fullRecords.filter((r) => r.isNew).length;
