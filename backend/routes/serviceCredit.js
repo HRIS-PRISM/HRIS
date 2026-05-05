@@ -2,6 +2,7 @@
 const db      = require('../db');
 const express = require('express');
 const router  = express.Router();
+const { getServiceCreditRunningTotals } = require('../services/serviceCreditRunningTotals');
  
 // ─── GET /ot-types ────────────────────────────────────────────────────────────
 router.get('/ot-types', (req, res) => {
@@ -155,54 +156,74 @@ router.post('/service_credit/:id/action', (req, res) => {
     if (err)          return res.status(500).json({ error: err.message });
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
  
-    const rec     = rows[0];
-    const remHrs  = parseFloat(rec.remaining_hours) || 0;
-    const apply   = Math.min(parseFloat(hours) || remHrs, remHrs);
-    if (apply <= 0) return res.status(400).json({ error: 'No hours to apply' });
- 
-    const newRem  = Math.max(0, remHrs - apply);
-    const newUsed = (parseFloat(rec.used_hours) || 0) + apply;
- 
-    db.query(
-      'UPDATE service_credit SET remaining_hours = ?, used_hours = ? WHERE id = ?',
-      [newRem, newUsed, id],
-      (err2) => {
-        if (err2) return res.status(500).json({ error: err2.message });
- 
-        // Audit log
-        db.query(
-          `INSERT INTO service_credit_usage
-           (service_credit_id, employeeNumber, action, hours_applied, target_leave_code)
-           VALUES (?,?,?,?,?)`,
-          [id, rec.employeeNumber, action, apply, targetLeaveCode || null],
-          (err3) => { if (err3) console.error('SC audit log error:', err3); }
-        );
- 
-        // If converting to SL/VL, credit leave_assignment
-        if ((action === 'convert_to_sl' || action === 'convert_to_vl') && targetLeaveCode) {
-          // Find latest open assignment for this employee + targetLeaveCode
+    const rec    = rows[0];
+    const scType = rec.sc_type || 'non_commutative';
+    const emp    = rec.employeeNumber;
+
+    getServiceCreditRunningTotals(emp, scType, (errSum, cur) => {
+      if (errSum) return res.status(500).json({ error: errSum.message });
+      const totalRem = cur.remaining;
+      const apply    = Math.min(parseFloat(hours) || totalRem, Math.max(0, totalRem));
+      if (apply <= 0) return res.status(400).json({ error: 'No hours to apply' });
+
+      const snapEarned = cur.earned;
+      const snapUsed   = cur.used + apply;
+      const snapRem    = cur.remaining - apply;
+      const remarks =
+        `service_credit_action:source_row_${id}:${action || 'offset'}`;
+
+      db.query(
+        `INSERT INTO service_credit
+          (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
+           earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
+         VALUES (?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          emp,
+          scType,
+          snapEarned,
+          snapRem,
+          snapUsed,
+          rec.period_year,
+          rec.period_month,
+          remarks,
+          rec.emp_category_snapshot || null,
+        ],
+        (errIns, insRes) => {
+          if (errIns) return res.status(500).json({ error: errIns.message });
+          const newScId = insRes.insertId;
+
           db.query(
-            `SELECT id, remaining_hours FROM leave_assignment
-             WHERE employeeNumber = ? AND leave_code = ?
-             ORDER BY period_year DESC, id DESC LIMIT 1`,
-            [rec.employeeNumber, targetLeaveCode],
-            (err4, laRows) => {
-              if (!err4 && laRows.length) {
-                const la       = laRows[0];
-                const newLARem = (parseFloat(la.remaining_hours) || 0) + apply;
-                db.query(
-                  'UPDATE leave_assignment SET remaining_hours = ?, total_hours = total_hours + ? WHERE id = ?',
-                  [newLARem, apply, la.id],
-                  (err5) => { if (err5) console.error('LA update error:', err5); }
-                );
-              }
-            }
+            `INSERT INTO service_credit_usage
+             (service_credit_id, employeeNumber, action, hours_applied, target_leave_code)
+             VALUES (?,?,?,?,?)`,
+            [newScId, emp, action, apply, targetLeaveCode || null],
+            (err3) => { if (err3) console.error('SC audit log error:', err3); }
           );
+
+          if ((action === 'convert_to_sl' || action === 'convert_to_vl') && targetLeaveCode) {
+            db.query(
+              `SELECT id, remaining_hours FROM leave_assignment
+               WHERE employeeNumber = ? AND leave_code = ?
+               ORDER BY period_year DESC, id DESC LIMIT 1`,
+              [emp, targetLeaveCode],
+              (err4, laRows) => {
+                if (!err4 && laRows.length) {
+                  const la       = laRows[0];
+                  const newLARem = (parseFloat(la.remaining_hours) || 0) + apply;
+                  db.query(
+                    'UPDATE leave_assignment SET remaining_hours = ?, total_hours = total_hours + ? WHERE id = ?',
+                    [newLARem, apply, la.id],
+                    (err5) => { if (err5) console.error('LA update error:', err5); }
+                  );
+                }
+              }
+            );
+          }
+
+          res.json({ message: 'Action applied', hours_applied: apply, remaining_hours: snapRem });
         }
- 
-        res.json({ message: 'Action applied', hours_applied: apply, remaining_hours: newRem });
-      }
-    );
+      );
+    });
   });
 });
  
@@ -217,63 +238,88 @@ router.post('/service_credit/:id/commute', (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
 
     const rec = rows[0];
-    const remHrs = parseFloat(rec.remaining_hours) || 0;
-    if (remHrs <= 0) return res.status(400).json({ error: 'No remaining hours to commute' });
+    const scType = rec.sc_type || 'non_commutative';
+    const emp = rec.employeeNumber;
 
-    const commutedDays = remHrs / 8;
+    getServiceCreditRunningTotals(emp, scType, (errSum, cur) => {
+      if (errSum) return res.status(500).json({ error: errSum.message });
+      const remHrs = cur.remaining;
+      if (remHrs <= 0) return res.status(400).json({ error: 'No remaining hours to commute' });
 
-    const insertQuery = `
+      const snapEarned = cur.earned;
+      const snapUsed   = cur.used + remHrs;
+      const snapRem    = 0;
+      const commutedDays = remHrs / 8;
+
+      const insertQuery = `
       INSERT INTO leave_commutation
         (leave_assignment_id, employeeNumber, leave_code, period_year, period_semester,
          commuted_hours, commuted_days, status, commuted_by, commuted_at, remarks)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), ?)
     `;
 
-    db.query(
-      insertQuery,
-      [
-        null,
-        rec.employeeNumber,
-        'SC',
-        rec.period_year || null,
-        rec.period_month || null,
-        remHrs,
-        commutedDays,
-        commuted_by || null,
-        remarks || `Transferred SC (${commutedDays.toFixed(2)} days) to Leave Commutation.`,
-      ],
-      (insErr, insResult) => {
-        if (insErr) return res.status(500).json({ error: 'Failed to create commutation record: ' + insErr.message });
+      db.query(
+        insertQuery,
+        [
+          null,
+          emp,
+          'SC',
+          rec.period_year || null,
+          rec.period_month || null,
+          remHrs,
+          commutedDays,
+          commuted_by || null,
+          remarks || `Transferred SC (${commutedDays.toFixed(2)} days) to Leave Commutation.`,
+        ],
+        (insErr, insResult) => {
+          if (insErr) return res.status(500).json({ error: 'Failed to create commutation record: ' + insErr.message });
 
-        const newUsed = (parseFloat(rec.used_hours) || 0) + remHrs;
-        db.query(
-          'UPDATE service_credit SET remaining_hours = 0, used_hours = ? WHERE id = ?',
-          [newUsed, id],
-          (upErr) => {
-            if (upErr) return res.status(500).json({ error: 'Commutation recorded but failed to zero out SC: ' + upErr.message });
+          const ledgerRemark = `service_credit_commute:source_row_${id}`;
+          db.query(
+            `INSERT INTO service_credit
+              (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
+               earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
+             VALUES (?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              emp,
+              scType,
+              snapEarned,
+              snapRem,
+              snapUsed,
+              rec.period_year || null,
+              rec.period_month || null,
+              ledgerRemark,
+              rec.emp_category_snapshot || null,
+            ],
+            (insScErr, insScRes) => {
+              if (insScErr) {
+                return res.status(500).json({
+                  error: 'Commutation recorded but failed to append SC ledger: ' + insScErr.message,
+                });
+              }
+              const newScId = insScRes.insertId;
+              db.query(
+                `INSERT INTO service_credit_usage
+                 (service_credit_id, employeeNumber, action, hours_applied, target_leave_code)
+                 VALUES (?,?,?,?,?)`,
+                [newScId, emp, 'commute', remHrs, null],
+                () => {}
+              );
 
-            // Best-effort audit trail (service_credit_usage)
-            db.query(
-              `INSERT INTO service_credit_usage
-               (service_credit_id, employeeNumber, action, hours_applied, target_leave_code)
-               VALUES (?,?,?,?,?)`,
-              [id, rec.employeeNumber, 'commute', remHrs, null],
-              () => {}
-            );
-
-            res.json({
-              message: 'Service Credit transferred to commutation',
-              commutation_id: insResult.insertId,
-              service_credit_id: rec.id,
-              employeeNumber: rec.employeeNumber,
-              commuted_hours: remHrs,
-              commuted_days: commutedDays,
-              status: 0,
-            });
-          }
-        );
-      }
-    );
+              res.json({
+                message: 'Service Credit transferred to commutation',
+                commutation_id: insResult.insertId,
+                service_credit_id: newScId,
+                employeeNumber: emp,
+                commuted_hours: remHrs,
+                commuted_days: commutedDays,
+                status: 0,
+              });
+            }
+          );
+        }
+      );
+    });
   });
 });
 

@@ -5,7 +5,7 @@ import { Box, Typography, Button, alpha } from "@mui/material";
 const ACCENT = "#6d2323";
 const Z_FULL_VIEWPORT = 20000;
 
-const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
+const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false, message: messageProp }) => {
   useEffect(() => {
     if (open && !showOkButton) {
       const timer = setTimeout(() => {
@@ -25,6 +25,8 @@ const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false }) => {
   }, [open]);
 
   const getMessage = () => {
+    const custom = messageProp != null && String(messageProp).trim();
+    if (custom) return String(messageProp).trim();
     switch (action) {
       case "create":
         return "Successfully Created!";

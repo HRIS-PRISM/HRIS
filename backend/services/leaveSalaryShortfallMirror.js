@@ -20,7 +20,14 @@ function mirrorAttendanceSalaryShortfallToAuditTrail({
   return new Promise((resolve) => {
     const actor = req.user?.employeeNumber ? String(req.user.employeeNumber) : null;
     const periodLabel = `${y}-${String(m).padStart(2, "0")}`;
-    const txMsg = `Recorded attendance salary charge: ${Number(shortfallDays).toFixed(3)}d (${Number(shortfallHours).toFixed(3)} hrs) for employee ${targetEmployeeNumber} — ${leaveCode} [${entryType}] period ${periodLabel}.${remarks ? ` ${remarks}` : ""}`;
+    const et = String(entryType || "");
+    const noCharge = et === "No Deduction";
+    const amountPart = noCharge
+      ? `0d (0 hrs) — no salary deduction [${et || "No Deduction"}]`
+      : `${Number(shortfallDays).toFixed(3)}d (${Number(shortfallHours).toFixed(3)} hrs)`;
+    const txMsg = noCharge
+      ? `Recorded salary shortfall registry (audit): ${amountPart} for employee ${targetEmployeeNumber} — ${leaveCode} period ${periodLabel}.${remarks ? ` ${remarks}` : ""}`
+      : `Recorded attendance salary charge: ${amountPart} for employee ${targetEmployeeNumber} — ${leaveCode} [${et}] period ${periodLabel}.${remarks ? ` ${remarks}` : ""}`;
 
     const runEarningsAudit = () => {
       let payloadStr = null;
@@ -39,17 +46,22 @@ function mirrorAttendanceSalaryShortfallToAuditTrail({
       } catch {
         payloadStr = null;
       }
+      const shortfallRowId = parseInt(insertId, 10);
+      const safeShortfallId =
+        Number.isFinite(shortfallRowId) && shortfallRowId > 0 ? shortfallRowId : null;
       db.query(
         `INSERT INTO earnings_audit_log (earning_type, earning_id, action, old_status, new_status, actor, notes, payload)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           "leave_salary_shortfall",
-          parseInt(insertId, 10),
+          safeShortfallId != null ? String(safeShortfallId) : null,
           "attendance_salary_apply",
           null,
           "posted",
           actor,
-          `${leaveCode} → salary (${Number(shortfallDays).toFixed(3)}d)`,
+          noCharge
+            ? `${leaveCode} → no salary charge (audit)`
+            : `${leaveCode} → salary (${Number(shortfallDays).toFixed(3)}d)`,
           payloadStr,
         ],
         (e2) => {
@@ -81,7 +93,7 @@ function mirrorAttendanceSalaryShortfallToAuditTrail({
             });
             logAudit(
               { employeeNumber: actor || targetEmployeeNumber },
-              "Attendance salary deduction applied",
+              noCharge ? "Salary shortfall registry (no deduction)" : "Attendance salary deduction applied",
               "leave_transaction",
               result.insertId,
               targetEmployeeNumber,

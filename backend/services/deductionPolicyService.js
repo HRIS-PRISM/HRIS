@@ -250,13 +250,31 @@ async function buildHalfDayPolicySuggestionCore({
   });
 
   const allowed = options.map((o) => o.value);
-  const preferred = String(preferred_charge_to || "").trim().toUpperCase();
-  let chosen =
-    preferred && allowed.includes(preferred)
-      ? preferred
-      : options[0]?.value || SALARY_VALUE;
+  const findOptionValue = (code) => {
+    const u = String(code || "")
+      .trim()
+      .toUpperCase();
+    const hit = options.find(
+      (o) => String(o.value || "")
+        .trim()
+        .toUpperCase() === u,
+    );
+    return hit?.value ?? null;
+  };
 
-  if (!allowed.includes(chosen)) chosen = allowed[0] || SALARY_VALUE;
+  const preferredRaw = String(preferred_charge_to || "").trim();
+  let chosen;
+  if (preferredRaw && findOptionValue(preferredRaw)) {
+    chosen = findOptionValue(preferredRaw);
+  } else if (findOptionValue("VL")) {
+    chosen = findOptionValue("VL");
+  } else {
+    chosen = options[0]?.value || SALARY_VALUE;
+  }
+
+  if (!options.some((o) => o.value === chosen)) {
+    chosen = options[0]?.value || SALARY_VALUE;
+  }
 
   let hoursPerDay = 8;
   let availableHours = 0;

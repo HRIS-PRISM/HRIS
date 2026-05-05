@@ -65,6 +65,7 @@ const ctoRoutes = require('./routes/ctoRoutes');
 const earningsRoutes = require('./routes/earningsRoutes');
 const deductionsRoutes = require('./routes/deductions');
 const leaveSalaryShortfallRoutes = require('./routes/leaveSalaryShortfallRoutes');
+const attendanceResultRoutes = require('./routes/attendanceResultRoutes');
 
 
 
@@ -141,6 +142,62 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.log('Audit log table ready');
   }
 });
+
+// Dedicated earnings / payroll-audit trail (used by earningsRoutes, leave half-day, salary shortfall mirror)
+const ensureEarningsAuditLogTableSQL = `
+  CREATE TABLE IF NOT EXISTS earnings_audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    earning_type VARCHAR(64) NOT NULL,
+    earning_id VARCHAR(64) NULL COMMENT 'Usually leave/sc/cto row id; may be employeeNumber for UI-only rows',
+    action VARCHAR(512) NOT NULL,
+    old_status VARCHAR(64) NULL,
+    new_status VARCHAR(64) NULL,
+    actor VARCHAR(64) NULL,
+    notes TEXT NULL,
+    payload LONGTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_earnings_audit_type_id (earning_type, earning_id),
+    KEY idx_earnings_audit_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureEarningsAuditLogTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure earnings_audit_log table exists:', err.message);
+  } else {
+    console.log('earnings_audit_log table ready');
+  }
+});
+
+db.query(
+  `ALTER TABLE earnings_audit_log
+   MODIFY COLUMN earning_id VARCHAR(64) NULL
+   COMMENT 'Usually leave/sc/cto row id; may be employeeNumber for UI-only rows'`,
+  (alterErr) => {
+    if (alterErr && alterErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('earnings_audit_log earning_id VARCHAR migration:', alterErr.message);
+    }
+  },
+);
+
+// Legacy phpMyAdmin / old installs used VARCHAR(10) earning_type → truncated "attendance", "half_day_p", etc.
+db.query(
+  `ALTER TABLE earnings_audit_log
+   MODIFY COLUMN earning_type VARCHAR(64) NOT NULL`,
+  (alterErr) => {
+    if (alterErr && alterErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('earnings_audit_log earning_type width migration:', alterErr.message);
+    }
+  },
+);
+db.query(
+  `ALTER TABLE earnings_audit_log
+   MODIFY COLUMN action VARCHAR(512) NOT NULL`,
+  (alterErr) => {
+    if (alterErr && alterErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('earnings_audit_log action width migration:', alterErr.message);
+    }
+  },
+);
 
 db.query('ALTER TABLE audit_log ADD COLUMN details_json LONGTEXT NULL', (err) => {
   if (err && err.code !== 'ER_DUP_FIELDNAME') {
@@ -409,6 +466,38 @@ app.use('/api/cto', ctoRoutes);
 app.use('/api/earnings', earningsRoutes);
 app.use('/api/deductions', deductionsRoutes);
 app.use('/api/leave-salary-shortfall', leaveSalaryShortfallRoutes);
+app.use('/api/attendance-result', attendanceResultRoutes);
+
+const ensureAttendanceResultSQL = `
+  CREATE TABLE IF NOT EXISTS attendance_result (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_number VARCHAR(64) NOT NULL,
+    result_date DATE NOT NULL,
+    source_type VARCHAR(16) NOT NULL COMMENT 'ABSENT | TARDINESS',
+    source_key VARCHAR(160) NOT NULL,
+    original_hours DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    leave_used VARCHAR(32) NOT NULL DEFAULT 'NONE',
+    leave_hours_used DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    unpaid_hours DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    paid_hours DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL,
+    leave_earning_id INT NULL,
+    sc_earning_id INT NULL,
+    cto_earning_id INT NULL,
+    deduction_decision_log_id INT NULL,
+    remarks TEXT NULL,
+    processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_ar_source_key (source_key),
+    KEY idx_ar_emp_date (employee_number, result_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureAttendanceResultSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure attendance_result table:', err.message);
+  } else {
+    console.log('attendance_result table ready');
+  }
+});
 
 const ensureLeaveSalaryShortfallSQL = `
   CREATE TABLE IF NOT EXISTS leave_salary_shortfall (

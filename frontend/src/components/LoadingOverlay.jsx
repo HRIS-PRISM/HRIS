@@ -45,7 +45,7 @@ const LoadingOverlay = ({ open, message = "Processing…" }) => {
             border: `2px solid ${alpha(ACCENT, 0.2)}`,
             borderTopColor: ACCENT,
             borderRadius: "50%",
-            animation: "hris-loading-spin 0.7s linear infinite",
+            animation: "hris-loading-spin 0.5s linear infinite",
             mx: "auto",
           }}
         />

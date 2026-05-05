@@ -488,7 +488,9 @@ const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
 
 const AttendanceSummary = ({
   employee, year, month, attendanceData, attendanceLoading,
-  onRefresh, onRecordsRefresh, empCat, vlReceiptRefreshKey, balanceRefreshKey,
+  onRefresh, onRecordsRefresh, empCat, vlReceiptRefreshKey, balanceRefreshKey = 0,
+  /** Bump parent balance refresh (e.g. balanceKey) after SC/CTO/VL deductions so VL·SC·CTO chips refetch. */
+  onBalancesInvalidate,
   deductedVlHalfDates = [],
   onDeductHalfDayVLRequested,
 }) => {
@@ -499,7 +501,6 @@ const AttendanceSummary = ({
   const [fields, setFields] = useState({});
 
   const [liveBalances, setLiveBalances] = useState({ vl: null, sc: null, cto: null });
-const [balLoading, setBalLoading] = useState(false);
 
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareFormProposal, setCompareFormProposal] = useState(null);
@@ -508,7 +509,7 @@ const [balLoading, setBalLoading] = useState(false);
 
 const fetchLiveBalances = useCallback(async () => {
   if (!employee) return;
-  setBalLoading(true);
+  // In-place balance updates (no loading swap) to avoid flicker on refreshKey / websocket sync.
   const token = localStorage.getItem("token");
   try {
     const [assignRes, scRes, ctoRes] = await Promise.allSettled([
@@ -523,8 +524,6 @@ const fetchLiveBalances = useCallback(async () => {
     });
   } catch {
     setLiveBalances({ vl: "—", sc: "—", cto: "—" });
-  } finally {
-    setBalLoading(false);
   }
 }, [employee]);
 
@@ -536,9 +535,11 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const officialEnd = raw?.endDate;
   const {
     absentDays: absentDaysOfficial,
-    halfDays: halfDaysOfficial,
+    halfDayDatesOfficial,
     rows: officialRows,
     lateHrs: lateHrsOfficial,
+    absentTimeHrs: absentTimeHrsOfficial,
+    halfDayShortfallHrs: halfDayShortfallHrsOfficial,
     renderedHrs: renderedHrsOfficial,
     loading: officialMetricsLoading,
   } = useOfficialAttendanceMetrics({
@@ -546,6 +547,17 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     startDate: officialStart,
     endDate: officialEnd,
   });
+
+  /** Same daily-derived metrics as Overall Attendance (ATTENDANCE/AttendanceSummary.jsx). */
+  const canTrustOfficialMetrics =
+    !officialMetricsLoading &&
+    Boolean(officialStart && officialEnd && employee?.employeeNumber);
+
+  /** Matches ATTENDANCE/AttendanceSummary `_lateTotal`: use saved overall tardiness when absent + half-day shortfall are 0; else daily late bucket. */
+  const noAbsentNoHalfShortfall =
+    canTrustOfficialMetrics &&
+    Math.abs(toNum(absentTimeHrsOfficial)) < 1e-9 &&
+    Math.abs(toNum(halfDayShortfallHrsOfficial)) < 1e-9;
 
   const ATTEND_FIELDS = [
     { key: "overallRenderedOfficialTime", label: "Overall Rendered" },
@@ -597,11 +609,13 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
         toNum(fields.overallRenderedOfficialTimeTardiness),
       ),
     };
-    const tertiaryProposal = !officialMetricsLoading
+    const tertiaryProposal = canTrustOfficialMetrics
       ? {
           overallRenderedOfficialTime: hoursToHHMM(toNum(renderedHrsOfficial)),
           overallRenderedOfficialTimeTardiness: hoursToHHMM(
-            toNum(lateHrsOfficial),
+            noAbsentNoHalfShortfall
+              ? parseHHMM(raw.overallRenderedOfficialTimeTardiness)
+              : toNum(lateHrsOfficial),
           ),
         }
       : null;
@@ -670,16 +684,27 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
 
   const overallHrs = raw ? parseHHMM(raw.overallRenderedOfficialTime) : 0;
 
-  const tardHrs = lateHrsOfficial > 0
-    ? lateHrsOfficial
-    : (raw ? parseHHMM(raw.overallRenderedOfficialTimeTardiness) : 0);
+  const tardHrs = (() => {
+    if (!raw) return 0;
+    if (noAbsentNoHalfShortfall) {
+      return parseHHMM(raw.overallRenderedOfficialTimeTardiness);
+    }
+    if (canTrustOfficialMetrics) {
+      return toNum(lateHrsOfficial);
+    }
+    return parseHHMM(raw.overallRenderedOfficialTimeTardiness);
+  })();
   const stats = attendanceData?.stats || {};
   const lateDays = toNum(stats.late_days);
-  const halfDays = halfDaysOfficial > 0
-    ? halfDaysOfficial
+  /** When official metrics load, match ATTENDANCE/AttendanceSummary: half-days exclude approved leave / holiday / suspension. */
+  const halfDays = canTrustOfficialMetrics
+    ? (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0)
     : toNum(stats.half_days ?? stats.halfDays);
   const halfDayHrs = halfDays * 4;
   const halfDayDates = useMemo(() => {
+    if (canTrustOfficialMetrics) {
+      return Array.isArray(halfDayDatesOfficial) ? [...halfDayDatesOfficial] : [];
+    }
     let dates = listHalfDayDatesFromDailyRows(officialRows);
     if (!dates.length) {
       dates = listHalfDayDatesFromDailyRows(
@@ -687,7 +712,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
       );
     }
     const statsHalf = toNum(attendanceData?.stats?.half_days ?? attendanceData?.stats?.halfDays);
-    if (!dates.length && (halfDaysOfficial > 0.0001 || statsHalf > 0.0001)) {
+    if (!dates.length && statsHalf > 0.0001) {
       const fallback =
         (officialStart && String(officialStart).slice(0, 10)) ||
         `${year}-${String(month).padStart(2, "0")}-01`;
@@ -695,10 +720,11 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
     return [...new Set(dates)].sort();
   }, [
+    canTrustOfficialMetrics,
+    halfDayDatesOfficial,
     officialRows,
     attendanceData?.dailyRecords,
     attendanceData?.stats,
-    halfDaysOfficial,
     officialStart,
     year,
     month,
@@ -714,7 +740,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   const nextUndeductedVlHalfDate =
     halfDayDates.find((d) => !deductedNormSet.has(normalizeHalfDayDateKey(d))) ||
     null;
-  const absentDays = absentDaysOfficial > 0
+  const absentDays = canTrustOfficialMetrics
     ? absentDaysOfficial
     : toNum(stats.absent_days);
   const presentDays = toNum(stats.present_days);
@@ -1159,13 +1185,9 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                             <Typography sx={{ fontSize: "0.6875rem", color: b.nameColor, fontFamily: T.poppins, mb: "3px" }}>
                               {b.title}
                             </Typography>
-                            {balLoading ? (
-                              <CircularProgress size={16} sx={{ color: b.valColor }} />
-                            ) : (
-                              <Typography sx={{ fontSize: "1.1875rem", fontWeight: 500, color: displayColor, fontFamily: T.poppins, lineHeight: 1.2 }}>
-                                {b.val ?? "—"}
-                              </Typography>
-                            )}
+                            <Typography sx={{ fontSize: "1.1875rem", fontWeight: 500, color: displayColor, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                              {b.val ?? "—"}
+                            </Typography>
                             <Typography sx={{ fontSize: "0.6875rem", color: b.subColor, fontFamily: T.poppins, mt: "2px" }}>
                               days remaining
                             </Typography>
@@ -1178,6 +1200,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               </Box>
             </Box>
 
+            {/* Step 1–2 balances: combine keys so SC/CTO refetch when balanceKey bumps (chips), not only vlReceiptRefreshKey */}
             <DeductionReceiptSwitcher
               employee={employee}
               attendanceData={attendanceData}
@@ -1186,8 +1209,11 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
               onDeductSuccess={() => {
                 if (onRefresh) onRefresh();
                 if (onRecordsRefresh) onRecordsRefresh();
+                if (onBalancesInvalidate) onBalancesInvalidate();
               }}
-              refreshKey={vlReceiptRefreshKey}
+              refreshKey={
+                (vlReceiptRefreshKey ?? 0) + (balanceRefreshKey ?? 0)
+              }
               empCat={empCat}
               onDeductHalfDayVLRequested={onDeductHalfDayVLRequested}
               halfDayDeductDate={nextUndeductedVlHalfDate || null}

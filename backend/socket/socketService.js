@@ -285,6 +285,21 @@ function notifyPayrollChanged(action, data) {
 }
 
 /**
+ * Earnings / leave balances / SC / CTO / salary shortfall registry.
+ * Frontend pattern: listen to 'earningsChanged' then re-fetch the open employee period.
+ *
+ * @param {'created'|'updated'|'deleted'|'approved'|'rejected'} action
+ * @param {object} data - include employeeNumber when known for targeted refresh
+ */
+function notifyEarningsChanged(action, data) {
+  broadcastToRoles(
+    ['staff', 'administrator', 'superadmin', 'technical'],
+    'earningsChanged',
+    { action, ...data },
+  );
+}
+
+/**
  * Announcement realtime notifier (universal)
  * Called by announcement routes after DB changes.
  *
@@ -404,6 +419,7 @@ module.exports = {
   notifyLearningChanged,
   notifyAttendanceChanged,
   notifyPayrollChanged,
+  notifyEarningsChanged,
   notifyAnnouncementChanged,
   broadcastNewAuditLog,
   notifyContactThreadChanged,

@@ -35,13 +35,11 @@ function logAudit(
       ? user.employeeNumber
       : user || null;
 
-  // Guard against NOT NULL violations on audit_log.employeeNumber.
-  // If actor identity is missing, skip audit insert instead of throwing SQL errors.
-  if (!employeeNumber) {
-    console.warn(
-      `[audit] Skipping audit log for action "${action}" because employeeNumber is missing.`
-    );
-    return;
+  let safeRecordId = null;
+  if (recordId !== undefined && recordId !== null && recordId !== '') {
+    const n =
+      typeof recordId === 'bigint' ? Number(recordId) : parseInt(recordId, 10);
+    if (Number.isFinite(n) && n > 0) safeRecordId = n;
   }
 
   let detailsJson = null;
@@ -67,7 +65,7 @@ function logAudit(
       employeeNumber,
       action,
       tableName,
-      recordId,
+      safeRecordId,
       targetEmployeeNumber,
       detailsJson,
     ],
@@ -83,7 +81,7 @@ function logAudit(
         employeeNumber,
         action,
         table_name: tableName,
-        record_id: recordId,
+        record_id: safeRecordId,
         targetEmployeeNumber: targetEmployeeNumber || null,
         details_json: detailsJson,
         timestamp,

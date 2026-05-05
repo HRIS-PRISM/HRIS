@@ -417,6 +417,15 @@ const getStatusColor = (remaining, total) => { if (!total || total === 0) return
 const hoursToDisplay = (hours, unit) => unit === "hours" ? parseFloat(hours || 0).toFixed(3) : (parseFloat(hours || 0) / 8).toFixed(3);
 const displayToHours = (val, unit) => unit === "hours" ? parseFloat(val || 0) : parseFloat((parseFloat(val || 0) * 8).toFixed(3));
 const hoursToLabel = (h, unit) => unit === "hours" ? `${parseFloat(h || 0).toFixed(3)} hrs` : `${(parseFloat(h || 0) / 8).toFixed(3)} days`;
+/** Days string for editable fields (hours÷8). Regex /\.\?0+$/ on "10" incorrectly became "1"; only trim after a decimal. */
+const hoursToDaysInputStr = (hrs) => {
+  const h = parseFloat(hrs);
+  if (!Number.isFinite(h) || h === 0) return "";
+  const days = parseFloat((h / 8).toFixed(10));
+  if (!Number.isFinite(days) || days === 0) return "";
+  if (Number.isInteger(days)) return String(days);
+  return String(days).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+};
 const isCommutedLocked = (row) => toNum(row?.remaining_hours) === 0 && toNum(row?.total_hours) > 0 && toNum(row?.used_hours) > 0 && toNum(row?.used_hours) >= toNum(row?.total_hours);
 const getActivePeriods = (periods = []) => (Array.isArray(periods) ? periods : []).filter((p) => !isCommutedLocked(p));
 const getLeaveTypeStatsActive = (periods) => getActivePeriods(periods).reduce((s, p) => ({ totalHours: s.totalHours + toNum(p.total_hours), usedHours: s.usedHours + toNum(p.used_hours), remainingHours: s.remainingHours + toNum(p.remaining_hours) }), { totalHours: 0, usedHours: 0, remainingHours: 0 });
@@ -700,8 +709,7 @@ const CreditInput = ({
     const n = parseFloat(hrs);
     if (isNaN(n) || n === 0) return "";
     if (unit === "hours") return String(n);
-    const days = n / 8;
-    return String(parseFloat(days.toFixed(10))).replace(/\.?0+$/, "") || "";
+    return hoursToDaysInputStr(n) || "";
   }, [unit]);
 
   useEffect(() => {
@@ -717,10 +725,9 @@ const CreditInput = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unit]);
 
-  const handleFocus = (e) => {
+  const handleFocus = () => {
     isFocused.current = true;
     if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
-    e.target.select();
   };
 
   const handleChange = (e) => {
@@ -1315,9 +1322,8 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
 
   const toDisplayStr = useCallback((hrs) => {
     if (!hrs || hrs === 0) return "";
-    if (unit === "hours") return String(hrs);
-    const days = hrs / 8;
-    return String(parseFloat(days.toFixed(10))).replace(/\.?0+$/, "") || "";
+    if (unit === "hours") return String(parseFloat(hrs));
+    return hoursToDaysInputStr(hrs) || "";
   }, [unit]);
 
   useEffect(() => {
@@ -1333,10 +1339,9 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unit]);
 
-  const handleFocus = (e) => {
+  const handleFocus = () => {
     isFocused.current = true;
     if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
-    e.target.select();
   };
 
   const handleChange = (e) => {
@@ -1441,7 +1446,10 @@ const ResultPill = ({ label, value, primary = false }) => (
 
 const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, widgetInputSx, inputLabelSx }) => {
   const [draft, setDraft] = useState(null);
-  const displayVal = draft !== null ? draft : (value === 0 ? "" : String(value));
+  const [focused, setFocused] = useState(false);
+  const displayVal = focused && draft !== null
+    ? draft
+    : (value === 0 ? "" : String(value));
   return (
     <Box>
       {label && <Typography sx={inputLabelSx}>{label}</Typography>}
@@ -1450,17 +1458,15 @@ const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, 
         placeholder={placeholder ?? String(min)}
         value={displayVal}
         onChange={(e) => {
-          const raw = e.target.value;
+          const raw = e.target.value.replace(/[^\d]/g, "");
           setDraft(raw);
-          const num = parseInt(raw, 10);
-          if (!isNaN(num)) {
-            let clamped = Math.max(num, min);
-            if (max !== undefined) clamped = Math.min(clamped, max);
-            onChange(clamped);
-          }
         }}
-        onFocus={(e) => { setDraft(value === 0 ? "" : String(value)); e.target.select(); }}
+        onFocus={() => {
+          setFocused(true);
+          setDraft(value === 0 ? "" : String(value));
+        }}
         onBlur={() => {
+          setFocused(false);
           let num = parseInt(draft ?? "", 10);
           if (isNaN(num)) num = min;
           if (max !== undefined) num = Math.min(num, max);
@@ -1477,7 +1483,10 @@ const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, 
 
 const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, step = 0.5, label, snapToStep = false, widgetInputSx, inputLabelSx }) => {
   const [draft, setDraft] = useState(null);
-  const displayVal = draft !== null ? draft : (value === 0 ? "" : String(value));
+  const [focused, setFocused] = useState(false);
+  const displayVal = focused && draft !== null
+    ? draft
+    : (value === 0 ? "" : String(value));
   return (
     <Box>
       {label && <Typography sx={inputLabelSx}>{label}</Typography>}
@@ -1486,18 +1495,20 @@ const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, ste
         placeholder={placeholder ?? "0"}
         value={displayVal}
         onChange={(e) => {
-          const raw = e.target.value;
+          let raw = e.target.value.replace(",", ".");
+          raw = raw.replace(/[^\d.]/g, "");
+          const dot = raw.indexOf(".");
+          if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, "");
           setDraft(raw);
-          const num = parseFloat(raw);
-          if (!isNaN(num)) {
-            let clamped = Math.max(num, min);
-            if (max !== undefined) clamped = Math.min(clamped, max);
-            onChange(clamped);
-          }
         }}
-        onFocus={(e) => { setDraft(value === 0 ? "" : String(value)); e.target.select(); }}
+        onFocus={() => {
+          setFocused(true);
+          setDraft(value === 0 ? "" : String(value));
+        }}
         onBlur={() => {
-          let num = parseFloat(draft ?? "") || 0;
+          setFocused(false);
+          let num = parseFloat((draft ?? "").replace(",", "."));
+          if (!Number.isFinite(num)) num = 0;
           if (snapToStep && step) num = Math.round(num / step) * step;
           if (max !== undefined) num = Math.min(num, max);
           num = Math.max(num, min);

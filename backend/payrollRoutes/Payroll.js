@@ -40,6 +40,17 @@ function authenticateToken(req, res, next) {
 // UTILITY: time helpers
 // ─────────────────────────────────────────────
 
+/** Decimal hours (unpaid / salary-charged time) → HH, MM, SS strings for payroll_processing. */
+function decimalHoursToClockParts(totalHours) {
+  const t = Math.max(0, Number(totalHours) || 0);
+  const totalSeconds = Math.round(t * 3600);
+  const hNum = Math.floor(totalSeconds / 3600);
+  const mNum = Math.floor((totalSeconds % 3600) / 60);
+  const sNum = totalSeconds % 60;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return { h: pad2(hNum), m: pad2(mNum), s: pad2(sNum) };
+}
+
 // ─────────────────────────────────────────────
 // ROUTES
 // ─────────────────────────────────────────────
@@ -142,6 +153,7 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
     FROM payroll_processing p
     LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
     LEFT JOIN employment_category ec ON CAST(ec.employeeNumber AS CHAR) = CAST(p.employeeNumber AS CHAR)
+    LEFT JOIN employment_type_config etc ON etc.id = ec.employmentCategory
     LEFT JOIN (
       SELECT employeeNumber, MAX(id) as max_id
       FROM remittance_table
@@ -182,7 +194,16 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
       AND oar.startDate = p.startDate
       AND oar.endDate = p.endDate
     WHERE (p.rh IS NULL OR p.rh = "")
-      AND COALESCE(ec.employmentCategory, -1) IN (2, 3, 4, -1)
+      AND (
+        ec.employeeNumber IS NULL
+        OR (
+          COALESCE(ec.employmentCategory, -1) NOT IN (0, 1)
+          AND NOT (
+            etc.id IS NOT NULL
+            AND UPPER(TRIM(IFNULL(etc.parentGroup, ''))) = 'J0'
+          )
+        )
+      )
       AND (
         p.employeeNumber LIKE ?
         OR CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) LIKE ?
@@ -300,6 +321,7 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
       FROM payroll_processing p
       LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
       LEFT JOIN employment_category ec ON CAST(ec.employeeNumber AS CHAR) = CAST(p.employeeNumber AS CHAR)
+      LEFT JOIN employment_type_config etc ON etc.id = ec.employmentCategory
       LEFT JOIN (
         SELECT employeeNumber, MAX(id) as max_id
         FROM remittance_table
@@ -340,7 +362,16 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
         AND oar.startDate = p.startDate
         AND oar.endDate = p.endDate
       WHERE (p.rh IS NULL OR p.rh = "")
-        AND COALESCE(ec.employmentCategory, -1) IN (2, 3, 4, -1)
+        AND (
+          ec.employeeNumber IS NULL
+          OR (
+            COALESCE(ec.employmentCategory, -1) NOT IN (0, 1)
+            AND NOT (
+              etc.id IS NOT NULL
+              AND UPPER(TRIM(IFNULL(etc.parentGroup, ''))) = 'J0'
+            )
+          )
+        )
     `;
 
     const queryParams = [];
@@ -724,12 +755,7 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
 
   try {
     for (const record of attendanceData) {
-      const {
-        employeeNumber,
-        startDate,
-        endDate,
-        overallRenderedOfficialTimeTardiness,
-      } = record;
+      const { employeeNumber, startDate, endDate } = record;
 
       const [departmentRows] = await db
         .promise()
@@ -748,22 +774,110 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
 
       const departmentCode = departmentRows[0].code;
 
-      let h = '00',
-        m = '00',
-        s = '00';
-      if (overallRenderedOfficialTimeTardiness) {
-        const parts = overallRenderedOfficialTimeTardiness.split(':');
-        if (parts.length === 3) {
-          h = parts[0].padStart(2, '0');
-          m = parts[1].padStart(2, '0');
-          s = parts[2].padStart(2, '0');
+      let displayName = null;
+      try {
+        const [personRows] = await db.promise().query(
+          `SELECT CONCAT_WS(', ', pt.lastName, CONCAT_WS(' ', pt.firstName, pt.middleName, pt.nameExtension)) AS display_name
+           FROM person_table pt
+           WHERE pt.agencyEmployeeNum = ?
+           LIMIT 1`,
+          [employeeNumber],
+        );
+        if (personRows.length > 0 && personRows[0].display_name) {
+          displayName = String(personRows[0].display_name).trim() || null;
         }
+      } catch (e) {
+        console.error('[add-rendered-time] person name lookup:', e.message);
       }
+
+      /**
+       * abs + h/m/s from attendance_result (earnings path), not overall_attendance tardiness.
+       * - abs: SUM(unpaid_hours) / 8
+       * - h,m,s: SUM(unpaid_hours) as clock (e.g. 8.5h charged to salary → 08:30:00); 0 if fully covered by leave
+       */
+      let absDays = 0;
+      let unpaidHoursForClock = 0;
+      try {
+        const [arRows] = await db.promise().query(
+          `SELECT
+             COALESCE(SUM(ar.unpaid_hours), 0) / 8 AS abs_days,
+             COALESCE(SUM(ar.unpaid_hours), 0) AS unpaid_hours_total
+           FROM attendance_result ar
+           WHERE TRIM(CAST(ar.employee_number AS CHAR)) = TRIM(CAST(? AS CHAR))
+             AND ar.result_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)`,
+          [employeeNumber, startDate, endDate],
+        );
+        if (arRows.length > 0 && arRows[0]) {
+          const ad = Number(arRows[0].abs_days);
+          absDays = Number.isFinite(ad) ? ad : 0;
+          const uh = Number(arRows[0].unpaid_hours_total);
+          unpaidHoursForClock = Number.isFinite(uh) ? uh : 0;
+        }
+      } catch (e) {
+        if (!String(e.message || "").includes("attendance_result")) {
+          console.error("[add-rendered-time] attendance_result:", e.message);
+        }
+        try {
+          const [shortfallRows] = await db.promise().query(
+            `SELECT COALESCE(SUM(lss.shortfall_days), 0) AS abs_days
+             FROM leave_salary_shortfall lss
+             WHERE TRIM(CAST(lss.employee_number AS CHAR)) = TRIM(CAST(? AS CHAR))
+               AND TRIM(IFNULL(lss.entry_type, '')) <> 'No Deduction'
+               AND lss.shortfall_days > 0
+               AND (
+                 (
+                   lss.reference_date IS NOT NULL
+                   AND CAST(lss.reference_date AS CHAR) NOT IN ('0000-00-00', '1970-01-01')
+                   AND lss.reference_date BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
+                 )
+                 OR (
+                   LAST_DAY(STR_TO_DATE(CONCAT(lss.period_year, '-', LPAD(lss.period_month, 2, '0'), '-01'), '%Y-%m-%d'))
+                     >= CAST(? AS DATE)
+                   AND STR_TO_DATE(CONCAT(lss.period_year, '-', LPAD(lss.period_month, 2, '0'), '-01'), '%Y-%m-%d')
+                     <= CAST(? AS DATE)
+                 )
+               )`,
+            [employeeNumber, startDate, endDate, startDate, endDate],
+          );
+          if (shortfallRows.length > 0 && shortfallRows[0].abs_days != null) {
+            const n = Number(shortfallRows[0].abs_days);
+            absDays = Number.isFinite(n) ? n : 0;
+          }
+        } catch (e2) {
+          console.error("[add-rendered-time] leave_salary_shortfall sum (fallback):", e2.message);
+        }
+        unpaidHoursForClock = 0;
+      }
+
+      const bodyName =
+        typeof record.name === 'string' && String(record.name).trim()
+          ? String(record.name).trim()
+          : null;
+      const bodyAbsRaw = record.abs ?? record.absent;
+      let bodyAbs = null;
+      if (bodyAbsRaw !== undefined && bodyAbsRaw !== null && bodyAbsRaw !== '') {
+        const n = Number(bodyAbsRaw);
+        if (Number.isFinite(n)) bodyAbs = n;
+      }
+
+      const nameForRow = bodyName || displayName;
+      const absForRow = bodyAbs !== null ? bodyAbs : absDays;
+
+      /**
+       * When the client sends explicit `abs` (ABSTRACT / selective send), clock fields must match that
+       * slice only — not SUM(attendance_result) for the whole period, or payroll shows both lines' time
+       * while `abs` reflected only the first selection.
+       */
+      const clockHoursForInsert =
+        bodyAbs !== null && Number.isFinite(Number(bodyAbs))
+          ? Math.max(0, Number(bodyAbs)) * 8
+          : unpaidHoursForClock;
+      const { h, m, s } = decimalHoursToClockParts(clockHoursForInsert);
 
       const [existingRows] = await db
         .promise()
         .query(
-          'SELECT id, rh, rm, rs FROM payroll_processing WHERE employeeNumber = ? AND startDate = ? AND endDate = ? LIMIT 5',
+          'SELECT id, rh, rm, rs, abs FROM payroll_processing WHERE employeeNumber = ? AND startDate = ? AND endDate = ? LIMIT 5',
           [employeeNumber, startDate, endDate],
         );
 
@@ -777,8 +891,8 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
         await db
           .promise()
           .query(
-            'INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, rh, rm, rs, department) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)',
-            [employeeNumber, startDate, endDate, h, m, s, departmentCode],
+            'INSERT INTO payroll_processing (employeeNumber, startDate, endDate, h, m, s, rh, rm, rs, department, name, abs) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)',
+            [employeeNumber, startDate, endDate, h, m, s, departmentCode, nameForRow, absForRow],
           );
         newCount++;
 
@@ -786,6 +900,32 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
         try {
           logAudit(req.user, 'ADD', 'payroll_processing', employeeNumber, employeeNumber);
         } catch (e) { console.error('Audit log error:', e); }
+      } else if (bodyAbs !== null && Number(bodyAbs) > 0) {
+        /** Incremental ABSTRACT sends: add only the selected rows' abs onto the existing regular payroll row. */
+        const reg = existingRows.find(
+          (row) => row.rh === null || row.rh === '' || row.rh === 0,
+        );
+        if (reg && reg.id != null) {
+          const prevAbs = Number(reg.abs);
+          const prevA = Number.isFinite(prevAbs) ? prevAbs : 0;
+          const addAbs = Number(bodyAbs);
+          const addA = Number.isFinite(addAbs) ? addAbs : 0;
+          if (addA > 0) {
+            const newAbs = prevA + addA;
+            const totalHours = newAbs * 8;
+            const clock = decimalHoursToClockParts(totalHours);
+            await db
+              .promise()
+              .query(
+                'UPDATE payroll_processing SET abs = ?, h = ?, m = ?, s = ?, name = COALESCE(?, name) WHERE id = ?',
+                [newAbs, clock.h, clock.m, clock.s, nameForRow, reg.id],
+              );
+            newCount++;
+            try {
+              logAudit(req.user, 'UPDATE', 'payroll_processing', reg.id, employeeNumber);
+            } catch (e) { console.error('Audit log error:', e); }
+          }
+        }
       }
 
     }

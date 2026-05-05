@@ -272,18 +272,124 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
         });
       }
 
-      const merged = [...(results || []), ...extras].sort((a, b) =>
-        normDate(a.date).localeCompare(normDate(b.date)),
-      );
+      // Scheduled workdays in range with no attendancerecord row (no punch / not synced):
+      // return official time only so modules can show full official tardiness.
+      const scheduleGapSql = `
+        WITH RECURSIVE date_series AS (
+          SELECT CAST(? AS DATE) AS cal_date
+          UNION ALL
+          SELECT DATE_ADD(cal_date, INTERVAL 1 DAY)
+          FROM date_series
+          WHERE cal_date < CAST(? AS DATE)
+        )
+        SELECT
+          DATE_FORMAT(ds.cal_date, '%Y-%m-%d') AS gap_date,
+          DAYNAME(ds.cal_date) AS dow,
+          u.employeeNumber,
+          u.username,
+          u.employmentCategory,
+          ot.officialTimeIN,
+          ot.officialTimeOUT,
+          ot.officialBreaktimeIN,
+          ot.officialBreaktimeOUT,
+          ot.officialHonorariumTimeIN,
+          ot.officialHonorariumTimeOUT,
+          ot.officialServiceCreditTimeIN,
+          ot.officialServiceCreditTimeOUT,
+          ot.officialOverTimeIN,
+          ot.officialOverTimeOUT
+        FROM date_series ds
+        INNER JOIN officialtime ot
+          ON CAST(ot.employeeID AS CHAR) = CAST(? AS CHAR)
+          AND ot.day = DAYNAME(ds.cal_date)
+          AND ds.cal_date BETWEEN ot.startDate AND ot.endDate
+          AND ot.id = (
+            SELECT MAX(ot2.id)
+            FROM officialtime ot2
+            WHERE CAST(ot2.employeeID AS CHAR) = CAST(? AS CHAR)
+              AND ot2.day = DAYNAME(ds.cal_date)
+              AND ds.cal_date BETWEEN ot2.startDate AND ot2.endDate
+          )
+        INNER JOIN users u
+          ON CAST(u.employeeNumber AS CHAR) = CAST(? AS CHAR)
+        WHERE ds.cal_date BETWEEN ? AND ?
+          AND NOT EXISTS (
+            SELECT 1 FROM attendancerecord ar
+            WHERE CAST(ar.personID AS CHAR) = CAST(? AS CHAR)
+              AND ar.date = DATE_FORMAT(ds.cal_date, '%Y-%m-%d')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM leave_request lr
+            WHERE lr.status = 2
+              AND CAST(lr.employeeNumber AS CHAR) = CAST(? AS CHAR)
+              AND DATE_FORMAT(lr.leave_date, '%Y-%m-%d') = DATE_FORMAT(ds.cal_date, '%Y-%m-%d')
+          )
+      `;
 
-      logAudit(
-        req.user,
-        `Viewed Attendance Records`,
-        'Attendance Module (Non-Teaching/30hrs/40hrs)',
-        `${startDate} to ${endDate}`,
+      const scheduleGapParams = [
+        startDate,
+        endDate,
         personId,
-      );
-      res.json(merged);
+        personId,
+        personId,
+        startDate,
+        endDate,
+        personId,
+        personId,
+      ];
+
+      db.query(scheduleGapSql, scheduleGapParams, (err3, scheduleRows) => {
+        if (err3) {
+          console.error('Error fetching schedule-only attendance rows:', err3);
+        } else {
+          for (const r of scheduleRows || []) {
+            const d = r.gap_date;
+            if (!d || seenDates.has(d)) continue;
+            seenDates.add(d);
+            extras.push({
+              id: null,
+              personID: String(r.employeeNumber),
+              date: d,
+              Day: r.dow,
+              day: r.dow,
+              timeIN: null,
+              breaktimeIN: null,
+              breaktimeOUT: null,
+              timeOUT: null,
+              specialType: null,
+              specialTimeIN: null,
+              specialTimeOUT: null,
+              employeeNumber: r.employeeNumber,
+              username: r.username,
+              employmentCategory: r.employmentCategory,
+              officialTimeIN: r.officialTimeIN,
+              officialTimeOUT: r.officialTimeOUT,
+              officialBreaktimeIN: r.officialBreaktimeIN,
+              officialBreaktimeOUT: r.officialBreaktimeOUT,
+              officialHonorariumTimeIN: r.officialHonorariumTimeIN,
+              officialHonorariumTimeOUT: r.officialHonorariumTimeOUT,
+              officialServiceCreditTimeIN: r.officialServiceCreditTimeIN,
+              officialServiceCreditTimeOUT: r.officialServiceCreditTimeOUT,
+              officialOverTimeIN: r.officialOverTimeIN,
+              officialOverTimeOUT: r.officialOverTimeOUT,
+              _syntheticNoRecordDay: true,
+            });
+          }
+        }
+
+        const merged = [...(results || []), ...extras].sort((a, b) =>
+          normDate(a.date).localeCompare(normDate(b.date)),
+        );
+
+        logAudit(
+          req.user,
+          `Viewed Attendance Records`,
+          'Attendance Module (Non-Teaching/30hrs/40hrs)',
+          `${startDate} to ${endDate}`,
+          personId,
+        );
+        res.json(merged);
+      });
     });
   });
 });

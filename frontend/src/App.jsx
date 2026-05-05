@@ -461,6 +461,8 @@ function App() {
             border: `1.5px solid ${systemSettings.modalBorderColor || "#894444"}`,
             borderRadius: 12,
             boxShadow: `0 8px 40px ${systemSettings.modalBorderColor || "#894444"}33`,
+            // Custom attendance modals use Box/Typography instead of DialogTitle; inherit Poppins here so body + native buttons match the app.
+            fontFamily: "Poppins, sans-serif",
           },
         },
       },

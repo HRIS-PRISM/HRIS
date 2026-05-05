@@ -419,12 +419,21 @@ const RecordsPanel = ({ employeeNumber, type, unit, refreshKey, selectedMonth })
 
   useEffect(() => { fetch(); }, [fetch, refreshKey]);
 
+  const earningPositiveId = (record) => {
+    const raw = record?.id;
+    if (raw == null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
   const handleApprove = async (record) => {
+    const stableId = earningPositiveId(record);
+    if (stableId == null) return;
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
       await axios.patch(
-        `${API_BASE_URL}/api/earnings/${type}/${record.id}/approve`,
+        `${API_BASE_URL}/api/earnings/${type}/${stableId}/approve`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -434,11 +443,16 @@ const RecordsPanel = ({ employeeNumber, type, unit, refreshKey, selectedMonth })
   };
 
   const handleReject = async (reason) => {
+    const stableId = earningPositiveId(rejectDialog.record);
+    if (stableId == null) {
+      setRejectDialog({ open: false, record: null });
+      return;
+    }
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
       await axios.patch(
-        `${API_BASE_URL}/api/earnings/${type}/${rejectDialog.record.id}/reject`,
+        `${API_BASE_URL}/api/earnings/${type}/${stableId}/reject`,
         { reason },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -449,11 +463,13 @@ const RecordsPanel = ({ employeeNumber, type, unit, refreshKey, selectedMonth })
   };
 
   const handleDelete = async (record) => {
+    const stableId = earningPositiveId(record);
+    if (stableId == null) return;
     if (!window.confirm("Delete this earning record? This cannot be undone.")) return;
     try {
       const token = localStorage.getItem("token");
       await axios.delete(
-        `${API_BASE_URL}/api/earnings/${type}/${record.id}`,
+        `${API_BASE_URL}/api/earnings/${type}/${stableId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       fetch();

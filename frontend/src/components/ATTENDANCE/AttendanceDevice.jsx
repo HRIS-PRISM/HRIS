@@ -804,6 +804,86 @@ const ViewAttendanceRecord = () => {
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
 
+  const renderSubmitToAttendanceNav = () => (
+    <Box
+      sx={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 0.75,
+        rowGap: 0.75,
+      }}
+    >
+      <Typography
+        component="span"
+        sx={{
+          fontSize: '0.7rem',
+          fontWeight: 700,
+          color: T.muted,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Submit to
+      </Typography>
+      <Button
+        variant="outlined"
+        size="small"
+        startIcon={<People sx={{ fontSize: 15 }} />}
+        onClick={() => navigate('/attendance_module')}
+        sx={{
+          textTransform: 'none',
+          fontWeight: 700,
+          fontSize: '0.7rem',
+          py: 0.35,
+          minHeight: 30,
+          borderColor: T.accentBorder,
+          color: T.accent,
+          '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
+        }}
+      >
+        Non-teaching
+      </Button>
+      <Button
+        variant="outlined"
+        size="small"
+        startIcon={<AccessTime sx={{ fontSize: 15 }} />}
+        onClick={() => navigate('/attendance_module_faculty')}
+        sx={{
+          textTransform: 'none',
+          fontWeight: 700,
+          fontSize: '0.7rem',
+          py: 0.35,
+          minHeight: 30,
+          borderColor: T.accentBorder,
+          color: T.accent,
+          '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
+        }}
+      >
+        Faculty 30 hrs
+      </Button>
+      <Button
+        variant="outlined"
+        size="small"
+        startIcon={<Assignment sx={{ fontSize: 15 }} />}
+        onClick={() => navigate('/attendance_module_faculty_40hrs')}
+        sx={{
+          textTransform: 'none',
+          fontWeight: 700,
+          fontSize: '0.7rem',
+          py: 0.35,
+          minHeight: 30,
+          borderColor: T.accentBorder,
+          color: T.accent,
+          '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
+        }}
+      >
+        Faculty designated
+      </Button>
+    </Box>
+  );
+
   const [personID, setPersonID] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -2017,19 +2097,83 @@ const ViewAttendanceRecord = () => {
                       )}
                     </Box>
 
-                    {/* Footer legend */}
+                    {/* Footer legend + submit to attendance modules */}
                     {records.length > 0 && (
-                      <Box sx={{ px: 3, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-                        {[
-                          { icon: <CheckCircle sx={{ fontSize: 13, color: '#4caf50' }} />, label: 'Auto-saved from biometric device' },
-                          { icon: <Info sx={{ fontSize: 13, color: T.accent }} />, label: 'Times in 12-hour format' },
-                          { icon: <Cancel sx={{ fontSize: 13, color: '#f44336' }} />, label: 'Uncategorized — scanned but no button pressed' },
-                        ].map((item, i) => (
-                          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
-                            {item.icon}
-                            <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
-                          </Box>
-                        ))}
+                      <Box
+                        sx={{
+                          px: 3,
+                          py: 1.25,
+                          borderTop: `1px solid ${T.divider}`,
+                          bgcolor: T.accentFaint,
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          columnGap: 2.5,
+                          rowGap: 1.25,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 2.5,
+                            alignItems: 'center',
+                            minWidth: 0,
+                            flex: '1 1 auto',
+                          }}
+                        >
+                          {[
+                            {
+                              icon: (
+                                <CheckCircle
+                                  sx={{ fontSize: 13, color: '#4caf50' }}
+                                />
+                              ),
+                              label: 'Auto-saved from biometric device',
+                            },
+                            {
+                              icon: (
+                                <Info sx={{ fontSize: 13, color: T.accent }} />
+                              ),
+                              label: 'Times in 12-hour format',
+                            },
+                            {
+                              icon: (
+                                <Cancel sx={{ fontSize: 13, color: '#f44336' }} />
+                              ),
+                              label:
+                                'Uncategorized — scanned but no button pressed',
+                            },
+                          ].map((item, i) => (
+                            <Box
+                              key={i}
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.6,
+                              }}
+                            >
+                              {item.icon}
+                              <Typography
+                                sx={{ fontSize: '0.7rem', color: T.faint }}
+                              >
+                                {item.label}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                        <Box
+                          sx={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            ml: { xs: 0, md: 1 },
+                          }}
+                        >
+                          {renderSubmitToAttendanceNav()}
+                        </Box>
                       </Box>
                     )}
                   </>
@@ -2214,9 +2358,30 @@ const ViewAttendanceRecord = () => {
                           )}
                         </Box>
 
-                        {/* Footer */}
-                        <Box sx={{ px: 3, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, flexShrink: 0 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {/* Footer: selection, submit-to modules, pagination */}
+                        <Box
+                          sx={{
+                            px: 3,
+                            py: 1.25,
+                            borderTop: `1px solid ${T.divider}`,
+                            bgcolor: T.accentFaint,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 1.5,
+                            rowGap: 1.25,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1,
+                              flexShrink: 0,
+                            }}
+                          >
                             <AccentButton
                               variant="text"
                               size="small"
@@ -2226,7 +2391,27 @@ const ViewAttendanceRecord = () => {
                               {selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0 ? 'Deselect All' : 'Select All'}
                             </AccentButton>
                           </Box>
-                          <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              gap: 1.5,
+                              flex: '1 1 auto',
+                              justifyContent: 'center',
+                              minWidth: 0,
+                            }}
+                          >
+                            {renderSubmitToAttendanceNav()}
+                          </Box>
+                          <Typography
+                            sx={{
+                              fontSize: '0.75rem',
+                              color: T.muted,
+                              flexShrink: 0,
+                              ml: { xs: 0, md: 'auto' },
+                            }}
+                          >
                             {filteredUsers.length > 0
                               ? `Showing ${Math.min(filteredUsers.length, (currentPage - 1) * rowsPerPage + 1)}–${Math.min(filteredUsers.length, currentPage * rowsPerPage)} of ${filteredUsers.length}`
                               : '0 users'}

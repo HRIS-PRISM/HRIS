@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../apiConfig";
 import { useSocket } from "../../contexts/SocketContext";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -22,7 +23,6 @@ import {
   Fade,
   IconButton,
   Dialog,
-  DialogTitle,
   DialogContent,
   DialogActions,
   InputLabel,
@@ -31,6 +31,7 @@ import {
   Tabs,
   Tab,
   Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
@@ -71,6 +72,8 @@ import {
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
   MoneyOff as SalaryShortfallIcon,
+  Assignment as PayrollAssignmentIcon,
+  ViewStream as AbstractTabIcon,
 } from "@mui/icons-material";
 import { LeaveInputColumn } from './EARNINGS/LeaveEarnings';
 import { SCInputColumn } from './EARNINGS/SCEarnings';
@@ -78,12 +81,61 @@ import { CTOInputColumn } from './EARNINGS/CTOEarnings';
 import { AttendanceSummary } from './EARNINGS/AttendanceSummary';
 import { RecordsList, DeptBadge, EmpCatBadge } from './EARNINGS/RecordsList';
 import { SalaryShortfallRegistry } from './EARNINGS/SalaryShortfallRegistry';
+import { Abstract } from './EARNINGS/Abstract';
+import { useEarningsRealtimeRefresh } from "./EARNINGS/useEarningsRealtimeRefresh";
 import { useRef } from "react";
 import {
   getDeductionSourceBalanceDays,
   isDeductionSourceSufficient,
   fetchDeductionCreditSnapshots,
 } from "../../utils/deductionSourceBalances";
+import {
+  filterRecordsForRegularPayroll,
+  postRegularPayrollSubmission,
+  payrollAuthHeaders,
+} from "../../utils/regularPayrollFromAttendance";
+import { computeOfficialAwareAbsenceAndLate } from "../../utils/officialAttendanceFromDailyRows";
+import { fetchAttendanceCalendarMaps } from "../ATTENDANCE/attendanceLeaveIntegration";
+
+async function mergeSummaryLateOnlyTardiness(summary, employeeNumber, headers) {
+  if (!summary?.startDate || !summary?.endDate || !employeeNumber) return summary;
+  try {
+    const getAuthHeaders = () => ({ headers });
+    const [r, maps] = await Promise.all([
+      axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
+        params: {
+          personId: String(employeeNumber).trim(),
+          startDate: summary.startDate,
+          endDate: summary.endDate,
+        },
+        headers,
+      }),
+      fetchAttendanceCalendarMaps({
+        apiBaseUrl: API_BASE_URL,
+        getAuthHeaders,
+        startDate: summary.startDate,
+        endDate: summary.endDate,
+        personId: employeeNumber,
+      }),
+    ]);
+    const dailyRows = Array.isArray(r.data) ? r.data : r.data?.data || [];
+    const calendarMaps = {
+      suspensionByDate: maps.suspensionByDate,
+      holidayByDate: maps.holidayByDate,
+      leaveByDate: maps.leaveByDate,
+    };
+    const c = computeOfficialAwareAbsenceAndLate(dailyRows, calendarMaps);
+    const noAbsentNoHalf =
+      c.absentSecTotal === 0 && c.halfDayShortfallSecTotal === 0;
+    if (noAbsentNoHalf) return { ...summary };
+    return {
+      ...summary,
+      overallRenderedOfficialTimeTardiness: c.lateShortfallTime,
+    };
+  } catch {
+    return summary;
+  }
+}
 
 const T = {
   accent: "#6d2323",
@@ -316,7 +368,6 @@ function sanitizeDecimal(v) {
 const EarningsWireframe = () => (
   <>
     <style>{shimmerKf}</style>
-    {/* ── Header card skeleton ── */}
     <Box
       sx={{
         width: "100vw",
@@ -330,7 +381,6 @@ const EarningsWireframe = () => (
         mt: { xs: 0, md: -5 },
       }}
     >
-      {/* Header card skeleton */}
       <Box
         sx={{
           mb: 0,
@@ -340,7 +390,6 @@ const EarningsWireframe = () => (
           animation: 'blink 2s ease-in-out infinite',
         }}
       >
-        {/* Gradient top bar */}
         <Box
           sx={{
             p: 3,
@@ -364,7 +413,6 @@ const EarningsWireframe = () => (
           <Bone w={140} h={30} r={8} />
         </Box>
 
-        {/* Employee selector row */}
         <Box
           sx={{
             px: 4, py: 2,
@@ -381,48 +429,9 @@ const EarningsWireframe = () => (
           <Bone w={160} h={32} r={8} />
           <Bone w={260} h={28} r={8} sx={{ ml: 'auto' }} />
         </Box>
-
-        {/* Tab row */}
-        <Box
-          sx={{
-            background: 'linear-gradient(135deg,#6d2323 0%,#7e2c2c 100%)',
-            px: 1, pt: 0.75, pb: 0,
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: 0.5,
-          }}
-        >
-          {[100, 130, 180].map((w, i) => (
-            <Box
-              key={i}
-              sx={{
-                px: 2.5, py: 1.1,
-                borderRadius: '8px 8px 0 0',
-                bgcolor: i === 0 ? 'rgba(255,255,255,0.95)' : 'transparent',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.75,
-              }}
-            >
-              <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: i === 0 ? 'rgba(109,35,35,0.2)' : 'rgba(255,255,255,0.25)' }} />
-              <Bone
-                w={w}
-                h={11}
-                sx={{
-                  background: i === 0
-                    ? `linear-gradient(90deg, rgba(109,35,35,0.1) 25%, rgba(109,35,35,0.2) 50%, rgba(109,35,35,0.1) 75%)`
-                    : `linear-gradient(90deg, rgba(255,255,255,0.15) 25%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0.15) 75%)`,
-                  backgroundSize: '800px 100%',
-                }}
-              />
-            </Box>
-          ))}
-        </Box>
       </Box>
-
     </Box>
 
-    {/* ── 3-Column Content skeleton ── */}
     <Box
       sx={{
         width: "100vw",
@@ -442,22 +451,18 @@ const EarningsWireframe = () => (
           overflow: { xs: "visible", md: "hidden" },
           bgcolor: "#fff",
           display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
-          height: { xs: "auto", md: "calc(100vh - 340px)" },
+          gridTemplateColumns: { xs: "1fr", md: "1fr 2fr" },
+          height: { xs: "auto", md: "calc(100vh - 280px)" },
           minHeight: { xs: "unset", md: 480 },
-          rowGap: { xs: 2, md: 0 },
           animation: "blink 2s ease-in-out 0.1s infinite",
         }}
       >
-        {/* Col 1 — Attendance */}
         <Box sx={{ borderRight: { xs: "none", md: "1px solid rgba(0,0,0,0.08)" }, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {/* col header */}
           <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
             <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
             <Bone w={160} h={10} />
           </Box>
           <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            {/* summary card skeleton */}
             <Box sx={{ borderRadius: 2, border: '1px solid rgba(0,0,0,0.1)', overflow: 'hidden' }}>
               <Box sx={{ display: 'flex', height: 72 }}>
                 <Box sx={{ width: 52, bgcolor: 'rgba(109,35,35,0.04)', borderRight: '1px solid rgba(0,0,0,0.07)' }} />
@@ -469,129 +474,36 @@ const EarningsWireframe = () => (
                 <Box sx={{ flex: 1, bgcolor: 'rgba(46,125,50,0.04)' }} />
               </Box>
             </Box>
-            {/* edit record skeleton */}
-            <Box sx={{ borderRadius: 1.5, border: '1px solid rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-              <Box sx={{ px: 1.5, py: 0.85, bgcolor: 'rgba(0,0,0,0.03)', borderBottom: '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Bone w={90} h={10} />
-                <Bone w={40} h={22} r={6} />
-              </Box>
-              <Box sx={{ p: 1.5, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                {[1, 2].map((i) => (
-                  <Box key={i} sx={{ borderRadius: 1.5, border: '1px solid rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-                    <Box sx={{ px: 1, py: 0.4, bgcolor: 'rgba(0,0,0,0.03)', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
-                      <Bone w="60%" h={8} />
-                    </Box>
-                    <Box sx={{ p: 1 }}>
-                      <Bone w="80%" h={16} />
-                      <Bone w="50%" h={9} sx={{ mt: 0.5 }} />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-            {/* deduction receipt skeleton */}
-            <Box sx={{ borderRadius: 1.5, border: '1px solid rgba(109,35,35,0.15)', overflow: 'hidden' }}>
-              <Box sx={{ px: 1.5, py: 0.75, bgcolor: 'rgba(109,35,35,0.06)', borderBottom: '1px solid rgba(109,35,35,0.1)', display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Box sx={{ width: 11, height: 11, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
-                <Bone w={180} h={9} />
-              </Box>
-              <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Box sx={{ borderRadius: 1.25, border: '1px solid rgba(109,35,35,0.12)', overflow: 'hidden' }}>
-                  {[80, 120, 100].map((w, i) => (
-                    <Box key={i} sx={{ px: 1.25, py: 0.85, borderBottom: i < 2 ? '1px solid rgba(0,0,0,0.06)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Bone w={w} h={10} />
-                      <Bone w={50} h={13} r={4} />
-                    </Box>
-                  ))}
-                </Box>
-                <Bone w="100%" h={30} r={6} />
-              </Box>
-            </Box>
           </Box>
         </Box>
 
-        {/* Col 2 — Input */}
-        <Box sx={{ borderRight: { xs: "none", md: "1px solid rgba(0,0,0,0.08)" }, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-            <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-            <Bone w={180} h={10} />
-          </Box>
-          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25, flex: 1 }}>
-            <Bone w="55%" h={10} />
-            {[1, 2, 3, 4, 5].map((i) => (
+        <Box sx={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <Box
+            sx={{
+              background: 'linear-gradient(135deg,#6d2323 0%,#7e2c2c 100%)',
+              px: 1, pt: 0.75, pb: 0,
+              display: 'flex',
+              alignItems: 'flex-end',
+              gap: 0.5,
+              flexShrink: 0,
+            }}
+          >
+            {[100, 130, 80, 100, 140].map((w, i) => (
               <Box
                 key={i}
                 sx={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto',
+                  px: 2.5, py: 1.1,
+                  borderRadius: '8px 8px 0 0',
+                  bgcolor: i === 0 ? 'rgba(255,255,255,0.95)' : 'transparent',
+                  display: 'flex',
                   alignItems: 'center',
-                  gap: 1,
-                  px: 1.25, py: 0.85,
-                  borderRadius: 1.5,
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  bgcolor: 'rgba(0,0,0,0.01)',
+                  gap: 0.75,
                 }}
               >
-                <Box>
-                  <Bone w={80} h={11} sx={{ mb: 0.5 }} />
-                  <Bone w={120} h={8} />
-                </Box>
-                <Bone w={80} h={32} r={6} />
+                <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: i === 0 ? 'rgba(109,35,35,0.2)' : 'rgba(255,255,255,0.25)' }} />
+                <Bone w={w} h={11} sx={{ background: i === 0 ? `linear-gradient(90deg, rgba(109,35,35,0.1) 25%, rgba(109,35,35,0.2) 50%, rgba(109,35,35,0.1) 75%)` : `linear-gradient(90deg, rgba(255,255,255,0.15) 25%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0.15) 75%)`, backgroundSize: '800px 100%' }} />
               </Box>
             ))}
-          </Box>
-          <Box sx={{ px: 2, pb: 2, pt: 1, borderTop: '1px solid rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Bone w="100%" h={32} r={8} />
-            <Bone w="100%" h={36} r={8} />
-          </Box>
-        </Box>
-
-        {/* Col 3 — Records */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-            <Box sx={{ width: 13, height: 13, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-            <Bone w={150} h={10} />
-          </Box>
-          {/* type filter bar */}
-          <Box sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(109,35,35,0.02)', display: 'flex', gap: 0.75, flexShrink: 0 }}>
-            {[50, 55, 40, 55].map((w, i) => <Bone key={i} w={w} h={20} r={20} />)}
-          </Box>
-          {/* status filter bar */}
-          <Box sx={{ px: 1.5, py: 0.6, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.015)', display: 'flex', gap: 0.75, flexShrink: 0 }}>
-            {[60, 65, 68, 65].map((w, i) => <Bone key={i} w={w} h={18} r={20} />)}
-          </Box>
-          {/* record rows */}
-          <Box sx={{ flex: 1, overflowY: 'auto', px: 1.5, pt: 1.25, pb: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {[1, 2, 3, 4].map((i) => (
-              <Box
-                key={i}
-                sx={{
-                  p: 1.5,
-                  borderRadius: 2,
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  bgcolor: '#fff',
-                  animation: `blink 1.6s ease-in-out ${i * 0.1}s infinite`,
-                }}
-              >
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
-                  <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
-                    <Bone w={40} h={16} r={20} />
-                    <Bone w={80} h={14} />
-                    <Bone w={55} h={16} r={20} />
-                  </Box>
-                  <Bone w={55} h={22} r={6} />
-                </Box>
-                <Bone w="35%" h={18} sx={{ mb: 0.5 }} />
-                <Bone w="60%" h={9} />
-              </Box>
-            ))}
-          </Box>
-          {/* pagination */}
-          <Box sx={{ px: 1.5, py: 0.85, borderTop: '1px solid rgba(0,0,0,0.08)', bgcolor: 'rgba(0,0,0,0.015)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-            <Bone w={120} h={10} />
-            <Box sx={{ display: 'flex', gap: 0.4 }}>
-              {[1, 2, 3, 4].map((i) => <Bone key={i} w={20} h={20} r={4} />)}
-            </Box>
           </Box>
         </Box>
       </Box>
@@ -680,7 +592,9 @@ const ClearableIntField = ({
   widgetInputSx,
 }) => {
   const [draft, setDraft] = useState(null);
-  const displayVal = draft !== null ? draft : value === 0 ? "" : String(value);
+  const [focused, setFocused] = useState(false);
+  const displayVal =
+    focused && draft !== null ? draft : value === 0 ? "" : String(value);
   return (
     <input
       type="text"
@@ -688,20 +602,15 @@ const ClearableIntField = ({
       placeholder={placeholder ?? String(min)}
       value={displayVal}
       onChange={(e) => {
-        const raw = e.target.value;
+        const raw = e.target.value.replace(/[^\d]/g, "");
         setDraft(raw);
-        const num = parseInt(raw, 10);
-        if (!isNaN(num)) {
-          let c = Math.max(num, min);
-          if (max !== undefined) c = Math.min(c, max);
-          onChange(c);
-        }
       }}
-      onFocus={(e) => {
+      onFocus={() => {
+        setFocused(true);
         setDraft(value === 0 ? "" : String(value));
-        e.target.select();
       }}
       onBlur={() => {
+        setFocused(false);
         let num = parseInt(draft ?? "", 10);
         if (isNaN(num)) num = min;
         if (max !== undefined) num = Math.min(num, max);
@@ -729,7 +638,9 @@ const ClearableDecimalField = ({
   widgetInputSx,
 }) => {
   const [draft, setDraft] = useState(null);
-  const displayVal = draft !== null ? draft : value === 0 ? "" : String(value);
+  const [focused, setFocused] = useState(false);
+  const displayVal =
+    focused && draft !== null ? draft : value === 0 ? "" : String(value);
   return (
     <input
       type="text"
@@ -737,21 +648,22 @@ const ClearableDecimalField = ({
       placeholder={placeholder ?? "0"}
       value={displayVal}
       onChange={(e) => {
-        const raw = e.target.value;
+        let raw = e.target.value.replace(",", ".");
+        raw = raw.replace(/[^\d.]/g, "");
+        const dot = raw.indexOf(".");
+        if (dot !== -1)
+          raw =
+            raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, "");
         setDraft(raw);
-        const num = parseFloat(raw);
-        if (!isNaN(num)) {
-          let c = Math.max(num, min);
-          if (max !== undefined) c = Math.min(c, max);
-          onChange(c);
-        }
       }}
-      onFocus={(e) => {
+      onFocus={() => {
+        setFocused(true);
         setDraft(value === 0 ? "" : String(value));
-        e.target.select();
       }}
       onBlur={() => {
-        let num = parseFloat(draft ?? "") || 0;
+        setFocused(false);
+        let num = parseFloat((draft ?? "").replace(",", "."));
+        if (!Number.isFinite(num)) num = 0;
         if (snapToStep && step) num = Math.round(num / step) * step;
         if (max !== undefined) num = Math.min(num, max);
         num = Math.max(num, min);
@@ -1593,7 +1505,6 @@ const MonthYearNavigator = ({ year, month, onChange }) => {
   );
 };
 
-
 const fetchAttendanceForEmployee = async (
   employeeNumber,
   year,
@@ -1612,7 +1523,14 @@ const fetchAttendanceForEmployee = async (
     );
     earningsData = r.data;
   } catch {}
-  if (earningsData?.summary) return earningsData;
+  if (earningsData?.summary) {
+    const summary = await mergeSummaryLateOnlyTardiness(
+      earningsData.summary,
+      employeeNumber,
+      headers,
+    );
+    return { ...earningsData, summary };
+  }
   const attempts = [
     { s: startOfMonth, e: endOfMonth },
     {
@@ -1633,19 +1551,23 @@ const fetchAttendanceForEmployee = async (
         },
       );
       const rows = r2.data?.data || (Array.isArray(r2.data) ? r2.data : []);
-      if (rows.length > 0)
+      if (rows.length > 0) {
+        const summary = await mergeSummaryLateOnlyTardiness(
+          rows[0],
+          employeeNumber,
+          headers,
+        );
         return {
           ...(earningsData || {}),
-          summary: rows[0],
+          summary,
           stats: earningsData?.stats || {},
           dailyRecords: earningsData?.dailyRecords || [],
         };
+      }
     } catch {}
   }
   return earningsData;
 };
-
-// ─── Leave Input Column ────────────────────────────────────────────────────────
 
 const TABS = [
   { id: "leave", label: "Leaves", shortLabel: "Leave", icon: LeaveIcon },
@@ -1662,24 +1584,98 @@ const TABS = [
     shortLabel: "Salary",
     icon: SalaryShortfallIcon,
   },
+  {
+    id: "abstract",
+    label: "ABSTRACT",
+    shortLabel: "ABS",
+    icon: AbstractTabIcon,
+  },
 ];
+
+// ─── Shared Tab Bar renderer ──────────────────────────────────────────────────
+const TabBar = ({ activeTab, onTabChange }) => (
+  <Box
+    sx={{
+      background: T.headerGrad,
+      px: { xs: 0, sm: 1 },
+      pt: 0.75,
+      pb: 0,
+      display: "flex",
+      alignItems: "flex-end",
+      flexShrink: 0,
+    }}
+  >
+    {TABS.map((t, idx) => {
+      const Icon = t.icon;
+      const isActive = idx === activeTab;
+      return (
+        <Box
+          key={t.id}
+          onClick={() => onTabChange(idx)}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.6,
+            px: { xs: 1.5, sm: 2.5 },
+            py: 0.85,
+            cursor: "pointer",
+            position: "relative",
+            borderRadius: "8px 8px 0 0",
+            transition: "background 0.15s",
+            bgcolor: isActive ? "rgba(255,255,255,0.97)" : "transparent",
+            "&:hover": isActive ? {} : { bgcolor: "rgba(255,255,255,0.1)" },
+            "&::after": isActive
+              ? {
+                  content: '""',
+                  position: "absolute",
+                  bottom: -1,
+                  left: 0,
+                  right: 0,
+                  height: 2,
+                  bgcolor: "rgba(255,255,255,0.97)",
+                }
+              : {},
+          }}
+        >
+          <Icon
+            sx={{
+              fontSize: 13,
+              color: isActive ? T.accent : "rgba(255,255,255,0.6)",
+              flexShrink: 0,
+            }}
+          />
+          <Typography
+            sx={{
+              fontSize: "0.73rem",
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? T.accent : "rgba(255,255,255,0.7)",
+              fontFamily: T.poppins,
+              whiteSpace: "nowrap",
+              display: { xs: "none", sm: "block" },
+            }}
+          >
+            {t.label}
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: "0.73rem",
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? T.accent : "rgba(255,255,255,0.7)",
+              fontFamily: T.poppins,
+              whiteSpace: "nowrap",
+              display: { xs: "block", sm: "none" },
+            }}
+          >
+            {t.shortLabel}
+          </Typography>
+        </Box>
+      );
+    })}
+  </Box>
+);
 
 /**
  * DeductHalfDayModal (half-day attendance deduction)
- *
- * Props:
- *   open      {boolean}  – controls dialog visibility
- *   onClose   {function}  – called when user cancels / closes
- *   onConfirm {function}  – async ({ remark: string, rateDecimal: number }) => void
- *   employee  {object}    – { employeeNumber, fullName, category/empCat }
- *   date      {string}    – ISO date string "YYYY-MM-DD"
- *   creditSnapshots – from assignment-balances + SC + CTO APIs (remaining_hours / totalRemaining)
- *   creditsLoading – while true, balance chips are indeterminate and confirm stays disabled
- *   suggestedRateDecimal {string|number} – suggested half-day rate decimal (relative to `hoursPerDay`)
- *   hoursPerDay {number}               – normalized clock-hours per day for this policy row
- *   deductionOptions {Array<{value:string,label:string}>} – from GET /api/deductions/options
- *   chargeTo {string} – selected deduction source code (e.g. VL, CTO, SALARY_DEDUCTION)
- *   onChargeToChange {(code: string) => void} – refetch policy suggestion when source changes
  */
 const DeductHalfDayVLModal = ({
   open,
@@ -1698,13 +1694,13 @@ const DeductHalfDayVLModal = ({
   const [remark, setRemark] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDeduction, setConfirmDeduction] = useState(false);
   const BASE_HOURS_PER_DAY = 8;
   const effectiveHoursPerDay =
     Number.isFinite(hoursPerDay) && hoursPerDay > 0 ? hoursPerDay : BASE_HOURS_PER_DAY;
   const initPolicyRate = toNum(suggestedRateDecimal) > 0 ? toNum(suggestedRateDecimal) : 0.5;
   const initDisplayDays = (initPolicyRate * effectiveHoursPerDay) / BASE_HOURS_PER_DAY;
 
-  // Display + editing are always in "8-hr-equivalent days" to match the VL balance elsewhere in UI.
   const [deductDaysRaw, setDeductDaysRaw] = useState(String(initDisplayDays));
 
   const MODAL_T = {
@@ -1758,7 +1754,7 @@ const DeductHalfDayVLModal = ({
     chargeU === "SALARY_DEDUCTION"
       ? null
       : getDeductionSourceBalanceDays(chargeTo, creditCtx);
-  const deductDaysNum = toNum(deductDaysRaw); // display days (8-hr-equivalent)
+  const deductDaysNum = toNum(deductDaysRaw);
   const deductionHours = deductDaysNum * BASE_HOURS_PER_DAY;
   const balanceAfter =
     balanceBefore == null ? null : balanceBefore - deductDaysNum;
@@ -1783,6 +1779,7 @@ const DeductHalfDayVLModal = ({
     setDeductDaysRaw(String(initDisplayDays));
     setRemark("");
     setError("");
+    setConfirmDeduction(false);
   }, [open, suggestedRateDecimal, effectiveHoursPerDay]);
 
   const handleConfirm = async () => {
@@ -1792,8 +1789,6 @@ const DeductHalfDayVLModal = ({
         setError("Enter a valid deduction amount (days).");
         return;
       }
-      // Backend half-day policy expects rate_decimal relative to `hours_per_day`.
-      // We convert the user's "8-hr-equivalent days" back into that rate.
       const deductionHours = displayDaysNum * BASE_HOURS_PER_DAY;
       const rateDecimalNum =
         effectiveHoursPerDay > 0 ? deductionHours / effectiveHoursPerDay : 0;
@@ -1803,7 +1798,6 @@ const DeductHalfDayVLModal = ({
       }
       setSaving(true);
       setError("");
-
       await onConfirm({ remark: remark.trim(), rateDecimal: rateDecimalNum });
       setRemark("");
       onClose();
@@ -1845,7 +1839,6 @@ const DeductHalfDayVLModal = ({
         },
       }}
     >
-      {/* ── Header ── */}
       <Box
         sx={{
           background: MODAL_T.accent,
@@ -1912,7 +1905,6 @@ const DeductHalfDayVLModal = ({
 
       <DialogContent sx={{ p: 0 }}>
         <Box sx={{ px: 2, py: 1.75, display: "flex", flexDirection: "column", gap: 1.25 }}>
-          {/* ── Employee strip ── */}
           <Box
             sx={{
               display: "flex",
@@ -2060,7 +2052,6 @@ const DeductHalfDayVLModal = ({
             </Box>
           )}
 
-          {/* ── Date being deducted ── */}
           <Box>
             <Typography
               sx={{
@@ -2122,7 +2113,6 @@ const DeductHalfDayVLModal = ({
             </Box>
           </Box>
 
-          {/* ── Deduction breakdown ── */}
           <Box
             sx={{
               borderRadius: 1.5,
@@ -2270,7 +2260,6 @@ const DeductHalfDayVLModal = ({
             </Box>
           </Box>
 
-          {/* ── Remark ── */}
           <Box>
             <Typography
               sx={{
@@ -2308,7 +2297,6 @@ const DeductHalfDayVLModal = ({
             />
           </Box>
 
-          {/* ── Warning ── */}
           <Box
             sx={{
               bgcolor: "rgba(198,40,40,0.05)",
@@ -2345,15 +2333,31 @@ const DeductHalfDayVLModal = ({
             </Typography>
           </Box>
 
-          {/* ── Error ── */}
           {error && (
             <Alert severity="error" sx={{ py: 0.25, px: 1, fontSize: "0.65rem", borderRadius: 1.25 }}>
               {error}
             </Alert>
           )}
+
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={confirmDeduction}
+                onChange={(e) => setConfirmDeduction(e.target.checked)}
+                disabled={saving || creditsLoading}
+                sx={{ py: 0 }}
+              />
+            }
+            label={
+              <Typography sx={{ fontSize: "0.68rem", color: MODAL_T.text, fontFamily: MODAL_T.poppins, lineHeight: 1.35 }}>
+                I confirm the deduction source, amount, and balances shown above are correct before applying.
+              </Typography>
+            }
+            sx={{ alignItems: "flex-start", ml: 0, mr: 0 }}
+          />
         </Box>
 
-        {/* ── Footer ── */}
         <Box
           sx={{
             display: "flex",
@@ -2389,6 +2393,7 @@ const DeductHalfDayVLModal = ({
             disabled={
               saving ||
               creditsLoading ||
+              !confirmDeduction ||
               (!selectedSufficient && chargeU !== "SALARY_DEDUCTION")
             }
             startIcon={
@@ -2422,6 +2427,8 @@ const DeductHalfDayVLModal = ({
 // ─── Main Component ────────────────────────────────────────────────────────────
 const EarningsManagement = () => {
   const { socket, connected } = useSocket();
+  const navigate = useNavigate();
+  const location = useLocation();
   const now = new Date();
   const [activeTab, setActiveTab] = useState(0);
   const [employees, setEmployees] = useState([]);
@@ -2443,7 +2450,20 @@ const EarningsManagement = () => {
   const [attendanceLoading, setAttLoading] = useState(false);
   const [vlReceiptRefreshKey, setVlReceiptRefreshKey] = useState(0);
 
-  // ── VL Half-Day Deduction (parent-owned to control placement) ─────────────────
+  const [payrollHandoffRecords, setPayrollHandoffRecords] = useState(null);
+  const [payrollSubmitDialogOpen, setPayrollSubmitDialogOpen] = useState(false);
+  const [payrollConfirmChecked, setPayrollConfirmChecked] = useState(false);
+  const [payrollSubmitting, setPayrollSubmitting] = useState(false);
+  const [payrollInfoDialog, setPayrollInfoDialog] = useState({
+    open: false,
+    title: "",
+    message: "",
+    isError: false,
+    continueToPayroll: false,
+  });
+  const [payrollPartialOpen, setPayrollPartialOpen] = useState(false);
+  const [payrollPartialPayload, setPayrollPartialPayload] = useState(null);
+
   const [deductedVlHalfDates, setDeductedVlHalfDates] = useState([]);
   const [vlHalfModalOpen, setVlHalfModalOpen] = useState(false);
   const [vlHalfModalLoading, setVlHalfModalLoading] = useState(false);
@@ -2469,44 +2489,58 @@ const EarningsManagement = () => {
     [],
   );
 
-  const fetchAttendance = useCallback(async () => {
+  const fetchAttendance = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!selectedEmployee) {
       setAttendanceData(null);
       return;
     }
-    setAttLoading(true);
+    if (!silent) setAttLoading(true);
     const token = localStorage.getItem("token");
-    setAttendanceData(
-      await fetchAttendanceForEmployee(
+    try {
+      const data = await fetchAttendanceForEmployee(
         selectedEmployee.employeeNumber,
         periodYear,
         periodMonth,
         token,
-      ),
-    );
-    setAttLoading(false);
+      );
+      setAttendanceData(data);
+    } finally {
+      if (!silent) setAttLoading(false);
+    }
   }, [selectedEmployee, periodYear, periodMonth]);
+
+  const payrollRecordsForSubmit = useMemo(() => {
+    if (Array.isArray(payrollHandoffRecords) && payrollHandoffRecords.length > 0) {
+      return payrollHandoffRecords;
+    }
+    const summary = attendanceData?.summary;
+    if (!summary || !selectedEmployee?.employeeNumber) return null;
+    const personID =
+      summary.personID ??
+      summary.employeeNumber ??
+      selectedEmployee.employeeNumber;
+    const { startDate, endDate } = summary;
+    if (!personID || !startDate || !endDate) return null;
+    return [{ ...summary, personID: String(personID) }];
+  }, [payrollHandoffRecords, attendanceData?.summary, selectedEmployee?.employeeNumber]);
 
   const fetchDeductedVlHalfDates = useCallback(async () => {
     if (!selectedEmployee?.employeeNumber) {
       setDeductedVlHalfDates([]);
       return;
     }
-
     const y = parseInt(periodYear, 10);
     const m = parseInt(periodMonth, 10);
     if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
       setDeductedVlHalfDates([]);
       return;
     }
-
     const startDate = `${y}-${String(m).padStart(2, "0")}-01`;
     const lastDay = new Date(y, m, 0).getDate();
     const endDate = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-
     setDeductedVlHalfDates([]);
     const token = localStorage.getItem("token");
-
     try {
       const r = await axios.post(
         `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-applied-dates`,
@@ -2529,7 +2563,6 @@ const EarningsManagement = () => {
     async (dateVal) => {
       const targetDate = String(dateVal || "");
       if (!selectedEmployee?.employeeNumber || !targetDate) return;
-
       setVlHalfSelectedDate(targetDate);
       setVlHalfCertify(false);
       setVlHalfRateDecimal("0.5");
@@ -2540,11 +2573,9 @@ const EarningsManagement = () => {
       setVlHalfCreditSnapshots(null);
       setVlHalfModalOpen(true);
       setVlHalfModalLoading(true);
-
       try {
         const token = localStorage.getItem("token");
         const headers = { Authorization: `Bearer ${token}` };
-
         const [snapshots, r0] = await Promise.all([
           fetchDeductionCreditSnapshots(selectedEmployee.employeeNumber, token),
           axios.post(
@@ -2568,11 +2599,18 @@ const EarningsManagement = () => {
         });
         const opts = Array.isArray(optRes.data?.options) ? optRes.data.options : [];
         setVlHalfDeductionOptions(opts);
-
-        const rec = String(r0.data?.recommended_charge_to || "").toUpperCase();
-        const pick = opts.some((o) => o.value === rec) ? rec : opts[0]?.value || "SALARY_DEDUCTION";
+        const findOpt = (code) =>
+          opts.find(
+            (o) =>
+              String(o?.value ?? "").trim().toUpperCase() ===
+              String(code ?? "").trim().toUpperCase(),
+          );
+        const recRaw = String(r0.data?.recommended_charge_to || "").trim();
+        const recOpt = recRaw ? findOpt(recRaw) : null;
+        const vlOpt = findOpt("VL");
+        const pick =
+          recOpt?.value ?? vlOpt?.value ?? opts[0]?.value ?? "SALARY_DEDUCTION";
         setVlHalfChargeTo(pick);
-
         const r = await axios.post(
           `${API_BASE_URL}/leaveRoute/leave_request/halfday-deduction-suggestion`,
           {
@@ -2584,7 +2622,6 @@ const EarningsManagement = () => {
         );
         const suggestion = r.data || null;
         setVlHalfSuggestion(suggestion);
-
         const recRate = parseFloat(suggestion?.recommended_rate_decimal);
         setVlHalfRateDecimal(
           Number.isFinite(recRate) && recRate > 0 ? String(recRate) : "0.5",
@@ -2637,29 +2674,22 @@ const EarningsManagement = () => {
   const applyVlHalfDeduction = useCallback(
     async ({ remark = "", rateDecimal } = {}) => {
       if (!selectedEmployee?.employeeNumber || !vlHalfSelectedDate) return;
-
       const rateDecimalNum = toNum(rateDecimal);
       if (!(rateDecimalNum > 0)) {
         const msg = "Enter a valid deduction amount (days).";
         setVlHalfError(msg);
         throw new Error(msg);
       }
-
       const rawHoursPerDayForPolicy =
         toNum(vlHalfSuggestion?.hours_per_day) || 8;
-      // Some leave_table.leave_hours values come back as "policy hours" (e.g. weekly totals).
-      // Normalize into clock-hours-per-day so deduction_hours matches how VL balances are stored (hours).
       const clockHoursPerDay =
         rawHoursPerDayForPolicy > 12 ? rawHoursPerDayForPolicy / 4 : rawHoursPerDayForPolicy;
       const deductHours = rateDecimalNum * clockHoursPerDay;
-
       if (deductedVlHalfDates.includes(vlHalfSelectedDate)) {
         throw new Error("This half-day is already deducted.");
       }
-
       setVlHalfModalLoading(true);
       setVlHalfError("");
-
       try {
         const token = localStorage.getItem("token");
         await axios.post(
@@ -2677,19 +2707,14 @@ const EarningsManagement = () => {
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
-
-        // Prevent duplicates in the UI.
         setDeductedVlHalfDates((prev) =>
           Array.from(new Set([...prev, vlHalfSelectedDate])),
         );
-
         setVlHalfModalOpen(false);
         setVlHalfCertify(false);
         setVlHalfSuggestion(null);
         setVlHalfCreditSnapshots(null);
         setVlHalfError("");
-
-        // Keep AttendanceSummary in sync with updated official metrics/balances.
         await fetchAttendance();
         handleBalanceChanged();
         handleRecordsRefresh();
@@ -2723,7 +2748,6 @@ const EarningsManagement = () => {
     fetchAttendance();
   }, [fetchAttendance]);
 
-  // Clear local "already deducted" tracking when switching employee/period.
   useEffect(() => {
     setDeductedVlHalfDates([]);
     setVlHalfModalOpen(false);
@@ -2734,27 +2758,28 @@ const EarningsManagement = () => {
     fetchDeductedVlHalfDates();
   }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, fetchDeductedVlHalfDates]);
 
-  // Realtime refresh for leave changes affecting balances/earnings
+  const refreshEarningsRealtime = useCallback(() => {
+    setBalanceKey((k) => k + 1);
+    setRecordsRefreshKey((k) => k + 1);
+    setVlReceiptRefreshKey((k) => k + 1);
+    fetchAttendance({ silent: true });
+  }, [fetchAttendance]);
+
+  useEarningsRealtimeRefresh({
+    socket,
+    connected,
+    onRefresh: refreshEarningsRealtime,
+    selectedEmployeeNumber: selectedEmployee?.employeeNumber,
+  });
+
   useEffect(() => {
-    if (!socket || !connected) return;
-    let debounceTimer = null;
-    const handler = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        setBalanceKey((k) => k + 1);
-        setRecordsRefreshKey((k) => k + 1);
-        setVlReceiptRefreshKey((k) => k + 1);
-        fetchAttendance();
-      }, 250);
+    const onVis = () => {
+      if (document.visibilityState !== "visible" || !selectedEmployee) return;
+      fetchAttendance({ silent: true });
     };
-    socket.on("leaveAssignmentChanged", handler);
-    socket.on("leaveRequestChanged", handler);
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      socket.off("leaveAssignmentChanged", handler);
-      socket.off("leaveRequestChanged", handler);
-    };
-  }, [socket, connected, fetchAttendance]);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [fetchAttendance, selectedEmployee]);
 
   useEffect(() => {
     (async () => {
@@ -2764,20 +2789,10 @@ const EarningsManagement = () => {
         const [usersRes, personsRes, deptRes, empCatRes, typeConfigRes] =
           await Promise.allSettled([
             axios.get(`${API_BASE_URL}/users`, { headers: h }),
-            axios.get(`${API_BASE_URL}/personalinfo/person_table`, {
-              headers: h,
-            }),
-            axios.get(`${API_BASE_URL}/api/department-assignment`, {
-              headers: h,
-            }),
-            axios.get(
-              `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-              { headers: h },
-            ),
-            axios.get(
-              `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`,
-              { headers: h },
-            ),
+            axios.get(`${API_BASE_URL}/personalinfo/person_table`, { headers: h }),
+            axios.get(`${API_BASE_URL}/api/department-assignment`, { headers: h }),
+            axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, { headers: h }),
+            axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, { headers: h }),
           ]);
         let usersData = [];
         if (usersRes.status === "fulfilled") {
@@ -2820,23 +2835,22 @@ const EarningsManagement = () => {
         }
         if (empCatRes.status === "fulfilled") {
           const map = {};
-          (Array.isArray(empCatRes.value.data)
-            ? empCatRes.value.data
-            : []
-          ).forEach((item) => {
-            if (!item.employeeNumber) return;
-            const label =
-              item.parentGroup && item.typeName
-                ? `${item.parentGroup} | ${item.typeName}`
-                : item.categoryLabel || "";
-            if (label)
-              map[String(item.employeeNumber)] = {
-                label,
-                colorHex: item.colorHex || "#757575",
-                parentGroup: item.parentGroup,
-                typeName: item.typeName,
-              };
-          });
+          (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach(
+            (item) => {
+              if (!item.employeeNumber) return;
+              const label =
+                item.parentGroup && item.typeName
+                  ? `${item.parentGroup} | ${item.typeName}`
+                  : item.categoryLabel || "";
+              if (label)
+                map[String(item.employeeNumber)] = {
+                  label,
+                  colorHex: item.colorHex || "#757575",
+                  parentGroup: item.parentGroup,
+                  typeName: item.typeName,
+                };
+            },
+          );
           setEmpCatMap(map);
         }
         if (typeConfigRes.status === "fulfilled")
@@ -2847,6 +2861,97 @@ const EarningsManagement = () => {
       setPageLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    const st = location.state;
+    if (
+      st?.fromAttendanceSummaryRegular &&
+      Array.isArray(st.payrollAttendanceRecords) &&
+      st.payrollAttendanceRecords.length > 0
+    ) {
+      setPayrollHandoffRecords(st.payrollAttendanceRecords);
+      const first = st.payrollAttendanceRecords[0];
+      const sd = first?.startDate;
+      if (sd && typeof sd === "string" && /^\d{4}-\d{2}/.test(sd)) {
+        const [yStr, mStr] = sd.split("-");
+        const y = parseInt(yStr, 10);
+        const mo = parseInt(mStr, 10);
+        if (Number.isFinite(y) && Number.isFinite(mo) && mo >= 1 && mo <= 12) {
+          setPeriodYear(y);
+          setPeriodMonth(mo);
+        }
+      }
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.state, location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!payrollHandoffRecords?.length || !employees.length) return;
+    const en = String(
+      payrollHandoffRecords[0].personID ||
+        payrollHandoffRecords[0].employeeNumber ||
+        "",
+    ).trim();
+    if (!en) return;
+    const emp = employees.find((e) => String(e.employeeNumber).trim() === en);
+    if (emp) {
+      setSelectedEmployee(emp);
+      setShowEmployeeAutocomplete(false);
+    }
+  }, [payrollHandoffRecords, employees]);
+
+  const runPostRegularPayroll = useCallback(async (filteredRecords) => {
+    const result = await postRegularPayrollSubmission(filteredRecords, payrollAuthHeaders);
+    if (!result.ok) {
+      const continueToPayroll =
+        result.code === "NONE_ADDED" || result.code === "DUPLICATE";
+      let title = "Payroll submission";
+      if (result.code === "NONE_ADDED") title = "Already exists";
+      else if (result.code === "DUPLICATE") title = "Duplicate payroll entry";
+      setPayrollInfoDialog({
+        open: true,
+        title,
+        message: result.message,
+        isError: !continueToPayroll,
+        continueToPayroll,
+      });
+      return;
+    }
+    setPayrollHandoffRecords(null);
+    navigate("/payroll-table");
+  }, [navigate]);
+
+  const executeRegularPayrollFromHandoff = useCallback(async () => {
+    if (!payrollRecordsForSubmit?.length) return;
+    setPayrollSubmitting(true);
+    try {
+      const { filteredRecords, invalidRecords } = await filterRecordsForRegularPayroll(
+        payrollRecordsForSubmit,
+        payrollAuthHeaders,
+      );
+      if (invalidRecords.length > 0 && filteredRecords.length === 0) {
+        setPayrollSubmitDialogOpen(false);
+        setPayrollInfoDialog({
+          open: true,
+          title: "Submission blocked — Regular payroll",
+          message: `The following employee(s) could not be processed:\n\n${invalidRecords.map((r) => `• Employee ${r.employeeNumber}: ${r.reason}`).join("\n")}\n\nPlease verify employment category before resubmitting.`,
+          isError: true,
+          continueToPayroll: false,
+        });
+        return;
+      }
+      if (invalidRecords.length > 0 && filteredRecords.length > 0) {
+        setPayrollSubmitDialogOpen(false);
+        setPayrollPartialPayload({ filteredRecords, invalidRecords });
+        setPayrollPartialOpen(true);
+        return;
+      }
+      setPayrollSubmitDialogOpen(false);
+      await runPostRegularPayroll(filteredRecords);
+    } finally {
+      setPayrollSubmitting(false);
+    }
+  }, [payrollRecordsForSubmit, runPostRegularPayroll]);
 
   const buildDisplayName = (e) => {
     const last = (e?.lastName || "").trim();
@@ -2859,7 +2964,6 @@ const EarningsManagement = () => {
       : [first, mid].filter(Boolean).join(" ");
   };
 
-  /** Resolve employee numbers in earning records (approved_by, audit actor) to display names. */
   const approverNameLookup = useMemo(() => {
     const m = {};
     (employees || []).forEach((e) => {
@@ -2927,10 +3031,12 @@ const EarningsManagement = () => {
     return list;
   }, [employees, empCatMap, catFilter]);
 
-if (pageLoading) return <EarningsWireframe />;
+  if (pageLoading) return <EarningsWireframe />;
 
   const rawHoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
   const hoursPerDay = rawHoursPerDay > 12 ? rawHoursPerDay / 4 : rawHoursPerDay;
+
+  const isAbstractTab = activeTab === 4;
 
   const deptCode = selectedEmployee
     ? deptMap[String(selectedEmployee.employeeNumber)]
@@ -3052,6 +3158,23 @@ if (pageLoading) return <EarningsWireframe />;
                 zIndex: 1,
               }}
             >
+              {connected && (
+                <Tooltip title="Realtime updates: connected — refreshes when attendance, leave, SC/CTO, payroll, or salary shortfall data changes.">
+                  <Chip
+                    size="small"
+                    label="Live"
+                    sx={{
+                      height: 22,
+                      fontSize: "0.65rem",
+                      fontWeight: 700,
+                      fontFamily: T.poppins,
+                      bgcolor: "rgba(46,125,50,0.12)",
+                      color: "#2e7d32",
+                      "& .MuiChip-label": { px: 0.85 },
+                    }}
+                  />
+                </Tooltip>
+              )}
               <Typography
                 sx={{
                   fontSize: "0.7rem",
@@ -3095,7 +3218,7 @@ if (pageLoading) return <EarningsWireframe />;
             </Box>
           </Box>
 
-          {/* Employee selector row */}
+          {/* Employee selector row — NO payroll button here */}
           <Box
             sx={{
               px: 4,
@@ -3116,126 +3239,133 @@ if (pageLoading) return <EarningsWireframe />;
                 sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }}
               />
               {(showEmployeeAutocomplete || !selectedEmployee) ? (
-              <Autocomplete
-                value={selectedEmployee}
-                onChange={(_, v) => {
-                  setSelectedEmployee(v);
-                  setShowEmployeeAutocomplete(!v);
-                }}
-                open={employeePickerOpen}
-                onOpen={() => setEmployeePickerOpen(true)}
-                onClose={() => setEmployeePickerOpen(false)}
-                options={employeeOptions}
-                autoHighlight
-                getOptionLabel={(o) =>
-                  `${o._displayName} (${o.employeeNumber})`
-                }
-                filterOptions={(opts, { inputValue: iv }) => {
-                  const q = iv.toLowerCase().trim();
-                  return (
-                    !q
-                      ? opts
-                      : opts.filter((o) => (o._searchKey || "").includes(q))
-                  ).slice(0, 80);
-                }}
-                isOptionEqualToValue={(o, v) =>
-                  o.employeeNumber === v.employeeNumber
-                }
-                noOptionsText="No employees found"
-                renderOption={(props, option) => {
-                  const { key, ...rest } = props;
-                  const initials =
-                    `${option.lastName?.[0] || ""}${option.firstName?.[0] || ""}`.toUpperCase() ||
-                    "?";
-                  const dc = deptMap[option.employeeNumber?.toString()];
-                  const ec = empCatMap[option.employeeNumber?.toString()];
-                  return (
-                    <li key={key} {...rest}>
-                      <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                      >
-                        <Avatar
-                          sx={{
-                            width: 24,
-                            height: 24,
-                            bgcolor: T.accent,
-                            fontSize: "0.6rem",
-                            fontWeight: 800,
-                            borderRadius: "4px",
-                            flexShrink: 0,
-                          }}
+                <Autocomplete
+                  value={selectedEmployee}
+                  onChange={(_, v) => {
+                    setSelectedEmployee(v);
+                    setShowEmployeeAutocomplete(!v);
+                  }}
+                  open={employeePickerOpen}
+                  onOpen={() => setEmployeePickerOpen(true)}
+                  onClose={() => setEmployeePickerOpen(false)}
+                  options={employeeOptions}
+                  autoHighlight
+                  getOptionLabel={(o) => {
+                    if (!o) return "";
+                    const num = String(o.employeeNumber ?? "").trim();
+                    const fromOpt =
+                      o._displayName != null && String(o._displayName).trim() !== ""
+                        ? String(o._displayName).trim()
+                        : "";
+                    const label = fromOpt || buildDisplayName(o) || (num ? `#${num}` : "");
+                    return num ? `${label} (${num})` : label;
+                  }}
+                  filterOptions={(opts, { inputValue: iv }) => {
+                    const q = iv.toLowerCase().trim();
+                    return (
+                      !q
+                        ? opts
+                        : opts.filter((o) => (o._searchKey || "").includes(q))
+                    ).slice(0, 80);
+                  }}
+                  isOptionEqualToValue={(o, v) =>
+                    o.employeeNumber === v.employeeNumber
+                  }
+                  noOptionsText="No employees found"
+                  renderOption={(props, option) => {
+                    const { key, ...rest } = props;
+                    const initials =
+                      `${option.lastName?.[0] || ""}${option.firstName?.[0] || ""}`.toUpperCase() ||
+                      "?";
+                    const dc = deptMap[option.employeeNumber?.toString()];
+                    const ec = empCatMap[option.employeeNumber?.toString()];
+                    return (
+                      <li key={key} {...rest}>
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
                         >
-                          {initials}
-                        </Avatar>
-                        <Box>
-                          <Typography
-                            variant="body2"
+                          <Avatar
                             sx={{
-                              fontWeight: 700,
-                              fontFamily: T.poppins,
-                              fontSize: "0.8rem",
+                              width: 24,
+                              height: 24,
+                              bgcolor: T.accent,
+                              fontSize: "0.6rem",
+                              fontWeight: 800,
+                              borderRadius: "4px",
+                              flexShrink: 0,
                             }}
                           >
-                            {option._displayName}
-                          </Typography>
-                          <Box
-                            sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}
-                          >
+                            {initials}
+                          </Avatar>
+                          <Box>
                             <Typography
-                              variant="caption"
-                              sx={{ color: T.faint, fontFamily: T.poppins }}
+                              variant="body2"
+                              sx={{
+                                fontWeight: 700,
+                                fontFamily: T.poppins,
+                                fontSize: "0.8rem",
+                              }}
                             >
-                              #{option.employeeNumber}
+                              {option._displayName}
                             </Typography>
-                            {dc && <DeptBadge code={dc} />}
-                            {ec && (
-                              <EmpCatBadge
-                                label={ec.label}
-                                colorHex={ec.colorHex}
-                              />
-                            )}
+                            <Box
+                              sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}
+                            >
+                              <Typography
+                                variant="caption"
+                                sx={{ color: T.faint, fontFamily: T.poppins }}
+                              >
+                                #{option.employeeNumber}
+                              </Typography>
+                              {dc && <DeptBadge code={dc} />}
+                              {ec && (
+                                <EmpCatBadge
+                                  label={ec.label}
+                                  colorHex={ec.colorHex}
+                                />
+                              )}
+                            </Box>
                           </Box>
                         </Box>
-                      </Box>
-                    </li>
-                  );
-                }}
-                renderInput={(params) => (
-                  <FieldInput
-                    {...params}
-                    size="small"
-                    placeholder="Search employee by name or number…"
-                    sx={{
-                      "& .MuiOutlinedInput-root": {
-                        bgcolor: "#fff",
+                      </li>
+                    );
+                  }}
+                  renderInput={(params) => (
+                    <FieldInput
+                      {...params}
+                      size="small"
+                      placeholder="Search employee by name or number…"
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          bgcolor: "#fff",
+                          borderRadius: 2,
+                        },
+                      }}
+                      InputProps={{
+                        ...params.InputProps,
+                        startAdornment: (
+                          <>
+                            <SearchIcon
+                              sx={{ fontSize: 14, color: T.muted, mr: 0.4 }}
+                            />
+                            {params.InputProps.startAdornment}
+                          </>
+                        ),
+                        inputRef: employeePickerInputRef,
+                      }}
+                    />
+                  )}
+                  slotProps={{
+                    paper: {
+                      sx: {
                         borderRadius: 2,
+                        boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
+                        border: `1px solid ${T.accentBorder}`,
                       },
-                    }}
-                    InputProps={{
-                      ...params.InputProps,
-                      startAdornment: (
-                        <>
-                          <SearchIcon
-                            sx={{ fontSize: 14, color: T.muted, mr: 0.4 }}
-                          />
-                          {params.InputProps.startAdornment}
-                        </>
-                      ),
-                      inputRef: employeePickerInputRef,
-                    }}
-                  />
-                )}
-                slotProps={{
-                  paper: {
-                    sx: {
-                      borderRadius: 2,
-                      boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
-                      border: `1px solid ${T.accentBorder}`,
                     },
-                  },
-                }}
-                sx={{ flex: 1, maxWidth: 340 }}
-              />
+                  }}
+                  sx={{ flex: 1, maxWidth: 340 }}
+                />
               ) : (
                 <Box
                   role="button"
@@ -3455,93 +3585,10 @@ if (pageLoading) return <EarningsWireframe />;
               </Typography>
             )}
           </Box>
-
-          {/* Tab row */}
-          <Box
-            sx={{
-              background: T.headerGrad,
-              px: { xs: 0, sm: 1 },
-              pt: 0.75,
-              pb: 0,
-              display: "flex",
-              alignItems: "flex-end",
-            }}
-          >
-            {TABS.map((t, idx) => {
-              const Icon = t.icon;
-              const isActive = idx === activeTab;
-              return (
-                <Box
-                  key={t.id}
-                  onClick={() => setActiveTab(idx)}
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 0.6,
-                    px: { xs: 1.5, sm: 2.5 },
-                    py: 0.85,
-                    cursor: "pointer",
-                    position: "relative",
-                    borderRadius: "8px 8px 0 0",
-                    transition: "background 0.15s",
-                    bgcolor: isActive
-                      ? "rgba(255,255,255,0.97)"
-                      : "transparent",
-                    "&:hover": isActive
-                      ? {}
-                      : { bgcolor: "rgba(255,255,255,0.1)" },
-                    "&::after": isActive
-                      ? {
-                          content: '""',
-                          position: "absolute",
-                          bottom: -1,
-                          left: 0,
-                          right: 0,
-                          height: 2,
-                          bgcolor: "rgba(255,255,255,0.97)",
-                        }
-                      : {},
-                  }}
-                >
-                  <Icon
-                    sx={{
-                      fontSize: 13,
-                      color: isActive ? T.accent : "rgba(255,255,255,0.6)",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Typography
-                    sx={{
-                      fontSize: "0.73rem",
-                      fontWeight: isActive ? 700 : 500,
-                      color: isActive ? T.accent : "rgba(255,255,255,0.7)",
-                      fontFamily: T.poppins,
-                      whiteSpace: "nowrap",
-                      display: { xs: "none", sm: "block" },
-                    }}
-                  >
-                    {t.label}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.73rem",
-                      fontWeight: isActive ? 700 : 500,
-                      color: isActive ? T.accent : "rgba(255,255,255,0.7)",
-                      fontFamily: T.poppins,
-                      whiteSpace: "nowrap",
-                      display: { xs: "block", sm: "none" },
-                    }}
-                  >
-                    {t.shortLabel}
-                  </Typography>
-                </Box>
-              );
-            })}
-          </Box>
         </SectionCard>
       </Box>
 
-      {/* ── 3-Column Content ── */}
+      {/* ── Content area ── */}
       <Box
         sx={{
           width: "100vw",
@@ -3550,130 +3597,264 @@ if (pageLoading) return <EarningsWireframe />;
           left: "63%",
           transform: "translateX(-61%)",
           px: { xs: 2, sm: 3, md: 6 },
-          pb: 4,
+          pb: 0,
         }}
       >
-        <SectionCard sx={{ borderRadius: "0 0 12px 12px", borderTop: "none" }}>
-          <Fade
-            in
-            key={`${activeTab}-${periodYear}-${periodMonth}`}
-            timeout={250}
+        {/*
+          SectionCard has position:relative so the Abstract overlay
+          can use position:absolute inset:0 to cover it fully.
+        */}
+        <SectionCard
+          sx={{
+            borderRadius: "0 0 12px 12px",
+            borderTop: "none",
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
+          {/*
+            The normal 2-column grid — NEVER changes columns.
+            When Abstract is active, visibility:hidden hides content
+            but preserves the layout footprint (no shift).
+          */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "1fr 2fr" },
+              height: { xs: "auto", md: "calc(100vh - 290px)" },
+              minHeight: { xs: "unset", md: 480 },
+              overflow: { xs: "visible", md: "hidden" },
+              // Hide but don't remove — keeps layout stable
+              visibility: isAbstractTab ? "hidden" : "visible",
+            }}
           >
+            {/* ── Column 1: Attendance Summary ── */}
             <Box
               sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
-                height: { xs: "auto", md: "calc(100vh - 340px)" },
-                minHeight: { xs: "unset", md: 480 },
-                overflow: { xs: "visible", md: "hidden" },
-                rowGap: { xs: 2, md: 0 },
+                overflowY: "auto",
+                overflowX: "hidden",
+                display: "flex",
+                flexDirection: "column",
+                borderRight: { xs: "none", md: `1px solid ${T.divider}` },
               }}
             >
-              {/* Column 1: Attendance */}
+              <AttendanceSummary
+                employee={selectedEmployee}
+                year={periodYear}
+                month={periodMonth}
+                attendanceData={attendanceData}
+                attendanceLoading={attendanceLoading}
+                onRefresh={fetchAttendance}
+                onRecordsRefresh={handleRecordsRefresh}
+                onBalancesInvalidate={handleBalanceChanged}
+                empCat={empCat}
+                vlReceiptRefreshKey={vlReceiptRefreshKey}
+                balanceRefreshKey={balanceKey}
+                deductedVlHalfDates={deductedVlHalfDates}
+                onDeductHalfDayVLRequested={openVlHalfModalForDate}
+              />
+            </Box>
+
+            {/* ── Column 2: Tab bar + tab content ── */}
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+            >
+              {/* Tab row */}
+              <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+
+              {/* Tab content panel */}
+              <Fade
+                in
+                key={`${activeTab}-${periodYear}-${periodMonth}`}
+                timeout={250}
+              >
+                <Box
+                  sx={{
+                    flex: 1,
+                    overflow: "hidden",
+                    display: "grid",
+                    gridTemplateColumns:
+                      activeTab <= 2
+                        ? { xs: "1fr", md: "1fr 1fr" }
+                        : "1fr",
+                    minHeight: 0,
+                  }}
+                >
+                  {/* Leave / SC / CTO */}
+                  {activeTab <= 2 && (
+                    <>
+                      <Box
+                        sx={{
+                          overflowY: "auto",
+                          overflowX: "hidden",
+                          display: "flex",
+                          flexDirection: "column",
+                          borderRight: { xs: "none", md: `1px solid ${T.divider}` },
+                        }}
+                      >
+                        {activeTab === 0 && (
+                          <LeaveInputColumn
+                            {...sharedTabProps}
+                            onBalanceChanged={handleBalanceChanged}
+                            refreshKey={balanceKey}
+                            onRecordsRefresh={handleRecordsRefresh}
+                          />
+                        )}
+                        {activeTab === 1 && (
+                          <SCInputColumn
+                            {...sharedTabProps}
+                            onRecordsRefresh={handleRecordsRefresh}
+                          />
+                        )}
+                        {activeTab === 2 && (
+                          <CTOInputColumn
+                            {...sharedTabProps}
+                            onRecordsRefresh={handleRecordsRefresh}
+                          />
+                        )}
+                      </Box>
+                      <Box
+                        sx={{
+                          overflowY: "auto",
+                          overflowX: "hidden",
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                      >
+                        <RecordsList
+                          employeeNumber={selectedEmployee?.employeeNumber}
+                          type={TABS[activeTab].id}
+                          unit={unit}
+                          refreshKey={recordsRefreshKey}
+                          year={periodYear}
+                          month={periodMonth}
+                          onApproved={handleBalanceChanged}
+                          standalone
+                          onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
+                          approverNameLookup={approverNameLookup}
+                        />
+                      </Box>
+                    </>
+                  )}
+
+                  {/* Salary Shortfall */}
+                  {activeTab === 3 && (
+                    <Box
+                      sx={{
+                        overflowY: "auto",
+                        overflowX: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                      }}
+                    >
+                      <SalaryShortfallRegistry
+                        employee={selectedEmployee}
+                        year={periodYear}
+                        month={periodMonth}
+                      />
+                    </Box>
+                  )}
+                </Box>
+              </Fade>
+            </Box>
+          </Box>
+
+          {/*
+            ── Abstract overlay ──
+            Absolutely positioned over the full SectionCard when Abstract tab is active.
+            Full-width tab bar — no margin-left shift, no white gap.
+          */}
+          {isAbstractTab && (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                bgcolor: T.surface,
+                zIndex: 2,
+                overflow: "hidden",
+              }}
+            >
+              {/* Full-width tab bar — no ml offset */}
+              <Box sx={{ flexShrink: 0 }}>
+                <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+              </Box>
+
+              {/* Abstract content — full card width */}
               <Box
                 sx={{
+                  flex: 1,
                   overflowY: "auto",
                   overflowX: "hidden",
                   display: "flex",
                   flexDirection: "column",
-                  borderRight: { xs: "none", md: `1px solid ${T.divider}` },
                 }}
               >
-      <AttendanceSummary
-  employee={selectedEmployee}
-  year={periodYear}
-  month={periodMonth}
-  attendanceData={attendanceData}
-  attendanceLoading={attendanceLoading}
-  onRefresh={fetchAttendance}
-  onRecordsRefresh={handleRecordsRefresh}
-  empCat={empCat}
-  vlReceiptRefreshKey={vlReceiptRefreshKey}
-  balanceRefreshKey={balanceKey}   // ← add this
-                deductedVlHalfDates={deductedVlHalfDates}
-                onDeductHalfDayVLRequested={openVlHalfModalForDate}
-/>
+                <Abstract
+                  employee={selectedEmployee}
+                  year={periodYear}
+                  month={periodMonth}
+                />
               </Box>
-              {activeTab !== 3 && (
-                <>
-                  {/* Column 2: Input Earnings */}
-                  <Box
-                    sx={{
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      borderRight: { xs: "none", md: `1px solid ${T.divider}` },
-                    }}
-                  >
-                    {activeTab === 0 && (
-                      <LeaveInputColumn
-                        {...sharedTabProps}
-                        onBalanceChanged={handleBalanceChanged}
-                        refreshKey={balanceKey}
-                        onRecordsRefresh={handleRecordsRefresh}
-                      />
-                    )}
-                    {activeTab === 1 && (
-                      <SCInputColumn
-                        {...sharedTabProps}
-                        onRecordsRefresh={handleRecordsRefresh}
-                      />
-                    )}
-                    {activeTab === 2 && (
-                      <CTOInputColumn
-                        {...sharedTabProps}
-                        onRecordsRefresh={handleRecordsRefresh}
-                      />
-                    )}
-                  </Box>
-                  {/* Column 3: Records Earnings*/}
-                  <Box
-                    sx={{
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                  >
-                    <RecordsList
-                      employeeNumber={selectedEmployee?.employeeNumber}
-                      type={TABS[activeTab].id}
-                      unit={unit}
-                      refreshKey={recordsRefreshKey}
-                      year={periodYear}
-                      month={periodMonth}
-                      onApproved={handleBalanceChanged}
-                      standalone
-                      onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
-                      approverNameLookup={approverNameLookup}
-                    />
-                  </Box>
-                </>
-              )}
-              {activeTab === 3 && (
-                <Box
-                  sx={{
-                    gridColumn: { xs: "1", md: "2 / span 2" },
-                    overflowY: "auto",
-                    overflowX: "hidden",
-                    display: "flex",
-                    flexDirection: "column",
-                    borderLeft: { md: `1px solid ${T.divider}` },
-                  }}
-                >
-                  <SalaryShortfallRegistry
-                    employee={selectedEmployee}
-                    year={periodYear}
-                    month={periodMonth}
-                  />
-                </Box>
-              )}
             </Box>
-          </Fade>
+          )}
         </SectionCard>
       </Box>
 
+      {/* ── Submit to Payroll Regular — below content card ── */}
+      {payrollRecordsForSubmit && payrollRecordsForSubmit.length > 0 && (
+        <Box
+          sx={{
+            width: "100vw",
+            maxWidth: "100%",
+            position: "relative",
+            left: "63%",
+            transform: "translateX(-61%)",
+            px: { xs: 2, sm: 3, md: 6 },
+            pt: 1.5,
+            pb: 3,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Tooltip title="Submit this period's overall attendance summary to regular payroll. Finish leave deductions first if needed.">
+            <Button
+              variant="contained"
+              startIcon={<PayrollAssignmentIcon sx={{ fontSize: 16 }} />}
+              onClick={() => {
+                setPayrollConfirmChecked(false);
+                setPayrollSubmitDialogOpen(true);
+              }}
+              sx={{
+                height: 40,
+                px: 2.5,
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                textTransform: "none",
+                fontFamily: T.poppins,
+                bgcolor: T.accent,
+                borderRadius: 2,
+                boxShadow: `0 2px 12px ${alpha(T.accent, 0.28)}`,
+                "&:hover": {
+                  bgcolor: T.accentDark,
+                  boxShadow: `0 4px 18px ${alpha(T.accent, 0.38)}`,
+                  transform: "translateY(-1px)",
+                },
+                transition: "all 0.18s ease",
+              }}
+            >
+              Submit to Payroll Regular
+            </Button>
+          </Tooltip>
+        </Box>
+      )}
+
+      {/* ── Half-day deduction modal ── */}
       <DeductHalfDayVLModal
         open={vlHalfModalOpen}
         onClose={() => {
@@ -3706,6 +3887,650 @@ if (pageLoading) return <EarningsWireframe />;
         chargeTo={vlHalfChargeTo}
         onChargeToChange={handleVlHalfChargeChange}
       />
+
+      {/* ── Submit to Payroll Regular dialog ── */}
+      <Dialog
+        open={payrollSubmitDialogOpen}
+        onClose={() => !payrollSubmitting && setPayrollSubmitDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: "12px",
+            overflow: "hidden",
+            border: "0.5px solid rgba(0,0,0,0.09)",
+            fontFamily: T.poppins,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.12)",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            px: 3,
+            py: 2.5,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              top: -40,
+              right: -40,
+              width: 140,
+              height: 140,
+              borderRadius: "50%",
+              background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`,
+              pointerEvents: "none",
+            }}
+          />
+          <IconButton
+            size="small"
+            onClick={() => !payrollSubmitting && setPayrollSubmitDialogOpen(false)}
+            disabled={payrollSubmitting}
+            sx={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              color: T.accent,
+              opacity: 0.5,
+              "&:hover": { opacity: 1, bgcolor: T.accentFaint },
+            }}
+          >
+            <Close sx={{ fontSize: 18 }} />
+          </IconButton>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", pr: 4 }}>
+            <Avatar
+              sx={{
+                bgcolor: alpha(T.accent, 0.12),
+                width: 48,
+                height: 48,
+                border: `1px solid ${T.accentBorder}`,
+              }}
+            >
+              <PayrollAssignmentIcon sx={{ fontSize: 22, color: T.accent }} />
+            </Avatar>
+            <Box sx={{ minWidth: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.35 }}>
+                <Typography
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: "1.05rem",
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  Submit to Payroll Regular
+                </Typography>
+                <Chip
+                  label="Confirmation"
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: "0.62rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    bgcolor: alpha(T.accent, 0.1),
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    fontFamily: T.poppins,
+                  }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.74rem", color: T.faint, fontWeight: 500, fontFamily: T.poppins }}>
+                Regular payroll · review before sending
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+        <DialogContent sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}` }}>
+          <Typography sx={{ fontSize: "0.88rem", color: T.muted, mb: 2, lineHeight: 1.65, fontFamily: T.poppins }}>
+            Confirm attendance totals and deductions are complete. This sends eligible regular
+            employees to payroll processing and cannot be undone.
+          </Typography>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+              mb: 2,
+              px: 1.5,
+              py: 1.25,
+              borderRadius: 2,
+              bgcolor: T.accentFaint,
+              border: `1px solid ${T.accentBorder}`,
+            }}
+          >
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: 1,
+                bgcolor: alpha(T.accent, 0.1),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <PayrollAssignmentIcon sx={{ fontSize: 16, color: T.accent }} />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  color: T.faint,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  fontFamily: T.poppins,
+                }}
+              >
+                Records in this batch
+              </Typography>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: T.text, fontFamily: T.poppins }}>
+                {payrollRecordsForSubmit?.length ?? 0}{" "}
+                {(payrollRecordsForSubmit?.length ?? 0) === 1 ? "record" : "records"}
+              </Typography>
+            </Box>
+          </Box>
+          <Box
+            onClick={() => setPayrollConfirmChecked((p) => !p)}
+            sx={{
+              p: 2,
+              borderRadius: 2,
+              cursor: payrollSubmitting ? "default" : "pointer",
+              border: `2px solid ${payrollConfirmChecked ? T.accent : T.accentBorder}`,
+              bgcolor: payrollConfirmChecked ? T.accentFaint : T.surface,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 1,
+              transition: "border-color 0.18s, background 0.18s",
+            }}
+          >
+            <Checkbox
+              checked={payrollConfirmChecked}
+              onChange={(e) => setPayrollConfirmChecked(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              disabled={payrollSubmitting}
+              size="small"
+              sx={{ color: alpha(T.accent, 0.4), "&.Mui-checked": { color: T.accent }, mt: -0.4 }}
+            />
+            <Box>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, fontFamily: T.poppins, mb: 0.35 }}>
+                I confirm records have been reviewed and are accurate.
+              </Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: T.muted, fontWeight: 500, lineHeight: 1.55, fontFamily: T.poppins }}>
+                This action submits to payroll processing and cannot be undone from here.
+              </Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions
+          sx={{
+            px: 3,
+            py: 2,
+            borderTop: `1px solid ${T.divider}`,
+            gap: 1,
+            justifyContent: "flex-end",
+            bgcolor: alpha(T.accent, 0.03),
+          }}
+        >
+          <Button
+            variant="outlined"
+            onClick={() => setPayrollSubmitDialogOpen(false)}
+            disabled={payrollSubmitting}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              borderColor: T.accentBorder,
+              color: T.muted,
+              fontFamily: T.poppins,
+              "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={!payrollConfirmChecked || payrollSubmitting}
+            onClick={() => executeRegularPayrollFromHandoff()}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              minWidth: 120,
+              bgcolor: T.accent,
+              fontFamily: T.poppins,
+              boxShadow: "none",
+              "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+            }}
+          >
+            {payrollSubmitting ? (
+              <>
+                <CircularProgress size={16} sx={{ color: "#fff", mr: 1 }} />
+                Submitting…
+              </>
+            ) : (
+              "Submit"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Partial payroll dialog ── */}
+      <Dialog
+        open={payrollPartialOpen}
+        onClose={() => !payrollSubmitting && setPayrollPartialOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: "12px",
+            overflow: "hidden",
+            border: "0.5px solid rgba(0,0,0,0.09)",
+            fontFamily: T.poppins,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.12)",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            px: 3,
+            py: 2.5,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              top: -40,
+              right: -40,
+              width: 140,
+              height: 140,
+              borderRadius: "50%",
+              background: `radial-gradient(circle,${alpha("#92400e", 0.12)} 0%,transparent 70%)`,
+              pointerEvents: "none",
+            }}
+          />
+          <IconButton
+            size="small"
+            onClick={() => !payrollSubmitting && setPayrollPartialOpen(false)}
+            disabled={payrollSubmitting}
+            sx={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              color: T.accent,
+              opacity: 0.5,
+              "&:hover": { opacity: 1, bgcolor: T.accentFaint },
+            }}
+          >
+            <Close sx={{ fontSize: 18 }} />
+          </IconButton>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", pr: 4 }}>
+            <Avatar
+              sx={{
+                bgcolor: "rgba(146,64,14,0.12)",
+                width: 48,
+                height: 48,
+                border: "1px solid rgba(146,64,14,0.25)",
+              }}
+            >
+              <WarnIcon sx={{ fontSize: 22, color: "#92400e" }} />
+            </Avatar>
+            <Box sx={{ minWidth: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.35 }}>
+                <Typography
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: "1.05rem",
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  Confirm submission
+                </Typography>
+                <Chip
+                  label="Partial batch"
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: "0.62rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    bgcolor: "rgba(146,64,14,0.1)",
+                    color: "#92400e",
+                    border: "1px solid rgba(146,64,14,0.25)",
+                    fontFamily: T.poppins,
+                  }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.74rem", color: T.faint, fontWeight: 500, fontFamily: T.poppins }}>
+                Some employees are not eligible for regular payroll
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+        <DialogContent sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}` }}>
+          <Typography sx={{ fontSize: "0.88rem", color: T.muted, mb: 2, lineHeight: 1.65, fontFamily: T.poppins }}>
+            {payrollPartialPayload
+              ? `${payrollPartialPayload.filteredRecords.length} eligible record(s) will be submitted. ${payrollPartialPayload.invalidRecords.length} employee(s) will be skipped (e.g. Job Order or unknown category).`
+              : ""}
+          </Typography>
+          {payrollPartialPayload && payrollPartialPayload.invalidRecords?.length > 0 && (
+            <Box
+              sx={{
+                maxHeight: 160,
+                overflow: "auto",
+                borderRadius: 2,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: alpha("#92400e", 0.04),
+                px: 1.5,
+                py: 1,
+              }}
+            >
+              {payrollPartialPayload.invalidRecords.map((r, idx) => (
+                <Typography
+                  key={`${r.employeeNumber}-${idx}-${r.reason}`}
+                  sx={{
+                    fontSize: "0.78rem",
+                    color: T.text,
+                    py: 0.5,
+                    fontFamily: T.poppins,
+                    borderBottom: `1px solid ${T.divider}`,
+                    "&:last-child": { borderBottom: "none" },
+                  }}
+                >
+                  <strong>#{r.employeeNumber}</strong> — {r.reason}
+                </Typography>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions
+          sx={{
+            px: 3,
+            py: 2,
+            borderTop: `1px solid ${T.divider}`,
+            gap: 1,
+            justifyContent: "flex-end",
+            bgcolor: alpha(T.accent, 0.03),
+          }}
+        >
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setPayrollPartialOpen(false);
+              setPayrollPartialPayload(null);
+            }}
+            disabled={payrollSubmitting}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              borderColor: T.accentBorder,
+              color: T.muted,
+              fontFamily: T.poppins,
+              "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={payrollSubmitting}
+            onClick={async () => {
+              if (!payrollPartialPayload?.filteredRecords?.length) return;
+              setPayrollSubmitting(true);
+              try {
+                setPayrollPartialOpen(false);
+                await runPostRegularPayroll(payrollPartialPayload.filteredRecords);
+              } finally {
+                setPayrollSubmitting(false);
+                setPayrollPartialPayload(null);
+              }
+            }}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              minWidth: 120,
+              bgcolor: T.accent,
+              fontFamily: T.poppins,
+              boxShadow: "none",
+              "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+            }}
+          >
+            {payrollSubmitting ? (
+              <>
+                <CircularProgress size={16} sx={{ color: "#fff", mr: 1 }} />
+                Working…
+              </>
+            ) : (
+              "Proceed"
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Payroll info/result dialog ── */}
+      <Dialog
+        open={payrollInfoDialog.open}
+        onClose={() =>
+          setPayrollInfoDialog({
+            open: false,
+            title: "",
+            message: "",
+            isError: false,
+            continueToPayroll: false,
+          })
+        }
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: "12px",
+            overflow: "hidden",
+            border: "0.5px solid rgba(0,0,0,0.09)",
+            fontFamily: T.poppins,
+            boxShadow: "0 8px 40px rgba(0,0,0,0.12)",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            px: 3,
+            py: 2.5,
+            background: payrollInfoDialog.isError
+              ? "linear-gradient(135deg,#fef2f2 0%,#fce4e4 100%)"
+              : "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          <IconButton
+            size="small"
+            onClick={() =>
+              setPayrollInfoDialog({
+                open: false,
+                title: "",
+                message: "",
+                isError: false,
+                continueToPayroll: false,
+              })
+            }
+            sx={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              color: T.accent,
+              opacity: 0.5,
+              "&:hover": { opacity: 1, bgcolor: T.accentFaint },
+            }}
+          >
+            <Close sx={{ fontSize: 18 }} />
+          </IconButton>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", pr: 4 }}>
+            <Avatar
+              sx={{
+                bgcolor: payrollInfoDialog.isError
+                  ? "rgba(153,27,27,0.12)"
+                  : alpha(T.accent, 0.12),
+                width: 48,
+                height: 48,
+                border: payrollInfoDialog.isError
+                  ? "1px solid rgba(153,27,27,0.28)"
+                  : `1px solid ${T.accentBorder}`,
+              }}
+            >
+              {payrollInfoDialog.isError ? (
+                <WarnIcon sx={{ fontSize: 22, color: "#991b1b" }} />
+              ) : (
+                <CheckIcon sx={{ fontSize: 22, color: T.accent }} />
+              )}
+            </Avatar>
+            <Box sx={{ minWidth: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.35 }}>
+                <Typography
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: "1.05rem",
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {payrollInfoDialog.title}
+                </Typography>
+                <Chip
+                  label={payrollInfoDialog.isError ? "Notice" : "Result"}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: "0.62rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    bgcolor: payrollInfoDialog.isError ? "rgba(153,27,27,0.1)" : alpha(T.accent, 0.1),
+                    color: payrollInfoDialog.isError ? "#991b1b" : T.accent,
+                    border: payrollInfoDialog.isError
+                      ? "1px solid rgba(153,27,27,0.25)"
+                      : `1px solid ${T.accentBorder}`,
+                    fontFamily: T.poppins,
+                  }}
+                />
+              </Box>
+              <Typography sx={{ fontSize: "0.74rem", color: T.faint, fontWeight: 500, fontFamily: T.poppins }}>
+                Payroll submission
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+        <DialogContent sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}` }}>
+          <Typography
+            sx={{
+              fontSize: "0.88rem",
+              color: T.muted,
+              whiteSpace: "pre-line",
+              lineHeight: 1.65,
+              fontFamily: T.poppins,
+            }}
+          >
+            {payrollInfoDialog.message}
+          </Typography>
+        </DialogContent>
+        <DialogActions
+          sx={{
+            px: 3,
+            py: 2,
+            borderTop: `1px solid ${T.divider}`,
+            justifyContent: "flex-end",
+            gap: 1,
+            bgcolor: alpha(T.accent, 0.03),
+          }}
+        >
+          {payrollInfoDialog.continueToPayroll ? (
+            <>
+              <Button
+                variant="outlined"
+                onClick={() =>
+                  setPayrollInfoDialog({
+                    open: false,
+                    title: "",
+                    message: "",
+                    isError: false,
+                    continueToPayroll: false,
+                  })
+                }
+                sx={{
+                  textTransform: "none",
+                  fontWeight: 700,
+                  borderColor: T.accentBorder,
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint },
+                }}
+              >
+                Close
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  setPayrollHandoffRecords(null);
+                  setPayrollInfoDialog({
+                    open: false,
+                    title: "",
+                    message: "",
+                    isError: false,
+                    continueToPayroll: false,
+                  });
+                  navigate("/payroll-table");
+                }}
+                sx={{
+                  textTransform: "none",
+                  fontWeight: 700,
+                  minWidth: 140,
+                  bgcolor: T.accent,
+                  fontFamily: T.poppins,
+                  boxShadow: "none",
+                  "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+                }}
+              >
+                Continue to payroll
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="contained"
+              onClick={() =>
+                setPayrollInfoDialog({
+                  open: false,
+                  title: "",
+                  message: "",
+                  isError: false,
+                  continueToPayroll: false,
+                })
+              }
+              sx={{
+                textTransform: "none",
+                fontWeight: 700,
+                minWidth: 100,
+                bgcolor: T.accent,
+                fontFamily: T.poppins,
+                boxShadow: "none",
+                "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+              }}
+            >
+              OK
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
       <FloatingConversionWidget />
     </Box>

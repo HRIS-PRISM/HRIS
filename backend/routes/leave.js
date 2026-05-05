@@ -14,6 +14,7 @@ const {
   refreshLeaveAssignmentCacheFromLedger,
   fetchLedgerSumForAssignment,
 } = require("../services/leaveCreditUsageService");
+const attendanceWriter = require("../services/attendanceResultWriter");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -528,7 +529,7 @@ const insertEarningsAuditLogHalfDay = ({
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         "half_day_policy",
-        eid,
+        String(eid),
         "half_day_deduction_apply",
         null,
         decision || "accepted",
@@ -1038,14 +1039,45 @@ router.get("/leave_table", (req, res) => {
   });
 });
 
+const normalizeLeaveTableHours = (leave_hours) => {
+  if (leave_hours === null || leave_hours === undefined || leave_hours === "") return 0;
+  if (typeof leave_hours === "number")
+    return Number.isFinite(leave_hours) ? leave_hours : 0;
+  const n = parseFloat(String(leave_hours).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
 router.post("/leave_table", (req, res) => {
- const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
-db.query(
-  "INSERT INTO leave_table (leave_code, leave_description, leave_hours, gender_restriction) VALUES (?, ?, ?, ?)",
-  [leave_code, leave_description, leave_hours || 0, gender_restriction || null],
+  const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
+  const hoursVal = normalizeLeaveTableHours(leave_hours);
+  const genderVal =
+    gender_restriction && String(gender_restriction).trim()
+      ? String(gender_restriction).trim()
+      : null;
+  db.query(
+    "INSERT INTO leave_table (leave_code, leave_description, leave_hours, gender_restriction) VALUES (?, ?, ?, ?)",
+    [leave_code, leave_description, hoursVal, genderVal],
     (err, result) => {
       if (err) {
-        logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Insert Failed', 'leave_table', null, null);
+        console.error("[leave_table] INSERT error:", err.code, err.sqlMessage || err.message);
+        logAudit(
+          { employeeNumber: getActorEmployeeNumber(req) },
+          "Insert Failed",
+          "leave_table",
+          null,
+          null,
+        );
+        if (err.code === "ER_DUP_ENTRY") {
+          return res
+            .status(409)
+            .json({ error: "A leave type with this code already exists." });
+        }
+        if (err.code === "ER_BAD_FIELD_ERROR") {
+          return res.status(500).json({
+            error:
+              "Database schema is missing column gender_restriction on leave_table. Run backend/migrations/add_leave_table_gender_restriction.sql",
+          });
+        }
         return res.status(500).json({ error: "Failed to create leave type" });
       }
       logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Insert', 'leave_table', result.insertId, null);
@@ -1053,7 +1085,7 @@ db.query(
         id: result.insertId,
         leave_code,
         leave_description,
-        leave_hours,
+        leave_hours: hoursVal,
       });
     },
   );
@@ -1061,17 +1093,40 @@ db.query(
 
 router.put("/leave_table/:id", (req, res) => {
   const { id } = req.params;
- const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
-db.query(
-  "UPDATE leave_table SET leave_code = ?, leave_description = ?, leave_hours = ?, gender_restriction = ? WHERE id = ?",
-  [leave_code, leave_description, leave_hours, gender_restriction || null, id],
+  const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
+  const hoursVal = normalizeLeaveTableHours(leave_hours);
+  const genderVal =
+    gender_restriction && String(gender_restriction).trim()
+      ? String(gender_restriction).trim()
+      : null;
+  db.query(
+    "UPDATE leave_table SET leave_code = ?, leave_description = ?, leave_hours = ?, gender_restriction = ? WHERE id = ?",
+    [leave_code, leave_description, hoursVal, genderVal, id],
     (err) => {
       if (err) {
-        logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Update Failed', 'leave_table', id, null);
+        console.error("[leave_table] UPDATE error:", err.code, err.sqlMessage || err.message);
+        logAudit(
+          { employeeNumber: getActorEmployeeNumber(req) },
+          "Update Failed",
+          "leave_table",
+          id,
+          null,
+        );
+        if (err.code === "ER_DUP_ENTRY") {
+          return res
+            .status(409)
+            .json({ error: "A leave type with this code already exists." });
+        }
+        if (err.code === "ER_BAD_FIELD_ERROR") {
+          return res.status(500).json({
+            error:
+              "Database schema is missing column gender_restriction on leave_table. Run backend/migrations/add_leave_table_gender_restriction.sql",
+          });
+        }
         return res.status(500).json({ error: "Failed to update leave type" });
       }
-      logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Update', 'leave_table', id, null);
-      res.json({ id, leave_code, leave_description, leave_hours });
+      logAudit({ employeeNumber: getActorEmployeeNumber(req) }, "Update", "leave_table", id, null);
+      res.json({ id, leave_code, leave_description, leave_hours: hoursVal });
     },
   );
 });
@@ -1819,6 +1874,18 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
           decisionLogId,
         });
 
+        try {
+          await attendanceWriter.upsertFromHalfDaySalary({
+            employee_number: String(employeeNumber),
+            leave_date_only: leaveDateOnly,
+            hours,
+            deduction_decision_log_id: decisionLogId,
+            remarks: `Half-day salary (policy ref #${decisionLogId})`,
+          });
+        } catch (e) {
+          console.error("[leave] attendance_result (half-day salary):", e.message);
+        }
+
         return res.json({
           message: "Half-day recorded as salary deduction (no leave credits posted).",
           employeeNumber,
@@ -1913,6 +1980,19 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
         salary_deduction: false,
         available_hours_after: Number((availableAfter || 0).toFixed(4)),
       });
+
+      try {
+        await attendanceWriter.upsertFromHalfDayLeaveCovered({
+          employee_number: String(employeeNumber),
+          leave_date_only: leaveDateOnly,
+          hours,
+          charge_to: chargeTo,
+          deduction_decision_log_id: decisionLogId,
+          remarks: `Half-day leave-covered (policy ref #${decisionLogId})`,
+        });
+      } catch (e) {
+        console.error("[leave] attendance_result (half-day leave):", e.message);
+      }
 
       emitLeaveChange("leaveAssignmentChanged");
       res.json({
@@ -2716,6 +2796,79 @@ router.get("/leave_credit_usage", (req, res) => {
       return res.status(500).json({ error: "Failed to fetch leave credit usage" });
     }
     res.json(rows || []);
+  });
+});
+
+/** Sum leave hours posted for attendance tardiness (ledger: TARDINESS_DEDUCTION or legacy LEAVE_EARNING rows). */
+router.get("/leave_credit_usage/tardiness_posted", (req, res) => {
+  const { employeeNumber, period_year, period_month, leave_code } = req.query;
+  if (!employeeNumber || period_year == null || period_month == null) {
+    return res.status(400).json({
+      error: "employeeNumber, period_year, and period_month are required",
+    });
+  }
+  const emp = String(employeeNumber).trim();
+  const py = parseInt(period_year, 10);
+  const pm = parseInt(period_month, 10);
+  if (!emp || !Number.isFinite(py) || !Number.isFinite(pm)) {
+    return res.status(400).json({ error: "Invalid employeeNumber or period" });
+  }
+  const lcRaw = leave_code != null ? String(leave_code).trim() : "";
+
+  const tardinessWhere = `
+    lcu.employee_number = ?
+      AND lcu.voided_at IS NULL
+      AND lcu.hours_delta < 0
+      AND lcu.period_year = ?
+      AND lcu.period_month = ?
+      AND (
+        lcu.source_type = 'TARDINESS_DEDUCTION'
+        OR (lcu.source_type = 'LEAVE_EARNING' AND UPPER(IFNULL(le.entry_type, '')) = 'TARDINESS_DEDUCTION')
+      )
+  `;
+  const paramsBase = [emp, py, pm];
+  let sqlSum = `
+    SELECT COALESCE(SUM(-lcu.hours_delta), 0) AS posted_hours
+    FROM leave_credit_usage lcu
+    LEFT JOIN leave_earnings le ON le.id = lcu.source_id AND lcu.source_type = 'LEAVE_EARNING'
+    WHERE ${tardinessWhere}
+  `;
+  const paramsSum = [...paramsBase];
+  if (lcRaw) {
+    sqlSum += ` AND TRIM(lcu.leave_code) = TRIM(?)`;
+    paramsSum.push(lcRaw);
+  }
+  db.query(sqlSum, paramsSum, (err, sRows) => {
+    if (err) {
+      console.error("[leave_credit_usage/tardiness_posted]", err.message);
+      return res.status(500).json({ error: "Failed to sum tardiness deductions" });
+    }
+    const posted_hours =
+      sRows && sRows[0] != null ? Number(sRows[0].posted_hours) || 0 : 0;
+
+    let sqlLast = `
+      SELECT lcu.leave_code
+      FROM leave_credit_usage lcu
+      LEFT JOIN leave_earnings le ON le.id = lcu.source_id AND lcu.source_type = 'LEAVE_EARNING'
+      WHERE ${tardinessWhere}
+    `;
+    const paramsLast = [...paramsBase];
+    if (lcRaw) {
+      sqlLast += ` AND TRIM(lcu.leave_code) = TRIM(?)`;
+      paramsLast.push(lcRaw);
+    }
+    sqlLast += ` ORDER BY lcu.id DESC LIMIT 1`;
+    db.query(sqlLast, paramsLast, (e2, lRows) => {
+      if (e2) {
+        console.error("[leave_credit_usage/tardiness_posted:last]", e2.message);
+        return res.json({ posted_hours, last_leave_code: null });
+      }
+      const last_leave_code =
+        lRows && lRows[0] && lRows[0].leave_code != null
+          ? String(lRows[0].leave_code).trim()
+          : null;
+      res.json({ posted_hours, last_leave_code });
+    });
   });
 });
 
