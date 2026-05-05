@@ -3,8 +3,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import {
   computeOfficialAwareAbsenceAndLate,
+  formatOfficialAttendanceSeconds,
   listAbsentDatesFromDailyRows,
   listHalfDayDatesFromDailyRows,
+  parseOfficialTimeToSeconds,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
   Box,
@@ -549,13 +551,12 @@ const OverallAttendance = () => {
       if (response.status === 200) {
         const overallRows = response.data.data;
 
-        // Derive absent / half-day / late shortfall from daily rows (three buckets sum to overall shortfall)
+        // Derive absent / half-day from daily rows; Late Total is chosen so Absent + Half + Late = saved Overall Tardiness (module truth).
         let absentDisplay = null;
         let halfDayStr = null;
         let lateStr = null;
         let overallShortfall = null;
-        /** When absent + half-day shortfall are both 0, Late Total mirrors saved Overall Tardiness (not the daily-row late bucket). */
-        let useOverallTardinessForLateTotal = false;
+        let bucketC = null;
         try {
           const [d, maps] = await Promise.all([
             axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
@@ -591,28 +592,42 @@ const OverallAttendance = () => {
               : halfLine;
           lateStr = c.lateShortfallTime;
           overallShortfall = c.overallShortfallTime;
-          useOverallTardinessForLateTotal =
-            c.absentSecTotal === 0 && c.halfDayShortfallSecTotal === 0;
+          bucketC = c;
         } catch {
           absentDisplay = null;
           halfDayStr = null;
           lateStr = null;
           overallShortfall = null;
-          useOverallTardinessForLateTotal = false;
+          bucketC = null;
         }
 
         setAttendanceData(
           (Array.isArray(overallRows) ? overallRows : []).map((r) => {
             const overallSaved = r.overallRenderedOfficialTimeTardiness;
+            const savedTrim =
+              overallSaved != null && String(overallSaved).trim() !== ''
+                ? String(overallSaved).trim()
+                : '';
+            const overallSec = parseOfficialTimeToSeconds(savedTrim);
+            let lateTotalResolved;
+            if (overallShortfall != null && bucketC && overallSec != null) {
+              lateTotalResolved = formatOfficialAttendanceSeconds(
+                Math.max(
+                  0,
+                  overallSec - bucketC.absentSecTotal - bucketC.halfDayShortfallSecTotal,
+                ),
+              );
+            } else if (bucketC?.absentSecTotal === 0 && bucketC?.halfDayShortfallSecTotal === 0) {
+              lateTotalResolved = savedTrim || lateStr || '';
+            } else {
+              lateTotalResolved = lateStr || '';
+            }
+            // Overall Tardiness stays DB (module); absent/half times from buckets; late is residual so the three durations sum to overall.
             return {
               ...r,
               _absentTotalDays: absentDisplay,
               _halfTotalDays: halfDayStr,
-              _lateTotal: useOverallTardinessForLateTotal
-                ? (overallSaved != null && String(overallSaved).trim() !== ''
-                    ? overallSaved
-                    : lateStr)
-                : lateStr,
+              _lateTotal: lateTotalResolved,
               ...(overallShortfall != null
                 ? { _computedPayrollOverallShortfall: overallShortfall }
                 : {}),
@@ -701,9 +716,12 @@ const OverallAttendance = () => {
         payrollAttendanceRecords: attendanceData.map((r) => ({
           ...r,
           overallRenderedOfficialTimeTardiness:
-            r._lateTotal != null && String(r._lateTotal).trim() !== ''
-              ? r._lateTotal
-              : r.overallRenderedOfficialTimeTardiness,
+            r.overallRenderedOfficialTimeTardiness != null &&
+            String(r.overallRenderedOfficialTimeTardiness).trim() !== ''
+              ? r.overallRenderedOfficialTimeTardiness
+              : r._lateTotal != null && String(r._lateTotal).trim() !== ''
+                ? r._lateTotal
+                : '',
         })),
       },
     });
@@ -800,9 +818,12 @@ const OverallAttendance = () => {
           }
           let h = 0, m = 0, s = 0;
           const tardStr =
-            record._lateTotal != null && String(record._lateTotal).trim() !== ''
-              ? record._lateTotal
-              : record.overallRenderedOfficialTimeTardiness;
+            record.overallRenderedOfficialTimeTardiness != null &&
+            String(record.overallRenderedOfficialTimeTardiness).trim() !== ''
+              ? record.overallRenderedOfficialTimeTardiness
+              : record._lateTotal != null && String(record._lateTotal).trim() !== ''
+                ? record._lateTotal
+                : '';
           if (tardStr) {
             const tParts = String(tardStr).split(':');
             h = parseInt(tParts[0], 10) || 0;
