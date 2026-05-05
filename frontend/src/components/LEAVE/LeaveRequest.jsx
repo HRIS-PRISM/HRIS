@@ -222,66 +222,57 @@ const Wireframe = () => (
         </Box>
       </Box>
       <Grid container spacing={3}>
-  {/* Left column (1/3 width, lg=4) */}
-  <Grid item xs={12} lg={4}>
-    <Box
-      sx={{
-        borderRadius: 3,
-        border: `1px solid ${T.accentBorder}`,
-        bgcolor: '#fff',
-        overflow: 'hidden',
-        animation: `blink 2s ease-in-out 0s infinite`,
-        height: 'calc(100vh - 280px)',
-      }}
-    >
-      {/* header */}
-      <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-        <Bone w={180} h={13} />
-      </Box>
-
-      {/* content */}
-      <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-        {[100, 160, 120, 140, 110].map((w, i) => (
-          <Box key={i}>
-            <Bone w={w} h={10} sx={{ mb: 1 }} />
-            <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+        <Grid item xs={12} lg={4}>
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${T.accentBorder}`,
+              bgcolor: '#fff',
+              overflow: 'hidden',
+              animation: `blink 2s ease-in-out 0s infinite`,
+              height: 'calc(100vh - 280px)',
+            }}
+          >
+            <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+              <Bone w={180} h={13} />
+            </Box>
+            <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              {[100, 160, 120, 140, 110].map((w, i) => (
+                <Box key={i}>
+                  <Bone w={w} h={10} sx={{ mb: 1 }} />
+                  <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                </Box>
+              ))}
+            </Box>
           </Box>
-        ))}
-      </Box>
-    </Box>
-  </Grid>
-
-  {/* Right column (2/3 width, lg=8) */}
-  <Grid item xs={12} lg={8}>
-    <Box
-      sx={{
-        borderRadius: 3,
-        border: `1px solid ${T.accentBorder}`,
-        bgcolor: '#fff',
-        overflow: 'hidden',
-        animation: `blink 2s ease-in-out 0.1s infinite`,
-        height: 'calc(100vh - 280px)',
-      }}
-    >
-      {/* header */}
-      <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-        <Bone w={240} h={13} />
-      </Box>
-
-      {/* content */}
-      <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-        {[200, 160, 180, 140, 150, 170].map((w, i) => (
-          <Box key={i}>
-            <Bone w={w} h={10} sx={{ mb: 1 }} />
-            <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+        </Grid>
+        <Grid item xs={12} lg={8}>
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${T.accentBorder}`,
+              bgcolor: '#fff',
+              overflow: 'hidden',
+              animation: `blink 2s ease-in-out 0.1s infinite`,
+              height: 'calc(100vh - 280px)',
+            }}
+          >
+            <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+              <Bone w={240} h={13} />
+            </Box>
+            <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              {[200, 160, 180, 140, 150, 170].map((w, i) => (
+                <Box key={i}>
+                  <Bone w={w} h={10} sx={{ mb: 1 }} />
+                  <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                </Box>
+              ))}
+            </Box>
           </Box>
-        ))}
-      </Box>
-    </Box>
-  </Grid>
-</Grid>
+        </Grid>
+      </Grid>
     </Box>
   </>
 );
@@ -620,63 +611,45 @@ const TransactionLogsSurface = ({
             </AccentButton>
           </Box>
 
-          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {[
-              { label: 'All actions', value: 'all' },
-              { label: 'Submitted', value: 'submitted' },
-              { label: 'Supervisor', value: 'supervisor_approved' },
-              { label: 'HR approved', value: 'hr_approved' },
-              { label: 'Denied', value: 'denied' },
-              { label: 'Cancelled', value: 'cancelled' },
-              { label: 'Deleted', value: 'deleted' },
-            ].map((opt) => (
-              <Box
-                key={opt.value}
-                onClick={() => setActionFilter(opt.value)}
-                sx={{
-                  px: 1.35,
-                  py: 0.45,
-                  borderRadius: 999,
-                  cursor: 'pointer',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  border: `1px solid ${actionFilter === opt.value ? T.accent : T.accentBorder}`,
-                  color: actionFilter === opt.value ? '#fff' : T.accent,
-                  bgcolor: actionFilter === opt.value ? T.accent : '#fff',
-                  transition: 'all 0.15s ease',
-                  '&:hover': { bgcolor: actionFilter === opt.value ? T.accentDark : T.accentFaint },
-                }}
+          {/* Action filter — dropdown */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent, whiteSpace: 'nowrap' }}>Action:</Typography>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <Select
+                value={actionFilter}
+                onChange={(e) => setActionFilter(e.target.value)}
+                sx={{ ...selectSx, fontSize: '0.78rem' }}
               >
-                {opt.label}
-              </Box>
-            ))}
-          </Box>
+                {[
+                  { label: 'All actions',        value: 'all' },
+                  { label: 'Submitted',          value: 'submitted' },
+                  { label: 'Supervisor approved',value: 'supervisor_approved' },
+                  { label: 'HR approved',        value: 'hr_approved' },
+                  { label: 'Denied',             value: 'denied' },
+                  { label: 'Cancelled',          value: 'cancelled' },
+                  { label: 'Deleted',            value: 'deleted' },
+                ].map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.82rem' }}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {leaveFilterOptions.map((category, index) => {
-              const label = category === 'all' ? 'All leave types' : category;
-              return (
-                <Box
-                  key={`${category}-${index}`}
-                  onClick={() => setLeaveFilter(category)}
-                  sx={{
-                    px: 1.35,
-                    py: 0.45,
-                    borderRadius: 999,
-                    cursor: 'pointer',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    border: `1px solid ${leaveFilter === category ? T.accent : T.accentBorder}`,
-                    color: leaveFilter === category ? '#fff' : T.accent,
-                    bgcolor: leaveFilter === category ? T.accent : '#fff',
-                    transition: 'all 0.15s ease',
-                    '&:hover': { bgcolor: leaveFilter === category ? T.accentDark : T.accentFaint },
-                  }}
-                >
-                  {label}
-                </Box>
-              );
-            })}
+            <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent, whiteSpace: 'nowrap', ml: 1 }}>Leave type:</Typography>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <Select
+                value={leaveFilter}
+                onChange={(e) => setLeaveFilter(e.target.value)}
+                sx={{ ...selectSx, fontSize: '0.78rem' }}
+              >
+                {leaveFilterOptions.map((category, index) => (
+                  <MenuItem key={`${category}-${index}`} value={category} sx={{ fontSize: '0.82rem' }}>
+                    {category === 'all' ? 'All leave types' : category}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Box>
         </Box>
       )}
@@ -855,7 +828,6 @@ const LeaveRequest = () => {
 
   const [errorModal, setErrorModal]     = useState({ open: false, title: '', message: '', iconColor: '#C62828', iconBg: '#FFEBEE', icon: ErrorOutlineIcon });
   const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {} });
-  /** HR approve: decimal ↔ hours uses Working Hours tables (same as WorkingHoursConverter). */
   const [hrApproveModal, setHrApproveModal] = useState({
     open: false,
     mode: 'single',
@@ -949,15 +921,15 @@ const LeaveRequest = () => {
   };
 
   const userRole = useMemo(() => {
-  try {
-    const token = localStorage.getItem('token');
-    if (!token) return '';
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return (payload.role || payload.userRole || '').toLowerCase();
-  } catch { return ''; }
-}, []);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return '';
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return (payload.role || payload.userRole || '').toLowerCase();
+    } catch { return ''; }
+  }, []);
 
-const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole);
+  const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole);
 
   useEffect(() => { setPage(0); }, [deferredSearch, statusFilter, leaveTypeFilter, dateRangeFilter, dateFiledFilter]);
 
@@ -975,7 +947,6 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     return () => socket.off('leaveRequestChanged', handler);
   }, [socket, connected]);
 
-  // ── Leave balance preview (admin submit form) ────────────────────────────────
   useEffect(() => {
     let alive = true;
     const run = async () => {
@@ -1014,9 +985,7 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     };
 
     run();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [newRequest.employeeNumber, newRequest.leave_code]);
 
   const fetchAll = async () => {
@@ -1104,13 +1073,9 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
     let creditMsg = '';
     try {
       const creditsRes = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders());
-      // Backend returns an array; older code expected { assignments: [...] }.
       const assignment = Array.isArray(creditsRes.data)
         ? creditsRes.data
         : (creditsRes.data?.assignments || []);
-      // Same employee + leave_code can have multiple leave_assignment rows (e.g. per period_year).
-      // Backend POST uses total remaining across all rows (getTotalRemainingHours); match that here
-      // instead of assignment.find(), which would only use the first row (often an older period with 0 remaining).
       const matches = assignment.filter(
         (a) => a.employeeNumber?.toString() === newRequest.employeeNumber?.toString() && a.leave_code === newRequest.leave_code,
       );
@@ -1118,7 +1083,6 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
         creditsOk = false;
         creditMsg = `No leave assignment found for Employee #${newRequest.employeeNumber} under leave code "${newRequest.leave_code}".\n\nPlease assign leave credits first.`;
       } else {
-        // Prefer remaining_hours (server-authoritative) per row; sum across periods like the API balance check.
         const available = matches.reduce((sum, row) => {
           const rowAvail = parseFloat(row.remaining_hours ?? ((parseFloat(row.allocated_hours) || 0) - (parseFloat(row.used_hours) || 0))) || 0;
           return sum + rowAvail;
@@ -1403,11 +1367,10 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
       const sorted = (Array.isArray(res.data) ? res.data : []).sort(
         (a, b) => new Date(b.created_at || b.createdAt || b.timestamp) - new Date(a.created_at || a.createdAt || a.timestamp),
       );
-      
-      // Fetch employee names for any employees in the transaction logs that we don't have yet
+
       const empNums = [...new Set(sorted.map((log) => log.employee_id || log.employeeNumber).filter(Boolean))];
       const newNames = { ...employeeNames };
-      
+
       await Promise.all(empNums.map(async (emp) => {
         if (!newNames[emp]) {
           try {
@@ -1415,8 +1378,6 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
             const firstName = nameRes.data.firstName || '';
             const middleName = nameRes.data.middleName || '';
             const lastName = nameRes.data.lastName || '';
-            
-            // Format: LASTNAME, FIRSTNAME MIDDLEINITIAL
             const middleInitial = middleName ? middleName.charAt(0) + '.' : '';
             const formatted = `${lastName}, ${firstName} ${middleInitial}`.replace(/\s+/g, ' ').trim();
             newNames[emp] = formatted || 'Unknown';
@@ -1425,7 +1386,7 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
           }
         }
       }));
-      
+
       setEmployeeNames(newNames);
       setTxLogs(sorted);
       setAuditPage(1);
@@ -1672,6 +1633,15 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
   // ── Selected employee object (for preview pill) ────────────────────────────
   const selectedEmployeeObj = employeeOptions.find((o) => o.employeeNumber === newRequest.employeeNumber) || null;
 
+  // ── Status filter color map ────────────────────────────────────────────────
+  const statusColorMap = {
+    all: T.accent,
+    '0': '#F57C00',
+    '1': '#1565C0',
+    '2': '#2E7D32',
+    '3': '#C62828',
+  };
+
   return (
     <Fade in timeout={400}>
       <Box
@@ -1859,7 +1829,7 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                   />
                 </Box>
 
-                {/* Employee preview pill — only show when selected */}
+                {/* Employee preview pill */}
                 {selectedEmployeeObj ? (
                   <Box sx={{
                     display: 'flex', alignItems: 'center', gap: 1.25,
@@ -1974,11 +1944,11 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                     primaryColor="#fdf5f5"
                     secondaryColor="#f0dede"
                     allowPastDates={isSickLeave(newRequest.leave_code)}
-                    adminOverride={isPrivilegedRole} 
+                    adminOverride={isPrivilegedRole}
                   />
                 </Box>
 
-                {/* Balance warning (like LeaveRequestUser.jsx) */}
+                {/* Balance warning */}
                 {(newRequest.employeeNumber && newRequest.leave_code) && (
                   <Box sx={{ mb: 2 }}>
                     {leaveBalance.loading ? (
@@ -2007,7 +1977,6 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                     ) : null}
                   </Box>
                 )}
-
 
                 {/* Submit */}
                 <Box sx={{ mt: 'auto' }}>
@@ -2065,373 +2034,388 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
                 onExpandPanel={() => {}}
               />
             ) : (
-            <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
-              {/* Records header / toolbar */}
-              <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+                {/* Records header / toolbar */}
+                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
 
-                {/* Title row */}
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <TableRowsIcon sx={{ fontSize: 17, color: T.accent }} />
-                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
-                      Leave Request Records
+                  {/* Title row */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <TableRowsIcon sx={{ fontSize: 17, color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                        Leave Request Records
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Tooltip title={selectMode ? 'Exit Selection Mode' : 'Select Multiple'}>
+                        <AccentButton
+                          onClick={toggleSelectMode}
+                          size="small"
+                          variant={selectMode ? 'contained' : 'outlined'}
+                          startIcon={
+                            selectMode
+                              ? <CheckBoxIcon sx={{ fontSize: '13px !important' }} />
+                              : <CheckBoxOutlineBlankIcon sx={{ fontSize: '13px !important' }} />
+                          }
+                          sx={{
+                            fontSize: '0.72rem', px: 1.25, py: 0.35, height: 28,
+                            bgcolor: selectMode ? T.accent : 'transparent',
+                            color: selectMode ? '#fff' : T.accent,
+                            borderColor: T.accentBorder,
+                            '&:hover': { bgcolor: selectMode ? T.accentDark : T.accentFaint, borderColor: T.accent, transform: 'none' },
+                          }}
+                        >
+                          {selectMode ? 'Cancel' : 'Select'}
+                        </AccentButton>
+                      </Tooltip>
+                      <ToggleButtonGroup
+                        value={viewMode} exclusive onChange={(_, v) => v && setViewMode(v)} size="small"
+                        sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent } } }}
+                      >
+                        <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                        <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+                  </Box>
+
+                  {/* Audit module shortcut */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                    <AccentButton
+                      onClick={() => { setTxPanelOpen(true); setTxModalOpen(false); setAuditPage(1); }}
+                      variant="outlined"
+                      startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+                      sx={{ fontSize: '0.74rem', px: 1.25, py: 0.35, height: 28, color: T.accent, borderColor: T.accentBorder, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}
+                    >
+                      Open audit module
+                    </AccentButton>
+                    <Typography sx={{ fontSize: '0.74rem', color: T.muted }}>
+                      Search and filter logs without leaving this page.
                     </Typography>
                   </Box>
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                    <Tooltip title={selectMode ? 'Exit Selection Mode' : 'Select Multiple'}>
-                      <AccentButton
-                        onClick={toggleSelectMode}
-                        size="small"
-                        variant={selectMode ? 'contained' : 'outlined'}
-                        startIcon={
-                          selectMode
-                            ? <CheckBoxIcon sx={{ fontSize: '13px !important' }} />
-                            : <CheckBoxOutlineBlankIcon sx={{ fontSize: '13px !important' }} />
-                        }
-                        sx={{
-                          fontSize: '0.72rem', px: 1.25, py: 0.35, height: 28,
-                          bgcolor: selectMode ? T.accent : 'transparent',
-                          color: selectMode ? '#fff' : T.accent,
-                          borderColor: T.accentBorder,
-                          '&:hover': { bgcolor: selectMode ? T.accentDark : T.accentFaint, borderColor: T.accent, transform: 'none' },
-                        }}
+
+                  {/* ── Filter row: dropdowns ── */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                    {/* Date range dropdown */}
+                    <FormControl size="small" sx={{ minWidth: 130 }}>
+                      <Select
+                        value={dateRangeFilter}
+                        onChange={(e) => { setDateRangeFilter(e.target.value); setPage(0); }}
+                        sx={{ ...selectSx, fontSize: '0.78rem' }}
                       >
-                        {selectMode ? 'Cancel' : 'Select'}
-                      </AccentButton>
-                    </Tooltip>
-                    <ToggleButtonGroup
-                      value={viewMode} exclusive onChange={(_, v) => v && setViewMode(v)} size="small"
-                      sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent } } }}
-                    >
-                      <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
-                      <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
-                    </ToggleButtonGroup>
-                  </Box>
-                </Box>
+                        <MenuItem value="all" sx={{ fontSize: '0.82rem' }}>All dates</MenuItem>
+                        <MenuItem value="today" sx={{ fontSize: '0.82rem' }}>Today</MenuItem>
+                        <MenuItem value="last7" sx={{ fontSize: '0.82rem' }}>Last 7 days</MenuItem>
+                        <MenuItem value="monthly" sx={{ fontSize: '0.82rem' }}>This month</MenuItem>
+                      </Select>
+                    </FormControl>
 
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
-                  <AccentButton
-                    onClick={() => { setTxPanelOpen(true); setTxModalOpen(false); setAuditPage(1); }}
-                    variant="outlined"
-                    startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
-                    sx={{ fontSize: '0.74rem', px: 1.25, py: 0.35, height: 28, color: T.accent, borderColor: T.accentBorder, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}
-                  >
-                    Open audit module
-                  </AccentButton>
-                  <Typography sx={{ fontSize: '0.74rem', color: T.muted }}>
-                    Search and filter logs without leaving this page.
-                  </Typography>
-                </Box>
+                    {/* Leave type dropdown */}
+                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                      <Select
+                        value={leaveTypeFilter}
+                        onChange={(e) => { setLeaveTypeFilter(e.target.value); setPage(0); }}
+                        displayEmpty
+                        sx={{ ...selectSx, fontSize: '0.78rem' }}
+                        renderValue={(v) => (
+                          <Typography sx={{ fontSize: '0.78rem' }}>
+                            {v === 'all' ? 'All types' : (leaveTypes.find((t) => t.leave_code === v)?.leave_description || v)}
+                          </Typography>
+                        )}
+                      >
+                        <MenuItem value="all" sx={{ fontSize: '0.82rem' }}>All types</MenuItem>
+                        {leaveTypes.map((t) => (
+                          <MenuItem key={t.leave_code} value={t.leave_code} sx={{ fontSize: '0.82rem' }}>
+                            {t.leave_code} — {t.leave_description}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
 
-                {/* Date range + Leave type + Date filed */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
-                  {[
-                    { label: 'All', value: 'all' },
-                    { label: 'Today', value: 'today' },
-                    { label: 'Last 7d', value: 'last7' },
-                    { label: 'This Month', value: 'monthly' },
-                  ].map((range) => (
-                    <Box
-                      key={range.value}
-                      onClick={() => setDateRangeFilter(range.value)}
-                      sx={{
-                        px: 1.5, py: 0.4, borderRadius: 1.5, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600,
-                        bgcolor: dateRangeFilter === range.value ? T.accent : 'transparent',
-                        color: dateRangeFilter === range.value ? '#fff' : T.accent,
-                        border: `1px solid ${dateRangeFilter === range.value ? T.accent : T.accentBorder}`,
-                        '&:hover': { bgcolor: dateRangeFilter === range.value ? T.accentDark : T.accentHover },
-                        transition: 'all 0.15s',
-                      }}
-                    >
-                      {range.label}
-                    </Box>
-                  ))}
-                  <Box sx={{ flex: 1 }} />
-                  <FormControl size="small" sx={{ minWidth: 130 }}>
-                    <Select
-                      value={leaveTypeFilter}
-                      onChange={(e) => { setLeaveTypeFilter(e.target.value); setPage(0); }}
-                      displayEmpty
-                      sx={{ ...selectSx, fontSize: '0.78rem' }}
-                    >
-                      <MenuItem value="all">All Types</MenuItem>
-                      {leaveTypes.map((t) => (
-                        <MenuItem key={t.leave_code} value={t.leave_code}>
-                          {t.leave_code} — {t.leave_description}
+                    {/* Date filed */}
+                    <FieldInput
+                      type="date" size="small" label="Date filed" value={dateFiledFilter}
+                      onChange={(e) => { setDateFiledFilter(e.target.value); setPage(0); }}
+                      InputLabelProps={{ shrink: true }}
+                      inputProps={{ max: new Date().toISOString().split('T')[0] }}
+                      sx={{ minWidth: 150 }}
+                    />
+
+                    <Box sx={{ flex: 1 }} />
+
+                    {/* Status dropdown */}
+                    <FormControl size="small" sx={{ minWidth: 175 }}>
+                      <Select
+                        value={statusFilter}
+                        onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
+                        sx={{ ...selectSx, fontSize: '0.78rem' }}
+                        renderValue={(v) => (
+                          <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: statusColorMap[v] || T.accent }}>
+                            {v === 'all'
+                              ? `All statuses (${counts.all})`
+                              : v === '0' ? `Pending (${counts['0']})`
+                              : v === '1' ? `Supervisor (${counts['1']})`
+                              : v === '2' ? `HR Approved (${counts['2']})`
+                              : v === '3' ? `Denied (${counts['3']})`
+                              : v}
+                          </Typography>
+                        )}
+                      >
+                        <MenuItem value="all">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: T.accent, flexShrink: 0 }} />
+                            <Typography sx={{ fontSize: '0.82rem' }}>All statuses ({counts.all})</Typography>
+                          </Box>
                         </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                        {[
+                          { value: '0', label: 'Pending',     color: '#F57C00', count: counts['0'] },
+                          { value: '1', label: 'Supervisor',  color: '#1565C0', count: counts['1'] },
+                          { value: '2', label: 'HR Approved', color: '#2E7D32', count: counts['2'] },
+                          { value: '3', label: 'Denied',      color: '#C62828', count: counts['3'] },
+                        ].map((f) => (
+                          <MenuItem key={f.value} value={f.value}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: f.color, flexShrink: 0 }} />
+                              <Typography sx={{ fontSize: '0.82rem' }}>{f.label} ({f.count})</Typography>
+                            </Box>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+
+                  {/* Search */}
                   <FieldInput
-                    type="date" size="small" label="Date Filed" value={dateFiledFilter}
-                    onChange={(e) => { setDateFiledFilter(e.target.value); setPage(0); }}
-                    InputLabelProps={{ shrink: true }}
-                    inputProps={{ max: new Date().toISOString().split('T')[0] }}
-                    sx={{ minWidth: 150 }}
+                    size="small"
+                    placeholder="Search by name or employee ID…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon sx={{ fontSize: 15, color: T.muted }} />
+                        </InputAdornment>
+                      ),
+                    }}
                   />
                 </Box>
 
-                {/* Search */}
-                <FieldInput
-                  size="small"
-                  placeholder="Search by name or employee ID…"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  fullWidth
-                  sx={{ mb: 1.5 }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchIcon sx={{ fontSize: 15, color: T.muted }} />
-                      </InputAdornment>
-                    ),
+                {/* Records list */}
+                <Box
+                  sx={{
+                    flexGrow: 1, overflowY: 'auto', p: 2,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
                   }}
-                />
-
-                {/* Status filter pills */}
-                <Box sx={{ display: 'flex', gap: 0.75 }}>
-                  {[
-                    { label: `All (${counts.all})`,        value: 'all', color: T.accent  },
-                    { label: `Pending (${counts['0']})`,   value: '0',   color: '#F57C00' },
-                    { label: `Supervisor (${counts['1']})`,value: '1',   color: '#1565C0' },
-                    { label: `HR (${counts['2']})`,        value: '2',   color: '#2E7D32' },
-                    { label: `Denied (${counts['3']})`,    value: '3',   color: '#C62828' },
-                  ].map((f) => (
-                    <Box
-                      key={f.value}
-                      onClick={() => { setStatusFilter(f.value); setPage(0); }}
-                      sx={{
-                        flex: 1, textAlign: 'center', py: 0.6, borderRadius: 1.5, cursor: 'pointer',
-                        fontSize: '0.68rem', fontWeight: 700, lineHeight: 1.3,
-                        bgcolor: statusFilter === f.value ? f.color : 'transparent',
-                        color: statusFilter === f.value ? '#fff' : f.color,
-                        border: `1.5px solid ${f.color}`,
-                        transition: 'all 0.15s',
-                        '&:hover': { bgcolor: statusFilter === f.value ? f.color : alpha(f.color, 0.1) },
-                      }}
-                    >
-                      {f.label}
+                >
+                  {paged.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                        <EventNote sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                        {leaveRequests.length === 0 ? 'No leave requests yet' : 'No records match your search'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                        {leaveRequests.length === 0 ? 'Use the form on the left to add a request.' : 'Try a different filter or search term.'}
+                      </Typography>
                     </Box>
-                  ))}
-                </Box>
-              </Box>
+                  ) : viewMode === 'grid' ? (
+                    <Grid container spacing={1.5} alignItems="stretch">
+                      {paged.map((req) => {
+                        const type = getType(req.leave_code);
+                        const locked = isRecordLocked(req);
+                        const isSelected = selectedRequests.includes(req.id);
+                        return (
+                          <Grid item xs={12} sm={3} key={req.id} sx={{ display: 'flex' }}>
+                            <Box
+                              onClick={() => {
+                                if (selectMode && !locked) { handleSelectRequest(req.id); }
+                                else { setEditRequest({ ...req }); setOriginalRequest({ ...req }); setIsEditing(false); }
+                              }}
+                              sx={{
+                                width: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                p: 2, borderRadius: 2, cursor: 'pointer',
+                                opacity: locked ? 0.62 : 1,
+                                bgcolor: isSelected ? T.accentFaint : '#fff',
+                                border: isSelected ? `1.5px solid ${T.accent}` : `1px solid ${T.accentBorder}`,
+                                position: 'relative', transition: 'all 0.13s',
+                                '&:hover': { bgcolor: T.rowHover, borderColor: T.accent },
+                              }}
+                            >
+                              {selectMode && !locked && (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onChange={() => handleSelectRequest(req.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  sx={{ position: 'absolute', top: 4, right: 4, p: 0, color: T.accent, '&.Mui-checked': { color: T.accent } }}
+                                  size="small"
+                                />
+                              )}
+                              {locked && (
+                                <Box sx={{ position: 'absolute', top: 6, right: 6 }}>
+                                  <LockIcon sx={{ fontSize: 11, color: T.faint }} />
+                                </Box>
+                              )}
 
-              {/* Records list */}
-              <Box
-                sx={{
-                  flexGrow: 1, overflowY: 'auto', p: 2,
-                  '&::-webkit-scrollbar': { width: 4 },
-                  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
-                }}
-              >
-                {paged.length === 0 ? (
-                  <Box sx={{ py: 10, textAlign: 'center' }}>
-                    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                      <EventNote sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
-                    </Box>
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
-                      {leaveRequests.length === 0 ? 'No leave requests yet' : 'No records match your search'}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
-                      {leaveRequests.length === 0 ? 'Use the form on the left to add a request.' : 'Try a different filter or search term.'}
-                    </Typography>
-                  </Box>
-                ) : viewMode === 'grid' ? (
-                  <Grid container spacing={1.5} alignItems="stretch">
-                    {paged.map((req) => {
-                      const type = getType(req.leave_code);
-                      const locked = isRecordLocked(req);
-                      const isSelected = selectedRequests.includes(req.id);
-                      return (
-                        <Grid item xs={12} sm={3} key={req.id} sx={{ display: 'flex' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+                                <PersonIcon sx={{ fontSize: 12, color: T.faint }} />
+                                <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{req.employeeNumber}</Typography>
+                              </Box>
+
+                              <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, mb: 0.25 }} noWrap>
+                                {employeeNames[req.employeeNumber] || 'Loading…'}
+                              </Typography>
+
+                              <Typography sx={{ fontSize: '0.75rem', color: T.muted, mb: 1, flexGrow: 1 }}>
+                                applied for{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>
+                                  {type.leave_description || req.leave_code}
+                                </Box>
+                              </Typography>
+
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <CalendarMonth sx={{ fontSize: 11, color: T.faint }} />
+                                  <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>{formatDateRange(req.leave_date)}</Typography>
+                                </Box>
+                                <StatusPill status={req.status} />
+                              </Box>
+                            </Box>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  ) : (
+                    <>
+                      <Box
+                        sx={{
+                          px: 1.5, py: 1,
+                          display: 'grid', gridTemplateColumns: '110px 1fr 130px 100px 80px',
+                          gap: 1, alignItems: 'center',
+                          bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1,
+                        }}
+                      >
+                        {['Emp. No', 'Employee', 'Leave Type', 'Date', 'Status'].map((col) => (
+                          <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                            {col}
+                          </Typography>
+                        ))}
+                      </Box>
+                      {paged.map((req, idx) => {
+                        const type = getType(req.leave_code);
+                        const locked = isRecordLocked(req);
+                        const isSelected = selectedRequests.includes(req.id);
+                        return (
                           <Box
+                            key={req.id}
                             onClick={() => {
-                              if (selectMode && !locked) { handleSelectRequest(req.id); }
+                              if (selectMode && !locked) handleSelectRequest(req.id);
                               else { setEditRequest({ ...req }); setOriginalRequest({ ...req }); setIsEditing(false); }
                             }}
                             sx={{
-                              width: '100%',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              p: 2, borderRadius: 2, cursor: 'pointer',
+                              px: 1.5, py: 1.25,
+                              display: 'grid', gridTemplateColumns: '110px 1fr 130px 100px 80px',
+                              gap: 1, alignItems: 'center', borderRadius: 1.5, cursor: 'pointer',
                               opacity: locked ? 0.62 : 1,
-                              bgcolor: isSelected ? T.accentFaint : '#fff',
-                              border: isSelected ? `1.5px solid ${T.accent}` : `1px solid ${T.accentBorder}`,
-                              position: 'relative', transition: 'all 0.13s',
-                              '&:hover': { bgcolor: T.rowHover, borderColor: T.accent },
+                              bgcolor: isSelected ? T.accentFaint : idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                              border: isSelected ? `1px solid ${T.accent}` : '1px solid transparent',
+                              transition: 'background 0.13s ease',
+                              '&:hover': { bgcolor: T.rowHover },
                             }}
                           >
-                            {selectMode && !locked && (
-                              <Checkbox
-                                checked={isSelected}
-                                onChange={() => handleSelectRequest(req.id)}
-                                onClick={(e) => e.stopPropagation()}
-                                sx={{ position: 'absolute', top: 4, right: 4, p: 0, color: T.accent, '&.Mui-checked': { color: T.accent } }}
-                                size="small"
-                              />
-                            )}
-                            {locked && (
-                              <Box sx={{ position: 'absolute', top: 6, right: 6 }}>
-                                <LockIcon sx={{ fontSize: 11, color: T.faint }} />
-                              </Box>
-                            )}
-
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
-                              <PersonIcon sx={{ fontSize: 12, color: T.faint }} />
-                              <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{req.employeeNumber}</Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              {selectMode && !locked && (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onChange={() => handleSelectRequest(req.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  sx={{ p: 0, mr: 0.5, color: T.accent, '&.Mui-checked': { color: T.accent } }}
+                                  size="small"
+                                />
+                              )}
+                              <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>{req.employeeNumber}</Typography>
                             </Box>
-
-                            <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, mb: 0.25 }} noWrap>
+                            <Typography sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }} noWrap>
                               {employeeNames[req.employeeNumber] || 'Loading…'}
                             </Typography>
-
-                            <Typography sx={{ fontSize: '0.75rem', color: T.muted, mb: 1, flexGrow: 1 }}>
-                              applied for{' '}
-                              <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>
-                                {type.leave_description || req.leave_code}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                                <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{req.leave_code}</Typography>
                               </Box>
-                            </Typography>
-
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <CalendarMonth sx={{ fontSize: 11, color: T.faint }} />
-                                <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>{formatDateRange(req.leave_date)}</Typography>
-                              </Box>
-                              <StatusPill status={req.status} />
                             </Box>
+                            <Typography sx={{ fontSize: '0.75rem', color: T.muted }} noWrap>{formatDate(req.leave_date)}</Typography>
+                            <StatusPill status={req.status} />
                           </Box>
-                        </Grid>
-                      );
-                    })}
-                  </Grid>
-                ) : (
-                  <>
+                        );
+                      })}
+                    </>
+                  )}
+                </Box>
+
+                {/* Bulk action toolbar */}
+                {selectMode && (
+                  <Slide direction="up" in={selectMode} mountOnEnter unmountOnExit>
                     <Box
                       sx={{
-                        px: 1.5, py: 1,
-                        display: 'grid', gridTemplateColumns: '110px 1fr 130px 100px 80px',
-                        gap: 1, alignItems: 'center',
-                        bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1,
+                        px: 3, py: 1.75, borderTop: `2px solid ${T.accent}`,
+                        bgcolor: T.accentFaint, display: 'flex', alignItems: 'center',
+                        justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap',
                       }}
                     >
-                      {['Emp. No', 'Employee', 'Leave Type', 'Date', 'Status'].map((col) => (
-                        <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                          {col}
-                        </Typography>
-                      ))}
-                    </Box>
-                    {paged.map((req, idx) => {
-                      const type = getType(req.leave_code);
-                      const locked = isRecordLocked(req);
-                      const isSelected = selectedRequests.includes(req.id);
-                      return (
-                        <Box
-                          key={req.id}
-                          onClick={() => {
-                            if (selectMode && !locked) handleSelectRequest(req.id);
-                            else { setEditRequest({ ...req }); setOriginalRequest({ ...req }); setIsEditing(false); }
-                          }}
-                          sx={{
-                            px: 1.5, py: 1.25,
-                            display: 'grid', gridTemplateColumns: '110px 1fr 130px 100px 80px',
-                            gap: 1, alignItems: 'center', borderRadius: 1.5, cursor: 'pointer',
-                            opacity: locked ? 0.62 : 1,
-                            bgcolor: isSelected ? T.accentFaint : idx % 2 === 0 ? T.rowEven : T.rowOdd,
-                            border: isSelected ? `1px solid ${T.accent}` : '1px solid transparent',
-                            transition: 'background 0.13s ease',
-                            '&:hover': { bgcolor: T.rowHover },
-                          }}
-                        >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            {selectMode && !locked && (
-                              <Checkbox
-                                checked={isSelected}
-                                onChange={() => handleSelectRequest(req.id)}
-                                onClick={(e) => e.stopPropagation()}
-                                sx={{ p: 0, mr: 0.5, color: T.accent, '&.Mui-checked': { color: T.accent } }}
-                                size="small"
-                              />
-                            )}
-                            <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>{req.employeeNumber}</Typography>
-                          </Box>
-                          <Typography sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }} noWrap>
-                            {employeeNames[req.employeeNumber] || 'Loading…'}
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                              <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{req.leave_code}</Typography>
-                            </Box>
-                          </Box>
-                          <Typography sx={{ fontSize: '0.75rem', color: T.muted }} noWrap>{formatDate(req.leave_date)}</Typography>
-                          <StatusPill status={req.status} />
-                        </Box>
-                      );
-                    })}
-                  </>
-                )}
-              </Box>
-
-              {/* Bulk action toolbar */}
-              {selectMode && (
-                <Slide direction="up" in={selectMode} mountOnEnter unmountOnExit>
-                  <Box
-                    sx={{
-                      px: 3, py: 1.75, borderTop: `2px solid ${T.accent}`,
-                      bgcolor: T.accentFaint, display: 'flex', alignItems: 'center',
-                      justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap',
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Checkbox
-                        checked={selectedRequests.length === paged.length && paged.length > 0}
-                        indeterminate={selectedRequests.length > 0 && selectedRequests.length < paged.length}
-                        onChange={handleSelectAll}
-                        sx={{ color: T.accent, '&.Mui-checked, &.MuiCheckbox-indeterminate': { color: T.accent } }}
-                        size="small"
-                      />
-                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.accent }}>
-                        {selectedRequests.length === 0 ? 'Select items' : `${selectedRequests.length} selected`}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      {[
-                        { label: 'Supervisor', status: 1, color: '#1565C0', hov: '#0D47A1', Icon: CheckCircle  },
-                        { label: 'HR Approve', status: 2, color: '#2E7D32', hov: '#1B5E20', Icon: DoneAllIcon  },
-                        { label: 'Deny',       status: 3, color: '#C62828', hov: '#B71C1C', Icon: ThumbDownIcon },
-                      ].map(({ label, status, color, hov, Icon }) => (
-                        <AccentButton
-                          key={label}
-                          onClick={() => handleBulkStatusUpdate(status)}
-                          disabled={selectedRequests.length === 0 || bulkLoading}
-                          variant="contained"
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Checkbox
+                          checked={selectedRequests.length === paged.length && paged.length > 0}
+                          indeterminate={selectedRequests.length > 0 && selectedRequests.length < paged.length}
+                          onChange={handleSelectAll}
+                          sx={{ color: T.accent, '&.Mui-checked, &.MuiCheckbox-indeterminate': { color: T.accent } }}
                           size="small"
-                          startIcon={bulkLoading ? <CircularProgress size={11} /> : <Icon sx={{ fontSize: '13px !important' }} />}
-                          sx={{ fontSize: '0.72rem', px: 1.25, height: 28, bgcolor: color, '&:hover': { bgcolor: hov }, '&:disabled': { bgcolor: '#ccc' } }}
-                        >
-                          {label}
-                        </AccentButton>
-                      ))}
+                        />
+                        <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.accent }}>
+                          {selectedRequests.length === 0 ? 'Select items' : `${selectedRequests.length} selected`}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        {[
+                          { label: 'Supervisor', status: 1, color: '#1565C0', hov: '#0D47A1', Icon: CheckCircle  },
+                          { label: 'HR Approve', status: 2, color: '#2E7D32', hov: '#1B5E20', Icon: DoneAllIcon  },
+                          { label: 'Deny',       status: 3, color: '#C62828', hov: '#B71C1C', Icon: ThumbDownIcon },
+                        ].map(({ label, status, color, hov, Icon }) => (
+                          <AccentButton
+                            key={label}
+                            onClick={() => handleBulkStatusUpdate(status)}
+                            disabled={selectedRequests.length === 0 || bulkLoading}
+                            variant="contained"
+                            size="small"
+                            startIcon={bulkLoading ? <CircularProgress size={11} /> : <Icon sx={{ fontSize: '13px !important' }} />}
+                            sx={{ fontSize: '0.72rem', px: 1.25, height: 28, bgcolor: color, '&:hover': { bgcolor: hov }, '&:disabled': { bgcolor: '#ccc' } }}
+                          >
+                            {label}
+                          </AccentButton>
+                        ))}
+                      </Box>
                     </Box>
-                  </Box>
-                </Slide>
-              )}
+                  </Slide>
+                )}
 
-              {/* Pagination */}
-              {filtered.length > 0 && (
-                <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
-                  <TablePagination
-                    component="div"
-                    count={filtered.length}
-                    page={page}
-                    onPageChange={(_, p) => setPage(p)}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }}
-                    rowsPerPageOptions={[12, 24, 48]}
-                    sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: '0.78rem', fontWeight: 600 } }}
-                  />
-                </Box>
-              )}
-            </SectionCard>
+                {/* Pagination */}
+                {filtered.length > 0 && (
+                  <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+                    <TablePagination
+                      component="div"
+                      count={filtered.length}
+                      page={page}
+                      onPageChange={(_, p) => setPage(p)}
+                      rowsPerPage={rowsPerPage}
+                      onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }}
+                      rowsPerPageOptions={[12, 24, 48]}
+                      sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: '0.78rem', fontWeight: 600 } }}
+                    />
+                  </Box>
+                )}
+              </SectionCard>
             )}
           </Grid>
         </Grid>
@@ -2468,7 +2452,7 @@ const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole)
           </Fade>
         </Modal>
 
-        {/* ── HR Approve: rate / hours (employment category hours/day) ── */}
+        {/* ── HR Approve Modal ── */}
         <Modal
           open={hrApproveModal.open}
           onClose={hrApproveModal.loading ? undefined : closeHrApproveModal}
