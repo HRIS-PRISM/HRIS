@@ -67,7 +67,6 @@ import {
   SwapHoriz as ConvertIcon,
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
-  Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 
 const T = {
@@ -124,6 +123,15 @@ const EARN_STATUS = {
   pending: { label: "Pending", ...T.statusPending, icon: PendingIcon },
   approved: { label: "Approved", ...T.statusApproved, icon: CheckIcon },
   rejected: { label: "Rejected", ...T.statusRejected, icon: WarnIcon },
+  accepted: { label: "Accepted", ...T.statusApproved, icon: CheckIcon },
+  posted: { label: "Posted", ...T.statusApproved, icon: CheckIcon },
+};
+
+/** Map audit log statuses into Pending / Approved / Rejected filter buckets. */
+const normalizeEarnStatusForFilter = (s) => {
+  const x = String(s || "pending").toLowerCase();
+  if (x === "accepted" || x === "posted") return "approved";
+  return x;
 };
 
 const STATUS_FILTER_OPTIONS = [
@@ -141,6 +149,98 @@ const toNum = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+
+/** Real DB id for approve/reject (avoids `Number(null) === 0` → `/leave/0/approve` → 404). */
+const earningPositiveId = (record) => {
+  const raw = record?.id;
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** Map earnings_audit_log row → synthetic list item (Earnings Records column). */
+const mapEalRowToSynthetic = (row, listYear, listMonth, skipHalfDayDecisionIds) => {
+  let p = {};
+  try {
+    p = row.payload ? JSON.parse(row.payload) : {};
+  } catch {
+    p = {};
+  }
+  const et = String(row.earning_type || "");
+  const act = String(row.action || "");
+  const isReceipt =
+    act.startsWith("deduction_receipt_confirm") ||
+    et === "attendance_deduction_ui" ||
+    et === "attendance";
+  const isTard =
+    et === "leave" &&
+    (act.toLowerCase().includes("tardiness") ||
+      String(p.entry_type || "").toUpperCase() === "TARDINESS_DEDUCTION" ||
+      p.ledger_only === true);
+  const isHalf =
+    et.startsWith("half_day") || act.toLowerCase().includes("half_day");
+
+  let py = listYear;
+  let pm = listMonth;
+  if (Number.isFinite(Number(p.period_year))) py = Number(p.period_year);
+  if (Number.isFinite(Number(p.period_month))) pm = Number(p.period_month);
+  if (p.leave_date) {
+    const s = String(p.leave_date).slice(0, 10);
+    if (/^\d{4}-\d{2}/.test(s)) {
+      py = parseInt(s.slice(0, 4), 10);
+      pm = parseInt(s.slice(5, 7), 10);
+    }
+  }
+
+  if (isHalf && skipHalfDayDecisionIds && skipHalfDayDecisionIds.size) {
+    const did = parseInt(row.earning_id, 10);
+    if (Number.isFinite(did) && skipHalfDayDecisionIds.has(did)) return null;
+  }
+
+  // CTO deduction "confirm" UI row — not shown here (real SC/CTO/leave lines + other audits only).
+  if (isReceipt) return null;
+
+  if (isTard) {
+    return {
+      id: `eal-t-${row.id}`,
+      _earningType: "audit_tardiness",
+      earn_status: String(row.new_status || "approved").toLowerCase(),
+      entry_type: "TARDINESS_AUDIT_LOG",
+      period_year: py,
+      period_month: pm,
+      earned_hours: Number(p.earned_hours) || 0,
+      remarks: row.notes || act,
+      leave_code: p.leave_code,
+      created_at: row.created_at,
+      approved_by: row.actor,
+      _earningsAuditSnapshot: true,
+      _auditRowId: row.id,
+    };
+  }
+
+  if (isHalf) {
+    const hrs = p.deducted_hours != null ? -Number(p.deducted_hours) : 0;
+    return {
+      id: `eal-h-${row.id}`,
+      _earningType: "audit_half_day",
+      earn_status: String(row.new_status || "accepted").toLowerCase(),
+      entry_type: "HALF_DAY_AUDIT_LOG",
+      period_year: py,
+      period_month: pm,
+      earned_hours: Number.isFinite(hrs) ? hrs : 0,
+      remarks: row.notes || act,
+      leave_code: p.charge_to || p.leave_code,
+      created_at: row.created_at,
+      approved_by: row.actor,
+      _earningsAuditSnapshot: true,
+      _auditRowId: row.id,
+    };
+  }
+
+  // Skip generic audit_log echoes (e.g. approved/created leave) — real leave/SC/CTO rows already list here.
+  return null;
+};
+
 const toHours = (val, unit) => (unit === "days" ? val * 8 : val);
 const fmtHrs = (h, unit) =>
   unit === "hours"
@@ -526,6 +626,11 @@ const EarningRow = ({
   })();
   const isHalfDayPolicy =
     record.entry_type === "HALF_DAY_POLICY" || record._halfDayPolicyRecord;
+  const isEarningsAuditSnapshot = record._earningsAuditSnapshot === true;
+  const isSnapshotRow = isEarningsAuditSnapshot;
+  const isTardinessAuditRow = type === "audit_tardiness";
+  const isHalfDayAuditRow = type === "audit_half_day";
+  const stableEarningId = earningPositiveId(record);
   const isCrossMonthAdjustment =
     type === "leave" &&
     record._covers_month != null &&
@@ -537,18 +642,26 @@ const EarningRow = ({
         px: 1.5,
         py: 1.25,
         border: `1px solid ${
-          isHalfDayPolicy
-            ? "rgba(46,125,50,0.35)"
-            : isTardinessDeduction
-              ? "rgba(198,40,40,0.15)"
-              : "rgba(0,0,0,0.08)"
+          isTardinessAuditRow
+            ? "rgba(198,40,40,0.22)"
+            : isHalfDayAuditRow
+              ? "rgba(46,125,50,0.3)"
+              : isHalfDayPolicy
+                ? "rgba(46,125,50,0.35)"
+                : isTardinessDeduction
+                  ? "rgba(198,40,40,0.15)"
+                  : "rgba(0,0,0,0.08)"
         }`,
         borderRadius: 2,
-        bgcolor: isHalfDayPolicy
-          ? "rgba(46,125,50,0.04)"
-          : isTardinessDeduction
-            ? "rgba(198,40,40,0.02)"
-            : "#fff",
+        bgcolor: isTardinessAuditRow
+          ? "rgba(198,40,40,0.03)"
+          : isHalfDayAuditRow
+            ? "rgba(46,125,50,0.04)"
+            : isHalfDayPolicy
+              ? "rgba(46,125,50,0.04)"
+              : isTardinessDeduction
+                ? "rgba(198,40,40,0.02)"
+                : "#fff",
         mb: 0.75,
         animation: "emFadeUp 0.25s ease",
       }}
@@ -587,6 +700,36 @@ const EarningRow = ({
               {type === "cto" && !record.sc_type && ` · CTO`}
             </Typography>
             <StatusBadge status={status} />
+            {isTardinessAuditRow && (
+              <Chip
+                size="small"
+                icon={<LateIcon style={{ fontSize: 9, color: "#c62828" }} />}
+                label="Tardiness (audit log)"
+                sx={{
+                  height: 16,
+                  fontSize: "0.56rem",
+                  fontWeight: 700,
+                  bgcolor: "rgba(198,40,40,0.08)",
+                  color: "#b71c1c",
+                  border: "1px solid rgba(198,40,40,0.22)",
+                }}
+              />
+            )}
+            {isHalfDayAuditRow && (
+              <Chip
+                size="small"
+                icon={<DeductIcon style={{ fontSize: 9, color: "#2e7d32" }} />}
+                label="Half-day (audit log)"
+                sx={{
+                  height: 16,
+                  fontSize: "0.56rem",
+                  fontWeight: 700,
+                  bgcolor: "rgba(46,125,50,0.1)",
+                  color: "#1b5e20",
+                  border: "1px solid rgba(46,125,50,0.28)",
+                }}
+              />
+            )}
             {isHalfDayPolicy && (
               <Chip
                 size="small"
@@ -652,28 +795,81 @@ const EarningRow = ({
           <Box
             sx={{ display: "flex", alignItems: "baseline", gap: 0.4, mb: 0.25 }}
           >
-            <Typography
-              sx={{
-                fontSize: "0.58rem",
-                color: T.faint,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                fontFamily: T.poppins,
-              }}
-            >
-              {earnH < 0 ? "Deducted" : "Earned"}
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "0.82rem",
-                fontWeight: 800,
-                color: earnH < 0 ? "#c62828" : "#1a1a1a",
-                fontFamily: T.poppins,
-              }}
-            >
-              {earnH < 0 ? "−" : ""}
-              {fmtHrs(Math.abs(earnH), unit)}
-            </Typography>
+            {isEarningsAuditSnapshot && Math.abs(earnH) > 1e-6 ? (
+              <>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: T.faint,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {earnH < 0 ? "Deducted" : "Earned"}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.82rem",
+                    fontWeight: 800,
+                    color: earnH < 0 ? "#c62828" : "#1a1a1a",
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {earnH < 0 ? "−" : ""}
+                  {fmtHrs(Math.abs(earnH), unit)}
+                </Typography>
+              </>
+            ) : isEarningsAuditSnapshot ? (
+              <>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: T.faint,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  Entry
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: T.muted,
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  Record from earnings_audit_log (details in notes below)
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    color: T.faint,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {earnH < 0 ? "Deducted" : "Earned"}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.82rem",
+                    fontWeight: 800,
+                    color: earnH < 0 ? "#c62828" : "#1a1a1a",
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {earnH < 0 ? "−" : ""}
+                  {fmtHrs(Math.abs(earnH), unit)}
+                </Typography>
+              </>
+            )}
           </Box>
           {record.created_at && (
             <Typography
@@ -728,48 +924,50 @@ const EarningRow = ({
         >
           <StatusBadge status={status} />
 
-          <Box
-            onClick={() => onViewAudit && onViewAudit(record)}
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 0.5,
-              px: 0.9,
-              py: 0.35,
-              borderRadius: 1.5,
-              bgcolor: "rgba(0,0,0,0.03)",
-              border: "1px solid rgba(0,0,0,0.10)",
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-              "&:hover": {
-                bgcolor: "rgba(0,0,0,0.06)",
-                transform: "translateY(-1px)",
-              },
-            }}
-            title={
-              record._halfDayPolicyRecord
-                ? "View half-day policy audit trail"
-                : "View earnings audit trail"
-            }
-          >
-            <HistoryIcon sx={{ fontSize: 12, color: T.faint }} />
-            <Typography
+          {!isSnapshotRow && (
+            <Box
+              onClick={() => onViewAudit && onViewAudit(record)}
               sx={{
-                fontSize: "0.6rem",
-                fontWeight: 800,
-                color: T.faint,
-                fontFamily: T.poppins,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                lineHeight: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 0.5,
+                px: 0.9,
+                py: 0.35,
+                borderRadius: 1.5,
+                bgcolor: "rgba(0,0,0,0.03)",
+                border: "1px solid rgba(0,0,0,0.10)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                "&:hover": {
+                  bgcolor: "rgba(0,0,0,0.06)",
+                  transform: "translateY(-1px)",
+                },
               }}
+              title={
+                record._halfDayPolicyRecord
+                  ? "View half-day policy audit trail"
+                  : "View earnings audit trail"
+              }
             >
-              Audit
-            </Typography>
-          </Box>
+              <HistoryIcon sx={{ fontSize: 12, color: T.faint }} />
+              <Typography
+                sx={{
+                  fontSize: "0.6rem",
+                  fontWeight: 800,
+                  color: T.faint,
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  lineHeight: 1,
+                }}
+              >
+                Audit
+              </Typography>
+            </Box>
+          )}
  
-          {status === "pending" && (
+          {status === "pending" && stableEarningId != null && (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
               <Box
                 onClick={() => onApprove(record)}
@@ -1099,6 +1297,20 @@ const TYPE_META = {
     border: "rgba(46,125,50,0.22)",
     icon: CTOIcon,
   },
+  audit_tardiness: {
+    label: "Tard. audit",
+    color: "#c62828",
+    bg: "rgba(198,40,40,0.08)",
+    border: "rgba(198,40,40,0.2)",
+    icon: LateIcon,
+  },
+  audit_half_day: {
+    label: "H-day audit",
+    color: "#2e7d32",
+    bg: "rgba(46,125,50,0.08)",
+    border: "rgba(46,125,50,0.22)",
+    icon: DeductIcon,
+  },
 };
  
 const TYPE_FILTER_OPTIONS = [
@@ -1106,6 +1318,16 @@ const TYPE_FILTER_OPTIONS = [
   { value: "leave", label: "Leave", color: TYPE_META.leave.color },
   { value: "sc", label: "SC", color: TYPE_META.sc.color },
   { value: "cto", label: "CTO", color: TYPE_META.cto.color },
+  {
+    value: "audit_tardiness",
+    label: "Tardiness log",
+    color: TYPE_META.audit_tardiness.color,
+  },
+  {
+    value: "audit_half_day",
+    label: "Half-day log",
+    color: TYPE_META.audit_half_day.color,
+  },
 ];
  
 // Badge shown on each earning row when viewing "all" types
@@ -1307,38 +1529,75 @@ const RecordsList = ({
   });
  
   // ── fetch: all three or just one type ────────────────────────────────────
-  const fetchEarnings = useCallback(async () => {
+  const fetchEarnings = useCallback(async (opts) => {
     if (!employeeNumber) return;
-    setLoading(true);
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const token = localStorage.getItem("token");
       const h = { headers: { Authorization: `Bearer ${token}` } };
       const qs = `?year=${year}&month=${month}`;
  
       // Always fetch all three so type-counts stay accurate regardless of filter
-      const [leaveRes, scRes, ctoRes] = await Promise.allSettled([
+      const [leaveRes, scRes, ctoRes, periodAuditRes] = await Promise.allSettled([
         axios.get(`${API_BASE_URL}/api/earnings/leave/${employeeNumber}${qs}`, h),
         axios.get(`${API_BASE_URL}/api/earnings/sc/${employeeNumber}${qs}`, h),
         axios.get(`${API_BASE_URL}/api/earnings/cto/${employeeNumber}${qs}`, h),
+        axios.get(
+          `${API_BASE_URL}/api/earnings/period-audit-for-records/${employeeNumber}${qs}`,
+          h,
+        ),
       ]);
  
       const tag = (rows, t) =>
         (rows || []).map((r) => ({ ...r, _earningType: t }));
+
+      const leaveTagged = tag(
+        leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings : [],
+        "leave",
+      );
+      const mergedHalfDayDecisionIds = new Set(
+        leaveTagged
+          .filter((e) => e && e._halfDayPolicyRecord && e._decisionLogId != null)
+          .map((e) => Number(e._decisionLogId))
+          .filter((n) => Number.isFinite(n)),
+      );
+
+      const ealRows =
+        periodAuditRes.status === "fulfilled" &&
+        Array.isArray(periodAuditRes.value.data)
+          ? periodAuditRes.value.data
+          : [];
+      const snapshotEarnings = ealRows
+        .map((row) =>
+          mapEalRowToSynthetic(row, year, month, mergedHalfDayDecisionIds),
+        )
+        .filter(Boolean);
  
       const allEarnings = [
-        ...tag(leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings : [], "leave"),
-        ...tag(scRes.status  === "fulfilled" ? scRes.value.data?.earnings  : [], "sc"),
+        ...leaveTagged,
+        ...tag(scRes.status === "fulfilled" ? scRes.value.data?.earnings : [], "sc"),
         ...tag(ctoRes.status === "fulfilled" ? ctoRes.value.data?.earnings : [], "cto"),
+        ...snapshotEarnings,
       ];
  
       setData({ earnings: allEarnings, balances: [] });
     } catch {
       setData({ earnings: [], balances: [] });
+    } finally {
+      if (!silent) setLoading(false);
     }
-    setLoading(false);
   }, [employeeNumber, year, month]);
  
-  useEffect(() => { fetchEarnings(); }, [fetchEarnings, refreshKey]);
+  useEffect(() => {
+    fetchEarnings({ silent: false });
+  }, [fetchEarnings, employeeNumber, year, month]);
+ 
+  useEffect(() => {
+    if (refreshKey === 0) return;
+    if (!employeeNumber) return;
+    fetchEarnings({ silent: true });
+  }, [fetchEarnings, refreshKey, employeeNumber]);
  
   // Reset to page 1 when any filter or key data changes
   useEffect(() => { setPage(1); }, [typeFilter, statusFilter, employeeNumber, year, month]);
@@ -1350,6 +1609,9 @@ const RecordsList = ({
         const bd = new Date(b.created_at || b.approved_at || 0).getTime();
         const ad = new Date(a.created_at || a.approved_at || 0).getTime();
         if (bd !== ad) return bd - ad;
+        const aid = Number(a._auditRowId);
+        const bid = Number(b._auditRowId);
+        if (Number.isFinite(aid) && Number.isFinite(bid) && aid !== bid) return bid - aid;
         return toNum(b.id) - toNum(a.id);
       }),
     [data.earnings],
@@ -1357,7 +1619,14 @@ const RecordsList = ({
  
   // ── counts for the type filter bar ───────────────────────────────────────
   const typeCounts = useMemo(() => {
-    const counts = { all: sortedEarnings.length, leave: 0, sc: 0, cto: 0 };
+    const counts = {
+      all: sortedEarnings.length,
+      leave: 0,
+      sc: 0,
+      cto: 0,
+      audit_tardiness: 0,
+      audit_half_day: 0,
+    };
     sortedEarnings.forEach((e) => {
       const t = e._earningType;
       if (t in counts) counts[t]++;
@@ -1378,7 +1647,7 @@ const RecordsList = ({
   const statusCounts = useMemo(() => {
     const counts = { all: typeFiltered.length, pending: 0, approved: 0, rejected: 0 };
     typeFiltered.forEach((e) => {
-      const s = e.earn_status || "pending";
+      const s = normalizeEarnStatusForFilter(e.earn_status);
       if (s in counts) counts[s]++;
     });
     return counts;
@@ -1389,7 +1658,9 @@ const RecordsList = ({
     () =>
       statusFilter === "all"
         ? typeFiltered
-        : typeFiltered.filter((e) => (e.earn_status || "pending") === statusFilter),
+        : typeFiltered.filter(
+            (e) => normalizeEarnStatusForFilter(e.earn_status) === statusFilter,
+          ),
     [typeFiltered, statusFilter],
   );
  
@@ -1405,12 +1676,15 @@ const RecordsList = ({
     if (record._halfDayPolicyRecord || record.entry_type === "HALF_DAY_POLICY") {
       return;
     }
+    if (record._earningsAuditSnapshot) return;
+    const stableId = earningPositiveId(record);
+    if (stableId == null) return;
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
       const recordType = record._earningType || type;
       await axios.patch(
-        `${API_BASE_URL}/api/earnings/${recordType}/${record.id}/approve`,
+        `${API_BASE_URL}/api/earnings/${recordType}/${stableId}/approve`,
         {},
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1429,12 +1703,21 @@ const RecordsList = ({
       setRejectDialog({ open: false, record: null });
       return;
     }
+    if (rejectDialog.record?._earningsAuditSnapshot) {
+      setRejectDialog({ open: false, record: null });
+      return;
+    }
+    const stableId = earningPositiveId(rejectDialog.record);
+    if (stableId == null) {
+      setRejectDialog({ open: false, record: null });
+      return;
+    }
     setActionLoading(true);
     try {
       const token = localStorage.getItem("token");
       const recordType = rejectDialog.record._earningType || type;
       await axios.patch(
-        `${API_BASE_URL}/api/earnings/${recordType}/${rejectDialog.record.id}/reject`,
+        `${API_BASE_URL}/api/earnings/${recordType}/${stableId}/reject`,
         { reason },
         { headers: { Authorization: `Bearer ${token}` } },
       );

@@ -89,8 +89,8 @@ const insertCreditUsageLine = async (conn, row) => {
     created_by = null,
   } = row;
 
-  await q(
-    conn,
+  const sid = source_id != null ? parseInt(source_id, 10) : null;
+  const [result] = await conn.execute(
     `INSERT INTO leave_credit_usage (
       leave_assignment_id, employee_number, leave_code, period_year, period_month,
       hours_delta, source_type, source_id, remarks, metadata, created_by
@@ -103,12 +103,13 @@ const insertCreditUsageLine = async (conn, row) => {
       period_month,
       Number(hours_delta),
       String(source_type || "UNKNOWN"),
-      source_id != null ? parseInt(source_id, 10) : null,
+      Number.isFinite(sid) ? sid : null,
       remarks || null,
       metadata != null ? JSON.stringify(metadata) : null,
       created_by || null,
     ],
   );
+  return result && result.insertId != null ? result.insertId : null;
 };
 
 /** Returns leave_assignment ids that had active lines before void. */

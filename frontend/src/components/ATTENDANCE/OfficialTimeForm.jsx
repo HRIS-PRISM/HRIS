@@ -1001,7 +1001,7 @@ const OfficialTimeForm = () => {
   // ─────────────────────────────────────────────────────────────────────────
   const openCreateScheduleModal = useCallback(async () => {
     if (!employeeID) { showToast('Please select an employee first.'); return; }
-    if (!draftAcademicYear || !draftSemester) { showToast('Please fill Academic Year and Semester first.'); return; }
+    if (!draftAcademicYear) { showToast('Please fill Academic Year first.'); return; }
     if (!draftStartDate || !draftEndDate) { showToast('Please fill Start Date and End Date first.'); return; }
     if (new Date(draftStartDate) > new Date(draftEndDate)) { showToast('Start date must be on or before End date.'); return; }
 
@@ -1207,7 +1207,7 @@ const OfficialTimeForm = () => {
   const handleConfirmBulkBlocks = useCallback(() => {
     const block = bulkScheduleBlocks[0];
     if (!block) return;
-    if (!block.academicYear || !block.semester || !block.startDate || !block.endDate) { showToast('Please complete all fields.'); return; }
+    if (!block.academicYear || !block.startDate || !block.endDate) { showToast('Please complete all required fields.'); return; }
     setIsBulkSchedule(true);
     setDraftAcademicYear(block.academicYear); setDraftSemester(block.semester);
     setDraftStartDate(block.startDate); setDraftEndDate(block.endDate);
@@ -1324,7 +1324,7 @@ const OfficialTimeForm = () => {
                     </Box>
                     <Button
                       fullWidth variant="contained" onClick={openCreateScheduleModal}
-                      disabled={!selectedEmployee || !draftAcademicYear || !draftSemester || !draftStartDate || !draftEndDate}
+                      disabled={!selectedEmployee || !draftAcademicYear || !draftStartDate || !draftEndDate}
                       startIcon={<Schedule sx={{ fontSize: 16 }} />}
                       sx={{ bgcolor: T.accent, color: '#fff', borderRadius: '8px', fontWeight: 600, textTransform: 'none', py: 1, boxShadow: `0 2px 10px ${alpha(T.accent, 0.35)}`, '&:hover': { bgcolor: T.accentDark }, '&.Mui-disabled': { bgcolor: '#c0a0a0', color: '#fff' } }}
                     >
@@ -1542,7 +1542,7 @@ const OfficialTimeForm = () => {
                             Edit Schedule
                           </Button>
                         )}
-                        <Button variant="contained" size="small" startIcon={<Add sx={{ fontSize: 14 }} />} disableElevation onClick={openCreateScheduleModal} disabled={!draftAcademicYear || !draftSemester || !draftStartDate || !draftEndDate} sx={{ bgcolor: T.accent, color: '#fff', borderRadius: '20px', textTransform: 'none', fontWeight: 600, '&:hover': { bgcolor: T.accentDark }, '&.Mui-disabled': { bgcolor: '#c0a0a0', color: '#fff' } }}>
+                        <Button variant="contained" size="small" startIcon={<Add sx={{ fontSize: 14 }} />} disableElevation onClick={openCreateScheduleModal} disabled={!draftAcademicYear || !draftStartDate || !draftEndDate} sx={{ bgcolor: T.accent, color: '#fff', borderRadius: '20px', textTransform: 'none', fontWeight: 600, '&:hover': { bgcolor: T.accentDark }, '&.Mui-disabled': { bgcolor: '#c0a0a0', color: '#fff' } }}>
                           New Schedule
                         </Button>
                       </Box>
@@ -1788,7 +1788,7 @@ const OfficialTimeForm = () => {
             </Box>
             <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: '#fafafa', px: 3, py: 2, display: 'flex', justifyContent: 'flex-end', gap: 1.5 }}>
               <Button variant="outlined" onClick={() => setShowBulkBlocksModal(false)} sx={{ borderColor: '#ccc', color: '#444', fontWeight: 600, textTransform: 'none' }}>Cancel</Button>
-              <Button variant="contained" disableElevation onClick={handleConfirmBulkBlocks} disabled={!bulkScheduleBlocks[0]?.academicYear || !bulkScheduleBlocks[0]?.semester || !bulkScheduleBlocks[0]?.startDate || !bulkScheduleBlocks[0]?.endDate} endIcon={<ArrowForward fontSize="small" />} sx={{ bgcolor: T.accent, color: '#fff', fontWeight: 700, textTransform: 'none', minWidth: 200, '&:hover': { bgcolor: T.accentDark }, '&.Mui-disabled': { bgcolor: '#d0b8b8', color: '#fff' } }}>Next: Set Time Schedule</Button>
+              <Button variant="contained" disableElevation onClick={handleConfirmBulkBlocks} disabled={!bulkScheduleBlocks[0]?.academicYear || !bulkScheduleBlocks[0]?.startDate || !bulkScheduleBlocks[0]?.endDate} endIcon={<ArrowForward fontSize="small" />} sx={{ bgcolor: T.accent, color: '#fff', fontWeight: 700, textTransform: 'none', minWidth: 200, '&:hover': { bgcolor: T.accentDark }, '&.Mui-disabled': { bgcolor: '#d0b8b8', color: '#fff' } }}>Next: Set Time Schedule</Button>
             </Box>
           </Dialog>
 

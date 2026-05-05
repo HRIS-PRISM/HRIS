@@ -77,49 +77,6 @@ import {
   OVERALL_COMPARE_FIELD_META,
 } from './overallAttendanceMerge';
 
-/** Parse "01/01/2000 …" style times for duration math; seconds/ms stripped (not used in calculations). */
-function parseAttendanceTimeOn2000(timeStr) {
-  if (!timeStr || typeof timeStr !== 'string') return new Date(NaN);
-  const d = new Date(`01/01/2000 ${timeStr}`);
-  if (Number.isNaN(d.getTime())) return d;
-  d.setSeconds(0, 0);
-  return d;
-}
-
-/** e.g. `2026-02-02` → `02-02-26` for Day column subtitle layout. */
-function formatDateMmDdYy(dateStr) {
-  if (!dateStr || typeof dateStr !== 'string') return '';
-  const trimmed = dateStr.trim();
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
-  if (iso) {
-    const [, y, mo, da] = iso;
-    return `${mo}-${da}-${y.slice(-2)}`;
-  }
-  const d = new Date(trimmed);
-  if (Number.isNaN(d.getTime())) return trimmed;
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${mm}-${dd}-${yy}`;
-}
-
-/** Millisecond delta → `HH:MM:SS`; non-finite (e.g. invalid dates) → `00:00:00` instead of `NaN:NaN:NaN`. */
-function formatDurationMsToHhMmSs(diffMs) {
-  if (!Number.isFinite(diffMs)) return '00:00:00';
-  return [
-    Math.floor(diffMs / 3600000),
-    Math.floor((diffMs % 3600000) / 60000),
-    Math.floor((diffMs % 60000) / 1000),
-  ]
-    .map((x) => String(x).padStart(2, '0'))
-    .join(':');
-}
-
-function normalizeBadHhMmSsDisplay(v) {
-  if (v === 'NaN:NaN:NaN') return '00:00:00';
-  return v;
-}
-
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
   accent: '#6d2323',
@@ -762,7 +719,7 @@ const VIEW_TABS = [
 const TAB_COLUMNS = {
   regular: [
     { label: 'Date', key: 'date', minWidth: 130, group: 'meta' },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Day', key: 'day', minWidth: 100, group: 'meta' },
     {
       label: 'Time IN',
       key: 'timeIN',
@@ -838,7 +795,7 @@ const TAB_COLUMNS = {
   ],
   honorarium: [
     { label: 'Date', key: 'date', minWidth: 130, group: 'meta' },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Day', key: 'day', minWidth: 100, group: 'meta' },
     {
       label: 'Time IN',
       key: '_hnTimeIN',
@@ -876,7 +833,7 @@ const TAB_COLUMNS = {
   ],
   serviceCredit: [
     { label: 'Date', key: 'date', minWidth: 130, group: 'meta' },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Day', key: 'day', minWidth: 100, group: 'meta' },
     {
       label: 'Time IN',
       key: '_scTimeIN',
@@ -914,7 +871,7 @@ const TAB_COLUMNS = {
   ],
   overtime: [
     { label: 'Date', key: 'date', minWidth: 130, group: 'meta' },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Day', key: 'day', minWidth: 100, group: 'meta' },
     {
       label: 'Time IN',
       key: '_otTimeIN',
@@ -964,12 +921,14 @@ const getCellValue = (row, colKey, isFurlough = false) => {
           ? '00:00:00'
           : row.formattedFacultyMaxRenderedTimeAM;
       return !row.officialTimeIN ||
+        !row.breaktimeIN ||
         row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN'
         ? '00:00:00'
         : row.formattedFacultyRenderedTimeAM;
     case '_morningTardiness':
       if (isFurlough) return '00:00:00';
       return !row.officialTimeIN ||
+        !row.breaktimeIN ||
         row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
         ? row.formattedFacultyMaxRenderedTimeAM
         : row.formattedfinalcalcFacultyAM;
@@ -979,14 +938,14 @@ const getCellValue = (row, colKey, isFurlough = false) => {
           row.formattedFacultyMaxRenderedTimePM === 'NaN:NaN:NaN'
           ? '00:00:00'
           : row.formattedFacultyMaxRenderedTimePM;
-      return !row.officialTimeOUT ||
+      return !row.officialBreaktimeOUT ||
         !row.timeOUT ||
         row.formattedFacultyRenderedTimePM === 'NaN:NaN:NaN'
         ? '00:00:00'
         : row.formattedFacultyRenderedTimePM;
     case '_afternoonTardiness':
       if (isFurlough) return '00:00:00';
-      return !row.officialTimeOUT ||
+      return !row.officialBreaktimeOUT ||
         !row.timeOUT ||
         row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
         ? row.formattedFacultyMaxRenderedTimePM
@@ -1226,67 +1185,36 @@ const FloatingTotalsBar = ({
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1,
-              px: 1.5,
-              py: 0.65,
-              borderRadius: '10px',
-              bgcolor: '#fff',
-              border: '2px solid rgba(255,255,255,0.95)',
-              boxShadow: `0 0 0 2px ${alpha(T.accent, 0.35)}, 0 4px 18px rgba(0,0,0,0.22)`,
+              gap: 0.8,
+              px: 1.25,
+              py: 0.6,
+              borderRadius: '8px',
+              bgcolor: 'rgba(255,255,255,0.14)',
+              border: '1px solid rgba(255,255,255,0.25)',
               cursor: saving ? 'not-allowed' : 'pointer',
-              transition: 'transform 0.18s ease, box-shadow 0.18s ease',
-              '&:hover': !saving
-                ? {
-                    transform: 'translateY(-1px)',
-                    boxShadow: `0 0 0 2px ${alpha(T.accent, 0.45)}, 0 6px 22px rgba(0,0,0,0.28)`,
-                  }
-                : {},
+              opacity: saving ? 0.6 : 1,
+              transition: 'all 0.18s ease',
+              '&:hover': !saving ? { bgcolor: 'rgba(255,255,255,0.20)' } : {},
             }}
           >
             {saving ? (
-              <CircularProgress size={18} thickness={5} sx={{ color: T.accent, flexShrink: 0 }} />
+              <CircularProgress size={14} sx={{ color: '#fff' }} />
             ) : (
-              <SaveAs sx={{ color: T.accent, fontSize: 20, flexShrink: 0 }} />
+              <SaveAs sx={{ color: '#fff', fontSize: 16 }} />
             )}
-            {saving ? (
-              <Typography
-                sx={{
-                  fontSize: '0.72rem',
-                  color: T.accent,
-                  fontWeight: 800,
-                  letterSpacing: '0.02em',
-                  lineHeight: 1.2,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Saving to summary…
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1, minWidth: 0 }}>
-                <Typography
-                  sx={{
-                    fontSize: '0.58rem',
-                    fontWeight: 700,
-                    color: T.accent,
-                    opacity: 0.88,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Save to
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: '0.74rem',
-                    fontWeight: 900,
-                    color: T.accent,
-                    letterSpacing: '0.02em',
-                  }}
-                >
-                  Attendance summary
-                </Typography>
-              </Box>
-            )}
+            <Typography
+              sx={{
+                fontSize: '0.68rem',
+                color: '#fff',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                lineHeight: 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </Typography>
           </Box>
           {expanded ? (
             <ExpandMore fontSize="small" />
@@ -1460,7 +1388,6 @@ const StyledModal = ({
   type = 'info',
   onConfirm,
   showCancel = false,
-  confirmLabel = null,
 }) => {
   const typeConfig = {
     success: {
@@ -1778,7 +1705,7 @@ const StyledModal = ({
             e.currentTarget.style.background = T.accent;
           }}
         >
-          {confirmLabel || (showCancel ? 'Confirm' : 'OK')}
+          {showCancel ? 'Confirm' : 'OK'}
         </button>
       </Box>
     </Dialog>
@@ -1873,7 +1800,6 @@ const AttendanceModuleFacultyDesignated = () => {
     type: 'info',
     onConfirm: null,
     showCancel: false,
-    confirmLabel: null,
   });
   const showModal = (
     title,
@@ -1881,9 +1807,8 @@ const AttendanceModuleFacultyDesignated = () => {
     type = 'info',
     onConfirm = null,
     showCancel = false,
-    confirmLabel = null,
-  ) => setModal({ open: true, title, message, type, onConfirm, showCancel, confirmLabel });
-  const closeModal = () => setModal((p) => ({ ...p, open: false, confirmLabel: null }));
+  ) => setModal({ open: true, title, message, type, onConfirm, showCancel });
+  const closeModal = () => setModal((p) => ({ ...p, open: false }));
 
   const [compareOpen, setCompareOpen] = useState(false);
   const [pendingSavedOverall, setPendingSavedOverall] = useState(null);
@@ -2024,162 +1949,145 @@ const AttendanceModuleFacultyDesignated = () => {
           officialOverTimeOUT,
         } = row;
 
-        const isEmptyBreakTime = (t) =>
-          !t ||
-          t === '00:00:00 AM' ||
-          t === '00:00:00 PM' ||
-          t === '00:00:00';
+        const effectiveBreaktimeIN =
+          officialBreaktimeIN && officialBreaktimeIN !== '00:00:00 AM'
+            ? officialBreaktimeIN
+            : breaktimeIN;
+        const effectiveBreaktimeOUT =
+          officialBreaktimeOUT && officialBreaktimeOUT !== '00:00:00 AM'
+            ? officialBreaktimeOUT
+            : breaktimeOUT;
 
-        let effectiveBreaktimeIN = !isEmptyBreakTime(officialBreaktimeIN)
-          ? officialBreaktimeIN
-          : breaktimeIN;
-        let effectiveBreaktimeOUT = !isEmptyBreakTime(officialBreaktimeOUT)
-          ? officialBreaktimeOUT
-          : breaktimeOUT;
-
-        if (
-          isEmptyBreakTime(effectiveBreaktimeIN) &&
-          isEmptyBreakTime(effectiveBreaktimeOUT)
-        ) {
-          effectiveBreaktimeIN = officialTimeOUT;
-          effectiveBreaktimeOUT = officialTimeOUT;
-        } else if (isEmptyBreakTime(effectiveBreaktimeIN)) {
-          effectiveBreaktimeIN = effectiveBreaktimeOUT;
-        } else if (isEmptyBreakTime(effectiveBreaktimeOUT)) {
-          effectiveBreaktimeOUT = effectiveBreaktimeIN;
-        }
-
-        const isEmptyPunch = (t) =>
-          !t ||
-          t === '00:00:00 AM' ||
-          t === '00:00:00 PM' ||
-          t === '00:00:00';
-        const noAmPunch = isEmptyPunch(timeIN);
-        const noPmPunch = isEmptyPunch(timeOUT);
-
-        const startOfficialTimeFacultyAM = parseAttendanceTimeOn2000(
-          officialTimeIN,
+        const startDateFacultyAM = new Date(`01/01/2000 ${timeIN}`);
+        const endDateFacultyAM = new Date(`01/01/2000 ${effectiveBreaktimeIN}`);
+        const startOfficialTimeFacultyAM = new Date(
+          `01/01/2000 ${officialTimeIN}`,
         );
-        const endOfficialTimeFacultyAM = parseAttendanceTimeOn2000(
-          effectiveBreaktimeIN,
+        const endOfficialTimeFacultyAM = new Date(
+          `01/01/2000 ${effectiveBreaktimeIN}`,
         );
+        const midnightFacultyAM = new Date(`01/01/2000 00:00:00 AM`);
+        const timeinfacultyAM =
+          startDateFacultyAM > endOfficialTimeFacultyAM
+            ? midnightFacultyAM
+            : startDateFacultyAM < startOfficialTimeFacultyAM
+              ? startOfficialTimeFacultyAM
+              : startDateFacultyAM;
+        const timeoutfacultyAM =
+          timeinfacultyAM === midnightFacultyAM
+            ? midnightFacultyAM
+            : endDateFacultyAM;
+        const diffMsAM = timeoutfacultyAM - timeinfacultyAM;
+        const formattedFacultyRenderedTimeAM = [
+          Math.floor(diffMsAM / 3600000),
+          Math.floor((diffMsAM % 3600000) / 60000),
+          Math.floor((diffMsAM % 60000) / 1000),
+        ]
+          .map((x) => String(x).padStart(2, '0'))
+          .join(':');
         const diffMsAMMax =
           endOfficialTimeFacultyAM - startOfficialTimeFacultyAM;
-
-        const midnightFacultyAM = new Date(`01/01/2000 00:00:00 AM`);
-        let timeinfacultyAM;
-        let timeoutfacultyAM;
-        if (noAmPunch) {
-          timeinfacultyAM = midnightFacultyAM;
-          timeoutfacultyAM = midnightFacultyAM;
-        } else {
-          const startDateFacultyAM = parseAttendanceTimeOn2000(timeIN);
-          const endDateFacultyAM = parseAttendanceTimeOn2000(
-            effectiveBreaktimeIN,
-          );
-          timeinfacultyAM =
-            startDateFacultyAM > endOfficialTimeFacultyAM
-              ? midnightFacultyAM
-              : startDateFacultyAM < startOfficialTimeFacultyAM
-                ? startOfficialTimeFacultyAM
-                : startDateFacultyAM;
-          timeoutfacultyAM =
-            timeinfacultyAM === midnightFacultyAM
-              ? midnightFacultyAM
-              : endDateFacultyAM;
-        }
-        const diffMsAM = timeoutfacultyAM - timeinfacultyAM;
-        const formattedFacultyRenderedTimeAM =
-          formatDurationMsToHhMmSs(diffMsAM);
-        const formattedFacultyMaxRenderedTimeAM =
-          formatDurationMsToHhMmSs(diffMsAMMax);
+        const formattedFacultyMaxRenderedTimeAM = [
+          Math.floor(diffMsAMMax / 3600000),
+          Math.floor((diffMsAMMax % 3600000) / 60000),
+          Math.floor((diffMsAMMax % 60000) / 1000),
+        ]
+          .map((x) => String(x).padStart(2, '0'))
+          .join(':');
         const tardAM =
-          parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimeAM) -
-          parseAttendanceTimeOn2000(formattedFacultyRenderedTimeAM);
-        const formattedfinalcalcFacultyAM = formatDurationMsToHhMmSs(tardAM);
+          new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimeAM}`) -
+          new Date(`01/01/2000 ${formattedFacultyRenderedTimeAM}`);
+        const formattedfinalcalcFacultyAM = [
+          Math.floor(tardAM / 3600000),
+          Math.floor((tardAM % 3600000) / 60000),
+          Math.floor((tardAM % 60000) / 1000),
+        ]
+          .map((x) => String(x).padStart(2, '0'))
+          .join(':');
 
-        const startOfficialTimeFacultyPM = parseAttendanceTimeOn2000(
-          effectiveBreaktimeOUT,
+        const startDateFacultyPM = new Date(
+          `01/01/2000 ${effectiveBreaktimeOUT}`,
         );
-        const endOfficialTimeFacultyPM = parseAttendanceTimeOn2000(
-          officialTimeOUT,
+        const endDateFacultyPM = new Date(`01/01/2000 ${timeOUT}`);
+        const startOfficialTimeFacultyPM = new Date(
+          `01/01/2000 ${effectiveBreaktimeOUT}`,
         );
+        const endOfficialTimeFacultyPM = new Date(
+          `01/01/2000 ${officialTimeOUT}`,
+        );
+        const midnightFacultyPM = new Date(`01/01/2000 00:00:00 PM`);
+        const timeoutfacultyPM =
+          endDateFacultyPM < startOfficialTimeFacultyPM
+            ? midnightFacultyPM
+            : endDateFacultyPM > endOfficialTimeFacultyPM
+              ? endOfficialTimeFacultyPM
+              : endDateFacultyPM;
+        const timeinfacultyPM =
+          timeoutfacultyPM === midnightFacultyPM
+            ? midnightFacultyPM
+            : startDateFacultyPM;
+        const diffMsPM = timeoutfacultyPM - timeinfacultyPM;
+        const formattedFacultyRenderedTimePM = [
+          Math.floor(diffMsPM / 3600000),
+          Math.floor((diffMsPM % 3600000) / 60000),
+          Math.floor((diffMsPM % 60000) / 1000),
+        ]
+          .map((x) => String(x).padStart(2, '0'))
+          .join(':');
         const diffMsPMMax =
           endOfficialTimeFacultyPM - startOfficialTimeFacultyPM;
-
-        const midnightFacultyPM = new Date(`01/01/2000 00:00:00 PM`);
-        let timeinfacultyPM;
-        let timeoutfacultyPM;
-        if (noPmPunch) {
-          timeoutfacultyPM = midnightFacultyPM;
-          timeinfacultyPM = midnightFacultyPM;
-        } else {
-          const startDateFacultyPM = parseAttendanceTimeOn2000(
-            effectiveBreaktimeOUT,
-          );
-          const endDateFacultyPM = parseAttendanceTimeOn2000(timeOUT);
-          timeoutfacultyPM =
-            endDateFacultyPM < startOfficialTimeFacultyPM
-              ? midnightFacultyPM
-              : endDateFacultyPM > endOfficialTimeFacultyPM
-                ? endOfficialTimeFacultyPM
-                : endDateFacultyPM;
-          timeinfacultyPM =
-            timeoutfacultyPM === midnightFacultyPM
-              ? midnightFacultyPM
-              : startDateFacultyPM;
-        }
-        const diffMsPM = timeoutfacultyPM - timeinfacultyPM;
-        const formattedFacultyRenderedTimePM =
-          formatDurationMsToHhMmSs(diffMsPM);
-        const formattedFacultyMaxRenderedTimePM =
-          formatDurationMsToHhMmSs(diffMsPMMax);
+        const formattedFacultyMaxRenderedTimePM = [
+          Math.floor(diffMsPMMax / 3600000),
+          Math.floor((diffMsPMMax % 3600000) / 60000),
+          Math.floor((diffMsPMMax % 60000) / 1000),
+        ]
+          .map((x) => String(x).padStart(2, '0'))
+          .join(':');
         const tardPM =
-          parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimePM) -
-          parseAttendanceTimeOn2000(formattedFacultyRenderedTimePM);
-        const formattedfinalcalcFacultyPM = formatDurationMsToHhMmSs(tardPM);
+          new Date(`01/01/2000 ${formattedFacultyMaxRenderedTimePM}`) -
+          new Date(`01/01/2000 ${formattedFacultyRenderedTimePM}`);
+        const formattedfinalcalcFacultyPM = [
+          Math.floor(tardPM / 3600000),
+          Math.floor((tardPM % 3600000) / 60000),
+          Math.floor((tardPM % 60000) / 1000),
+        ]
+          .map((x) => String(x).padStart(2, '0'))
+          .join(':');
 
         const calcSeg = (tIn, tOut, offIn, offOut) => {
-          const emptyIn = isEmptyPunch(tIn);
-          const emptyOut = isEmptyPunch(tOut);
-          if (emptyIn && emptyOut) {
-            const os = parseAttendanceTimeOn2000(offIn),
-              oe = parseAttendanceTimeOn2000(offOut);
-            if (
-              Number.isNaN(os.getTime()) ||
-              Number.isNaN(oe.getTime()) ||
-              oe <= os
-            ) {
-              return {
-                rendered: '00:00:00',
-                maxRendered: '00:00:00',
-                tardiness: '00:00:00',
-              };
-            }
-            const offDiff = oe - os;
-            const maxRendered = formatDurationMsToHhMmSs(offDiff);
-            return {
-              rendered: '00:00:00',
-              maxRendered,
-              tardiness: maxRendered,
-            };
-          }
-
-          const s = parseAttendanceTimeOn2000(tIn),
-            e = parseAttendanceTimeOn2000(tOut);
-          const os = parseAttendanceTimeOn2000(offIn),
-            oe = parseAttendanceTimeOn2000(offOut);
+          const s = new Date(`01/01/2000 ${tIn}`),
+            e = new Date(`01/01/2000 ${tOut}`);
+          const os = new Date(`01/01/2000 ${offIn}`),
+            oe = new Date(`01/01/2000 ${offOut}`);
           const mid = new Date(`01/01/2000 00:00:00 AM`);
           const si = e < os || s > oe ? mid : s < os ? os : s;
           const ei = si === mid ? mid : e < os ? mid : e < oe ? e : oe;
           const diff = ei - si;
-          const rendered = formatDurationMsToHhMmSs(diff);
+          const rendered = [
+            Math.floor(diff / 3600000),
+            Math.floor((diff % 3600000) / 60000),
+            Math.floor((diff % 60000) / 1000),
+          ]
+            .map((x) => String(x).padStart(2, '0'))
+            .join(':');
           const offDiff = oe - os;
-          const maxRendered = formatDurationMsToHhMmSs(offDiff);
+          const maxRendered = [
+            Math.floor(offDiff / 3600000),
+            Math.floor((offDiff % 3600000) / 60000),
+            Math.floor((offDiff % 60000) / 1000),
+          ]
+            .map((x) => String(x).padStart(2, '0'))
+            .join(':');
           const tard =
-            parseAttendanceTimeOn2000(maxRendered) -
-            parseAttendanceTimeOn2000(rendered);
-          const tardiness = formatDurationMsToHhMmSs(tard);
+            new Date(`01/01/2000 ${maxRendered}`) -
+            new Date(`01/01/2000 ${rendered}`);
+          const tardiness = [
+            Math.floor(tard / 3600000),
+            Math.floor((tard % 3600000) / 60000),
+            Math.floor((tard % 60000) / 1000),
+          ]
+            .map((x) => String(x).padStart(2, '0'))
+            .join(':');
           return { rendered, maxRendered, tardiness };
         };
 
@@ -2244,25 +2152,25 @@ const AttendanceModuleFacultyDesignated = () => {
     values.forEach((t) => {
       if (!t || t === 'NaN:NaN:NaN' || t === '—' || t === 'N/A') return;
       const parts = t.split(':').map(Number);
-      if (parts.length >= 2 && parts.slice(0, 2).every((n) => !isNaN(n)))
-        total += parts[0] * 3600 + parts[1] * 60;
+      if (parts.length === 3 && parts.every((n) => !isNaN(n)))
+        total += parts[0] * 3600 + parts[1] * 60 + parts[2];
     });
     const h = Math.floor(total / 3600),
-      m = Math.floor((total % 3600) / 60);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+      m = Math.floor((total % 3600) / 60),
+      s = total % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }, []);
 
   const addTimes = useCallback((a, b) => {
     const parse = (t) => {
-      const [h, m] = (t || '00:00:00').split(':').map(Number);
-      const hh = Number.isFinite(h) ? h : 0,
-        mm = Number.isFinite(m) ? m : 0;
-      return hh * 3600 + mm * 60;
+      const [h, m, s] = (t || '00:00:00').split(':').map(Number);
+      return h * 3600 + m * 60 + s;
     };
     const total = parse(a) + parse(b);
     const h = Math.floor(total / 3600),
-      m = Math.floor((total % 3600) / 60);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+      m = Math.floor((total % 3600) / 60),
+      s = total % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }, []);
 
   const totals = React.useMemo(() => {
@@ -2409,7 +2317,7 @@ const AttendanceModuleFacultyDesignated = () => {
       getAuthHeaders(),
     );
     showSnackbar('Attendance summary updated from your choices.', 'success');
-    navigateToOverallAttendanceSummary();
+    setTimeout(() => navigateToOverallAttendanceSummary(), 1500);
   };
 
   const saveOverallAttendance = async () => {
@@ -2427,17 +2335,7 @@ const AttendanceModuleFacultyDesignated = () => {
       if (existingList.length) {
         const existing = existingList[0];
         if (!overallRecordsDiffer(existing, record)) {
-          showModal(
-            'Duplicate attendance summary',
-            `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
-            'info',
-            () => {
-              closeModal();
-              navigateToOverallAttendanceSummary();
-            },
-            true,
-            'Continue to summary',
-          );
+          showSnackbar('Summary already matches these totals. No changes to save.', 'info');
           return;
         }
         setPendingSavedOverall(existing);
@@ -2468,7 +2366,7 @@ const AttendanceModuleFacultyDesignated = () => {
         response.data.message || 'Attendance record saved successfully!',
         'success',
       );
-      navigateToOverallAttendanceSummary();
+      setTimeout(() => navigateToOverallAttendanceSummary(), 1500);
     } catch (err) {
       console.error('Error saving overall attendance:', err);
       showSnackbar('Failed to save attendance record.', 'error');
@@ -2722,29 +2620,27 @@ const AttendanceModuleFacultyDesignated = () => {
               : group === 'official'
                 ? '#374151'
                 : '#111827',
-        bgcolor:
-          group === 'actual'
-            ? isEven
-              ? alpha(T.accent, 0.07)
-              : alpha(T.accent, 0.12)
-            : group === 'calc'
-              ? isEven
-                ? 'rgba(21,128,61,0.05)'
-                : 'rgba(21,128,61,0.09)'
-              : group === 'tard'
-                ? isEven
-                  ? 'rgba(153,27,27,0.04)'
-                  : 'rgba(153,27,27,0.08)'
-                : isEven
-                  ? '#fff'
-                  : T.rowOdd,
+        bgcolor: isEven ? '#fff' : T.rowOdd,
         transition: 'background-color 0.12s',
-        'tr:hover &': { bgcolor: T.rowHover + ' !important' },
+        'tr:hover &': {
+          bgcolor:
+            group === 'actual'
+              ? isEven
+                ? alpha(T.accent, 0.07)
+                : alpha(T.accent, 0.12)
+              : group === 'calc'
+                ? isEven
+                  ? 'rgba(21,128,61,0.05)'
+                  : 'rgba(21,128,61,0.09)'
+                : group === 'tard'
+                  ? isEven
+                    ? 'rgba(153,27,27,0.04)'
+                    : 'rgba(153,27,27,0.08)'
+                  : T.rowHover,
+        },
       }}
     >
-      {typeof content === 'string'
-        ? normalizeBadHhMmSsDisplay(content)
-        : content}
+      {content}
     </TableCell>
   );
 
@@ -3656,7 +3552,6 @@ const AttendanceModuleFacultyDesignated = () => {
           type={modal.type}
           onConfirm={modal.onConfirm}
           showCancel={modal.showCancel}
-          confirmLabel={modal.confirmLabel}
         />
 
         <OverallAttendanceCompareModal

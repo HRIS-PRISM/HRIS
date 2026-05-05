@@ -348,12 +348,13 @@ const SCDeductionReceipt = ({
   const [existingDeductions, setExistingDeductions] = useState([]);
   const [deductionsLoading, setDeductionsLoading] = useState(false);
 
-  const fetchBalance = useCallback(async () => {
+  const fetchBalance = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!employee) {
       setScBalance(null);
       return;
     }
-    setBalLoading(true);
+    if (!silent) setBalLoading(true);
     const token = localStorage.getItem("token");
     try {
       const r = await axios.get(
@@ -364,15 +365,16 @@ const SCDeductionReceipt = ({
     } catch {
       setScBalance(0);
     } finally {
-      setBalLoading(false);
+      if (!silent) setBalLoading(false);
     }
   }, [employee]);
-  const fetchExistingDeductions = useCallback(async () => {
+  const fetchExistingDeductions = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!employee) {
       setExistingDeductions([]);
       return;
     }
-    setDeductionsLoading(true);
+    if (!silent) setDeductionsLoading(true);
     const token = localStorage.getItem("token");
     try {
       const r = await axios.get(
@@ -388,14 +390,20 @@ const SCDeductionReceipt = ({
     } catch {
       setExistingDeductions([]);
     } finally {
-      setDeductionsLoading(false);
+      if (!silent) setDeductionsLoading(false);
     }
   }, [employee, year, month]);
 
   useEffect(() => {
-    fetchBalance();
-    fetchExistingDeductions();
-  }, [fetchBalance, fetchExistingDeductions, refreshKey]);
+    fetchBalance({ silent: false });
+    fetchExistingDeductions({ silent: false });
+  }, [fetchBalance, fetchExistingDeductions, employee, year, month]);
+
+  useEffect(() => {
+    if (refreshKey === 0 || !employee) return;
+    fetchBalance({ silent: true });
+    fetchExistingDeductions({ silent: true });
+  }, [refreshKey, employee, fetchBalance, fetchExistingDeductions]);
 
   const officialStart = attendanceData?.summary?.startDate || attendanceData?.period?.start;
   const officialEnd = attendanceData?.summary?.endDate || attendanceData?.period?.end;

@@ -56,6 +56,23 @@ export function isDeductionSourceSufficient(balanceDays, needDays, sourceValue) 
 }
 
 /**
+ * True when this source can receive an attendance deduction on a **credit** ledger
+ * (leave assignment, SC, CTO). Always false for salary — use salary shortfall / attendance_result instead.
+ *
+ * @param {string} sourceValue e.g. VL, SC, CTO (not SALARY_DEDUCTION)
+ * @param {number} needDays amount to deduct in 8h-equivalent days
+ * @param {object} ctx same shape as {@link getDeductionSourceBalanceDays}
+ */
+export function canApplyAttendanceDeductionToCreditSource(sourceValue, needDays, ctx) {
+  const code = String(sourceValue || "").trim().toUpperCase();
+  if (!code || code === "SALARY_DEDUCTION") return false;
+  const n = Number(needDays);
+  if (!Number.isFinite(n) || n <= 1e-6) return true;
+  const bal = getDeductionSourceBalanceDays(sourceValue, ctx);
+  return isDeductionSourceSufficient(bal, n, sourceValue);
+}
+
+/**
  * @returns {{ assignmentMap: object, scRemainingHours: number, ctoRemainingHours: number }}
  */
 export async function fetchDeductionCreditSnapshots(employeeNumber, token) {

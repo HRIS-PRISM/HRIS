@@ -348,12 +348,13 @@ const VLDeductionReceipt = ({
   const [existingDeductions, setExistingDeductions] = useState([]);
   const [deductionsLoading, setDeductionsLoading] = useState(false);
 
-  const fetchBalance = useCallback(async () => {
+  const fetchBalance = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!employee) {
       setVlBalance(null);
       return;
     }
-    setBalLoading(true);
+    if (!silent) setBalLoading(true);
     const token = localStorage.getItem("token");
     try {
       const r = await axios.get(
@@ -365,42 +366,79 @@ const VLDeductionReceipt = ({
     } catch {
       setVlBalance(0);
     } finally {
-      setBalLoading(false);
+      if (!silent) setBalLoading(false);
     }
   }, [employee]);
 
-  const fetchExistingDeductions = useCallback(async () => {
+  const fetchExistingDeductions = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!employee) {
       setExistingDeductions([]);
       return;
     }
-    setDeductionsLoading(true);
+    if (!silent) setDeductionsLoading(true);
     const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/api/earnings/leave/${employee.employeeNumber}?year=${year}&month=${month}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      const all = r.data?.earnings || [];
-      setExistingDeductions(
-        all.filter(
-          (e) =>
-            e.entry_type === "TARDINESS_DEDUCTION" &&
-            e.leave_code === "VL" &&
-            e.earn_status !== "rejected",
+      const [postedRes, leaveRes] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_credit_usage/tardiness_posted`, {
+          headers,
+          params: {
+            employeeNumber: employee.employeeNumber,
+            period_year: year,
+            period_month: month,
+            leave_code: "VL",
+          },
+        }),
+        axios.get(
+          `${API_BASE_URL}/api/earnings/leave/${employee.employeeNumber}?year=${year}&month=${month}`,
+          { headers },
         ),
+      ]);
+      const postedHours =
+        postedRes.status === "fulfilled" ? toNum(postedRes.value.data?.posted_hours) : 0;
+      const all = leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings || [] : [];
+      const pendingLegacy = all.filter(
+        (e) =>
+          e.entry_type === "TARDINESS_DEDUCTION" &&
+          e.leave_code === "VL" &&
+          e.earn_status === "pending",
       );
+      const syntheticApproved =
+        postedHours > 1e-9
+          ? [
+              {
+                id: `lcu-tard-vl-${year}-${month}`,
+                employee_number: employee.employeeNumber,
+                leave_code: "VL",
+                earned_hours: -postedHours,
+                period_year: parseInt(year, 10),
+                period_month: parseInt(month, 10),
+                entry_type: "TARDINESS_DEDUCTION",
+                earn_status: "approved",
+                remarks: "Tardiness offset (leave credit ledger)",
+                _ledgerTardinessSynthetic: true,
+              },
+            ]
+          : [];
+      setExistingDeductions([...pendingLegacy, ...syntheticApproved]);
     } catch {
       setExistingDeductions([]);
     } finally {
-      setDeductionsLoading(false);
+      if (!silent) setDeductionsLoading(false);
     }
   }, [employee, year, month]);
 
   useEffect(() => {
-    fetchBalance();
-    fetchExistingDeductions();
-  }, [fetchBalance, fetchExistingDeductions, refreshKey]);
+    fetchBalance({ silent: false });
+    fetchExistingDeductions({ silent: false });
+  }, [fetchBalance, fetchExistingDeductions, employee, year, month]);
+
+  useEffect(() => {
+    if (refreshKey === 0 || !employee) return;
+    fetchBalance({ silent: true });
+    fetchExistingDeductions({ silent: true });
+  }, [refreshKey, employee, fetchBalance, fetchExistingDeductions]);
 
   const officialStart = attendanceData?.summary?.startDate || attendanceData?.period?.start;
   const officialEnd = attendanceData?.summary?.endDate || attendanceData?.period?.end;
@@ -447,7 +485,7 @@ const VLDeductionReceipt = ({
     const token = localStorage.getItem("token");
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const { data } = await axios.post(
+      await axios.post(
         `${API_BASE_URL}/api/earnings/leave`,
         {
           employeeNumber: employee.employeeNumber,
@@ -460,14 +498,6 @@ const VLDeductionReceipt = ({
         },
         { headers },
       );
-      const earningId = data?.id;
-      if (earningId != null) {
-        await axios.patch(
-          `${API_BASE_URL}/api/earnings/leave/${earningId}/approve`,
-          {},
-          { headers },
-        );
-      }
       const newVL = Number((vlBal - remainingToDeductDec).toFixed(3));
       setDeductSuccess(
         newVL < 0

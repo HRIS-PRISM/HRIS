@@ -1,7 +1,11 @@
 import API_BASE_URL from '../../apiConfig';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { useSocket } from '../../contexts/SocketContext';
+import {
+  computeOfficialAwareAbsenceAndLate,
+  listAbsentDatesFromDailyRows,
+  listHalfDayDatesFromDailyRows,
+} from '../../utils/officialAttendanceFromDailyRows';
 import {
   Box,
   Typography,
@@ -27,6 +31,7 @@ import {
   Collapse,
   Checkbox,
   Backdrop,
+  Tooltip,
 } from '@mui/material';
 import {
   Summarize,
@@ -47,12 +52,18 @@ import {
   Assignment,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  fetchEmploymentCategoryRow,
+  isJobOrderEmploymentCategory,
+} from '../../utils/regularPayrollFromAttendance';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import {
   useCRUDButtonStyles,
   useCRUDButtonStylesOutlined,
 } from '../../hooks/useCRUDButtonStyles';
 import usePageAccess from '../../hooks/usePageAccess';
+import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
+import { fetchAttendanceCalendarMaps } from './attendanceLeaveIntegration';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
@@ -437,17 +448,15 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const OverallAttendance = () => {
-  const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
   const saveButtonStyles = useCRUDButtonStyles('save');
   const editButtonStyles = useCRUDButtonStyles('edit');
   const deleteButtonStyles = useCRUDButtonStylesOutlined('delete');
-  const fetchAttendanceDataRef = useRef(null);
+  const fetchInFlightRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   const [showJOConfirm, setShowJOConfirm] = useState(false);
-  const [showRegularConfirm, setShowRegularConfirm] = useState(false);
 
   // Access control
   const { hasAccess, loading: accessLoading, error: accessError } = usePageAccess('attendance-summary');
@@ -464,7 +473,6 @@ const OverallAttendance = () => {
   const [endDate, setEndDate]               = useState('');
   const [attendanceData, setAttendanceData] = useState([]);
   const [editRecord, setEditRecord]         = useState(null);
-  const [isSubmitting, setIsSubmitting]     = useState(false);
   const [isSubmittingJO, setIsSubmittingJO] = useState(false);
   const [loading, setLoading]               = useState(false);
   const [pageLoading, setPageLoading]       = useState(true);
@@ -492,118 +500,6 @@ const OverallAttendance = () => {
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
-  };
-
-  const parseTimeToSeconds = (timeStr) => {
-    if (!timeStr) return null;
-    const trimmed = String(timeStr).trim();
-    if (!trimmed) return null;
-    const m = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i);
-    if (!m) return null;
-    let hh = Number(m[1]);
-    const mm = Number(m[2]);
-    const ss = Number(m[3] ?? 0);
-    const mer = (m[4] || '').toUpperCase();
-    if ([hh, mm, ss].some(Number.isNaN)) return null;
-    if (mer) {
-      if (hh === 12) hh = 0;
-      if (mer === 'PM') hh += 12;
-    }
-    return hh * 3600 + mm * 60 + ss;
-  };
-
-  const formatSeconds = (secs) => {
-    const safe = Math.max(0, Number(secs) || 0);
-    const h = Math.floor(safe / 3600);
-    const m = Math.floor((safe % 3600) / 60);
-    const s = safe % 60;
-    return [h, m, s].map((x) => String(x).padStart(2, '0')).join(':');
-  };
-
-  const computeOfficialAwareAbsenceAndLate = (rows) => {
-    const empty = (v) => !v || String(v).trim() === '';
-    const isScheduled = (row) => {
-      const offIn = row?.officialTimeIN;
-      const offOut = row?.officialTimeOUT;
-      return (
-        !empty(offIn) &&
-        !empty(offOut) &&
-        String(offIn).trim() !== '00:00:00 AM' &&
-        String(offOut).trim() !== '00:00:00 PM'
-      );
-    };
-    const hasNoPunches = (row) => {
-      const ti = row?.timeIN;
-      const bi = row?.breaktimeIN;
-      const bo = row?.breaktimeOUT;
-      const to = row?.timeOUT;
-      return empty(ti) && empty(bi) && empty(bo) && empty(to);
-    };
-    const hasMorningPunch = (row) => !empty(row?.timeIN) || !empty(row?.breaktimeIN);
-    const hasAfternoonPunch = (row) => !empty(row?.breaktimeOUT) || !empty(row?.timeOUT);
-
-    let absentDays = 0;
-    let halfDays = 0;
-    let halfDaySecTotal = 0;
-    let lateDeficitSecTotal = 0;
-
-    (Array.isArray(rows) ? rows : []).forEach((row) => {
-      if (!isScheduled(row)) return;
-      if (hasNoPunches(row)) {
-        absentDays += 1;
-        return;
-      }
-
-      const morning = hasMorningPunch(row);
-      const afternoon = hasAfternoonPunch(row);
-      if (morning !== afternoon) halfDays += 1;
-
-      // Late/Tardiness (late-only) as schedule deficit for days with punches
-      const offInSec = parseTimeToSeconds(row?.officialTimeIN);
-      const offOutSec = parseTimeToSeconds(row?.officialTimeOUT);
-      if (offInSec == null || offOutSec == null) return;
-      const schedTotal = Math.max(0, offOutSec - offInSec);
-
-      const offBreakInSec = parseTimeToSeconds(row?.officialBreaktimeIN);
-      const offBreakOutSec = parseTimeToSeconds(row?.officialBreaktimeOUT);
-      const breakSec =
-        offBreakInSec != null && offBreakOutSec != null
-          ? Math.max(0, offBreakOutSec - offBreakInSec)
-          : 0;
-      const schedWorkSec = Math.max(0, schedTotal - breakSec);
-
-      const inSec = parseTimeToSeconds(row?.timeIN);
-      const outSec = parseTimeToSeconds(row?.timeOUT);
-      const breakInSec = parseTimeToSeconds(row?.breaktimeIN);
-      const breakOutSec = parseTimeToSeconds(row?.breaktimeOUT);
-
-      let renderedSec = 0;
-      if (inSec != null && outSec != null) {
-        if (breakInSec != null && breakOutSec != null && breakOutSec >= breakInSec) {
-          renderedSec = Math.max(0, breakInSec - inSec) + Math.max(0, outSec - breakOutSec);
-        } else {
-          renderedSec = Math.max(0, outSec - inSec);
-        }
-      } else {
-        // Half-day rule: if only one session has punches, treat rendered as half of schedule.
-        if (morning !== afternoon) {
-          renderedSec = Math.floor(schedWorkSec / 2);
-          halfDaySecTotal += Math.floor(schedWorkSec / 2);
-        } else {
-          // Other incomplete combinations remain 0 rendered.
-          renderedSec = 0;
-        }
-      }
-
-      lateDeficitSecTotal += Math.max(0, schedWorkSec - renderedSec);
-    });
-
-    return {
-      absentDays,
-      halfDays,
-      halfDayTotal: formatSeconds(halfDaySecTotal),
-      lateDeficit: formatSeconds(lateDeficitSecTotal),
-    };
   };
 
   // Restore inputs: navigation state (from faculty / designated / non-teaching save) overrides generic localStorage
@@ -642,7 +538,8 @@ const OverallAttendance = () => {
 
   // ── Fetch ──────────────────────────────────────────────────────────────
   const fetchAttendanceData = async () => {
-    console.log('Sending request with params: ', { personID: employeeNumber, startDate, endDate });
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     setLoading(true);
     try {
       const response = await axios.get(
@@ -652,33 +549,75 @@ const OverallAttendance = () => {
       if (response.status === 200) {
         const overallRows = response.data.data;
 
-        // Derive absent + late (official-time-aware) from daily rows
-        let absent = null;
-        let halfDay = null;
-        let lateDeficit = null;
+        // Derive absent / half-day / late shortfall from daily rows (three buckets sum to overall shortfall)
+        let absentDisplay = null;
+        let halfDayStr = null;
+        let lateStr = null;
+        let overallShortfall = null;
+        /** When absent + half-day shortfall are both 0, Late Total mirrors saved Overall Tardiness (not the daily-row late bucket). */
+        let useOverallTardinessForLateTotal = false;
         try {
-          const d = await axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
-            params: { personId: employeeNumber, startDate, endDate },
-            ...getAuthHeaders(),
-          });
+          const [d, maps] = await Promise.all([
+            axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
+              params: { personId: employeeNumber, startDate, endDate },
+              ...getAuthHeaders(),
+            }),
+            fetchAttendanceCalendarMaps({
+              apiBaseUrl: API_BASE_URL,
+              getAuthHeaders,
+              startDate,
+              endDate,
+              personId: employeeNumber,
+            }),
+          ]);
           const dailyRows = Array.isArray(d.data) ? d.data : (d.data?.data || []);
-          const computed = computeOfficialAwareAbsenceAndLate(dailyRows);
-          absent = computed.absentDays;
-          halfDay = computed.halfDayTotal;
-          lateDeficit = computed.lateDeficit;
+          const calendarMaps = {
+            suspensionByDate: maps.suspensionByDate,
+            holidayByDate: maps.holidayByDate,
+            leaveByDate: maps.leaveByDate,
+          };
+          const c = computeOfficialAwareAbsenceAndLate(dailyRows, calendarMaps);
+          const absentDateList = listAbsentDatesFromDailyRows(dailyRows, calendarMaps);
+          const halfDayDateList = listHalfDayDatesFromDailyRows(dailyRows, calendarMaps);
+          const absentLine = `${c.absentTime} (${c.absentDays}d)`;
+          const halfLine = `${c.halfDayShortfallTime}${c.halfDays > 0 ? ` (${c.halfDays}d)` : ''}`;
+          absentDisplay =
+            absentDateList.length > 0
+              ? `${absentLine} · ${absentDateList.join(', ')}`
+              : absentLine;
+          halfDayStr =
+            halfDayDateList.length > 0
+              ? `${halfLine} · ${halfDayDateList.join(', ')}`
+              : halfLine;
+          lateStr = c.lateShortfallTime;
+          overallShortfall = c.overallShortfallTime;
+          useOverallTardinessForLateTotal =
+            c.absentSecTotal === 0 && c.halfDayShortfallSecTotal === 0;
         } catch {
-          absent = null;
-          halfDay = null;
-          lateDeficit = null;
+          absentDisplay = null;
+          halfDayStr = null;
+          lateStr = null;
+          overallShortfall = null;
+          useOverallTardinessForLateTotal = false;
         }
 
         setAttendanceData(
-          (Array.isArray(overallRows) ? overallRows : []).map((r) => ({
-            ...r,
-            _absentTotalDays: absent,
-            _halfTotalDays: halfDay,
-            _lateTotal: lateDeficit,
-          })),
+          (Array.isArray(overallRows) ? overallRows : []).map((r) => {
+            const overallSaved = r.overallRenderedOfficialTimeTardiness;
+            return {
+              ...r,
+              _absentTotalDays: absentDisplay,
+              _halfTotalDays: halfDayStr,
+              _lateTotal: useOverallTardinessForLateTotal
+                ? (overallSaved != null && String(overallSaved).trim() !== ''
+                    ? overallSaved
+                    : lateStr)
+                : lateStr,
+              ...(overallShortfall != null
+                ? { _computedPayrollOverallShortfall: overallShortfall }
+                : {}),
+            };
+          }),
         );
         setTimeout(() => {
           resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -690,25 +629,25 @@ const OverallAttendance = () => {
       console.error('Error fetching data:', error);
       showModal('Data Retrieval Error', 'Unable to retrieve attendance records. Please try again.', 'error');
     } finally {
+      fetchInFlightRef.current = false;
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchAttendanceDataRef.current = fetchAttendanceData; });
-
-  // Realtime refresh
-  useEffect(() => {
-    if (!socket || !connected) return;
-    const handleAttendanceChanged = (payload) => {
-      const changedPersonIDs = Array.isArray(payload?.personIDs)
-        ? payload.personIDs
-        : payload?.personID ? [payload.personID] : [];
-      if (employeeNumber && changedPersonIDs.length > 0 && !changedPersonIDs.includes(employeeNumber)) return;
-      if (employeeNumber && startDate && endDate) fetchAttendanceDataRef.current?.();
-    };
-    socket.on('attendanceChanged', handleAttendanceChanged);
-    return () => { socket.off('attendanceChanged', handleAttendanceChanged); };
-  }, [socket, connected, employeeNumber, startDate, endDate]);
+  /**
+   * Debounced realtime refetch. Ignores `attendanceChanged` from calendar **reads**
+   * (`scope` suspensions / leaves / holiday and `*-fetched` actions) — those fire when
+   * this page loads `fetchAttendanceCalendarMaps` and would otherwise cause a refetch storm
+   * (`ERR_INSUFFICIENT_RESOURCES`).
+   */
+  useAttendanceRealtimeRefresh(fetchAttendanceData, {
+    personId: employeeNumber,
+    startDate,
+    endDate,
+    requireDateRange: true,
+    matchMode: 'strict',
+    debounceMs: 500,
+  });
 
   // ── CRUD ───────────────────────────────────────────────────────────────
   const updateRecord = async () => {
@@ -751,118 +690,23 @@ const OverallAttendance = () => {
     }, true);
   };
 
-  // ── Payroll Regular ────────────────────────────────────────────────────
-  const submitToPayroll = async () => {
-    if (isSubmitting) return;
+  const goToEarningsForRegularPayroll = () => {
     if (!attendanceData || attendanceData.length === 0) {
-      showModal('No Data', 'No attendance records available.', 'warning'); return;
+      showModal('No Data', 'No attendance records available.', 'warning');
+      return;
     }
-    setIsSubmitting(true);
-    setProcessingOverlay(true);
-    setProcessingMessage('Submitting Regular payroll...');
-    try {
-      const filteredRecords = [], invalidRecords = [];
-      for (const record of attendanceData) {
-        const empNum = record.personID || record.employeeNumber;
-        const employmentCategory = await fetchEmploymentCategory(empNum);
-        if (employmentCategory === null) {
-          invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' }); continue;
-        }
-        if (employmentCategory === 2 || employmentCategory === 3 || employmentCategory === 4)
-          filteredRecords.push(record);
-        else if (employmentCategory === 0 || employmentCategory === 1)
-          invalidRecords.push({ employeeNumber: empNum, reason: 'Job Order (JO)' });
-        else
-          invalidRecords.push({ employeeNumber: empNum, reason: `Unknown employment category (${employmentCategory})` });
-      }
-
-      if (invalidRecords.length > 0) {
-        if (filteredRecords.length === 0) {
-          showModal(
-            'Submission Blocked — Regular Payroll',
-            `The following employee(s) could not be processed for Regular Payroll submission:\n\n${invalidRecords.map(r => `• Employee ${r.employeeNumber}: ${r.reason}`).join('\n')}\n\nPlease verify and update the employment category on record before resubmitting.`,
-            'warning',
-          );
-          setProcessingOverlay(false); setIsSubmitting(false); return;
-        }
-        showModal(
-          'Confirm Submission',
-          `${filteredRecords.length} eligible record(s)\n${invalidRecords.length} excluded\n\nProceed with submission?`,
-          'warning',
-          async () => { closeModal(); await continuePayrollSubmission(filteredRecords); },
-          true,
-        );
-        setProcessingOverlay(false); return;
-      }
-      await continuePayrollSubmission(filteredRecords);
-    } catch (error) {
-      console.error('Error submitting to payroll:', error);
-      handleSubmissionError(error);
-    } finally {
-      setProcessingOverlay(false); setIsSubmitting(false);
-    }
-  };
-
-  const continuePayrollSubmission = async (filteredRecords) => {
-    try {
-      const payload = filteredRecords.map(record => ({
-        employeeNumber: record.personID,
-        startDate: record.startDate,
-        endDate: record.endDate,
-        overallRenderedOfficialTimeTardiness: record.overallRenderedOfficialTimeTardiness,
-        department: record.code,
-      }));
-
-      const missingFields = payload.filter(r => !r.employeeNumber || !r.startDate || !r.endDate);
-      if (missingFields.length > 0) {
-        showModal('Validation Error', 'Required fields missing. Check Employee Number, Start Date, and End Date.', 'error');
-        setProcessingOverlay(false); return;
-      }
-
-      for (const payloadRecord of payload) {
-        const { employeeNumber, startDate, endDate } = payloadRecord;
-        try {
-          const response = await axios.get(
-            `${API_BASE_URL}/PayrollRoute/payroll-with-remittance`,
-            { ...getAuthHeaders(), params: { employeeNumber, startDate, endDate } },
-          );
-          if (response.data.exists) {
-            showModal('Duplicate Entry', `Payroll entry exists for Employee ${employeeNumber} (${startDate} to ${endDate}).`, 'warning');
-            return;
-          }
-        } catch (duplicateCheckError) {
-          console.error('Error checking for duplicates:', duplicateCheckError);
-          showModal('Validation Error', 'Unable to verify existing records.', 'error'); return;
-        }
-      }
-
-      const submitResponse = await axios.post(`${API_BASE_URL}/PayrollRoute/add-rendered-time`, payload, getAuthHeaders());
-      if (submitResponse.status === 200 || submitResponse.status === 201) {
-        if (submitResponse.data.newCount === 0) {
-          setProcessingOverlay(false);
-          showModal('Already Exists', 'All records already exist in payroll processing. No new entries were added.', 'warning');
-        } else {
-          setProcessingOverlay(false);
-          setSuccessAction('send'); setSuccessRedirect('/payroll-table'); setSuccessOverlay(true);
-        }
-      } else {
-        throw new Error(`Unexpected response status: ${submitResponse.status}`);
-      }
-    } catch (error) { handleSubmissionError(error); }
-  };
-
-  const handleSubmissionError = (error) => {
-    if (error.response) {
-      const status  = error.response.status;
-      const message = error.response.data?.message || error.response.data?.error || 'Server error occurred';
-      if (status === 409)      showModal('Duplicate Entries', `Duplicate payroll records detected. ${message}`, 'warning');
-      else if (status === 400) showModal('Invalid Data', message, 'error');
-      else                     showModal('Server Error', `Error ${status}: ${message}`, 'error');
-    } else if (error.request) {
-      showModal('Network Error', 'Connection failed. Check internet connection.', 'error');
-    } else {
-      showModal('Submission Error', 'An unexpected error occurred.', 'error');
-    }
+    navigate('/earnings-management', {
+      state: {
+        fromAttendanceSummaryRegular: true,
+        payrollAttendanceRecords: attendanceData.map((r) => ({
+          ...r,
+          overallRenderedOfficialTimeTardiness:
+            r._lateTotal != null && String(r._lateTotal).trim() !== ''
+              ? r._lateTotal
+              : r.overallRenderedOfficialTimeTardiness,
+        })),
+      },
+    });
   };
 
   // ── Payroll JO ─────────────────────────────────────────────────────────
@@ -878,16 +722,17 @@ const OverallAttendance = () => {
       const filteredRecords = [], invalidRecords = [];
       for (const record of attendanceData) {
         const empNum = record.personID || record.employeeNumber;
-        const employmentCategory = await fetchEmploymentCategory(empNum);
-        if (employmentCategory === null) {
-          invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' }); continue;
+        const catRow = await fetchEmploymentCategoryRow(empNum);
+        if (!catRow || catRow.employmentCategory == null || catRow.employmentCategory === '') {
+          invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' });
+          continue;
         }
-        if (employmentCategory === 0 || employmentCategory === 1)
-          filteredRecords.push(record);
-        else if (employmentCategory === 2 || employmentCategory === 3 || employmentCategory === 4)
-          invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category is Regular' });
+        if (isJobOrderEmploymentCategory(catRow)) filteredRecords.push(record);
         else
-          invalidRecords.push({ employeeNumber: empNum, reason: `Unknown employment category (${employmentCategory})` });
+          invalidRecords.push({
+            employeeNumber: empNum,
+            reason: 'Not Job Order (J0) — use Regular payroll for this employment category',
+          });
       }
 
       if (invalidRecords.length > 0) {
@@ -954,8 +799,12 @@ const OverallAttendance = () => {
             rhHours = parseInt(parts[0], 10) || 0;
           }
           let h = 0, m = 0, s = 0;
-          if (record.overallRenderedOfficialTimeTardiness) {
-            const tParts = record.overallRenderedOfficialTimeTardiness.split(':');
+          const tardStr =
+            record._lateTotal != null && String(record._lateTotal).trim() !== ''
+              ? record._lateTotal
+              : record.overallRenderedOfficialTimeTardiness;
+          if (tardStr) {
+            const tParts = String(tardStr).split(':');
             h = parseInt(tParts[0], 10) || 0;
             m = parseInt(tParts[1], 10) || 0;
             s = parseInt(tParts[2], 10) || 0;
@@ -1003,19 +852,6 @@ const OverallAttendance = () => {
       errorMessage = 'Connection failed. Check internet connection.';
     }
     showModal('Submission Error', errorMessage, 'error');
-  };
-
-  const fetchEmploymentCategory = async (empNumber) => {
-    try {
-      const response = await axios.get(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${empNumber}`,
-        getAuthHeaders(),
-      );
-      return response.data.employmentCategory;
-    } catch (error) {
-      console.error('Error fetching employment category:', error);
-      return null;
-    }
   };
 
   // ── Access guards / wireframe ──────────────────────────────────────────
@@ -1337,11 +1173,17 @@ const OverallAttendance = () => {
                                 '&:hover td:not(.actions-col)': { bgcolor: `${T.rowHover} !important` },
                               }}
                             >
-                              {TABLE_COLUMNS.map(({ key, group }) => (
+                              {TABLE_COLUMNS.map(({ key, group }) => {
+                                const isDateListCol = key === '_absentTotalDays' || key === '_halfTotalDays';
+                                const displayVal = record[key];
+                                return (
                                 <TableCell key={key} sx={{
                                   fontSize: '0.8rem', fontFamily: group ? 'monospace' : 'inherit',
                                   borderBottom: `1px solid ${T.divider}`,
-                                  px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center',
+                                  px: 1.75, py: 1, textAlign: 'center',
+                                  whiteSpace: isDateListCol ? 'normal' : 'nowrap',
+                                  maxWidth: isDateListCol ? 300 : undefined,
+                                  lineHeight: isDateListCol ? 1.35 : undefined,
                                   fontWeight: group ? 700 : 500,
                                   color: getCellColor(group),
                                   bgcolor: getCellBg(group, isEven),
@@ -1360,11 +1202,16 @@ const OverallAttendance = () => {
                                       onFocus={e => { e.target.style.borderColor = T.accent; }}
                                       onBlur={e => { e.target.style.borderColor = T.accentBorder; }}
                                     />
+                                  ) : isDateListCol && displayVal != null && String(displayVal).trim() !== '' ? (
+                                    <Tooltip title={String(displayVal)} placement="top" enterDelay={300}>
+                                      <span style={{ cursor: 'default' }}>{displayVal}</span>
+                                    </Tooltip>
                                   ) : (
-                                    record[key]
+                                    displayVal
                                   )}
                                 </TableCell>
-                              ))}
+                              );
+                              })}
 
                               {/* Actions cell */}
                               <TableCell
@@ -1470,7 +1317,7 @@ const OverallAttendance = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 0.5 }}>
                 <Box sx={{ flex: 1, height: '1px', bgcolor: T.accentBorder }} />
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.faint, textTransform: 'uppercase', letterSpacing: '0.14em', whiteSpace: 'nowrap' }}>
-                  Submit to Payroll
+                  Payroll routing
                 </Typography>
                 <Box sx={{ flex: 1, height: '1px', bgcolor: T.accentBorder }} />
               </Box>
@@ -1478,40 +1325,38 @@ const OverallAttendance = () => {
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                 {/* ── Regular Payroll Card ── */}
                 <Box
-                  onClick={!isSubmitting ? () => setShowRegularConfirm(true) : undefined}
+                  onClick={goToEarningsForRegularPayroll}
                   sx={{
                     flex: 1, minWidth: 260, position: 'relative',
                     borderRadius: '12px', overflow: 'hidden',
-                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                    opacity: isSubmitting ? 0.65 : 1,
+                    cursor: 'pointer',
+                    opacity: 1,
                     border: `1.5px solid ${alpha(T.accent, 0.3)}`,
                     background: `linear-gradient(135deg, ${T.accent} 0%, ${T.accentDark} 100%)`,
                     transition: 'all 0.22s ease',
                     boxShadow: `0 4px 20px ${alpha(T.accent, 0.25)}`,
-                    '&:hover': !isSubmitting ? {
+                    '&:hover': {
                       transform: 'translateY(-2px)',
                       boxShadow: `0 8px 32px ${alpha(T.accent, 0.4)}`,
-                    } : {},
-                    '&:active': !isSubmitting ? { transform: 'translateY(0)' } : {},
+                    },
+                    '&:active': { transform: 'translateY(0)' },
                   }}
                 >
                   <Box sx={{ position: 'absolute', top: -24, right: -24, width: 100, height: 100, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.06)', pointerEvents: 'none' }} />
                   <Box sx={{ position: 'absolute', bottom: -16, left: -16, width: 70, height: 70, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
                   <Box sx={{ p: 2.5, position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Box sx={{ width: 44, height: 44, borderRadius: '10px', bgcolor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {isSubmitting
-                        ? <CircularProgress size={20} sx={{ color: '#fff' }} />
-                        : <Assignment sx={{ fontSize: 22, color: '#fff' }} />}
+                      <Assignment sx={{ fontSize: 22, color: '#fff' }} />
                     </Box>
                     <Box sx={{ flex: 1 }}>
                       <Typography sx={{ color: 'rgba(255,255,255,0.65)', fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', mb: 0.3 }}>
-                        Regular Employees
+                        Regular employees
                       </Typography>
                       <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 800, lineHeight: 1.2, mb: 0.2 }}>
-                        {isSubmitting ? 'Submitting...' : 'Submit Payroll Regular'}
+                        Continue to Earnings Management
                       </Typography>
                       <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem', fontWeight: 500 }}>
-                        Permanent & contractual staff
+                        Leave deductions and SC/CTO are applied there; regular payroll is submitted only after that step.
                       </Typography>
                     </Box>
                     <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '1.4rem', fontWeight: 300, lineHeight: 1, flexShrink: 0 }}>→</Typography>
@@ -1567,18 +1412,6 @@ const OverallAttendance = () => {
             </Box>
           </Fade>
         )}
-
-        {/* ── Regular Payroll Confirm Dialog ── */}
-        <PayrollConfirmDialog
-          open={showRegularConfirm}
-          onClose={() => setShowRegularConfirm(false)}
-          onConfirm={submitToPayroll}
-          title="Regular Payroll Submission"
-          subtitle="The following records are pending submission to Regular Payroll. Verify all entries are accurate before proceeding."
-          recordCount={attendanceData.length}
-          recordLabel="Regular Payroll"
-          isSubmitting={isSubmitting}
-        />
 
         {/* ── JO Payroll Confirm Dialog ── */}
         <PayrollConfirmDialog

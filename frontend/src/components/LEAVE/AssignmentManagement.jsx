@@ -122,7 +122,10 @@ const ResultPill = ({ label, value, primary = false }) => (
 // ─── Clearable Int Field ──────────────────────────────────────────────────────
 const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, widgetInputSx, inputLabelSx }) => {
   const [draft, setDraft] = useState(null);
-  const displayVal = draft !== null ? draft : (value === 0 ? "" : String(value));
+  const [focused, setFocused] = useState(false);
+  const displayVal = focused && draft !== null
+    ? draft
+    : (value === 0 ? "" : String(value));
   return (
     <Box>
       {label && <Typography sx={inputLabelSx}>{label}</Typography>}
@@ -132,17 +135,15 @@ const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, 
         placeholder={placeholder ?? String(min)}
         value={displayVal}
         onChange={(e) => {
-          const raw = e.target.value;
+          const raw = e.target.value.replace(/[^\d]/g, "");
           setDraft(raw);
-          const num = parseInt(raw, 10);
-          if (!isNaN(num)) {
-            let clamped = Math.max(num, min);
-            if (max !== undefined) clamped = Math.min(clamped, max);
-            onChange(clamped);
-          }
         }}
-        onFocus={(e) => { setDraft(value === 0 ? "" : String(value)); e.target.select(); }}
+        onFocus={() => {
+          setFocused(true);
+          setDraft(value === 0 ? "" : String(value));
+        }}
         onBlur={() => {
+          setFocused(false);
           let num = parseInt(draft ?? "", 10);
           if (isNaN(num)) num = min;
           if (max !== undefined) num = Math.min(num, max);
@@ -160,7 +161,10 @@ const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, 
 // ─── Clearable Decimal Field ──────────────────────────────────────────────────
 const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, step = 0.5, label, snapToStep = false, widgetInputSx, inputLabelSx }) => {
   const [draft, setDraft] = useState(null);
-  const displayVal = draft !== null ? draft : (value === 0 ? "" : String(value));
+  const [focused, setFocused] = useState(false);
+  const displayVal = focused && draft !== null
+    ? draft
+    : (value === 0 ? "" : String(value));
   return (
     <Box>
       {label && <Typography sx={inputLabelSx}>{label}</Typography>}
@@ -170,18 +174,20 @@ const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, ste
         placeholder={placeholder ?? "0"}
         value={displayVal}
         onChange={(e) => {
-          const raw = e.target.value;
+          let raw = e.target.value.replace(",", ".");
+          raw = raw.replace(/[^\d.]/g, "");
+          const dot = raw.indexOf(".");
+          if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, "");
           setDraft(raw);
-          const num = parseFloat(raw);
-          if (!isNaN(num)) {
-            let clamped = Math.max(num, min);
-            if (max !== undefined) clamped = Math.min(clamped, max);
-            onChange(clamped);
-          }
         }}
-        onFocus={(e) => { setDraft(value === 0 ? "" : String(value)); e.target.select(); }}
+        onFocus={() => {
+          setFocused(true);
+          setDraft(value === 0 ? "" : String(value));
+        }}
         onBlur={() => {
-          let num = parseFloat(draft ?? "") || 0;
+          setFocused(false);
+          let num = parseFloat((draft ?? "").replace(",", "."));
+          if (!Number.isFinite(num)) num = 0;
           if (snapToStep && step) num = Math.round(num / step) * step;
           if (max !== undefined) num = Math.min(num, max);
           num = Math.max(num, min);

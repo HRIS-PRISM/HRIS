@@ -33,6 +33,7 @@ import {
   Tabs,
   Tab,
   Checkbox,
+  FormControlLabel,
   InputLabel,
   Menu,
   Divider,
@@ -48,7 +49,6 @@ import {
   Add as AddIcon,
   CheckCircle as CheckIcon,
   Warning as WarnIcon,
-  CalendarToday as CalIcon,
   MonetizationOn as EarnIcon,
   Pending as PendingIcon,
   Domain as DeptIcon,
@@ -76,15 +76,21 @@ import {
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
   Policy as PolicyIcon,
+  MoneyOff as MoneyOffIcon,
+  InfoOutlined as InfoOutlinedIcon,
 } from "@mui/icons-material";
 import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 import {
   getDeductionSourceBalanceDays,
   isDeductionSourceSufficient,
+  canApplyAttendanceDeductionToCreditSource,
 } from "../../../utils/deductionSourceBalances";
 
 /** Skip applying this bucket (absence or tardiness) for the current confirmation only. */
 const DEDUCTION_SKIP_VALUE = "__DEDUCTION_SKIP__";
+
+/** Shown when assessed absence days are zero — no SC/CTO/salary absence charge applies. */
+const NO_ABSENCES_RECORDED_MESSAGE = "No absences — no deduction.";
 
 const isDeductionSkipSource = (v) => String(v ?? "").trim() === DEDUCTION_SKIP_VALUE;
 
@@ -412,6 +418,10 @@ const CTODeductionReceipt = ({
   const [deductionOptionsLoading, setDeductionOptionsLoading] = useState(false);
   const [assignmentMap, setAssignmentMap] = useState({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmDeductionAcknowledged, setConfirmDeductionAcknowledged] = useState(false);
+  const [salaryOnlyModalOpen, setSalaryOnlyModalOpen] = useState(false);
+  const [salaryOnlySubmitting, setSalaryOnlySubmitting] = useState(false);
+  const [salaryOnlyModalError, setSalaryOnlyModalError] = useState("");
   const [deductSource, setDeductSource] = useState(null); // "sc" | "cto" | "normal"
   const [deducting, setDeducting] = useState(false);
   const [deductError, setDeductError] = useState("");
@@ -430,12 +440,13 @@ const CTODeductionReceipt = ({
   const [periodSalaryShortfallRows, setPeriodSalaryShortfallRows] = useState([]);
  
   // ── Fetch balances ──────────────────────────────────────────────────────────
-  const fetchBalances = useCallback(async () => {
+  const fetchBalances = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!employee) {
       setCtoBalance(null); setVlBalance(null); setScBuffer(0);
       return;
     }
-    setBalLoading(true);
+    if (!silent) setBalLoading(true);
     const token = localStorage.getItem("token");
     try {
       const [assignRes, scRes, ctoRes] = await Promise.allSettled([
@@ -455,12 +466,13 @@ const CTODeductionReceipt = ({
     } catch {
       setCtoBalance(0); setVlBalance(0); setScBuffer(0);
     } finally {
-      setBalLoading(false);
+      if (!silent) setBalLoading(false);
     }
   }, [employee]);
  
   // ── Fetch existing deductions (SC + CTO + VL) ──────────────────────────────
-  const fetchExistingDeductions = useCallback(async () => {
+  const fetchExistingDeductions = useCallback(async (opts) => {
+    const silent = opts?.silent === true;
     if (!employee) {
       setExistingCtoDeductions([]);
       setExistingTardinessDeductions([]);
@@ -468,26 +480,55 @@ const CTODeductionReceipt = ({
       setExistingScDeductions([]);
       return;
     }
-    setDeductionsLoading(true);
+    if (!silent) setDeductionsLoading(true);
     const token = localStorage.getItem("token");
     try {
-      const [ctoRes, leaveRes, scRes] = await Promise.allSettled([
+      const [ctoRes, leaveRes, scRes, tardPostedRes] = await Promise.allSettled([
         axios.get(`${API_BASE_URL}/api/earnings/cto/${employee.employeeNumber}?year=${year}&month=${month}`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_BASE_URL}/api/earnings/leave/${employee.employeeNumber}?year=${year}&month=${month}`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_BASE_URL}/api/earnings/sc/${employee.employeeNumber}?year=${year}&month=${month}`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_credit_usage/tardiness_posted`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            employeeNumber: employee.employeeNumber,
+            period_year: year,
+            period_month: month,
+          },
+        }),
       ]);
       setExistingCtoDeductions(
         ctoRes.status === "fulfilled"
           ? (ctoRes.value.data?.earnings || []).filter(e => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected")
           : []
       );
-      setExistingTardinessDeductions(
-        leaveRes.status === "fulfilled"
-          ? (leaveRes.value.data?.earnings || []).filter(
-              (e) => e.entry_type === "TARDINESS_DEDUCTION" && e.earn_status !== "rejected",
-            )
-          : [],
+      const postedHours =
+        tardPostedRes.status === "fulfilled" ? toNum(tardPostedRes.value.data?.posted_hours) : 0;
+      const lastLeaveCode =
+        tardPostedRes.status === "fulfilled" && tardPostedRes.value.data?.last_leave_code
+          ? String(tardPostedRes.value.data.last_leave_code).trim()
+          : "";
+      const leaveAll = leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings || [] : [];
+      const pendingTardiness = leaveAll.filter(
+        (e) => e.entry_type === "TARDINESS_DEDUCTION" && e.earn_status === "pending",
       );
+      const syntheticTard =
+        postedHours > 1e-9
+          ? [
+              {
+                id: `lcu-tard-all-${year}-${month}`,
+                employee_number: employee.employeeNumber,
+                leave_code: lastLeaveCode || "VL",
+                earned_hours: -postedHours,
+                period_year: parseInt(year, 10),
+                period_month: parseInt(month, 10),
+                entry_type: "TARDINESS_DEDUCTION",
+                earn_status: "approved",
+                remarks: "Tardiness offset (leave credit ledger)",
+                _ledgerTardinessSynthetic: true,
+              },
+            ]
+          : [];
+      setExistingTardinessDeductions([...pendingTardiness, ...syntheticTard]);
       setExistingAbsenceLeaveDeductions(
         leaveRes.status === "fulfilled"
           ? (leaveRes.value.data?.earnings || []).filter(
@@ -509,14 +550,20 @@ const CTODeductionReceipt = ({
       setExistingAbsenceLeaveDeductions([]);
       setExistingScDeductions([]);
     } finally {
-      setDeductionsLoading(false);
+      if (!silent) setDeductionsLoading(false);
     }
   }, [employee, year, month]);
  
   useEffect(() => {
-    fetchBalances();
-    fetchExistingDeductions();
-  }, [fetchBalances, fetchExistingDeductions, refreshKey]);
+    fetchBalances({ silent: false });
+    fetchExistingDeductions({ silent: false });
+  }, [fetchBalances, fetchExistingDeductions, employee, year, month]);
+
+  useEffect(() => {
+    if (refreshKey === 0 || !employee) return;
+    fetchBalances({ silent: true });
+    fetchExistingDeductions({ silent: true });
+  }, [refreshKey, employee, fetchBalances, fetchExistingDeductions]);
 
   const fetchPeriodSalaryShortfall = useCallback(async () => {
     if (!employee?.employeeNumber) {
@@ -541,7 +588,12 @@ const CTODeductionReceipt = ({
 
   useEffect(() => {
     fetchPeriodSalaryShortfall();
-  }, [fetchPeriodSalaryShortfall, refreshKey]);
+  }, [fetchPeriodSalaryShortfall]);
+
+  useEffect(() => {
+    if (refreshKey === 0 || !employee?.employeeNumber) return;
+    fetchPeriodSalaryShortfall();
+  }, [refreshKey, fetchPeriodSalaryShortfall, employee?.employeeNumber]);
 
   useEffect(() => {
     let alive = true;
@@ -583,7 +635,42 @@ const CTODeductionReceipt = ({
     return () => {
       alive = false;
     };
-  }, [employee?.employeeNumber, refreshKey]);
+  }, [employee?.employeeNumber]);
+
+  useEffect(() => {
+    if (refreshKey === 0 || !employee?.employeeNumber) return;
+    let alive = true;
+    (async () => {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const emp = String(employee.employeeNumber).trim();
+      try {
+        const [absRes, tarRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/api/deductions/options`, {
+            params: { employeeNumber: emp, context: "ABSENCE", hasLeaveForm: "true" },
+            headers,
+          }),
+          axios.get(`${API_BASE_URL}/api/deductions/options`, {
+            params: { employeeNumber: emp, context: "TARDINESS", hasLeaveForm: "true" },
+            headers,
+          }),
+        ]);
+        if (!alive) return;
+        const absOpts = Array.isArray(absRes.data?.options) ? absRes.data.options : [];
+        const tarOpts = Array.isArray(tarRes.data?.options) ? tarRes.data.options : [];
+        setAbsenceDeductionOptions(absOpts);
+        setTardinessDeductionOptions(tarOpts);
+      } catch {
+        if (alive) {
+          setAbsenceDeductionOptions([]);
+          setTardinessDeductionOptions([]);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [refreshKey, employee?.employeeNumber]);
 
   const empCatAllowsCto = employmentCategoryAllowsCompensatoryTimeOff(empCat);
   const empCatDisplay = employmentCategoryLabel(empCat);
@@ -636,6 +723,10 @@ const CTODeductionReceipt = ({
     if (!tardinessOptionsUi.length) return;
     setTardinessSource((prev) => {
       if (tardinessOptionsUi.some((o) => o.value === prev)) return prev;
+      const vlOpt = tardinessOptionsUi.find(
+        (o) => String(o?.value || "").toUpperCase() === "VL",
+      );
+      if (vlOpt && vlOpt.value !== DEDUCTION_SKIP_VALUE) return vlOpt.value;
       const nonSkipNonSal = tardinessOptionsUi.find(
         (o) => o.value !== "SALARY_DEDUCTION" && o.value !== DEDUCTION_SKIP_VALUE,
       );
@@ -650,15 +741,23 @@ const CTODeductionReceipt = ({
   // ── Derived numbers ─────────────────────────────────────────────────────────
   const officialStart = attendanceData?.summary?.startDate || attendanceData?.period?.start;
   const officialEnd = attendanceData?.summary?.endDate || attendanceData?.period?.end;
-  const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
-    useOfficialAttendanceMetrics({
-      employeeNumber: employee?.employeeNumber,
-      startDate: officialStart,
-      endDate: officialEnd,
-    });
+  const {
+    absentDays: absentDaysOfficial,
+    lateHrs: lateHrsOfficial,
+    loading: officialMetricsLoading,
+  } = useOfficialAttendanceMetrics({
+    employeeNumber: employee?.employeeNumber,
+    startDate: officialStart,
+    endDate: officialEnd,
+  });
 
-  // Fallbacks if daily rows are unavailable
-  const absentDays = absentDaysOfficial || toNum(attendanceData?.stats?.absent_days);
+  /** Match LEAVE/EARNINGS/AttendanceSummary.jsx — do not use `||` (0 official days would incorrectly fall back to stats). */
+  const canTrustOfficialMetrics =
+    !officialMetricsLoading &&
+    Boolean(officialStart && officialEnd && employee?.employeeNumber);
+  const absentDays = canTrustOfficialMetrics
+    ? absentDaysOfficial
+    : toNum(attendanceData?.stats?.absent_days);
   const tardHrsFromSummary = attendanceData?.summary
     ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
     : 0;
@@ -669,16 +768,35 @@ const CTODeductionReceipt = ({
   );
   const tardDays = tardHrs / 8;
  
+  const isScTardinessDeductionRow = (e) =>
+    String(e?.remarks || "").includes("Tardiness deduction");
+
   // Use ACTUAL posted deductions, NOT the available balance, for coverage logic
-  const alreadyScDeducted = existingScDeductions.reduce((s, e) => s + Math.abs(toNum(e.earned_hours)) / 8, 0);
+  const postedTardinessScDays = existingScDeductions
+    .filter((e) => isScTardinessDeductionRow(e))
+    .reduce((s, e) => s + Math.abs(toNum(e.earned_hours)) / 8, 0);
+  /** SC rows that offset absence only (tardiness-to-SC uses the same DEDUCTION entry_type). */
+  const alreadyScDeductedAbsenceOnly = existingScDeductions
+    .filter((e) => !isScTardinessDeductionRow(e))
+    .reduce((s, e) => s + Math.abs(toNum(e.earned_hours)) / 8, 0);
   const alreadyCtoDeducted = existingCtoDeductions.reduce((s, e) => s + Math.abs(toNum(e.earned_hours)) / 8, 0);
   const alreadyAbsenceFromLeave = existingAbsenceLeaveDeductions.reduce(
     (s, e) => s + Math.abs(toNum(e.earned_hours)) / 8,
     0,
   );
-  const totalTardPosted = existingTardinessDeductions.reduce(
+  const existingCtoTardinessDeductions = existingCtoDeductions.filter((e) =>
+    String(e.remarks || "").includes("Tardiness deduction"),
+  );
+  const totalTardPostedLeave = existingTardinessDeductions.reduce(
     (s, e) => s + Math.abs(toNum(e.earned_hours)) / 8,
     0,
+  );
+  const postedTardinessCtoDays = existingCtoTardinessDeductions.reduce(
+    (s, e) => s + Math.abs(toNum(e.earned_hours)) / 8,
+    0,
+  );
+  const totalTardPostedLeaveAndCto = Number(
+    (totalTardPostedLeave + postedTardinessCtoDays + postedTardinessScDays).toFixed(6),
   );
   const postedTardinessLeaveCode = (() => {
     const c = String(existingTardinessDeductions[0]?.leave_code || "").trim().toUpperCase();
@@ -686,13 +804,15 @@ const CTODeductionReceipt = ({
   })();
 
   // How much absence SC has actually covered via posted deductions
-  const scActuallyCovered = Number(Math.min(alreadyScDeducted, absentDays).toFixed(3));
+  const scActuallyCovered = Number(Math.min(alreadyScDeductedAbsenceOnly, absentDays).toFixed(3));
   const absenceAfterSc = Number(Math.max(0, absentDays - scActuallyCovered).toFixed(3));
 
   const remainingAbsence = Number(
     Math.max(0, absenceAfterSc - alreadyCtoDeducted - alreadyAbsenceFromLeave).toFixed(3),
   );
-  const remainingTardiness = Number(Math.max(0, tardDays - totalTardPosted).toFixed(3));
+  const remainingTardiness = Number(
+    Math.max(0, tardDays - totalTardPostedLeaveAndCto).toFixed(3),
+  );
 
   const postedSalaryAbsenceDays = useMemo(
     () =>
@@ -723,11 +843,24 @@ const CTODeductionReceipt = ({
     Math.max(0, remainingTardiness - postedSalaryTardinessDays).toFixed(6),
   );
 
+  const tardinessSalaryFullyRecovered =
+    tardDays > 0.0001 &&
+    postedSalaryTardinessDays > 1e-9 &&
+    remainingTardinessForSalaryApply <= 1e-5;
+  const absenceSalaryFullyRecovered =
+    absentDays > 0.0001 &&
+    postedSalaryAbsenceDays > 1e-9 &&
+    remainingAbsenceForSalaryApply <= 1e-5;
+  /** Leave / CTO postings and/or salary shortfall fully cover assessed tardiness for the period. */
+  const tardinessFullyDeducted =
+    tardDays > 0.0001 &&
+    (totalTardPostedLeaveAndCto >= tardDays - 0.0001 ||
+      remainingTardinessForSalaryApply <= 1e-5);
+
   // Status flags — based on actual posted deductions only
   const absenceCoveredBySC = absentDays > 0 && scActuallyCovered >= absentDays;
   const absenceFullyDeducted =
     absentDays > 0 && absenceAfterSc > 0 && remainingAbsence <= 0.0001;
-  const tardinessFullyDeducted = tardDays > 0 && totalTardPosted >= tardDays - 0.0001;
 
   const absencePending =
     existingCtoDeductions.some((e) => e.earn_status === "pending") ||
@@ -737,8 +870,17 @@ const CTODeductionReceipt = ({
     existingAbsenceLeaveDeductions.some((e) => e.earn_status === "approved");
   const scPending = existingScDeductions.some((e) => e.earn_status === "pending");
   const scApproved = existingScDeductions.some((e) => e.earn_status === "approved");
-  const tardinessPending = existingTardinessDeductions.some((e) => e.earn_status === "pending");
-  const tardinessApproved = existingTardinessDeductions.some((e) => e.earn_status === "approved");
+  const existingScTardinessDeductions = existingScDeductions.filter((e) =>
+    isScTardinessDeductionRow(e),
+  );
+  const tardinessPending =
+    existingTardinessDeductions.some((e) => e.earn_status === "pending") ||
+    existingCtoTardinessDeductions.some((e) => e.earn_status === "pending") ||
+    existingScTardinessDeductions.some((e) => e.earn_status === "pending");
+  const tardinessApproved =
+    existingTardinessDeductions.some((e) => e.earn_status === "approved") ||
+    existingCtoTardinessDeductions.some((e) => e.earn_status === "approved") ||
+    existingScTardinessDeductions.some((e) => e.earn_status === "approved");
 
   const ctoBal = ctoBalance !== null ? ctoBalance : 0;
   const vlBal = vlBalance !== null ? vlBalance : 0;
@@ -770,9 +912,11 @@ const CTODeductionReceipt = ({
     if (isDeductionSkipSource(tardinessSource)) return vlBal;
     const code = String(tardinessSource || "").toUpperCase();
     if (!code || code === "SALARY_DEDUCTION") return vlBal;
-    if (code === "CTO") return ctoBal;
-    const row = assignmentMap[code] || assignmentMap[String(code)];
-    return toNum(row?.remaining_hours) / 8;
+    const d = getDeductionSourceBalanceDays(
+      tardinessSource,
+      deductionCreditCtxTardiness,
+    );
+    return d != null && Number.isFinite(d) ? d : 0;
   })();
 
   const newCtoBalance = Number(
@@ -802,16 +946,26 @@ const CTODeductionReceipt = ({
     scBuffer > 0 &&
     absentDays > 0 &&
     !absenceCoveredBySC &&
-    alreadyScDeducted < absentDays;
+    alreadyScDeductedAbsenceOnly < absentDays;
 
   const willApplyAbsence =
     !absenceIsSkipped &&
     absenceSource !== "SALARY_DEDUCTION" &&
-    remainingAbsence > 0;
+    remainingAbsence > 0 &&
+    canApplyAttendanceDeductionToCreditSource(
+      absenceSource,
+      remainingAbsence,
+      deductionCreditCtxAbsence,
+    );
   const willApplyTardiness =
     !tardinessIsSkipped &&
     tardinessSource !== "SALARY_DEDUCTION" &&
-    remainingTardiness > 0;
+    remainingTardiness > 0 &&
+    canApplyAttendanceDeductionToCreditSource(
+      tardinessSource,
+      remainingTardiness,
+      deductionCreditCtxTardiness,
+    );
   const willApplyAbsenceToSalary =
     !absenceIsSkipped &&
     String(absenceSource || "").toUpperCase() === "SALARY_DEDUCTION" &&
@@ -836,6 +990,47 @@ const CTODeductionReceipt = ({
   const applyIsSalaryOnly =
     !showScWarningButtons && anySalaryApplyUi && !anyNonSalaryApplyUi;
   const canDeductNormal = willApplyAbsence || willApplyTardiness;
+
+  /** Credit source selected in step 2 but balance cannot cover the assessed amount — must use salary shortfall path. */
+  const absenceCreditSelectedButBlocked =
+    !absenceIsSkipped &&
+    remainingAbsence > 1e-5 &&
+    String(absenceSource || "").toUpperCase() !== "SALARY_DEDUCTION" &&
+    !(absencePending || absenceApproved) &&
+    !absenceCoveredBySC &&
+    !absenceFullyDeducted &&
+    !canApplyAttendanceDeductionToCreditSource(
+      absenceSource,
+      remainingAbsence,
+      deductionCreditCtxAbsence,
+    );
+  const tardinessCreditSelectedButBlocked =
+    !tardinessIsSkipped &&
+    remainingTardiness > 1e-5 &&
+    String(tardinessSource || "").toUpperCase() !== "SALARY_DEDUCTION" &&
+    !(tardinessPending || tardinessApproved) &&
+    !tardinessFullyDeducted &&
+    !canApplyAttendanceDeductionToCreditSource(
+      tardinessSource,
+      remainingTardiness,
+      deductionCreditCtxTardiness,
+    );
+  const showDeductFromSalaryButton =
+    (absenceCreditSelectedButBlocked && remainingAbsenceForSalaryApply > 1e-5) ||
+    (tardinessCreditSelectedButBlocked && remainingTardinessForSalaryApply > 1e-5);
+
+  const salaryModalAbsenceDays =
+    absenceCreditSelectedButBlocked && remainingAbsenceForSalaryApply > 1e-5
+      ? remainingAbsenceForSalaryApply
+      : 0;
+  const salaryModalTardinessDays =
+    tardinessCreditSelectedButBlocked && remainingTardinessForSalaryApply > 1e-5
+      ? remainingTardinessForSalaryApply
+      : 0;
+  const salaryModalTotalDays = Number(
+    (salaryModalAbsenceDays + salaryModalTardinessDays).toFixed(6),
+  );
+  const salaryModalTotalHrs = salaryModalTotalDays * 8;
  
   const isLoading = balLoading || deductionsLoading || deductionOptionsLoading;
 
@@ -873,6 +1068,7 @@ const CTODeductionReceipt = ({
     setDeductSource(source);
     setDeductError("");
     setRemark("");
+    setConfirmDeductionAcknowledged(false);
     setConfirmOpen(true);
   };
  
@@ -881,21 +1077,36 @@ const CTODeductionReceipt = ({
     setDeductSource(null);
     setDeductError("");
     setRemark("");
+    setConfirmDeductionAcknowledged(false);
   };
  
   const handleDeduct = async () => {
     if (!employee) return;
+    if (!confirmDeductionAcknowledged) return;
     setDeducting(true);
     setDeductError("");
     const token = localStorage.getItem("token");
     const headers = { Authorization: `Bearer ${token}` };
     const approveIfId = async (kind, id) => {
       const nid = Number(id);
-      if (!Number.isFinite(nid)) return;
+      if (!Number.isFinite(nid) || nid <= 0) return;
       await axios.patch(`${API_BASE_URL}/api/earnings/${kind}/${nid}/approve`, {}, { headers });
     };
     try {
       if (deductSource === "sc") {
+        if (
+          !canApplyAttendanceDeductionToCreditSource(
+            "SC",
+            absenceAmountForSource,
+            deductionCreditCtxAbsence,
+          )
+        ) {
+          setDeductError(
+            "Service Credit has no usable balance for this absence. Use Salary Deduction or “Deduct from salary” instead — credits cannot be posted at zero balance.",
+          );
+          setDeducting(false);
+          return;
+        }
         const { data } = await axios.post(
           `${API_BASE_URL}/api/earnings/sc`,
           {
@@ -912,6 +1123,19 @@ const CTODeductionReceipt = ({
         );
         await approveIfId("sc", data?.id);
       } else if (deductSource === "cto") {
+        if (
+          !canApplyAttendanceDeductionToCreditSource(
+            "CTO",
+            absenceAmountForSource,
+            deductionCreditCtxAbsence,
+          )
+        ) {
+          setDeductError(
+            "CTO has no usable balance for this absence. Use Salary Deduction or “Deduct from salary” instead.",
+          );
+          setDeducting(false);
+          return;
+        }
         const { data } = await axios.post(
           `${API_BASE_URL}/api/earnings/cto`,
           {
@@ -928,6 +1152,41 @@ const CTODeductionReceipt = ({
         await approveIfId("cto", data?.id);
       } else {
         const absCode = String(absenceSource || "").toUpperCase();
+        const tardCodePre = String(tardinessSource || "").toUpperCase();
+        if (
+          deductSource === "normal" &&
+          remainingAbsence > 1e-5 &&
+          absCode !== "SALARY_DEDUCTION" &&
+          !absenceIsSkipped &&
+          !canApplyAttendanceDeductionToCreditSource(
+            absenceSource,
+            remainingAbsence,
+            deductionCreditCtxAbsence,
+          )
+        ) {
+          setDeductError(
+            "The selected absence source has no usable balance. Choose Salary Deduction in step 2 or use “Deduct from salary” — only salary shortfall can proceed.",
+          );
+          setDeducting(false);
+          return;
+        }
+        if (
+          deductSource === "normal" &&
+          remainingTardiness > 1e-5 &&
+          tardCodePre !== "SALARY_DEDUCTION" &&
+          !tardinessIsSkipped &&
+          !canApplyAttendanceDeductionToCreditSource(
+            tardinessSource,
+            remainingTardiness,
+            deductionCreditCtxTardiness,
+          )
+        ) {
+          setDeductError(
+            "The selected tardiness source has no usable balance. Choose Salary Deduction in step 2 or use “Deduct from salary” — only salary shortfall can proceed.",
+          );
+          setDeducting(false);
+          return;
+        }
         if (
           remainingAbsenceForSalaryApply > 1e-5 &&
           absCode === "SALARY_DEDUCTION" &&
@@ -993,7 +1252,7 @@ const CTODeductionReceipt = ({
           );
           await approveIfId("leave", data?.id);
         }
-        const tardCode = String(tardinessSource || "").toUpperCase();
+        const tardCode = tardCodePre;
         if (
           remainingTardinessForSalaryApply > 1e-5 &&
           tardCode === "SALARY_DEDUCTION" &&
@@ -1027,6 +1286,24 @@ const CTODeductionReceipt = ({
             { headers },
           );
           await approveIfId("cto", data?.id);
+        } else if (willApplyTardiness && tardCode === "SC") {
+          // Must hit sc_earnings → service_credit (same ledger as AssignmentManagement & SC balance chip).
+          // Posting leave_code "SC" to /earnings/leave only touches leave_assignment, not service_credit.
+          const { data } = await axios.post(
+            `${API_BASE_URL}/api/earnings/sc`,
+            {
+              employeeNumber: employee.employeeNumber,
+              sc_type: "non_commutative",
+              earned_hours: -(remainingTardiness * 8),
+              total_ot_hours: 0,
+              period_year: parseInt(year, 10),
+              period_month: parseInt(month, 10),
+              entry_type: "DEDUCTION",
+              remarks: `Tardiness deduction: ${remainingTardiness.toFixed(3)}d for ${monthName(month)} ${year}`,
+            },
+            { headers },
+          );
+          await approveIfId("sc", data?.id);
         } else if (willApplyTardiness && tardCode && tardCode !== "SALARY_DEDUCTION") {
           const { data } = await axios.post(
             `${API_BASE_URL}/api/earnings/leave`,
@@ -1044,7 +1321,7 @@ const CTODeductionReceipt = ({
           await approveIfId("leave", data?.id);
         }
       }
- 
+
       setDeductSuccess("Deduction submitted successfully.");
       closeConfirm();
       await Promise.all([fetchBalances(), fetchExistingDeductions(), fetchPeriodSalaryShortfall()]);
@@ -1054,6 +1331,60 @@ const CTODeductionReceipt = ({
       setDeductError("Deduction failed: " + (err.response?.data?.error || err.message));
     } finally {
       setDeducting(false);
+    }
+  };
+
+  const handleSalaryShortcutConfirm = async () => {
+    if (!employee || salaryModalTotalDays <= 1e-5) return;
+    setSalaryOnlySubmitting(true);
+    setSalaryOnlyModalError("");
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      if (salaryModalAbsenceDays > 1e-5 && !(absencePending || absenceApproved)) {
+        await axios.post(
+          `${API_BASE_URL}/api/leave-salary-shortfall`,
+          {
+            employeeNumber: employee.employeeNumber,
+            periodYear: parseInt(year, 10),
+            periodMonth: parseInt(month, 10),
+            shortfallDays: salaryModalAbsenceDays,
+            leaveCode: "ABSENCE",
+            entryType: "ATTENDANCE_SALARY_DEDUCTION",
+            remarks: `Attendance absence charged to salary: ${salaryModalAbsenceDays.toFixed(3)}d for ${monthName(month)} ${year}`,
+          },
+          { headers },
+        );
+      }
+      if (salaryModalTardinessDays > 1e-5 && !(tardinessPending || tardinessApproved)) {
+        await axios.post(
+          `${API_BASE_URL}/api/leave-salary-shortfall`,
+          {
+            employeeNumber: employee.employeeNumber,
+            periodYear: parseInt(year, 10),
+            periodMonth: parseInt(month, 10),
+            shortfallDays: salaryModalTardinessDays,
+            leaveCode: "TARDINESS",
+            entryType: "TARDINESS_SALARY_DEDUCTION",
+            remarks: `Attendance tardiness charged to salary: ${salaryModalTardinessDays.toFixed(3)}d for ${monthName(month)} ${year}`,
+          },
+          { headers },
+        );
+      }
+      setDeductSuccess("Salary shortfall recorded (payroll / attendance audit trail).");
+      setSalaryOnlyModalOpen(false);
+      await Promise.all([fetchBalances(), fetchExistingDeductions(), fetchPeriodSalaryShortfall()]);
+      if (onDeductSuccess) onDeductSuccess();
+      setTimeout(() => setDeductSuccess(""), 5000);
+    } catch (err) {
+      setSalaryOnlyModalError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Request failed",
+      );
+    } finally {
+      setSalaryOnlySubmitting(false);
     }
   };
  
@@ -1164,7 +1495,7 @@ const CTODeductionReceipt = ({
     : tardinessIsSkipped
       ? Number(tardBalDays.toFixed(3))
       : tardinessFullyDeducted
-        ? Number((tardBalDays - totalTardPosted).toFixed(3))
+        ? Number((tardBalDays - totalTardPostedLeave).toFixed(3))
         : newVlBalance;
 
   const rightTardLedgerLabel = !showTardiness
@@ -1175,18 +1506,265 @@ const CTODeductionReceipt = ({
         ? "Salary (no leave)"
         : `New ${humanizeDeductionCharge(tardinessSource)} Bal`;
 
+  const tardinessOptionLabel =
+    tardinessOptionsUi.find((o) => o.value === tardinessSource)?.label?.trim() ||
+    "";
+
+  const absenceOptionLabel =
+    absenceOptionsUi.find((o) => o.value === absenceSource)?.label?.trim() || "";
+
+  const absenceOffsetScopeLabel = (() => {
+    if (absenceOptionLabel) {
+      const paren = absenceOptionLabel.match(/\(([^)]+)\)\s*$/);
+      if (paren?.[1]) return String(paren[1]).trim();
+    }
+    if (isDeductionSkipSource(absenceSource)) return "—";
+    const u = String(absenceSource || "").toUpperCase();
+    if (u === "SALARY_DEDUCTION") return "Salary";
+    return u || "—";
+  })();
+
   const tardinessLedgerHeading = tardinessIsSkipped
     ? postedTardinessLeaveCode
-    : tardinessOptionsUi.find((o) => o.value === tardinessSource)?.label ||
+    : tardinessOptionLabel ||
       (String(tardinessSource).toUpperCase() === "CTO"
         ? "Compensatory Time Off (CTO)"
-        : "Leave");
-  /** Match absence card: fixed scope in title (no raw charge-to or sentinel). */
-  const tardinessOffsetTitle = "Tardiness offset (VL / CTO)";
+        : String(tardinessSource).toUpperCase() === "SC"
+          ? "Service Credit (SC)"
+          : "Leave");
+
+  /** Card title uses the short code only, e.g. (SC) from “Service Credit (SC)” or the source value. */
+  const tardinessOffsetScopeLabel = (() => {
+    if (tardinessOptionLabel) {
+      const paren = tardinessOptionLabel.match(/\(([^)]+)\)\s*$/);
+      if (paren?.[1]) return String(paren[1]).trim();
+    }
+    if (isDeductionSkipSource(tardinessSource)) return "—";
+    const u = String(tardinessSource || "").toUpperCase();
+    if (u === "SALARY_DEDUCTION") return "Salary";
+    return u || "—";
+  })();
+
+  const tardinessOffsetTitle = `Tardiness offset (${tardinessOffsetScopeLabel})`;
+
+  /** Balance for confirm-modal chip (matches Step 2 + deductSource). */
+  const modalCreditBalanceDays = (() => {
+    const ds = deductSource;
+    if (ds === "sc") return scBuffer;
+    if (ds === "cto") return ctoBal;
+    if (ds !== "normal") return 0;
+    if (willApplyTardiness && !willApplyAbsence) return tardBalDays;
+    if (willApplyAbsence && !willApplyTardiness) {
+      const u = String(absenceSource || "").toUpperCase();
+      if (u === "SC") return scBuffer;
+      if (u === "CTO") return ctoBal;
+      if (u !== "SALARY_DEDUCTION")
+        return toNum(assignmentMap[absenceSource]?.remaining_hours) / 8;
+      return ctoBal;
+    }
+    const au = String(absenceSource || "").toUpperCase();
+    if (au === "SC") return scBuffer;
+    if (au === "CTO") return ctoBal;
+    if (au !== "SALARY_DEDUCTION")
+      return toNum(assignmentMap[absenceSource]?.remaining_hours) / 8;
+    return ctoBal;
+  })();
+
+  const modalBreakdownPrimaryLabel = (() => {
+    const ds = deductSource;
+    if (ds === "sc") return "SC";
+    if (ds === "cto") return "CTO";
+    if (ds !== "normal") return "—";
+    if (willApplyTardiness && !willApplyAbsence) return tardinessOffsetScopeLabel;
+    if (willApplyAbsence && !willApplyTardiness) return absenceOffsetScopeLabel;
+    if (willApplyAbsence && willApplyTardiness)
+      return `${absenceOffsetScopeLabel} · ${tardinessOffsetScopeLabel}`;
+    return "—";
+  })();
+
+  const confirmSlipTotalDays = useMemo(() => {
+    if (deductSource === "sc" || deductSource === "cto") return absenceAmountForSource;
+    if (deductSource === "normal" && applyIsSalaryOnly) {
+      return Number((remainingAbsenceForSalaryApply + remainingTardinessForSalaryApply).toFixed(6));
+    }
+    return Number(
+      ((willApplyAbsence ? remainingAbsence : 0) + (willApplyTardiness ? remainingTardiness : 0)).toFixed(6),
+    );
+  }, [
+    deductSource,
+    absenceAmountForSource,
+    applyIsSalaryOnly,
+    remainingAbsenceForSalaryApply,
+    remainingTardinessForSalaryApply,
+    willApplyAbsence,
+    remainingAbsence,
+    willApplyTardiness,
+    remainingTardiness,
+  ]);
+
+  const confirmSlipTotalHrs = confirmSlipTotalDays * 8;
+
+  const confirmTransactionLines = useMemo(() => {
+    const lines = [];
+    if (deductSource === "sc" || deductSource === "cto") {
+      lines.push({
+        key: "abs-policy",
+        title: "Absence deduction",
+        sub: `Charged to ${deductSource.toUpperCase()} · ${Number(absentDays || 0).toFixed(3)} day(s) assessed`,
+        amount: absenceAmountForSource,
+      });
+      return lines;
+    }
+    if (deductSource === "normal") {
+      if (willApplyAbsence && remainingAbsence > 0) {
+        lines.push({
+          key: "abs",
+          title: "Absence deduction",
+          sub: `Charged to ${humanizeDeductionCharge(absenceSource)} · ${Number(absentDays || 0).toFixed(3)} day(s) absent`,
+          amount: remainingAbsence,
+        });
+      } else if (willApplyAbsenceToSalary && remainingAbsenceForSalaryApply > 1e-5) {
+        lines.push({
+          key: "abs-sal",
+          title: "Absence deduction",
+          sub: "Charged to salary · assessed absence",
+          amount: remainingAbsenceForSalaryApply,
+        });
+      }
+      if (willApplyTardiness && remainingTardiness > 0) {
+        lines.push({
+          key: "tar",
+          title: "Tardiness deduction",
+          sub: `Charged to ${tardinessOffsetScopeLabel} · ${tardHrs.toFixed(3)} hrs late`,
+          amount: remainingTardiness,
+        });
+      } else if (willApplyTardinessToSalary && remainingTardinessForSalaryApply > 1e-5) {
+        lines.push({
+          key: "tar-sal",
+          title: "Tardiness deduction",
+          sub: "Charged to salary · assessed tardiness",
+          amount: remainingTardinessForSalaryApply,
+        });
+      }
+    }
+    return lines;
+  }, [
+    deductSource,
+    absentDays,
+    absenceAmountForSource,
+    willApplyAbsence,
+    remainingAbsence,
+    absenceSource,
+    willApplyAbsenceToSalary,
+    remainingAbsenceForSalaryApply,
+    willApplyTardiness,
+    remainingTardiness,
+    tardinessOffsetScopeLabel,
+    tardHrs,
+    willApplyTardinessToSalary,
+    remainingTardinessForSalaryApply,
+  ]);
+
+  const confirmModalBalanceTiles = useMemo(() => {
+    if (!deductSource) return [];
+    const tiles = [];
+    if (deductSource === "sc") {
+      const nb = allowScNegZero && Object.is(newScBalance, -0) ? 0 : newScBalance;
+      tiles.push({
+        key: "sc",
+        label: "SC before",
+        before: scBuffer,
+        delta: -absenceAmountForSource,
+        after: nb,
+      });
+    } else if (deductSource === "cto") {
+      tiles.push({
+        key: "cto",
+        label: "CTO before",
+        before: ctoBal,
+        delta: -absenceAmountForSource,
+        after: newCtoBalanceOverride,
+      });
+    } else if (deductSource === "normal") {
+      if (willApplyAbsence && remainingAbsence > 0) {
+        const au = String(absenceSource || "").toUpperCase();
+        if (au === "CTO") {
+          tiles.push({
+            key: "cto-a",
+            label: "CTO before",
+            before: ctoBal,
+            delta: -remainingAbsence,
+            after: newCtoBalance,
+          });
+        } else if (au === "SC") {
+          tiles.push({
+            key: "sc-a",
+            label: "SC before",
+            before: scBuffer,
+            delta: -remainingAbsence,
+            after: newScBalanceAfterAbsence,
+          });
+        } else if (au !== "SALARY_DEDUCTION") {
+          const prev = toNum(assignmentMap[absenceSource]?.remaining_hours) / 8;
+          tiles.push({
+            key: `leave-${au}`,
+            label: `${humanizeDeductionCharge(absenceSource)} before`,
+            before: prev,
+            delta: -remainingAbsence,
+            after: prev - remainingAbsence,
+          });
+        }
+      }
+      if (willApplyTardiness && remainingTardiness > 0) {
+        const code = String(tardinessSource || "").toUpperCase();
+        const short =
+          code === "VL" ? "VL" : code === "CTO" ? "CTO" : humanizeDeductionCharge(tardinessSource);
+        tiles.push({
+          key: "tard",
+          label: `${short} before`,
+          before: tardBalDays,
+          delta: -remainingTardiness,
+          after: newVlBalance,
+        });
+      }
+    }
+    return tiles;
+  }, [
+    deductSource,
+    allowScNegZero,
+    newScBalance,
+    scBuffer,
+    absenceAmountForSource,
+    ctoBal,
+    newCtoBalanceOverride,
+    willApplyAbsence,
+    remainingAbsence,
+    absenceSource,
+    assignmentMap,
+    newCtoBalance,
+    newScBalanceAfterAbsence,
+    willApplyTardiness,
+    remainingTardiness,
+    tardinessSource,
+    tardBalDays,
+    newVlBalance,
+  ]);
+
+  const slipAfterDotColor = (after) => {
+    if (after < 0) return T.balBad;
+    if (Math.abs(after) < 1e-9) return "#f59e0b";
+    return T.balOk;
+  };
+
+  const slipAfterTextColor = (after) => {
+    if (after < 0) return T.balBad;
+    if (Math.abs(after) < 1e-9) return "#92400e";
+    return T.balOk;
+  };
 
   const tardinessLedgerOutline =
     showTardiness && tardinessFullyDeducted
-      ? tardinessApproved
+      ? tardinessApproved || tardinessSalaryFullyRecovered
         ? "success"
         : "warning"
       : "default";
@@ -1200,6 +1778,12 @@ const CTODeductionReceipt = ({
         ? absenceApproved
           ? "success"
           : "warning"
+      : showAbsence &&
+          absentDays > 0 &&
+          absenceSalaryFullyRecovered &&
+          !absenceCoveredBySC &&
+          !absenceFullyDeducted
+        ? "success"
         : "default";
 
   const StepNum = ({ n }) => (
@@ -1326,7 +1910,7 @@ const CTODeductionReceipt = ({
                   <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, mt: 0.12 }}>
                     {showAbsence
                       ? `${absentDays.toFixed(3)} absent days need to be charged to a leave credit`
-                      : "No absence days this period — tardiness preview only."}
+                      : "No absences recorded — no absence offset. Tardiness (if any) is handled in the next card."}
                   </Typography>
                 </Box>
               </Box>
@@ -1468,71 +2052,157 @@ const CTODeductionReceipt = ({
                   title="Absence offset (SC / CTO)"
                   outline={absenceLedgerOutline}
                   footer={
-                    showAbsence && absenceCoveredBySC && absentDays > 0 ? (
+                    !showAbsence ? (
                       <Box
                         sx={{
                           px: 1.25,
-                          py: 0.85,
+                          py: 0.5,
+                          borderTop: "1px solid rgba(46, 125, 50, 0.22)",
+                          bgcolor: "rgba(46, 125, 50, 0.06)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.6,
+                          minHeight: 28,
+                        }}
+                      >
+                        <CheckIcon sx={{ fontSize: 14, color: "#2e7d32", flexShrink: 0, display: "block" }} />
+                        <Typography
+                          noWrap
+                          component="span"
+                          title={NO_ABSENCES_RECORDED_MESSAGE}
+                          sx={{
+                            fontSize: "0.6rem",
+                            fontWeight: 600,
+                            color: "#1b5e20",
+                            fontFamily: T.poppins,
+                            lineHeight: 1.15,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {NO_ABSENCES_RECORDED_MESSAGE}
+                        </Typography>
+                      </Box>
+                    ) : showAbsence && absenceCoveredBySC && absentDays > 0 ? (
+                      <Box
+                        sx={{
+                          px: 1.25,
+                          py: 0.5,
                           borderTop: scApproved
                             ? "1.5px solid rgba(46, 125, 50, 0.38)"
                             : "1.5px solid rgba(230, 81, 0, 0.35)",
                           bgcolor: scApproved ? "rgba(46, 125, 50, 0.07)" : "rgba(230, 81, 0, 0.07)",
                           display: "flex",
-                          alignItems: "flex-start",
-                          gap: 0.75,
+                          alignItems: "center",
+                          gap: 0.6,
+                          minHeight: 28,
                         }}
                       >
                         <CheckIcon
-                          sx={{ fontSize: 15, color: scApproved ? "#2e7d32" : "#e65100", flexShrink: 0, mt: "1px" }}
+                          sx={{ fontSize: 14, color: scApproved ? "#2e7d32" : "#e65100", flexShrink: 0, display: "block" }}
                         />
                         <Typography
+                          noWrap
+                          component="span"
+                          title={
+                            scApproved
+                              ? "Absence fully covered by SC for this period."
+                              : "Approve for deduction — SC absence offset is pending approval."
+                          }
                           sx={{
-                            fontSize: "0.68rem",
+                            fontSize: "0.6rem",
                             fontWeight: 700,
                             color: scApproved ? "#1b5e20" : "#7a4a00",
                             fontFamily: T.poppins,
-                            lineHeight: 1.4,
+                            lineHeight: 1.15,
+                            flex: 1,
+                            minWidth: 0,
                           }}
                         >
                           {scApproved
                             ? "Absence fully covered by SC for this period."
-                            : "SC absence coverage pending approval."}
+                            : "Approve for deduction — SC absence offset is pending approval."}
                         </Typography>
                       </Box>
                     ) : showAbsence && absenceFullyDeducted && !absenceCoveredBySC ? (
                       <Box
                         sx={{
                           px: 1.25,
-                          py: 0.85,
+                          py: 0.5,
                           borderTop: absenceApproved
                             ? "1.5px solid rgba(46, 125, 50, 0.38)"
                             : "1.5px solid rgba(230, 81, 0, 0.35)",
                           bgcolor: absenceApproved ? "rgba(46, 125, 50, 0.07)" : "rgba(230, 81, 0, 0.07)",
                           display: "flex",
-                          alignItems: "flex-start",
-                          gap: 0.75,
+                          alignItems: "center",
+                          gap: 0.6,
+                          minHeight: 28,
                         }}
                       >
                         <CheckIcon
                           sx={{
-                            fontSize: 15,
+                            fontSize: 14,
                             color: absenceApproved ? "#2e7d32" : "#e65100",
                             flexShrink: 0,
-                            mt: "1px",
+                            display: "block",
                           }}
                         />
                         <Typography
+                          noWrap
+                          component="span"
+                          title={
+                            absenceApproved
+                              ? "Absence fully deducted for this period."
+                              : "Approve for deduction — absence offset (SC / CTO) is pending approval."
+                          }
                           sx={{
-                            fontSize: "0.68rem",
+                            fontSize: "0.6rem",
                             fontWeight: 700,
                             color: absenceApproved ? "#1b5e20" : "#7a4a00",
                             fontFamily: T.poppins,
-                            lineHeight: 1.4,
+                            lineHeight: 1.15,
+                            flex: 1,
+                            minWidth: 0,
                           }}
                         >
                           {absenceApproved
                             ? "Absence fully deducted for this period."
-                            : "Absence deduction pending approval."}
+                            : "Approve for deduction — absence offset (SC / CTO) is pending approval."}
+                        </Typography>
+                      </Box>
+                    ) : showAbsence &&
+                      absentDays > 0 &&
+                      absenceSalaryFullyRecovered &&
+                      !absenceCoveredBySC &&
+                      !absenceFullyDeducted ? (
+                      <Box
+                        sx={{
+                          px: 1.25,
+                          py: 0.5,
+                          borderTop: "1.5px solid rgba(46, 125, 50, 0.38)",
+                          bgcolor: "rgba(46, 125, 50, 0.07)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.6,
+                          minHeight: 28,
+                        }}
+                      >
+                        <CheckIcon sx={{ fontSize: 14, color: "#2e7d32", flexShrink: 0, display: "block" }} />
+                        <Typography
+                          noWrap
+                          component="span"
+                          title="Absence fully charged to salary for this period."
+                          sx={{
+                            fontSize: "0.6rem",
+                            fontWeight: 700,
+                            color: "#1b5e20",
+                            fontFamily: T.poppins,
+                            lineHeight: 1.15,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          Absence fully charged to salary for this period.
                         </Typography>
                       </Box>
                     ) : leftAbsLedgerBal != null ? (
@@ -1546,59 +2216,78 @@ const CTODeductionReceipt = ({
                     )
                   }
                 >
-                  {empCatAllowsCto && (
-                    <R
-                      label="CTO balance"
-                      sub={balLoading ? "Loading…" : "Current"}
-                      value={balLoading ? "…" : `${ctoBal.toFixed(3)} d`}
-                      valueColor={ctoBal > 0 ? "#1e4d20" : T.faint}
-                      bold
-                    />
-                  )}
-                  {scBuffer > 0 && (
-                    <R
-                      label="SC buffer available"
-                      sub="Applies before CTO when SC-first"
-                      value={fmtDays3(scBuffer, { allowNegZero: allowScNegZero })}
-                      valueColor="#185FA5"
-                    />
-                  )}
-                  {!empCatAllowsCto && scBuffer <= 0 && showAbsence && (
-                    <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontFamily: T.poppins, mb: 0.5 }}>
-                      CTO is not used for this category — choose the leave account in step 2.
-                    </Typography>
-                  )}
-                  {showAbsence && (
-                    <R
-                      label="Absences to offset"
-                      sub={`${absentDays.toFixed(3)} d recorded`}
-                      value={
-                        absenceCoveredBySC
-                          ? "Covered by SC"
-                          : remainingAbsence > 0
-                            ? `− ${remainingAbsence.toFixed(3)} d`
-                            : "0.000 d"
-                      }
-                      valueColor={
-                        absenceCoveredBySC ? "#2e7d32" : remainingAbsence > 0 ? "#c62828" : T.faint
-                      }
-                    />
-                  )}
-                  {alreadyCtoDeducted > 0 && (
-                    <R
-                      label={`CTO offset (${existingCtoDeductions[0]?.earn_status || "pending"})`}
-                      value={`− ${alreadyCtoDeducted.toFixed(3)} d`}
-                      valueColor="#2e7d32"
-                      faded
-                    />
-                  )}
-                  {alreadyScDeducted > 0 && (
-                    <R
-                      label={`SC deducted (${existingScDeductions[0]?.earn_status || "pending"})`}
-                      value={`− ${alreadyScDeducted.toFixed(3)} d`}
-                      valueColor="#1565c0"
-                      faded
-                    />
+                  {showAbsence ? (
+                    <>
+                      {empCatAllowsCto && (
+                        <R
+                          label="CTO balance"
+                          sub={balLoading ? "Loading…" : "Current"}
+                          value={balLoading ? "…" : `${ctoBal.toFixed(3)} d`}
+                          valueColor={ctoBal > 0 ? "#1e4d20" : T.faint}
+                          bold
+                        />
+                      )}
+                      {scBuffer > 0 && (
+                        <R
+                          label="SC buffer available"
+                          sub="Applies before CTO when SC-first"
+                          value={fmtDays3(scBuffer, { allowNegZero: allowScNegZero })}
+                          valueColor="#185FA5"
+                        />
+                      )}
+                      {!empCatAllowsCto && scBuffer <= 0 && (
+                        <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontFamily: T.poppins, mb: 0.5 }}>
+                          CTO is not used for this category — choose the leave account in step 2.
+                        </Typography>
+                      )}
+                      <R
+                        label="Absences to offset"
+                        sub={`${absentDays.toFixed(3)} d recorded`}
+                        value={
+                          absenceCoveredBySC
+                            ? "Covered by SC"
+                            : remainingAbsence > 0
+                              ? `− ${remainingAbsence.toFixed(3)} d`
+                              : "0.000 d"
+                        }
+                        valueColor={
+                          absenceCoveredBySC ? "#2e7d32" : remainingAbsence > 0 ? "#c62828" : T.faint
+                        }
+                      />
+                      {alreadyCtoDeducted > 0 && (
+                        <R
+                          label={`CTO offset (${existingCtoDeductions[0]?.earn_status || "pending"})`}
+                          value={`− ${alreadyCtoDeducted.toFixed(3)} d`}
+                          valueColor="#2e7d32"
+                          faded
+                        />
+                      )}
+                      {alreadyScDeductedAbsenceOnly > 0 && (
+                        <R
+                          label={`SC deducted (${
+                            existingScDeductions.find((e) => !isScTardinessDeductionRow(e))
+                              ?.earn_status || "pending"
+                          })`}
+                          value={`− ${alreadyScDeductedAbsenceOnly.toFixed(3)} d`}
+                          valueColor="#1565c0"
+                          faded
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <Box sx={{ py: 0.5 }}>
+                      <Typography
+                        sx={{
+                          fontSize: "0.72rem",
+                          fontWeight: 500,
+                          color: T.text,
+                          fontFamily: T.poppins,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {NO_ABSENCES_RECORDED_MESSAGE}
+                      </Typography>
+                    </Box>
                   )}
                 </LedgerShell>
 
@@ -1610,31 +2299,60 @@ const CTODeductionReceipt = ({
                       <Box
                         sx={{
                           px: 1.25,
-                          py: 0.85,
-                          borderTop: tardinessApproved
-                            ? "1.5px solid rgba(46, 125, 50, 0.38)"
-                            : "1.5px solid rgba(230, 81, 0, 0.35)",
-                          bgcolor: tardinessApproved ? "rgba(46, 125, 50, 0.07)" : "rgba(230, 81, 0, 0.07)",
+                          py: 0.5,
+                          borderTop:
+                            tardinessApproved || tardinessSalaryFullyRecovered
+                              ? "1.5px solid rgba(46, 125, 50, 0.38)"
+                              : "1.5px solid rgba(230, 81, 0, 0.35)",
+                          bgcolor:
+                            tardinessApproved || tardinessSalaryFullyRecovered
+                              ? "rgba(46, 125, 50, 0.07)"
+                              : "rgba(230, 81, 0, 0.07)",
                           display: "flex",
-                          alignItems: "flex-start",
-                          gap: 0.75,
+                          alignItems: "center",
+                          gap: 0.6,
+                          minHeight: 28,
                         }}
                       >
                         <CheckIcon
-                          sx={{ fontSize: 15, color: tardinessApproved ? "#2e7d32" : "#e65100", flexShrink: 0, mt: "1px" }}
+                          sx={{
+                            fontSize: 14,
+                            color:
+                              tardinessApproved || tardinessSalaryFullyRecovered
+                                ? "#2e7d32"
+                                : "#e65100",
+                            flexShrink: 0,
+                            display: "block",
+                          }}
                         />
                         <Typography
+                          noWrap
+                          component="span"
+                          title={
+                            tardinessSalaryFullyRecovered
+                              ? "Tardiness fully charged to salary for this period."
+                              : tardinessApproved
+                                ? "Tardiness fully deducted for this period."
+                                : `Approve for deduction — ${tardinessOffsetTitle} is pending approval.`
+                          }
                           sx={{
-                            fontSize: "0.68rem",
+                            fontSize: "0.6rem",
                             fontWeight: 700,
-                            color: tardinessApproved ? "#1b5e20" : "#7a4a00",
+                            color:
+                              tardinessApproved || tardinessSalaryFullyRecovered
+                                ? "#1b5e20"
+                                : "#7a4a00",
                             fontFamily: T.poppins,
-                            lineHeight: 1.4,
+                            lineHeight: 1.15,
+                            flex: 1,
+                            minWidth: 0,
                           }}
                         >
-                          {tardinessApproved
-                            ? "Tardiness fully deducted for this period."
-                            : "Tardiness deduction pending approval."}
+                          {tardinessSalaryFullyRecovered
+                            ? "Tardiness fully charged to salary for this period."
+                            : tardinessApproved
+                              ? "Tardiness fully deducted for this period."
+                              : `Approve for deduction — ${tardinessOffsetTitle} is pending approval.`}
                         </Typography>
                       </Box>
                     ) : rightTardLedgerBal != null ? (
@@ -1682,10 +2400,10 @@ const CTODeductionReceipt = ({
                       valueColor={tardDays > 0 ? "#c62828" : T.faint}
                     />
                   )}
-                  {totalTardPosted > 0 && (
+                  {(totalTardPostedLeave > 0 || postedTardinessCtoDays > 0) && (
                     <R
-                      label={`Posted (${existingTardinessDeductions[0]?.earn_status || "pending"})`}
-                      value={`− ${totalTardPosted.toFixed(3)} d`}
+                      label={`Posted (${existingTardinessDeductions[0]?.earn_status || existingCtoTardinessDeductions[0]?.earn_status || "pending"})`}
+                      value={`− ${totalTardPostedLeaveAndCto.toFixed(3)} d`}
                       valueColor="#2e7d32"
                       faded
                     />
@@ -1718,13 +2436,16 @@ const CTODeductionReceipt = ({
             <StepNum n={2} />
             <Box>
               <Typography sx={{ fontSize: "0.75rem", fontWeight: 500, color: T.text, fontFamily: T.poppins }}>
-                Charge to — which leave account?
+                Approve for deduction — charge absences & tardiness to which account?
               </Typography>
               <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, mt: 0.12, lineHeight: 1.45 }}>
-                Pick where absences and tardiness should post. If you include <strong>both</strong> in one run,{" "}
-                <strong>absences are applied first</strong>, then tardiness. To apply only one side, leave the other
-                dropdown on <strong>Select...</strong>.{" "}
-                <strong>Salary Deduction</strong> still uses salary recovery (shortfall) and the full audit trail.
+                Step 1 shows the <strong>absence offset (SC / CTO)</strong> and{" "}
+                <strong>{tardinessOffsetTitle}</strong>{" "}
+                preview. Here, pick where each amount should post. New rows typically need an{" "}
+                <strong>approve for deduction</strong> action in Service Credit / CTO / leave earnings before balances
+                finalize. <strong>Salary Deduction</strong> records salary shortfall (payroll / attendance audit). If you
+                include <strong>both</strong> in one run, <strong>absences apply first</strong>, then tardiness. Leave a
+                dropdown on <strong>Select...</strong> to skip that side for this run.
               </Typography>
             </Box>
           </Box>
@@ -1739,7 +2460,7 @@ const CTODeductionReceipt = ({
               {absentDays > 0 &&
               !absenceCoveredBySC &&
               !absenceFullyDeducted &&
-              remainingAbsence > 0 &&
+              remainingAbsenceForSalaryApply > 1e-5 &&
               !(absencePending || absenceApproved) ? (
                 <Box
                   sx={{
@@ -1827,7 +2548,9 @@ const CTODeductionReceipt = ({
                   }}
                 >
                   <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.45 }}>
-                    No absence charge needed — already covered, not applicable, or awaiting approval.
+                    {absentDays <= 1e-9
+                      ? NO_ABSENCES_RECORDED_MESSAGE
+                      : "No absence charge needed — already covered, not applicable, or awaiting approval."}
                   </Typography>
                 </Box>
               )}
@@ -1932,6 +2655,14 @@ const CTODeductionReceipt = ({
             </Box>
           </Box>
         </Box>
+
+        {(absenceCreditSelectedButBlocked || tardinessCreditSelectedButBlocked) && !bothDone && (
+          <Alert severity="info" sx={{ py: 0.5, fontSize: "0.65rem", borderRadius: 1.25 }}>
+            The selected leave or credit has <strong>no usable balance</strong> for this amount. Credits cannot be
+            posted at zero balance — use <strong>Salary Deduction</strong> in step 2, or <strong>Deduct from salary</strong>{" "}
+            below to record salary shortfall only (same path as Salary Deduction; syncs to payroll / attendance audit).
+          </Alert>
+        )}
 
         {(tardinessPending || tardinessApproved) && tardDays > 0 && !tardinessFullyDeducted && (
           <Alert severity={tardinessApproved ? "success" : "warning"} sx={{ py: 0.35, fontSize: "0.65rem" }}>
@@ -2138,34 +2869,63 @@ const CTODeductionReceipt = ({
             (((willApplyAbsence && !lockedAbsence) || (willApplyTardiness && !lockedTardiness)) ||
               ((willApplyAbsenceToSalary && !lockedAbsence) || (willApplyTardinessToSalary && !lockedTardiness)) ||
               (showScWarningButtons && (policySelection === "sc" || policySelection === "cto") && !lockedAbsence));
+          if (!showDeductFromSalaryButton && !canApply) return null;
           return (
-            canApply && (
-              <Button
-                fullWidth
-                variant="contained"
-                size="medium"
-                onClick={() => {
-                  if (showScWarningButtons && (policySelection === "sc" || policySelection === "cto"))
-                    openConfirm(policySelection);
-                  else openConfirm("normal");
-                }}
-                startIcon={<DeductIcon sx={{ fontSize: "18px !important" }} />}
-                sx={{
-                  py: 1.1,
-                  fontSize: "0.85rem",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  fontFamily: T.poppins,
-                  borderRadius: 1.25,
-                  bgcolor: T.accent,
-                  color: "#fff",
-                  boxShadow: "none",
-                  "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
-                }}
-              >
-                {applyIsSalaryOnly ? "Apply Deduction to Salary" : "Apply all deductions"}
-              </Button>
-            )
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {showDeductFromSalaryButton && (
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="medium"
+                  onClick={() => {
+                    setSalaryOnlyModalError("");
+                    setSalaryOnlyModalOpen(true);
+                  }}
+                  startIcon={<MoneyOffIcon sx={{ fontSize: "18px !important" }} />}
+                  sx={{
+                    py: 1.05,
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    textTransform: "none",
+                    fontFamily: T.poppins,
+                    borderRadius: 1.25,
+                    borderColor: T.accent,
+                    color: T.accent,
+                    borderWidth: 1.5,
+                    "&:hover": { borderColor: T.accentDark, bgcolor: "rgba(109,35,35,0.06)" },
+                  }}
+                >
+                  Deduct from salary
+                </Button>
+              )}
+              {canApply && (
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="medium"
+                  onClick={() => {
+                    if (showScWarningButtons && (policySelection === "sc" || policySelection === "cto"))
+                      openConfirm(policySelection);
+                    else openConfirm("normal");
+                  }}
+                  startIcon={<DeductIcon sx={{ fontSize: "18px !important" }} />}
+                  sx={{
+                    py: 1.1,
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    textTransform: "none",
+                    fontFamily: T.poppins,
+                    borderRadius: 1.25,
+                    bgcolor: T.accent,
+                    color: "#fff",
+                    boxShadow: "none",
+                    "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+                  }}
+                >
+                  {applyIsSalaryOnly ? "Apply Deduction to Salary" : "Apply all deductions"}
+                </Button>
+              )}
+            </Box>
           );
         })()}
       </Box>
@@ -2176,92 +2936,95 @@ const CTODeductionReceipt = ({
       <Dialog
         open={confirmOpen}
         onClose={() => !deducting && closeConfirm()}
-        maxWidth="xs"
-        fullWidth
+        maxWidth={false}
         PaperProps={{
-          sx: { borderRadius: 3, overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.2)" },
+          sx: {
+            width: "100%",
+            maxWidth: 400,
+            borderRadius: "16px",
+            overflow: "hidden",
+            border: "0.5px solid rgba(0,0,0,0.09)",
+            boxShadow: "0 12px 48px rgba(0,0,0,0.2)",
+          },
         }}
       >
-        {/* ── Header ── */}
         <Box
           sx={{
-            px: 2,
-            py: 1.75,
-            background: T.headerGrad,
+            px: 2.5,
+            pt: 2.5,
+            pb: 2,
+            background: T.accent,
+            position: "relative",
+            overflow: "hidden",
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             justifyContent: "space-between",
             gap: 1.5,
           }}
         >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+          <Box
+            sx={{
+              position: "absolute",
+              top: -30,
+              right: -30,
+              width: 100,
+              height: 100,
+              borderRadius: "50%",
+              bgcolor: "rgba(255,255,255,0.06)",
+              pointerEvents: "none",
+            }}
+          />
+          <Box
+            sx={{
+              position: "absolute",
+              bottom: -20,
+              left: 60,
+              width: 70,
+              height: 70,
+              borderRadius: "50%",
+              bgcolor: "rgba(255,255,255,0.04)",
+              pointerEvents: "none",
+            }}
+          />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0, position: "relative", zIndex: 1 }}>
             <Box
               sx={{
-                width: 32,
-                height: 32,
+                width: 36,
+                height: 36,
                 borderRadius: "50%",
-                bgcolor: "rgba(255,255,255,0.18)",
+                bgcolor: "rgba(255,255,255,0.15)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 flexShrink: 0,
               }}
             >
-              {deductSource === "sc" ? (
-                <SCIcon sx={{ fontSize: 16, color: "#fff" }} />
-              ) : deductSource === "cto" ? (
-                <CTOIcon sx={{ fontSize: 16, color: "#fff" }} />
-              ) : (
-                <DeductIcon sx={{ fontSize: 16, color: "#fff" }} />
-              )}
+              <InfoOutlinedIcon sx={{ fontSize: 18, color: "#fff" }} />
             </Box>
-
             <Box sx={{ minWidth: 0 }}>
               <Typography
                 sx={{
+                  fontSize: "0.69rem",
+                  color: "rgba(255,255,255,0.6)",
+                  fontWeight: 400,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
                   fontFamily: T.poppins,
-                  fontWeight: 800,
-                  fontSize: "0.95rem",
-                  color: "#fff",
-                  lineHeight: 1.2,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  mb: 0.25,
                 }}
               >
-                {deductSource === "sc" && "Confirm SC Deduction"}
-                {deductSource === "cto" && "Confirm CTO Override"}
-                {deductSource === "normal" &&
-                  (() => {
-                    const tardLabel =
-                      tardinessOptionsUi.find((o) => o.value === tardinessSource)?.label ||
-                      humanizeDeductionCharge(tardinessSource);
-                    const absLabel =
-                      absenceOptionsUi.find((o) => o.value === absenceSource)?.label ||
-                      humanizeDeductionCharge(absenceSource);
-                    if (willApplyTardiness && !willApplyAbsence) {
-                      return (
-                        <>
-                          Confirm deduct {remainingTardiness.toFixed(3)}d tardiness ({tardLabel})
-                        </>
-                      );
-                    }
-                    if (willApplyAbsence && !willApplyTardiness) {
-                      return `Confirm absence offset (${absLabel})`;
-                    }
-                    if (willApplyAbsence && willApplyTardiness) return "Confirm deductions";
-                    return "Confirm deductions";
-                  })()}
+                Earnings deduction
               </Typography>
               <Typography
                 sx={{
                   fontFamily: T.poppins,
-                  fontSize: "0.62rem",
-                  color: "rgba(255,255,255,0.7)",
-                  mt: 0.25,
+                  fontWeight: 500,
+                  fontSize: "1.0625rem",
+                  color: "#fff",
+                  lineHeight: 1.2,
                 }}
               >
-                {monthName(month)} {year}
+                Confirm transaction
               </Typography>
             </Box>
           </Box>
@@ -2275,6 +3038,8 @@ const CTODeductionReceipt = ({
               bgcolor: "rgba(255,255,255,0.12)",
               borderRadius: 1,
               p: 0.5,
+              position: "relative",
+              zIndex: 1,
               "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
             }}
           >
@@ -2285,33 +3050,32 @@ const CTODeductionReceipt = ({
         <DialogContent sx={{ p: 0 }}>
           <Box
             sx={{
-              px: 2,
-              py: 1.75,
+              px: 2.5,
+              pt: 2,
+              pb: 2,
               display: "flex",
               flexDirection: "column",
-              gap: 1.25,
+              gap: 1.75,
             }}
           >
-            {/* Employee strip */}
             <Box
               sx={{
                 display: "flex",
                 alignItems: "center",
                 gap: 1.25,
-                bgcolor: "rgba(0,0,0,0.03)",
-                borderRadius: 1.75,
-                border: "0.5px solid rgba(0,0,0,0.09)",
+                bgcolor: "rgba(0,0,0,0.04)",
+                borderRadius: "10px",
                 px: 1.5,
-                py: 1,
+                py: 1.25,
               }}
             >
               <Avatar
                 sx={{
-                  width: 36,
-                  height: 36,
+                  width: 38,
+                  height: 38,
                   bgcolor: T.accent,
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
+                  fontSize: "0.8125rem",
+                  fontWeight: 500,
                   fontFamily: T.poppins,
                   flexShrink: 0,
                 }}
@@ -2327,8 +3091,8 @@ const CTODeductionReceipt = ({
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography
                   sx={{
-                    fontSize: "0.8rem",
-                    fontWeight: 800,
+                    fontSize: "0.875rem",
+                    fontWeight: 500,
                     color: T.text,
                     fontFamily: T.poppins,
                     lineHeight: 1.2,
@@ -2341,7 +3105,7 @@ const CTODeductionReceipt = ({
                 </Typography>
                 <Typography
                   sx={{
-                    fontSize: "0.62rem",
+                    fontSize: "0.75rem",
                     color: T.faint,
                     fontFamily: T.poppins,
                     whiteSpace: "nowrap",
@@ -2349,7 +3113,7 @@ const CTODeductionReceipt = ({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {employee?.employeeNumber || "—"}
+                  #{employee?.employeeNumber || "—"}
                   {empCatDisplay ? ` · ${empCatDisplay}` : ""}
                 </Typography>
               </Box>
@@ -2357,54 +3121,24 @@ const CTODeductionReceipt = ({
               <Box sx={{ textAlign: "right", flexShrink: 0 }}>
                 <Typography
                   sx={{
-                    fontSize: "0.58rem",
+                    fontSize: "0.69rem",
                     color: T.faint,
                     fontFamily: T.poppins,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
+                    mb: 0.25,
                   }}
                 >
-                  {deductSource === "sc"
-                    ? "SC Balance"
-                    : deductSource === "cto"
-                      ? "CTO Balance"
-                      : willApplyTardiness && !willApplyAbsence
-                        ? `${String(tardinessSource).toUpperCase() === "SALARY_DEDUCTION" ? "Salary" : isDeductionSkipSource(tardinessSource) ? postedTardinessLeaveCode : String(tardinessSource).toUpperCase()} balance`
-                        : String(absenceSource).toUpperCase() === "SC"
-                          ? "SC Balance"
-                          : String(absenceSource).toUpperCase() === "CTO"
-                            ? "CTO Balance"
-                            : String(absenceSource).toUpperCase() !== "SALARY_DEDUCTION"
-                              ? `${humanizeDeductionCharge(absenceSource)} balance`
-                              : "CTO Balance"}
+                  Period
                 </Typography>
                 <Typography
                   sx={{
-                    fontSize: "0.95rem",
-                    fontWeight: 900,
-                    color: T.accent,
+                    fontSize: "0.8125rem",
+                    fontWeight: 500,
+                    color: T.text,
                     fontFamily: T.poppins,
                     lineHeight: 1.1,
                   }}
                 >
-                  {(
-                    Number(
-                      deductSource === "sc"
-                        ? scBuffer
-                        : deductSource === "cto"
-                          ? ctoBal
-                          : willApplyTardiness && !willApplyAbsence
-                            ? tardBalDays
-                            : String(absenceSource).toUpperCase() === "SC"
-                              ? scBuffer
-                              : String(absenceSource).toUpperCase() === "CTO"
-                                ? ctoBal
-                                : String(absenceSource).toUpperCase() !== "SALARY_DEDUCTION"
-                                  ? toNum(assignmentMap[absenceSource]?.remaining_hours) / 8
-                                  : ctoBal,
-                    ) || 0
-                  ).toFixed(3)}{" "}
-                  d
+                  {monthName(month)} {year}
                 </Typography>
               </Box>
             </Box>
@@ -2423,7 +3157,7 @@ const CTODeductionReceipt = ({
                     sx={{
                       py: 0.65,
                       px: 1.15,
-                      borderRadius: 1.5,
+                      borderRadius: "10px",
                       bgcolor: "rgba(25,118,210,0.06)",
                       border: "1px solid rgba(25,118,210,0.2)",
                       "& .MuiAlert-message": { width: "100%", padding: 0 },
@@ -2447,69 +3181,7 @@ const CTODeductionReceipt = ({
                 );
               })()}
 
-            {/* Date/period being deducted */}
-            <Box>
-              <Typography
-                sx={{
-                  fontSize: "0.58rem",
-                  fontWeight: 800,
-                  color: T.muted,
-                  fontFamily: T.poppins,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.07em",
-                  mb: 0.5,
-                }}
-              >
-                Period being deducted
-              </Typography>
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                  bgcolor: "rgba(0,0,0,0.03)",
-                  borderRadius: 1.5,
-                  border: "0.5px solid rgba(0,0,0,0.12)",
-                  px: 1.25,
-                  py: 0.85,
-                }}
-              >
-                <CalIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
-                <Typography
-                  sx={{
-                    fontSize: "0.8rem",
-                    fontWeight: 800,
-                    color: T.text,
-                    fontFamily: T.poppins,
-                    flex: 1,
-                  }}
-                >
-                  {monthName(month)} {year}
-                </Typography>
-                <Box
-                  sx={{
-                    bgcolor: "rgba(109,35,35,0.10)",
-                    color: T.accentDark,
-                    border: "0.5px solid rgba(109,35,35,0.22)",
-                    borderRadius: 1,
-                    px: 0.75,
-                    py: 0.2,
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.58rem",
-                      fontWeight: 800,
-                      fontFamily: T.poppins,
-                    }}
-                  >
-                    Deduction confirmed
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-
-            {/* Policy notes (kept same logic, moved layout) */}
+            {/* Policy notes */}
             {deductSource === "cto" && (
               <Box
                 sx={{
@@ -2518,7 +3190,7 @@ const CTODeductionReceipt = ({
                   gap: 0.8,
                   px: 1.25,
                   py: 1,
-                  borderRadius: 2,
+                  borderRadius: "10px",
                   bgcolor: "rgba(255,152,0,0.08)",
                   border: "1px solid rgba(255,152,0,0.3)",
                 }}
@@ -2547,7 +3219,7 @@ const CTODeductionReceipt = ({
                   gap: 0.8,
                   px: 1.25,
                   py: 1,
-                  borderRadius: 2,
+                  borderRadius: "10px",
                   bgcolor: "rgba(109,35,35,0.06)",
                   border: "1px solid rgba(109,35,35,0.18)",
                 }}
@@ -2567,397 +3239,277 @@ const CTODeductionReceipt = ({
               </Box>
             )}
 
-            {/* Deduction breakdown */}
+            {/* Transaction slip — reference: deduction_transaction_slip_modal */}
             <Box
               sx={{
-                borderRadius: 1.5,
-                border: "0.5px solid rgba(0,0,0,0.09)",
+                bgcolor: "rgba(0,0,0,0.04)",
+                borderRadius: "10px",
                 overflow: "hidden",
               }}
             >
               <Box
                 sx={{
-                  px: 1.25,
-                  py: 0.6,
-                  bgcolor: "rgba(0,0,0,0.03)",
+                  px: 1.5,
+                  py: 1,
                   borderBottom: "0.5px solid rgba(0,0,0,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.5,
                 }}
               >
-                <LeaveIcon sx={{ fontSize: 10, color: T.muted }} />
                 <Typography
                   sx={{
-                    fontSize: "0.58rem",
-                    fontWeight: 900,
-                    color: T.muted,
+                    fontSize: "0.69rem",
+                    fontWeight: 500,
+                    color: T.faint,
                     fontFamily: T.poppins,
                     textTransform: "uppercase",
                     letterSpacing: "0.07em",
                   }}
                 >
-                  Deduction breakdown
+                  Transaction summary
                 </Typography>
               </Box>
-
-              <Box
-                sx={{
-                  px: 1.25,
-                  py: 0.85,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 0.7,
-                }}
-              >
-                {/* Deducting from */}
+              {(confirmTransactionLines.length
+                ? confirmTransactionLines
+                : [
+                    {
+                      key: "fallback",
+                      title: "Deduction",
+                      sub: modalBreakdownPrimaryLabel,
+                      amount: confirmSlipTotalDays,
+                    },
+                  ]
+              ).map((line, idx, arr) => (
                 <Box
+                  key={line.key}
                   sx={{
+                    px: 1.5,
+                    py: 1.25,
+                    borderBottom: idx < arr.length - 1 ? "0.5px solid rgba(0,0,0,0.08)" : "none",
                     display: "flex",
-                    alignItems: "center",
                     justifyContent: "space-between",
+                    alignItems: "center",
                     gap: 1,
-                    pb: 0.2,
-                    borderBottom: "1px dashed rgba(0,0,0,0.08)",
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, minWidth: 0 }}>
-                    {deductSource === "sc" ? (
-                      <SCIcon sx={{ fontSize: 14, color: T.accent }} />
-                    ) : (
-                      <CTOIcon sx={{ fontSize: 14, color: T.accent }} />
-                    )}
+                  <Box sx={{ minWidth: 0 }}>
                     <Typography
                       sx={{
-                        fontSize: "0.76rem",
-                        fontWeight: 700,
-                        color: "#1a1a1a",
+                        fontSize: "0.8125rem",
+                        fontWeight: 500,
+                        color: T.text,
                         fontFamily: T.poppins,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
                       }}
                     >
-                      {deductSource === "sc"
-                        ? "Service Credit (SC)"
-                        : deductSource === "cto"
-                          ? "Compensatory Time Off (CTO)"
-                          : "CTO / VL"}
+                      {line.title}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.69rem",
+                        color: T.faint,
+                        fontFamily: T.poppins,
+                        mt: 0.125,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {line.sub}
                     </Typography>
                   </Box>
-
-                  <Chip
-                    size="small"
-                    label={`${
-                      deductSource === "sc" ? scBuffer.toFixed(3) : ctoBal.toFixed(3)
-                    } d available`}
+                  <Typography
                     sx={{
-                      height: 20,
-                      fontSize: "0.63rem",
-                      fontWeight: 800,
-                      bgcolor: "rgba(109,35,35,0.06)",
-                      color: T.accent,
-                      border: `1px solid ${T.accentBorder}`,
+                      fontSize: "0.875rem",
+                      fontWeight: 500,
+                      color: "#c62828",
+                      fontFamily: T.poppins,
+                      flexShrink: 0,
                     }}
-                  />
+                  >
+                    −{Number(line.amount || 0).toFixed(3)} d
+                  </Typography>
                 </Box>
+              ))}
+            </Box>
 
-                {/* Amount + hours */}
-                {(() => {
-                  const deductDays =
-                    deductSource === "sc" || deductSource === "cto"
-                      ? absenceAmountForSource
-                      : (willApplyAbsence ? remainingAbsence : 0) + (willApplyTardiness ? remainingTardiness : 0);
-                  const deductHrs = deductDays * 8;
-                  return (
-                    <>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontFamily: T.poppins }}>
-                          Deduction amount
-                        </Typography>
-                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                          {deductDays.toFixed(3)} days
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontFamily: T.poppins }}>
-                          Equivalent hours
-                        </Typography>
-                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                          {deductHrs.toFixed(3)} hrs
-                        </Typography>
-                      </Box>
-                    </>
-                  );
-                })()}
-
-                {/* Breakdown lines (preserve existing logic) */}
-                {deductSource === "sc" || deductSource === "cto" ? (
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <Box>
-                      <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
-                        Absences
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>
-                        {absentDays} day(s) × 8h
-                      </Typography>
-                    </Box>
-                    <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: T.accent, fontFamily: T.poppins }}>
-                      − {absenceAmountForSource.toFixed(3)} d
-                    </Typography>
-                  </Box>
-                ) : (
-                  <>
-                    {willApplyAbsence && remainingAbsence > 0 && (
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <Box>
-                          <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: "#6a1b9a", fontFamily: T.poppins }}>
-                            Absence → {humanizeDeductionCharge(absenceSource)}
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>
-                            {absentDays} day(s)
-                          </Typography>
-                        </Box>
-                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#6a1b9a", fontFamily: T.poppins }}>
-                          − {remainingAbsence.toFixed(3)} d
-                        </Typography>
-                      </Box>
-                    )}
-
-                    {willApplyTardiness && remainingTardiness > 0 && (
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <Box>
-                          <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: "#c62828", fontFamily: T.poppins }}>
-                            Tardiness → {humanizeDeductionCharge(tardinessSource)}
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.61rem", color: T.faint, fontFamily: T.poppins }}>
-                            {tardHrs.toFixed(3)} hrs · {hrsToHMS(tardHrs)}
-                          </Typography>
-                        </Box>
-                        <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: "#c62828", fontFamily: T.poppins }}>
-                          − {remainingTardiness.toFixed(3)} d
-                        </Typography>
-                      </Box>
-                    )}
-                  </>
-                )}
-
-                {/* New balance preview (preserve existing conditional behavior) */}
-                {(deductSource === "sc" || deductSource === "cto") && (() => {
-                  const newBalRaw = deductSource === "sc" ? newScBalance : newCtoBalanceOverride;
-                  const newBal =
-                    deductSource === "sc" && !allowScNegZero && Object.is(newBalRaw, -0) ? 0 : newBalRaw;
-                  const balColor = newBal < 0 ? "#c62828" : newBal === 0 ? "#7a4a00" : "#1e4d20";
-                  const bgColor =
-                    newBal < 0 ? "rgba(198,40,40,0.06)" : newBal === 0 ? "rgba(122,74,0,0.05)" : "rgba(46,125,50,0.06)";
-                  return (
-                    <Box
-                      sx={{
-                        px: 1.5,
-                        py: 0.9,
-                        bgcolor: bgColor,
-                        borderTop: "1.5px solid rgba(0,0,0,0.09)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <Box>
-                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                          New {deductSource === "sc" ? "SC" : "CTO"} Balance
-                        </Typography>
-                        {newBal < 0 && (
-                          <Typography
-                            sx={{
-                              fontSize: "0.6rem",
-                              color: "#c62828",
-                              fontFamily: T.poppins,
-                              fontWeight: 700,
-                              mt: 0.15,
-                            }}
-                          >
-                            Shortfall → salary deduction
-                          </Typography>
-                        )}
-                      </Box>
-                      <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
-                        {newBal.toFixed(3)} d
-                      </Typography>
-                    </Box>
-                  );
-                })()}
-
-                {deductSource === "normal" &&
-                  willApplyAbsence &&
-                  remainingAbsence > 0 &&
-                  String(absenceSource).toUpperCase() === "CTO" &&
-                  (() => {
-                  const balColor =
-                    newCtoBalance < 0 ? "#c62828" : newCtoBalance === 0 ? "#7a4a00" : "#1e4d20";
-                  return (
-                    <Box
-                      sx={{
-                        px: 1.5,
-                        py: 0.9,
-                        bgcolor:
-                          newCtoBalance < 0 ? "rgba(198,40,40,0.06)" : "rgba(46,125,50,0.06)",
-                        borderTop: "1.5px solid rgba(0,0,0,0.09)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <Box>
-                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                          New CTO Balance
-                        </Typography>
-                        {newCtoBalance < 0 && (
-                          <Typography
-                            sx={{
-                              fontSize: "0.6rem",
-                              color: "#c62828",
-                              fontFamily: T.poppins,
-                              fontWeight: 700,
-                            }}
-                          >
-                            Shortfall → salary deduction
-                          </Typography>
-                        )}
-                      </Box>
-                      <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
-                        {newCtoBalance.toFixed(3)} d
-                      </Typography>
-                    </Box>
-                  );
-                })()}
-
-                {deductSource === "normal" &&
-                  willApplyAbsence &&
-                  remainingAbsence > 0 &&
-                  String(absenceSource).toUpperCase() === "SC" &&
-                  (() => {
-                    const balColor =
-                      newScBalanceAfterAbsence < 0
-                        ? "#c62828"
-                        : newScBalanceAfterAbsence === 0
-                          ? "#7a4a00"
-                          : "#1e4d20";
-                    return (
-                      <Box
-                        sx={{
-                          px: 1.5,
-                          py: 0.9,
-                          bgcolor:
-                            newScBalanceAfterAbsence < 0
-                              ? "rgba(198,40,40,0.06)"
-                              : "rgba(46,125,50,0.06)",
-                          borderTop: "1.5px solid rgba(0,0,0,0.09)",
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <Box>
-                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                            New SC Balance
-                          </Typography>
-                          {newScBalanceAfterAbsence < 0 && (
-                            <Typography
-                              sx={{
-                                fontSize: "0.6rem",
-                                color: "#c62828",
-                                fontFamily: T.poppins,
-                                fontWeight: 700,
-                              }}
-                            >
-                              Shortfall → salary deduction
-                            </Typography>
-                          )}
-                        </Box>
-                        <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
-                          {newScBalanceAfterAbsence.toFixed(3)} d
-                        </Typography>
-                      </Box>
-                    );
-                  })()}
-
-                {deductSource === "normal" &&
-                  willApplyAbsence &&
-                  remainingAbsence > 0 &&
-                  String(absenceSource).toUpperCase() !== "CTO" &&
-                  String(absenceSource).toUpperCase() !== "SC" &&
-                  String(absenceSource).toUpperCase() !== "SALARY_DEDUCTION" &&
-                  (() => {
-                    const prev = toNum(assignmentMap[absenceSource]?.remaining_hours) / 8;
-                    const next = prev - remainingAbsence;
-                    const balColor = next < 0 ? "#c62828" : next === 0 ? "#7a4a00" : "#1e4d20";
-                    return (
-                      <Box
-                        sx={{
-                          px: 1.5,
-                          py: 0.9,
-                          bgcolor: next < 0 ? "rgba(198,40,40,0.06)" : "rgba(46,125,50,0.06)",
-                          borderTop: "1.5px solid rgba(0,0,0,0.09)",
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <Box>
-                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                            New {humanizeDeductionCharge(absenceSource)} balance
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, fontWeight: 700, mt: 0.15 }}>
-                            Before: {prev.toFixed(3)} d
-                          </Typography>
-                        </Box>
-                        <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: balColor, fontFamily: T.poppins }}>
-                          After: {next.toFixed(3)} d
-                        </Typography>
-                      </Box>
-                    );
-                  })()}
-
-                {deductSource === "normal" && willApplyTardiness && remainingTardiness > 0 && (() => {
-                  const tardCode = String(tardinessSource || "").toUpperCase();
-                  const balLabel =
-                    tardCode === "VL" ? "VL balance" : tardCode === "CTO" ? "CTO balance" : `${tardCode} balance`;
-                  const vlColor = newVlBalance < 0 ? "#c62828" : newVlBalance === 0 ? "#7a4a00" : "#1e4d20";
-                  const bgColor =
-                    newVlBalance < 0 ? "rgba(198,40,40,0.06)" : newVlBalance === 0 ? "rgba(122,74,0,0.05)" : "rgba(46,125,50,0.06)";
-
-                  return (
-                    <Box
-                      sx={{
-                        px: 1.5,
-                        py: 0.9,
-                        bgcolor: bgColor,
-                        borderTop: "1.5px solid rgba(0,0,0,0.09)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                      }}
-                    >
-                      <Box>
-                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 900, color: "#1a1a1a", fontFamily: T.poppins }}>
-                          {balLabel}
-                        </Typography>
-                        <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, fontWeight: 700, mt: 0.15 }}>
-                          Before: {tardBalDays.toFixed(3)} d
-                        </Typography>
-                      </Box>
-
-                      <Box sx={{ textAlign: "right" }}>
-                        {newVlBalance < 0 && (
-                          <Typography sx={{ fontSize: "0.6rem", color: "#c62828", fontFamily: T.poppins, fontWeight: 700, mb: 0.15 }}>
-                            Shortfall → salary deduction
-                          </Typography>
-                        )}
-                        <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: vlColor, fontFamily: T.poppins }}>
-                          After: {newVlBalance.toFixed(3)} d
-                        </Typography>
-                      </Box>
-                    </Box>
-                  );
-                })()}
+            <Box
+              sx={{
+                bgcolor: T.accent,
+                borderRadius: "10px",
+                px: 1.75,
+                py: 1.5,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 1,
+              }}
+            >
+              <Box>
+                <Typography
+                  sx={{
+                    fontSize: "0.69rem",
+                    color: "rgba(255,255,255,0.65)",
+                    fontFamily: T.poppins,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                    mb: 0.375,
+                  }}
+                >
+                  Total deduction
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.69rem",
+                    color: "rgba(255,255,255,0.55)",
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {confirmSlipTotalDays.toFixed(3)} days · {confirmSlipTotalHrs.toFixed(3)} hrs
+                </Typography>
               </Box>
+              <Typography
+                sx={{
+                  fontSize: "1.375rem",
+                  fontWeight: 500,
+                  color: "#fff",
+                  fontFamily: T.poppins,
+                }}
+              >
+                {confirmSlipTotalDays.toFixed(3)} d
+              </Typography>
+            </Box>
+
+            {confirmModalBalanceTiles.length > 0 && (
+              <Box
+                sx={{
+                  bgcolor: "rgba(0,0,0,0.04)",
+                  borderRadius: "10px",
+                  overflow: "hidden",
+                }}
+              >
+                <Box sx={{ px: 1.5, py: 1, borderBottom: "0.5px solid rgba(0,0,0,0.08)" }}>
+                  <Typography
+                    sx={{
+                      fontSize: "0.69rem",
+                      fontWeight: 500,
+                      color: T.faint,
+                      fontFamily: T.poppins,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.07em",
+                    }}
+                  >
+                    Balance preview
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      confirmModalBalanceTiles.length > 1 ? "1fr 1fr" : "1fr",
+                  }}
+                >
+                  {confirmModalBalanceTiles.map((tile, i) => (
+                    <Box
+                      key={tile.key}
+                      sx={{
+                        p: 1.25,
+                        borderRight:
+                          confirmModalBalanceTiles.length > 1 && i === 0
+                            ? "0.5px solid rgba(0,0,0,0.08)"
+                            : "none",
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: "0.69rem",
+                          color: T.faint,
+                          fontFamily: T.poppins,
+                          mb: 0.5,
+                        }}
+                      >
+                        {tile.label}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: "0.9375rem",
+                          fontWeight: 500,
+                          color: T.text,
+                          fontFamily: T.poppins,
+                        }}
+                      >
+                        {tile.before.toFixed(3)} d
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: "0.69rem",
+                          color: T.faint,
+                          fontFamily: T.poppins,
+                          mt: 0.125,
+                        }}
+                      >
+                        {tile.delta.toFixed(3)} d
+                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.65 }}>
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            bgcolor: slipAfterDotColor(tile.after),
+                            flexShrink: 0,
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontSize: "0.75rem",
+                            fontWeight: 500,
+                            color: slipAfterTextColor(tile.after),
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          {tile.after.toFixed(3)} d after
+                        </Typography>
+                      </Box>
+                      {tile.after < 0 && (
+                        <Typography
+                          sx={{
+                            fontSize: "0.65rem",
+                            color: "#c62828",
+                            fontFamily: T.poppins,
+                            fontWeight: 600,
+                            mt: 0.5,
+                          }}
+                        >
+                          Shortfall → salary deduction
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            <Box
+              sx={{
+                bgcolor: "#FAEEDA",
+                borderRadius: "8px",
+                px: 1.5,
+                py: 1.25,
+                border: "0.5px solid #FAC775",
+                display: "flex",
+                gap: 1,
+                alignItems: "flex-start",
+              }}
+            >
+              <InfoOutlinedIcon
+                sx={{ fontSize: 16, color: "#633806", flexShrink: 0, mt: "2px" }}
+              />
+              <Typography
+                sx={{
+                  fontSize: "0.75rem",
+                  color: "#633806",
+                  fontFamily: T.poppins,
+                  lineHeight: 1.5,
+                }}
+              >
+                This posts to SC / CTO / leave earnings and requires approval before balances finalize.
+              </Typography>
             </Box>
 
             {/* Remark (optional) */}
@@ -3000,24 +3552,23 @@ const CTODeductionReceipt = ({
               />
             </Box>
 
-            {/* Auto-approved note */}
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 0.7,
-                px: 1.25,
-                py: 1,
-                borderRadius: 1.75,
-                bgcolor: "rgba(46,125,50,0.07)",
-                border: "1px solid rgba(46,125,50,0.2)",
-              }}
-            >
-              <CheckIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
-              <Typography sx={{ fontSize: "0.68rem", color: T.accentDark, fontFamily: T.poppins, fontWeight: 700 }}>
-                Auto-approved — balance updates immediately upon confirmation.
-              </Typography>
-            </Box>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={confirmDeductionAcknowledged}
+                  onChange={(e) => setConfirmDeductionAcknowledged(e.target.checked)}
+                  disabled={deducting}
+                  sx={{ py: 0, color: T.accent, "&.Mui-checked": { color: T.accent } }}
+                />
+              }
+              label={
+                <Typography sx={{ fontSize: "0.75rem", fontFamily: T.poppins, color: T.faint, lineHeight: 1.5 }}>
+                  I confirm the deduction source, amounts, and balances shown are correct.
+                </Typography>
+              }
+              sx={{ alignItems: "flex-start", ml: 0, mr: 0, mb: 0 }}
+            />
 
             {deductError && (
               <Alert
@@ -3039,6 +3590,269 @@ const CTODeductionReceipt = ({
         <DialogActions
           sx={{
             display: "flex",
+            justifyContent: "stretch",
+            gap: 1,
+            px: 2.5,
+            pt: 0,
+            pb: 2.5,
+            borderTop: "none",
+            bgcolor: "transparent",
+          }}
+        >
+          <Button
+            size="medium"
+            onClick={closeConfirm}
+            disabled={deducting}
+            sx={{
+              flex: 1,
+              fontSize: "0.8125rem",
+              fontWeight: 500,
+              textTransform: "none",
+              fontFamily: T.poppins,
+              color: T.text,
+              borderRadius: "8px",
+              py: 1.25,
+              border: "0.5px solid rgba(0,0,0,0.12)",
+              bgcolor: "transparent",
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="medium"
+            variant="contained"
+            onClick={handleDeduct}
+            disabled={deducting || !confirmDeductionAcknowledged}
+            disableElevation
+            startIcon={
+              deducting ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "13px !important" }} />
+            }
+            sx={{
+              flex: 2,
+              fontSize: "0.8125rem",
+              fontWeight: 500,
+              textTransform: "none",
+              fontFamily: T.poppins,
+              bgcolor: T.accent,
+              borderRadius: "8px",
+              py: 1.25,
+              boxShadow: "none",
+              "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+              "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.4)", color: "#fff" },
+            }}
+          >
+            {deducting
+              ? "Processing…"
+              : deductSource === "normal" && applyIsSalaryOnly
+                ? "Apply Deduction to Salary"
+                : "Confirm deduction"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={salaryOnlyModalOpen}
+        onClose={() => !salaryOnlySubmitting && setSalaryOnlyModalOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3, overflow: "hidden", boxShadow: "0 12px 48px rgba(0,0,0,0.2)" },
+        }}
+      >
+        <Box
+          sx={{
+            px: 2,
+            py: 1.75,
+            background: T.headerGrad,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1.5,
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <MoneyOffIcon sx={{ fontSize: 16, color: "#fff" }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                sx={{
+                  fontFamily: T.poppins,
+                  fontWeight: 800,
+                  fontSize: "0.95rem",
+                  color: "#fff",
+                  lineHeight: 1.2,
+                }}
+              >
+                Deduct from salary
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: T.poppins,
+                  fontSize: "0.62rem",
+                  color: "rgba(255,255,255,0.7)",
+                  mt: 0.25,
+                }}
+              >
+                {monthName(month)} {year}
+              </Typography>
+            </Box>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => !salaryOnlySubmitting && setSalaryOnlyModalOpen(false)}
+            disabled={salaryOnlySubmitting}
+            sx={{
+              color: "#fff",
+              bgcolor: "rgba(255,255,255,0.12)",
+              borderRadius: 1,
+              p: 0.5,
+              "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+            }}
+          >
+            <Close sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ px: 2, py: 1.75, display: "flex", flexDirection: "column", gap: 1.25 }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1.25,
+                bgcolor: "rgba(0,0,0,0.03)",
+                borderRadius: 1.75,
+                border: "0.5px solid rgba(0,0,0,0.09)",
+                px: 1.5,
+                py: 1,
+              }}
+            >
+              <Avatar
+                sx={{
+                  width: 36,
+                  height: 36,
+                  bgcolor: T.accent,
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  fontFamily: T.poppins,
+                  flexShrink: 0,
+                }}
+              >
+                {(employee?.fullName || employee?.employeeNumber || "Employee")
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((n) => n[0]?.toUpperCase())
+                  .join("")}
+              </Avatar>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.8rem",
+                    fontWeight: 800,
+                    color: T.text,
+                    fontFamily: T.poppins,
+                    lineHeight: 1.2,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {employee?.fullName || employee?.employeeNumber || "Employee"}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.62rem",
+                    color: T.faint,
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  {employee?.employeeNumber || "—"}
+                  {empCatDisplay ? ` · ${empCatDisplay}` : ""}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Typography sx={{ fontSize: "0.7rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.5 }}>
+              This posts to <strong>salary shortfall</strong> (attendance / payroll audit). No Service Credit, CTO, or
+              leave balance will be reduced.
+            </Typography>
+
+            <Box
+              sx={{
+                borderRadius: 1.5,
+                border: "0.5px solid rgba(0,0,0,0.1)",
+                overflow: "hidden",
+                bgcolor: "#fff",
+              }}
+            >
+              <Box sx={{ px: 1.25, py: 0.65, bgcolor: "rgba(109,35,35,0.06)", borderBottom: "0.5px solid rgba(0,0,0,0.08)" }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.58rem",
+                    fontWeight: 800,
+                    color: alpha(T.accent, 0.85),
+                    fontFamily: T.poppins,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                  }}
+                >
+                  Summary — charge to salary
+                </Typography>
+              </Box>
+              <Box sx={{ px: 1.25, py: 1 }}>
+                {salaryModalAbsenceDays > 1e-5 && (
+                  <R
+                    label="Absence (salary days)"
+                    sub="ATTENDANCE_SALARY_DEDUCTION"
+                    value={`${salaryModalAbsenceDays.toFixed(3)} d`}
+                    valueColor="#c62828"
+                    bold
+                  />
+                )}
+                {salaryModalTardinessDays > 1e-5 && (
+                  <R
+                    label="Tardiness (salary days)"
+                    sub="TARDINESS_SALARY_DEDUCTION"
+                    value={`${salaryModalTardinessDays.toFixed(3)} d`}
+                    valueColor="#c62828"
+                    bold
+                  />
+                )}
+                <Divider sx={{ my: 1, borderColor: "rgba(0,0,0,0.08)" }} />
+                <R
+                  label="Total (8h-equivalent days)"
+                  sub={`${salaryModalTotalHrs.toFixed(3)} hours`}
+                  value={`${salaryModalTotalDays.toFixed(3)} d`}
+                  valueColor={T.accent}
+                  bold
+                />
+              </Box>
+            </Box>
+
+            {salaryOnlyModalError && (
+              <Alert severity="error" sx={{ py: 0.5, fontSize: "0.65rem", borderRadius: 1.25 }}>
+                {salaryOnlyModalError}
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+
+        <DialogActions
+          sx={{
+            display: "flex",
             justifyContent: "flex-end",
             gap: 1,
             px: 2,
@@ -3049,8 +3863,8 @@ const CTODeductionReceipt = ({
         >
           <Button
             size="small"
-            onClick={closeConfirm}
-            disabled={deducting}
+            onClick={() => !salaryOnlySubmitting && setSalaryOnlyModalOpen(false)}
+            disabled={salaryOnlySubmitting}
             sx={{
               fontSize: "0.72rem",
               fontWeight: 700,
@@ -3067,10 +3881,14 @@ const CTODeductionReceipt = ({
           <Button
             size="small"
             variant="contained"
-            onClick={handleDeduct}
-            disabled={deducting}
+            onClick={handleSalaryShortcutConfirm}
+            disabled={salaryOnlySubmitting || salaryModalTotalDays <= 1e-5}
             startIcon={
-              deducting ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "13px !important" }} />
+              salaryOnlySubmitting ? (
+                <CircularProgress size={11} sx={{ color: "#fff" }} />
+              ) : (
+                <SaveIcon sx={{ fontSize: "13px !important" }} />
+              )
             }
             sx={{
               fontSize: "0.72rem",
@@ -3085,20 +3903,7 @@ const CTODeductionReceipt = ({
               "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.4)", color: "#fff" },
             }}
           >
-            {deducting
-              ? "Processing…"
-              : deductSource === "sc"
-                ? "Confirm SC Deduction"
-                : deductSource === "cto"
-                  ? "Confirm CTO Override"
-                  : deductSource === "normal" && applyIsSalaryOnly
-                    ? "Apply Deduction to Salary"
-                    : deductSource === "normal" &&
-                        willApplyTardiness &&
-                        remainingTardiness > 0 &&
-                        !willApplyAbsence
-                      ? `Confirm deduct ${remainingTardiness.toFixed(3)}d tardiness from ${humanizeDeductionCharge(tardinessSource)}`
-                      : "Confirm Deductions"}
+            {salaryOnlySubmitting ? "Recording…" : "Confirm salary deduction"}
           </Button>
         </DialogActions>
       </Dialog>

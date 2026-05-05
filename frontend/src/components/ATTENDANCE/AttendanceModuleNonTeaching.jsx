@@ -63,7 +63,6 @@ import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
-import SuccessfulOverlay from '../SuccessfulOverlay';
 import { computeAbsentDays } from './attendanceMetrics';
 import {
   postAttendanceDevicePreflightNoSync,
@@ -92,6 +91,26 @@ const T = {
   faint:        '#a0a0a0',
   surface:      '#ffffff',
   divider:      'rgba(0,0,0,0.08)',
+};
+
+/**
+ * HH:MM:SS → "Xd Yh Zm" for non-teaching: 8 hours = 1 workday.
+ * Seconds ignored (minute precision).
+ */
+const formatTardinessAsDaysHours = (hhmmss) => {
+  if (!hhmmss || hhmmss === '00:00:00') return '0m';
+  const parts = String(hhmmss).split(':').map(Number);
+  const totalMinutes = (parts[0] || 0) * 60 + (parts[1] || 0);
+  if (totalMinutes === 0) return '0m';
+  const totalHours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  const days = Math.floor(totalHours / 8);
+  const hrs = totalHours % 8;
+  let out = '';
+  if (days > 0) out += `${days}d `;
+  if (hrs > 0) out += `${hrs}h `;
+  if (mins > 0) out += `${mins}m`;
+  return out.trim();
 };
 
 // ─── Shimmer keyframes ────────────────────────────────────────────────────
@@ -535,6 +554,7 @@ const TAB_COLUMNS = {
     { label: 'Official Time OUT',      key: 'officialTimeOUT',      minWidth: 150, group: 'official' },
     { label: 'Afternoon Rendered',     key: '_afternoonRendered',   minWidth: 140, group: 'calc',     dividerBefore: true },
     { label: 'Afternoon Tardiness',    key: '_afternoonTardiness',  minWidth: 140, group: 'tard' },
+    { label: 'Total Tardiness',        key: '_totalTardiness',      minWidth: 140, group: 'tard' },
   ],
   honorarium: [
     { label: 'Date',                          key: 'date',                      minWidth: 130, group: 'meta' },
@@ -594,6 +614,16 @@ const getCellValue = (row, colKey, isFurlough = false) => {
       if (isFurlough) return '00:00:00';
       return !row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
         ? row.formattedFacultyMaxRenderedTimePM : row.formattedfinalcalcFacultyPM;
+    case '_totalTardiness': {
+      if (isFurlough) return '00:00:00';
+      const amStr = !row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimeAM
+        : row.formattedfinalcalcFacultyAM;
+      const pmStr = !row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimePM
+        : row.formattedfinalcalcFacultyPM;
+      return addTimeHhMmOnly(amStr, pmStr);
+    }
     case '_hnTimeIN':  return isNA(row.officialHonorariumTimeIN)  ? NA : row.timeIN;
     case '_hnTimeOUT': return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
     case '_hnRendered':
@@ -642,6 +672,20 @@ const getCellValue = (row, colKey, isFurlough = false) => {
   }
 };
 
+/** Sum two HH:MM:SS strings using hours and minutes only (seconds displayed in inputs are ignored). */
+const addTimeHhMmOnly = (a, b) => {
+  const toSec = (t) => {
+    if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
+    const parts = String(t).split(':').map(Number);
+    if (parts.length < 2 || [parts[0], parts[1]].some((n) => Number.isNaN(n))) return 0;
+    return parts[0] * 3600 + parts[1] * 60;
+  };
+  const total = toSec(a) + toSec(b);
+  const h = Math.floor(total / 3600);
+  const m2 = Math.floor((total % 3600) / 60);
+  return `${String(h).padStart(2, '0')}:${String(m2).padStart(2, '0')}:00`;
+};
+
 // ─── Half day (one AM or PM session has punches, not both; excludes calendar status) ──
 const HALF_DAY_ORANGE = '#ff9800';
 const attendanceEmptyPunch = (v) => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim().toUpperCase() === 'N/A';
@@ -672,20 +716,20 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
   if (!visible) return null;
 
   const items = [
-    { label: 'Absent Days',   value: totals.absentDays,         group: 'regular' },
-    { label: 'Half Days',     value: totals.halfDays,           group: 'regular' },
-    { label: 'AM Rendered',   value: totals.morningRendered,    group: 'regular' },
-    { label: 'AM Tardiness',  value: totals.morningTardiness,   group: 'regular' },
-    { label: 'PM Rendered',   value: totals.afternoonRendered,  group: 'regular' },
-    { label: 'PM Tardiness',  value: totals.afternoonTardiness, group: 'regular' },
-    { label: 'Overall Rend.', value: totals.overallRendered,    group: 'regular' },
-    { label: 'Overall Tard.', value: totals.overallTardiness,   group: 'regular' },
-    { label: 'HN Rendered',   value: totals.hnRendered,         group: 'honorarium' },
-    { label: 'HN Tardiness',  value: totals.hnTardiness,        group: 'honorarium' },
-    { label: 'SC Rendered',   value: totals.scRendered,         group: 'serviceCredit' },
-    { label: 'SC Tardiness',  value: totals.scTardiness,        group: 'serviceCredit' },
-    { label: 'OT Rendered',   value: totals.otRendered,         group: 'overtime' },
-    { label: 'OT Tardiness',  value: totals.otTardiness,        group: 'overtime' },
+    { label: 'Absent Days',   value: totals.absentDays,         group: 'regular', isRegularTardiness: false },
+    { label: 'Half Days',     value: totals.halfDays,           group: 'regular', isRegularTardiness: false },
+    { label: 'AM Rendered',   value: totals.morningRendered,    group: 'regular', isRegularTardiness: false },
+    { label: 'AM Tardiness',  value: totals.morningTardiness,   group: 'regular', isRegularTardiness: false },
+    { label: 'PM Rendered',   value: totals.afternoonRendered,  group: 'regular', isRegularTardiness: false },
+    { label: 'PM Tardiness',  value: totals.afternoonTardiness, group: 'regular', isRegularTardiness: false },
+    { label: 'Overall Rend.', value: totals.overallRendered,    group: 'regular', isRegularTardiness: false },
+    { label: 'Overall Tard.', value: totals.overallTardiness,   group: 'regular', isRegularTardiness: true },
+    { label: 'HN Rendered',   value: totals.hnRendered,         group: 'honorarium', isRegularTardiness: false },
+    { label: 'HN Tardiness',  value: totals.hnTardiness,        group: 'honorarium', isRegularTardiness: false },
+    { label: 'SC Rendered',   value: totals.scRendered,         group: 'serviceCredit', isRegularTardiness: false },
+    { label: 'SC Tardiness',  value: totals.scTardiness,        group: 'serviceCredit', isRegularTardiness: false },
+    { label: 'OT Rendered',   value: totals.otRendered,         group: 'overtime', isRegularTardiness: false },
+    { label: 'OT Tardiness',  value: totals.otTardiness,        group: 'overtime', isRegularTardiness: false },
   ];
 
   return (
@@ -738,36 +782,67 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 0.8,
-              px: 1.25,
-              py: 0.6,
-              borderRadius: '8px',
-              bgcolor: 'rgba(255,255,255,0.14)',
-              border: '1px solid rgba(255,255,255,0.25)',
+              gap: 1,
+              px: 1.5,
+              py: 0.65,
+              borderRadius: '10px',
+              bgcolor: '#fff',
+              border: '2px solid rgba(255,255,255,0.95)',
+              boxShadow: `0 0 0 2px ${alpha(T.accent, 0.35)}, 0 4px 18px rgba(0,0,0,0.22)`,
               cursor: saving ? 'not-allowed' : 'pointer',
-              opacity: saving ? 0.6 : 1,
-              transition: 'all 0.18s ease',
-              '&:hover': !saving ? { bgcolor: 'rgba(255,255,255,0.20)' } : {},
+              transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+              '&:hover': !saving
+                ? {
+                    transform: 'translateY(-1px)',
+                    boxShadow: `0 0 0 2px ${alpha(T.accent, 0.45)}, 0 6px 22px rgba(0,0,0,0.28)`,
+                  }
+                : {},
             }}
           >
             {saving ? (
-              <CircularProgress size={14} sx={{ color: '#fff' }} />
+              <CircularProgress size={18} thickness={5} sx={{ color: T.accent, flexShrink: 0 }} />
             ) : (
-              <SaveAs sx={{ color: '#fff', fontSize: 16 }} />
+              <SaveAs sx={{ color: T.accent, fontSize: 20, flexShrink: 0 }} />
             )}
-            <Typography
-              sx={{
-                fontSize: '0.68rem',
-                color: '#fff',
-                fontWeight: 800,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                lineHeight: 1,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </Typography>
+            {saving ? (
+              <Typography
+                sx={{
+                  fontSize: '0.72rem',
+                  color: T.accent,
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Saving to summary…
+              </Typography>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1, minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: '0.58rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    opacity: 0.88,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Save to
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.74rem',
+                    fontWeight: 900,
+                    color: T.accent,
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  Attendance summary
+                </Typography>
+              </Box>
+            )}
           </Box>
           {expanded ? <ExpandMore fontSize="small" /> : <ExpandLess fontSize="small" />}
         </Box>
@@ -782,7 +857,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
           overflow: 'hidden',
           '&::-webkit-scrollbar-thumb': { background: T.accentBorder, borderRadius: 2 },
         }}>
-          {items.map(({ label, value, group }) => {
+          {items.map(({ label, value, group, isRegularTardiness }) => {
             const isActive = group === activeTab;
             const isTard = label.includes('Tardiness') || label.includes('Tard.');
             const isHalf = label === 'Half Days';
@@ -809,17 +884,36 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDa
                 }}>
                   {label}
                 </Typography>
-                <Typography sx={{
-                  fontSize: isActive ? '1.1rem' : '1.02rem', fontWeight: 800,
-                  color: isHalf ? '#e65100' : isTard ? '#991b1b' : '#166534',
-                  fontFamily: 'monospace', letterSpacing: '0.04em',
-                  transition: 'all 0.2s',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {label === 'Absent Days' || label === 'Half Days'
-                    ? String(Number.isFinite(Number(value)) ? Number(value) : 0)
-                    : value || '00:00:00'}
-                </Typography>
+                {isRegularTardiness ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.15 }}>
+                    <Typography sx={{
+                      fontSize: isActive ? '1.1rem' : '1.02rem', fontWeight: 800,
+                      color: '#991b1b', fontFamily: 'monospace', letterSpacing: '0.04em',
+                      transition: 'all 0.2s', whiteSpace: 'nowrap',
+                    }}>
+                      {formatTardinessAsDaysHours(value || '00:00:00')}
+                    </Typography>
+                    <Typography sx={{
+                      fontSize: '0.62rem', fontWeight: 500,
+                      color: 'rgba(153,27,27,0.45)', fontFamily: 'monospace', letterSpacing: '0.03em',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {value || '00:00:00'}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Typography sx={{
+                    fontSize: isActive ? '1.1rem' : '1.02rem', fontWeight: 800,
+                    color: isHalf ? '#e65100' : isTard ? '#991b1b' : '#166534',
+                    fontFamily: 'monospace', letterSpacing: '0.04em',
+                    transition: 'all 0.2s',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {label === 'Absent Days' || label === 'Half Days'
+                      ? String(Number.isFinite(Number(value)) ? Number(value) : 0)
+                      : value || '00:00:00'}
+                  </Typography>
+                )}
               </Box>
             );
           })}
@@ -858,7 +952,7 @@ const StickyScrollbar = ({ innerRef }) => {
 };
 
 // ─── Styled Modal ─────────────────────────────────────────────────────────
-const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false }) => {
+const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false, confirmLabel = null }) => {
   const typeConfig = {
     success: { icon: <CheckCircleIcon sx={{ fontSize: 26, color: '#2e7d32' }} />, avatarBg: 'rgba(46,125,50,0.12)', label: 'Success', labelColor: '#2e7d32' },
     warning: { icon: <WarningIcon sx={{ fontSize: 26, color: '#92400e' }} />,      avatarBg: 'rgba(146,64,14,0.12)',  label: 'Warning', labelColor: '#92400e' },
@@ -941,7 +1035,7 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
           onMouseEnter={e => { e.currentTarget.style.background = T.accentDark; }}
           onMouseLeave={e => { e.currentTarget.style.background = T.accent; }}
         >
-          {showCancel ? 'Confirm' : 'OK'}
+          {confirmLabel || (showCancel ? 'Confirm' : 'OK')}
         </button>
       </Box>
     </Dialog>
@@ -957,9 +1051,6 @@ const AttendanceModuleNonTeachingStaff = () => {
   const [attendanceData, setAttendanceData] = useState([]);
   const [loading, setLoading]               = useState(false);
   const [saving, setSaving]                 = useState(false);
-  const [saveLoadingOverlayOpen, setSaveLoadingOverlayOpen] = useState(false);
-  const [saveSuccessOverlayOpen, setSaveSuccessOverlayOpen] = useState(false);
-  const [pendingSaveRedirect, setPendingSaveRedirect] = useState(false);
   const [error, setError]                   = useState('');
   const [pageLoading, setPageLoading]       = useState(true);
   const [activeTab, setActiveTab]           = useState('regular');
@@ -1010,10 +1101,18 @@ const AttendanceModuleNonTeachingStaff = () => {
   const showSnackbar = (message, severity = 'success') => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
-  const [modal, setModal] = useState({ open: false, title: '', message: '', type: 'info', onConfirm: null, showCancel: false });
-  const showModal = (title, message, type = 'info', onConfirm = null, showCancel = false) =>
-    setModal({ open: true, title, message, type, onConfirm, showCancel });
-  const closeModal = () => setModal((p) => ({ ...p, open: false }));
+  const [modal, setModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    type: 'info',
+    onConfirm: null,
+    showCancel: false,
+    confirmLabel: null,
+  });
+  const showModal = (title, message, type = 'info', onConfirm = null, showCancel = false, confirmLabel = null) =>
+    setModal({ open: true, title, message, type, onConfirm, showCancel, confirmLabel });
+  const closeModal = () => setModal((p) => ({ ...p, open: false, confirmLabel: null }));
 
   const [compareOpen, setCompareOpen] = useState(false);
   const [pendingSavedOverall, setPendingSavedOverall] = useState(null);
@@ -1079,7 +1178,7 @@ const AttendanceModuleNonTeachingStaff = () => {
       const mer = (m[4] || '').toUpperCase();
       if ([hh, mm, ss].some(Number.isNaN)) return null;
       if (mer) { if (hh === 12) hh = 0; if (mer === 'PM') hh += 12; }
-      return hh * 3600 + mm * 60 + ss;
+      return hh * 3600 + mm * 60;
     };
     const formatSeconds = (secs) => {
       const safe = Math.max(0, Number(secs) || 0);
@@ -1182,15 +1281,21 @@ const AttendanceModuleNonTeachingStaff = () => {
     values.forEach((t) => {
       if (!t || t === 'NaN:NaN:NaN' || t === '—') return;
       const parts = t.split(':').map(Number);
-      if (parts.length === 3 && parts.every(n => !isNaN(n)))
-        total += parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length >= 2 && [parts[0], parts[1]].every((n) => !Number.isNaN(n)))
+        total += parts[0] * 3600 + parts[1] * 60;
     });
     const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   }, []);
 
   const addTimes = useCallback((a, b) => {
-    const parse = (t) => { const [h, m, s] = (t || '00:00:00').split(':').map(Number); return h * 3600 + m * 60 + s; };
+    const parse = (t) => {
+      const parts = (t || '00:00:00').split(':').map(Number);
+      const h = parts[0] || 0;
+      const m = parts[1] || 0;
+      if (Number.isNaN(h) || Number.isNaN(m)) return 0;
+      return h * 3600 + m * 60;
+    };
     const total = parse(a) + parse(b);
     const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
@@ -1229,19 +1334,6 @@ const AttendanceModuleNonTeachingStaff = () => {
     });
   }, [employeeNumber, startDate, endDate, navigate]);
 
-  const finishSaveFlowWithRedirect = useCallback(() => {
-    setSaveLoadingOverlayOpen(false);
-    setPendingSaveRedirect(true);
-    setSaveSuccessOverlayOpen(true);
-  }, []);
-
-  const handleSaveSuccessOverlayClose = useCallback(() => {
-    setSaveSuccessOverlayOpen(false);
-    if (!pendingSaveRedirect) return;
-    setPendingSaveRedirect(false);
-    navigateToOverallAttendanceSummary();
-  }, [pendingSaveRedirect, navigateToOverallAttendanceSummary]);
-
   const buildOverallRecordPayload = () => ({
     personID: employeeNumber, startDate, endDate,
     totalRenderedTimeMorning:             totals.morningRendered,
@@ -1265,12 +1357,11 @@ const AttendanceModuleNonTeachingStaff = () => {
       getAuthHeaders(),
     );
     showSnackbar('Attendance summary updated from your choices.', 'success');
-    finishSaveFlowWithRedirect();
+    navigateToOverallAttendanceSummary();
   };
 
   const saveOverallAttendance = async () => {
     const record = buildOverallRecordPayload();
-    setSaveLoadingOverlayOpen(true);
     setSaving(true);
     try {
       const dup = await axios.get(`${API_BASE_URL}/attendance/api/overall_attendance_record`, { params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders() });
@@ -1278,35 +1369,40 @@ const AttendanceModuleNonTeachingStaff = () => {
       if (existingList.length) {
         const existing = existingList[0];
         if (!overallRecordsDiffer(existing, record)) {
-          showSnackbar('Summary already matches these totals. No changes to save.', 'info');
-          setSaveLoadingOverlayOpen(false);
+          showModal(
+            'Duplicate attendance summary',
+            `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
+            'info',
+            () => {
+              closeModal();
+              navigateToOverallAttendanceSummary();
+            },
+            true,
+            'Continue to summary',
+          );
           return;
         }
         setPendingSavedOverall(existing);
         setPendingProposedOverall(record);
         setCompareOpen(true);
-        setSaveLoadingOverlayOpen(false);
         return;
       }
     } catch (e) {
       console.error('Duplicate-check failed:', e);
       showModal('Verification Failed', 'Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.', 'error');
-      setSaveLoadingOverlayOpen(false);
       return;
     } finally {
       setSaving(false);
     }
 
-    setSaveLoadingOverlayOpen(true);
     setSaving(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/attendance/api/overall_attendance`, record, getAuthHeaders());
       showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
-      finishSaveFlowWithRedirect();
+      navigateToOverallAttendanceSummary();
     } catch (err) {
       console.error('Error saving overall attendance:', err);
       showSnackbar('Failed to save attendance record.', 'error');
-      setSaveLoadingOverlayOpen(false);
     } finally {
       setSaving(false);
     }
@@ -1343,7 +1439,6 @@ const AttendanceModuleNonTeachingStaff = () => {
       return;
     }
     setCompareOpen(false);
-    setSaveLoadingOverlayOpen(true);
     setSaving(true);
     try {
       const merged = mergeOverallPayload({
@@ -1358,7 +1453,6 @@ const AttendanceModuleNonTeachingStaff = () => {
     } catch (err) {
       console.error('Error updating overall attendance:', err);
       showSnackbar(err.response?.data?.message || 'Failed to update attendance record.', 'error');
-      setSaveLoadingOverlayOpen(false);
     } finally {
       setSaving(false);
       setPendingSavedOverall(null);
@@ -1527,13 +1621,8 @@ const AttendanceModuleNonTeachingStaff = () => {
         </Snackbar>
 
         <LoadingOverlay
-          open={loading || saveLoadingOverlayOpen}
-          message={saveLoadingOverlayOpen ? 'Saving attendance summary…' : 'Fetching attendance records…'}
-        />
-        <SuccessfulOverlay
-          open={saveSuccessOverlayOpen}
-          action="create"
-          onClose={handleSaveSuccessOverlayClose}
+          open={loading}
+          message="Fetching attendance records…"
         />
 
         {/* ── Page Header ── */}
@@ -1851,8 +1940,15 @@ const AttendanceModuleNonTeachingStaff = () => {
                             <TableCell sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem', color: '#166534', textAlign: 'center', py: 1.5, borderBottom: 'none', borderLeft: `2px solid ${T.accentBorder}`, bgcolor: 'rgba(21,128,61,0.10)' }}>
                               {totals.overallRendered || '00:00:00'}
                             </TableCell>
-                            <TableCell sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem', color: '#991b1b', textAlign: 'center', py: 1.5, borderBottom: 'none', bgcolor: 'rgba(153,27,27,0.10)' }}>
-                              {totals.overallTardiness || '00:00:00'}
+                            <TableCell sx={{ textAlign: 'center', py: 1.5, borderBottom: 'none', bgcolor: 'rgba(153,27,27,0.10)' }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.2 }}>
+                                <Typography sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem', color: '#991b1b', letterSpacing: '0.04em' }}>
+                                  {formatTardinessAsDaysHours(totals.overallTardiness || '00:00:00')}
+                                </Typography>
+                                <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.72rem', color: 'rgba(153,27,27,0.55)', letterSpacing: '0.03em' }}>
+                                  {totals.overallTardiness || '00:00:00'}
+                                </Typography>
+                              </Box>
                             </TableCell>
                           </TableRow>
                         </>}
@@ -1907,6 +2003,7 @@ const AttendanceModuleNonTeachingStaff = () => {
           type={modal.type}
           onConfirm={modal.onConfirm}
           showCancel={modal.showCancel}
+          confirmLabel={modal.confirmLabel}
         />
 
         <OverallAttendanceCompareModal

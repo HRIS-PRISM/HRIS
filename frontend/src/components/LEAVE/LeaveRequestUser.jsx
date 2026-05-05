@@ -845,28 +845,23 @@ const LeaveRequestUser = () => {
     }));
   }, [assignments, leaveTypes]);
 
+  /** Total remaining days for selected leave type — same rule as LeaveRequest.jsx (sum all assignment rows). */
   const getAllocatedRemainingDays = () => {
     if (!newLeaveRequest.leave_code || !assignments.length) return null;
-    const allocated = assignments
-      .filter(
-        (a) =>
-          a.leave_code === newLeaveRequest.leave_code &&
-          (a.carried_forward_hours === null ||
-            Number(a.carried_forward_hours) === 0),
-      )
-      .sort((a, b) => {
-        if (b.period_year !== a.period_year)
-          return b.period_year - a.period_year;
-        const semVal = (s) => {
-          if (!s) return 0;
-          if (s.includes("2nd")) return 2;
-          if (s.includes("1st")) return 1;
-          return 0;
-        };
-        return semVal(b.period_semester) - semVal(a.period_semester);
-      })[0];
-    if (!allocated) return null;
-    return (parseFloat(allocated.remaining_hours) || 0) / 8;
+    const matches = assignments.filter(
+      (a) => a.leave_code === newLeaveRequest.leave_code,
+    );
+    if (!matches.length) return null;
+    const totalHours = matches.reduce((sum, row) => {
+      const rowAvail =
+        parseFloat(
+          row.remaining_hours ??
+            ((parseFloat(row.allocated_hours) || 0) -
+              (parseFloat(row.used_hours) || 0)),
+        ) || 0;
+      return sum + rowAvail;
+    }, 0);
+    return totalHours / 8;
   };
 
   const months = [
@@ -1050,12 +1045,21 @@ const LeaveRequestUser = () => {
 
   const inlineLeaveTypeError = useMemo(() => {
     if (!newLeaveRequest.leave_code) return "";
-    const hasAllocation = assignments.some(
-      (a) =>
-        a.leave_code === newLeaveRequest.leave_code &&
-        parseFloat(a.allocated_hours || 0) > 0,
+    const matches = assignments.filter(
+      (a) => a.leave_code === newLeaveRequest.leave_code,
     );
-    if (!hasAllocation)
+    if (!matches.length)
+      return "This request cannot be processed due to insufficient leave balance.";
+    const available = matches.reduce((sum, row) => {
+      const rowAvail =
+        parseFloat(
+          row.remaining_hours ??
+            ((parseFloat(row.allocated_hours) || 0) -
+              (parseFloat(row.used_hours) || 0)),
+        ) || 0;
+      return sum + rowAvail;
+    }, 0);
+    if (available <= 0)
       return "This request cannot be processed due to insufficient leave balance.";
     return "";
   }, [newLeaveRequest.leave_code, assignments]);
