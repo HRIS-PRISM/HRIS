@@ -1760,6 +1760,121 @@
     },
   ];
 
+  const TabBar = ({ activeTab, onTabChange }) => (
+    <Box
+      sx={{
+        background: T.headerGrad,
+        px: { xs: 0, sm: 1 },
+        pt: 0.75,
+        pb: 0,
+        display: "flex",
+        alignItems: "flex-end",
+        flexShrink: 0,
+      }}
+    >
+      {TABS.map((t, idx) => {
+        const Icon = t.icon;
+        const isActive = idx === activeTab;
+        return (
+          <Box
+            key={t.id}
+            onClick={() => onTabChange(idx)}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.6,
+              px: { xs: 1.5, sm: 2.5 },
+              py: 0.85,
+              cursor: "pointer",
+              position: "relative",
+              borderRadius: "8px 8px 0 0",
+              transition: "background 0.15s",
+              bgcolor: isActive ? "rgba(255,255,255,0.97)" : "transparent",
+              "&:hover": isActive ? {} : { bgcolor: "rgba(255,255,255,0.1)" },
+              "&::after": isActive
+                ? {
+                    content: '""',
+                    position: "absolute",
+                    bottom: -1,
+                    left: 0,
+                    right: 0,
+                    height: 2,
+                    bgcolor: "rgba(255,255,255,0.97)",
+                  }
+                : {},
+            }}
+          >
+            <Icon
+              sx={{
+                fontSize: 13,
+                color: isActive ? T.accent : "rgba(255,255,255,0.6)",
+                flexShrink: 0,
+              }}
+            />
+            <Typography
+              sx={{
+                fontSize: "0.73rem",
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? T.accent : "rgba(255,255,255,0.7)",
+                fontFamily: T.poppins,
+                whiteSpace: "nowrap",
+                display: { xs: "none", sm: "block" },
+              }}
+            >
+              {t.label}
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "0.73rem",
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? T.accent : "rgba(255,255,255,0.7)",
+                fontFamily: T.poppins,
+                whiteSpace: "nowrap",
+                display: { xs: "block", sm: "none" },
+              }}
+            >
+              {t.shortLabel}
+            </Typography>
+            {t.id === "salary_shortfall" && (
+              <Chip
+                label="Recovery"
+                size="small"
+                sx={{
+                  height: 18,
+                  fontSize: "0.55rem",
+                  fontWeight: 800,
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.02em",
+                  bgcolor: isActive ? alpha(T.accent, 0.12) : "rgba(255,255,255,0.18)",
+                  color: isActive ? T.accent : "rgba(255,255,255,0.92)",
+                  border: `1px solid ${isActive ? T.accentBorder : "rgba(255,255,255,0.35)"}`,
+                  flexShrink: 0,
+                }}
+              />
+            )}
+            {t.id === "abstract" && (
+              <Chip
+                label="attendance_result"
+                size="small"
+                sx={{
+                  height: 18,
+                  fontSize: "0.52rem",
+                  fontWeight: 800,
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.02em",
+                  bgcolor: isActive ? alpha(T.accent, 0.12) : "rgba(255,255,255,0.18)",
+                  color: isActive ? T.accent : "rgba(255,255,255,0.92)",
+                  border: `1px solid ${isActive ? T.accentBorder : "rgba(255,255,255,0.35)"}`,
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+
   /**
    * DeductHalfDayModal (half-day attendance deduction)
    *
@@ -3214,6 +3329,8 @@
       },
     };
 
+    const isAbstractTab = activeTab === 4;
+
     return (
       <Box sx={{ fontFamily: T.poppins }}>
         <style>{globalCss}</style>
@@ -3727,34 +3844,6 @@
                     onChange={handleMonthChange}
                   />
                 </Box>
-                {payrollRecordsForSubmit && payrollRecordsForSubmit.length > 0 && (
-                  <Tooltip title="Submit this period’s overall attendance summary to regular payroll (same as from Attendance Summary). Finish leave deductions first if needed.">
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={() => {
-                        setPayrollConfirmChecked(false);
-                        setPayrollSubmitDialogOpen(true);
-                      }}
-                      sx={{
-                        height: 36,
-                        minHeight: 36,
-                        px: 1.25,
-                        fontSize: "0.72rem",
-                        fontWeight: 700,
-                        textTransform: "none",
-                        flexShrink: 0,
-                        alignSelf: "center",
-                        ml: { xs: 0, sm: "auto" },
-                        bgcolor: T.accent,
-                        boxShadow: "none",
-                        "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
-                      }}
-                    >
-                      Submit to Payroll Regular
-                    </Button>
-                  </Tooltip>
-                )}
               </Box>
               {catFilter && (
                 <Typography
@@ -3770,127 +3859,10 @@
                 </Typography>
               )}
             </Box>
-
-            {/* Tab row */}
-            <Box
-              sx={{
-                background: T.headerGrad,
-                px: { xs: 0, sm: 1 },
-                pt: 0.75,
-                pb: 0,
-                display: "flex",
-                alignItems: "flex-end",
-              }}
-            >
-              {TABS.map((t, idx) => {
-                const Icon = t.icon;
-                const isActive = idx === activeTab;
-                return (
-                  <Box
-                    key={t.id}
-                    onClick={() => setActiveTab(idx)}
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 0.6,
-                      px: { xs: 1.5, sm: 2.5 },
-                      py: 0.85,
-                      cursor: "pointer",
-                      position: "relative",
-                      borderRadius: "8px 8px 0 0",
-                      transition: "background 0.15s",
-                      bgcolor: isActive
-                        ? "rgba(255,255,255,0.97)"
-                        : "transparent",
-                      "&:hover": isActive
-                        ? {}
-                        : { bgcolor: "rgba(255,255,255,0.1)" },
-                      "&::after": isActive
-                        ? {
-                            content: '""',
-                            position: "absolute",
-                            bottom: -1,
-                            left: 0,
-                            right: 0,
-                            height: 2,
-                            bgcolor: "rgba(255,255,255,0.97)",
-                          }
-                        : {},
-                    }}
-                  >
-                    <Icon
-                      sx={{
-                        fontSize: 13,
-                        color: isActive ? T.accent : "rgba(255,255,255,0.6)",
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Typography
-                      sx={{
-                        fontSize: "0.73rem",
-                        fontWeight: isActive ? 700 : 500,
-                        color: isActive ? T.accent : "rgba(255,255,255,0.7)",
-                        fontFamily: T.poppins,
-                        whiteSpace: "nowrap",
-                        display: { xs: "none", sm: "block" },
-                      }}
-                    >
-                      {t.label}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.73rem",
-                        fontWeight: isActive ? 700 : 500,
-                        color: isActive ? T.accent : "rgba(255,255,255,0.7)",
-                        fontFamily: T.poppins,
-                        whiteSpace: "nowrap",
-                        display: { xs: "block", sm: "none" },
-                      }}
-                    >
-                      {t.shortLabel}
-                    </Typography>
-                    {t.id === "salary_shortfall" && (
-                      <Chip
-                        label="Recovery"
-                        size="small"
-                        sx={{
-                          height: 18,
-                          fontSize: "0.55rem",
-                          fontWeight: 800,
-                          fontFamily: T.poppins,
-                          letterSpacing: "0.02em",
-                          bgcolor: isActive ? alpha(T.accent, 0.12) : "rgba(255,255,255,0.18)",
-                          color: isActive ? T.accent : "rgba(255,255,255,0.92)",
-                          border: `1px solid ${isActive ? T.accentBorder : "rgba(255,255,255,0.35)"}`,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                    {t.id === "abstract" && (
-                      <Chip
-                        label="attendance_result"
-                        size="small"
-                        sx={{
-                          height: 18,
-                          fontSize: "0.52rem",
-                          fontWeight: 800,
-                          fontFamily: T.poppins,
-                          letterSpacing: "0.02em",
-                          bgcolor: isActive ? alpha(T.accent, 0.12) : "rgba(255,255,255,0.18)",
-                          color: isActive ? T.accent : "rgba(255,255,255,0.92)",
-                          border: `1px solid ${isActive ? T.accentBorder : "rgba(255,255,255,0.35)"}`,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                  </Box>
-                );
-              })}
-            </Box>
           </SectionCard>
         </Box>
 
-        {/* ── 3-Column Content ── */}
+        {/* ── Content area (attendance + tabs); Abstract uses full-width overlay ── */}
         <Box
           sx={{
             width: "100vw",
@@ -3899,148 +3871,235 @@
             left: "63%",
             transform: "translateX(-61%)",
             px: { xs: 2, sm: 3, md: 6 },
-            pb: 4,
+            pb: 0,
           }}
         >
-          <SectionCard sx={{ borderRadius: "0 0 12px 12px", borderTop: "none" }}>
-            <Fade
-              in
-              key={`${activeTab}-${periodYear}-${periodMonth}`}
-              timeout={250}
+          <SectionCard
+            sx={{
+              borderRadius: "0 0 12px 12px",
+              borderTop: "none",
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "1fr 2fr" },
+                height: { xs: "auto", md: "calc(100vh - 290px)" },
+                minHeight: { xs: "unset", md: 480 },
+                overflow: { xs: "visible", md: "hidden" },
+                visibility: isAbstractTab ? "hidden" : "visible",
+              }}
             >
               <Box
                 sx={{
-                  display: "grid",
-                  gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
-                  height: { xs: "auto", md: "calc(100vh - 340px)" },
-                  minHeight: { xs: "unset", md: 480 },
-                  overflow: { xs: "visible", md: "hidden" },
-                  rowGap: { xs: 2, md: 0 },
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                  borderRight: { xs: "none", md: `1px solid ${T.divider}` },
                 }}
               >
-                {/* Column 1: Attendance */}
+                <AttendanceSummary
+                  employee={selectedEmployee}
+                  year={periodYear}
+                  month={periodMonth}
+                  attendanceData={attendanceData}
+                  attendanceLoading={attendanceLoading}
+                  onRefresh={fetchAttendance}
+                  onRecordsRefresh={handleRecordsRefresh}
+                  onBalancesInvalidate={handleBalanceChanged}
+                  empCat={empCat}
+                  vlReceiptRefreshKey={vlReceiptRefreshKey}
+                  balanceRefreshKey={balanceKey}
+                  deductedVlHalfDates={deductedVlHalfDates}
+                  onDeductHalfDayVLRequested={openVlHalfModalForDate}
+                />
+              </Box>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                }}
+              >
+                <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+                <Fade
+                  in
+                  key={`${activeTab}-${periodYear}-${periodMonth}`}
+                  timeout={250}
+                >
+                  <Box
+                    sx={{
+                      flex: 1,
+                      overflow: "hidden",
+                      display: "grid",
+                      gridTemplateColumns:
+                        activeTab <= 2
+                          ? { xs: "1fr", md: "1fr 1fr" }
+                          : "1fr",
+                      minHeight: 0,
+                    }}
+                  >
+                    {activeTab <= 2 && (
+                      <>
+                        <Box
+                          sx={{
+                            overflowY: "auto",
+                            overflowX: "hidden",
+                            display: "flex",
+                            flexDirection: "column",
+                            borderRight: { xs: "none", md: `1px solid ${T.divider}` },
+                          }}
+                        >
+                          {activeTab === 0 && (
+                            <LeaveInputColumn
+                              {...sharedTabProps}
+                              onBalanceChanged={handleBalanceChanged}
+                              refreshKey={balanceKey}
+                              onRecordsRefresh={handleRecordsRefresh}
+                            />
+                          )}
+                          {activeTab === 1 && (
+                            <SCInputColumn
+                              {...sharedTabProps}
+                              onRecordsRefresh={handleRecordsRefresh}
+                            />
+                          )}
+                          {activeTab === 2 && (
+                            <CTOInputColumn
+                              {...sharedTabProps}
+                              onRecordsRefresh={handleRecordsRefresh}
+                            />
+                          )}
+                        </Box>
+                        <Box
+                          sx={{
+                            overflowY: "auto",
+                            overflowX: "hidden",
+                            display: "flex",
+                            flexDirection: "column",
+                          }}
+                        >
+                          <RecordsList
+                            employeeNumber={selectedEmployee?.employeeNumber}
+                            type={TABS[activeTab].id}
+                            unit={unit}
+                            refreshKey={recordsRefreshKey}
+                            year={periodYear}
+                            month={periodMonth}
+                            onApproved={handleBalanceChanged}
+                            standalone
+                            onStatusChange={() =>
+                              setVlReceiptRefreshKey((k) => k + 1)
+                            }
+                            approverNameLookup={approverNameLookup}
+                          />
+                        </Box>
+                      </>
+                    )}
+                    {activeTab === 3 && (
+                      <Box
+                        sx={{
+                          overflowY: "auto",
+                          overflowX: "hidden",
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                      >
+                        <SalaryShortfallRegistry
+                          employee={selectedEmployee}
+                          year={periodYear}
+                          month={periodMonth}
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </Fade>
+              </Box>
+            </Box>
+            {isAbstractTab && (
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  bgcolor: T.surface,
+                  zIndex: 2,
+                  overflow: "hidden",
+                }}
+              >
+                <Box sx={{ flexShrink: 0 }}>
+                  <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+                </Box>
                 <Box
                   sx={{
+                    flex: 1,
                     overflowY: "auto",
                     overflowX: "hidden",
                     display: "flex",
                     flexDirection: "column",
-                    borderRight: { xs: "none", md: `1px solid ${T.divider}` },
                   }}
                 >
-        <AttendanceSummary
-    employee={selectedEmployee}
-    year={periodYear}
-    month={periodMonth}
-    attendanceData={attendanceData}
-    attendanceLoading={attendanceLoading}
-    onRefresh={fetchAttendance}
-    onRecordsRefresh={handleRecordsRefresh}
-    onBalancesInvalidate={handleBalanceChanged}
-    empCat={empCat}
-    vlReceiptRefreshKey={vlReceiptRefreshKey}
-    balanceRefreshKey={balanceKey}   // ← add this
-                  deductedVlHalfDates={deductedVlHalfDates}
-                  onDeductHalfDayVLRequested={openVlHalfModalForDate}
-  />
+                  <Abstract
+                    employee={selectedEmployee}
+                    year={periodYear}
+                    month={periodMonth}
+                  />
                 </Box>
-                {activeTab <= 2 && (
-                  <>
-                    {/* Column 2: Input Earnings */}
-                    <Box
-                      sx={{
-                        overflowY: "auto",
-                        overflowX: "hidden",
-                        display: "flex",
-                        flexDirection: "column",
-                        borderRight: { xs: "none", md: `1px solid ${T.divider}` },
-                      }}
-                    >
-                      {activeTab === 0 && (
-                        <LeaveInputColumn
-                          {...sharedTabProps}
-                          onBalanceChanged={handleBalanceChanged}
-                          refreshKey={balanceKey}
-                          onRecordsRefresh={handleRecordsRefresh}
-                        />
-                      )}
-                      {activeTab === 1 && (
-                        <SCInputColumn
-                          {...sharedTabProps}
-                          onRecordsRefresh={handleRecordsRefresh}
-                        />
-                      )}
-                      {activeTab === 2 && (
-                        <CTOInputColumn
-                          {...sharedTabProps}
-                          onRecordsRefresh={handleRecordsRefresh}
-                        />
-                      )}
-                    </Box>
-                    {/* Column 3: Records Earnings*/}
-                    <Box
-                      sx={{
-                        overflowY: "auto",
-                        overflowX: "hidden",
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
-                    >
-                      <RecordsList
-                        employeeNumber={selectedEmployee?.employeeNumber}
-                        type={TABS[activeTab].id}
-                        unit={unit}
-                        refreshKey={recordsRefreshKey}
-                        year={periodYear}
-                        month={periodMonth}
-                        onApproved={handleBalanceChanged}
-                        standalone
-                        onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
-                        approverNameLookup={approverNameLookup}
-                      />
-                    </Box>
-                  </>
-                )}
-                {activeTab === 3 && (
-                  <Box
-                    sx={{
-                      gridColumn: { xs: "1", md: "2 / span 2" },
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      borderLeft: { md: `1px solid ${T.divider}` },
-                    }}
-                  >
-                    <SalaryShortfallRegistry
-                      employee={selectedEmployee}
-                      year={periodYear}
-                      month={periodMonth}
-                    />
-                  </Box>
-                )}
-                {activeTab === 4 && (
-                  <Box
-                    sx={{
-                      gridColumn: { xs: "1", md: "2 / span 2" },
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      display: "flex",
-                      flexDirection: "column",
-                      borderLeft: { md: `1px solid ${T.divider}` },
-                    }}
-                  >
-                    <Abstract
-                      employee={selectedEmployee}
-                      year={periodYear}
-                      month={periodMonth}
-                    />
-                  </Box>
-                )}
               </Box>
-            </Fade>
+            )}
           </SectionCard>
         </Box>
+
+        {payrollRecordsForSubmit && payrollRecordsForSubmit.length > 0 && (
+          <Box
+            sx={{
+              width: "100vw",
+              maxWidth: "100%",
+              position: "relative",
+              left: "63%",
+              transform: "translateX(-61%)",
+              px: { xs: 2, sm: 3, md: 6 },
+              pt: 1.5,
+              pb: 3,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <Tooltip title="Submit this period's overall attendance summary to regular payroll. Finish leave deductions first if needed.">
+              <Button
+                variant="contained"
+                startIcon={<PayrollAssignmentIcon sx={{ fontSize: 16 }} />}
+                onClick={() => {
+                  setPayrollConfirmChecked(false);
+                  setPayrollSubmitDialogOpen(true);
+                }}
+                sx={{
+                  height: 40,
+                  px: 2.5,
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                  textTransform: "none",
+                  fontFamily: T.poppins,
+                  bgcolor: T.accent,
+                  borderRadius: 2,
+                  boxShadow: `0 2px 12px ${alpha(T.accent, 0.28)}`,
+                  "&:hover": {
+                    bgcolor: T.accentDark,
+                    boxShadow: `0 4px 18px ${alpha(T.accent, 0.38)}`,
+                    transform: "translateY(-1px)",
+                  },
+                  transition: "all 0.18s ease",
+                }}
+              >
+                Submit to Payroll Regular
+              </Button>
+            </Tooltip>
+          </Box>
+        )}
 
         <DeductHalfDayVLModal
           open={vlHalfModalOpen}
