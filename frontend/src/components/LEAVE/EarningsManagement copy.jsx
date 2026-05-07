@@ -1066,27 +1066,27 @@
 
     return (
       <>
-    <Tooltip title="Quick Conversion Tool" placement="left">
-      <Box
-        onClick={() => setOpen((v) => !v)}
-        sx={{
-          width: 48,
-          height: 48,
-          borderRadius: "50%",
-          bgcolor: open ? T.accentDark : T.accent,
-          color: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          boxShadow: `0 4px 16px ${alpha(T.accent, 0.45)}`,
-          transition: "all 0.2s ease",
-          "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" },
-        }}
-      >
-        {open ? <Close sx={{ fontSize: 20 }} /> : <CalculateIcon sx={{ fontSize: 22 }} />}
-      </Box>
-    </Tooltip>
+<Tooltip title="Quick Conversion Tool" placement="top">
+  <Box
+    onClick={() => setOpen((v) => !v)}
+    sx={{
+      width: 48,
+      height: 48,
+      borderRadius: "50%",
+      bgcolor: open ? T.accentDark : T.accent,
+      color: "#fff",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer",
+      boxShadow: `0 4px 16px ${alpha(T.accent, 0.45)}`,
+      transition: "all 0.2s ease",
+      "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" },
+    }}
+  >
+    {open ? <Close sx={{ fontSize: 20 }} /> : <CalculateIcon sx={{ fontSize: 22 }} />}
+  </Box>
+</Tooltip>
     <Collapse in={open} timeout={200}>
       <Paper
         elevation={0}
@@ -1827,6 +1827,40 @@
             >
               {t.shortLabel}
             </Typography>
+            {t.id === "salary_shortfall" && (
+              <Chip
+                label="Recovery"
+                size="small"
+                sx={{
+                  height: 18,
+                  fontSize: "0.55rem",
+                  fontWeight: 800,
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.02em",
+                  bgcolor: isActive ? alpha(T.accent, 0.12) : "rgba(255,255,255,0.18)",
+                  color: isActive ? T.accent : "rgba(255,255,255,0.92)",
+                  border: `1px solid ${isActive ? T.accentBorder : "rgba(255,255,255,0.35)"}`,
+                  flexShrink: 0,
+                }}
+              />
+            )}
+            {t.id === "abstract" && (
+              <Chip
+                label="attendance_result"
+                size="small"
+                sx={{
+                  height: 18,
+                  fontSize: "0.52rem",
+                  fontWeight: 800,
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.02em",
+                  bgcolor: isActive ? alpha(T.accent, 0.12) : "rgba(255,255,255,0.18)",
+                  color: isActive ? T.accent : "rgba(255,255,255,0.92)",
+                  border: `1px solid ${isActive ? T.accentBorder : "rgba(255,255,255,0.35)"}`,
+                  flexShrink: 0,
+                }}
+              />
+            )}
           </Box>
         );
       })}
@@ -4688,47 +4722,104 @@
           </DialogActions>
         </Dialog>
 
-   {/* Floating buttons stack — bottom right */}
+{/* ── Floating button row: Submit to Payroll + Conversion Widget ── */}
 <Box
   sx={{
     position: "fixed",
-    bottom: 60,
-    right: 10,
+    bottom: 72,
+    right: 16,
     zIndex: 9999,
     display: "flex",
-    flexDirection: "column",
+    flexDirection: "row",
     alignItems: "center",
     gap: 1,
   }}
 >
-  {/* Submit to Payroll floating button */}
-  <Tooltip title={payrollRecordsForSubmit?.length ? "Submit to Regular Payroll" : "No payroll records ready"} placement="left">
+  {/* Submit to Payroll pill button */}
+  <Tooltip
+    title={
+      payrollRecordsForSubmit?.length
+        ? `Submit ${payrollRecordsForSubmit.length} record(s) to regular payroll`
+        : "No payroll records ready to submit"
+    }
+    placement="top"
+  >
     <Box
-      onClick={() => payrollRecordsForSubmit?.length && setPayrollSubmitDialogOpen(true)}
+      onClick={() =>
+        payrollRecordsForSubmit?.length && setPayrollSubmitDialogOpen(true)
+      }
       sx={{
-        width: 48,
-        height: 48,
-        borderRadius: "50%",
-        bgcolor: payrollRecordsForSubmit?.length ? T.accent : "rgba(109,35,35,0.25)",
-        color: "#fff",
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
+        gap: 1,
+        px: 2,
+        height: 48,
+        borderRadius: 24,
+        bgcolor: payrollRecordsForSubmit?.length
+          ? T.accent
+          : "rgba(109,35,35,0.22)",
+        color: "#fff",
         cursor: payrollRecordsForSubmit?.length ? "pointer" : "not-allowed",
         boxShadow: payrollRecordsForSubmit?.length
           ? `0 4px 16px ${alpha(T.accent, 0.45)}`
-          : "0 2px 8px rgba(0,0,0,0.12)",
+          : "0 2px 8px rgba(0,0,0,0.10)",
         transition: "all 0.2s ease",
+        userSelect: "none",
         ...(payrollRecordsForSubmit?.length && {
-          "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" },
+          "&:hover": {
+            bgcolor: T.accentDark,
+            transform: "translateY(-1px)",
+            boxShadow: `0 6px 20px ${alpha(T.accent, 0.5)}`,
+          },
+          "&:active": { transform: "translateY(0)" },
         }),
       }}
     >
-      <PayrollAssignmentIcon sx={{ fontSize: 22 }} />
+      <PayrollAssignmentIcon
+        sx={{
+          fontSize: 18,
+          color: payrollRecordsForSubmit?.length
+            ? "#fff"
+            : "rgba(255,255,255,0.55)",
+          flexShrink: 0,
+        }}
+      />
+      <Box>
+        <Typography
+          sx={{
+            fontSize: "0.72rem",
+            fontWeight: 800,
+            color: payrollRecordsForSubmit?.length
+              ? "#fff"
+              : "rgba(255,255,255,0.55)",
+            fontFamily: T.poppins,
+            lineHeight: 1.1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Submit to Payroll
+        </Typography>
+        <Typography
+          sx={{
+            fontSize: "0.58rem",
+            fontWeight: 500,
+            color: payrollRecordsForSubmit?.length
+              ? "rgba(255,255,255,0.7)"
+              : "rgba(255,255,255,0.35)",
+            fontFamily: T.poppins,
+            lineHeight: 1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {payrollRecordsForSubmit?.length
+            ? `${payrollRecordsForSubmit.length} record${payrollRecordsForSubmit.length !== 1 ? "s" : ""} ready`
+            : "No records ready"}
+        </Typography>
+      </Box>
     </Box>
   </Tooltip>
 
-  {/* Conversion widget trigger */}
+  {/* Conversion widget trigger — circle button, panel still pops up fixed */}
   <FloatingConversionWidget />
 </Box>
       </Box>
