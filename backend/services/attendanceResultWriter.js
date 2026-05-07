@@ -195,16 +195,16 @@ async function upsertFromLeaveEarningDeduction({
 }
 
 /**
- * Service credit deduction approval (leave_earning_id null on legacy LSS).
+ * Service credit deduction: links to sc_earnings row when present, else to service_credit ledger snapshot.
  */
 async function upsertFromScEarningDeduction({
   employee_number,
   sc_earning_id,
+  service_credit_ledger_id,
   period_year,
   period_month,
   remarks,
   need_hours,
-  rem_before,
   shortfall_hours,
 }) {
   const nh = Math.abs(toNum(need_hours));
@@ -215,19 +215,34 @@ async function upsertFromScEarningDeduction({
     fallbackDateFromPeriod(period_year, period_month);
   if (!result_date) return;
 
-  const id = parseInt(sc_earning_id, 10);
+  const earnId = sc_earning_id != null ? parseInt(sc_earning_id, 10) : NaN;
+  const ledId = service_credit_ledger_id != null ? parseInt(service_credit_ledger_id, 10) : NaN;
+  let source_key;
+  let scEarnCol = null;
+  if (Number.isFinite(earnId) && earnId > 0) {
+    source_key = `SC_EARNING:${earnId}`;
+    scEarnCol = earnId;
+  } else if (Number.isFinite(ledId) && ledId > 0) {
+    source_key = `SC_SERVICE_CREDIT:${ledId}`;
+    scEarnCol = null;
+  } else {
+    const ts = Date.now();
+    source_key = `SC_DEDUCTION_DIRECT:${String(employee_number).trim()}:${period_year}:${period_month}:${ts}`;
+    scEarnCol = null;
+  }
+
   await upsertAttendanceResult({
     employee_number,
     result_date,
     source_type: "ABSENT",
-    source_key: `SC_EARNING:${id}`,
+    source_key,
     original_hours: nh,
     leave_used: "SC",
     leave_hours_used: leavePortion,
     unpaid_hours: sh,
     paid_hours: leavePortion,
     status: resolveStatus(nh, sh),
-    sc_earning_id: id,
+    sc_earning_id: scEarnCol,
     remarks: remarks || null,
   });
 }
@@ -235,6 +250,8 @@ async function upsertFromScEarningDeduction({
 async function upsertFromCtoEarningDeduction({
   employee_number,
   cto_earning_id,
+  cto_credit_ledger_id,
+  cto_deduction_source_key,
   period_year,
   period_month,
   remarks,
@@ -249,19 +266,38 @@ async function upsertFromCtoEarningDeduction({
     fallbackDateFromPeriod(period_year, period_month);
   if (!result_date) return;
 
-  const id = parseInt(cto_earning_id, 10);
+  const earnId = cto_earning_id != null ? parseInt(cto_earning_id, 10) : NaN;
+  const ledId = cto_credit_ledger_id != null ? parseInt(cto_credit_ledger_id, 10) : NaN;
+  let source_key;
+  let ctoEarnCol = null;
+  if (Number.isFinite(earnId) && earnId > 0) {
+    source_key = `CTO_EARNING:${earnId}`;
+    ctoEarnCol = earnId;
+  } else if (Number.isFinite(ledId) && ledId > 0) {
+    source_key = `CTO_SERVICE_CREDIT:${ledId}`;
+    ctoEarnCol = null;
+  } else if (cto_deduction_source_key != null && String(cto_deduction_source_key).trim() !== "") {
+    const k = String(cto_deduction_source_key).trim().slice(0, 120);
+    source_key = `CTO_DEDUCTION:${k}`;
+    ctoEarnCol = null;
+  } else {
+    const ts = Date.now();
+    source_key = `CTO_DEDUCTION_DIRECT:${String(employee_number).trim()}:${period_year}:${period_month}:${ts}`;
+    ctoEarnCol = null;
+  }
+
   await upsertAttendanceResult({
     employee_number,
     result_date,
     source_type: "ABSENT",
-    source_key: `CTO_EARNING:${id}`,
+    source_key,
     original_hours: nh,
     leave_used: "CTO",
     leave_hours_used: leavePortion,
     unpaid_hours: sh,
     paid_hours: leavePortion,
     status: resolveStatus(nh, sh),
-    cto_earning_id: id,
+    cto_earning_id: ctoEarnCol,
     remarks: remarks || null,
   });
 }

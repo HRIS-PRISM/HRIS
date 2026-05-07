@@ -490,61 +490,8 @@ const insertDeductionDecisionLog = ({
     );
   });
 
-/** Dedicated earnings audit row for half-day policy applies (links to deduction_decision_log id). */
-const insertEarningsAuditLogHalfDay = ({
-  decisionLogId,
-  actorEmployeeNumber,
-  employeeNumber,
-  chargeTo,
-  hours,
-  leaveDate,
-  salaryDeduction,
-  decision,
-  payloadExtra = null,
-}) =>
-  new Promise((resolve) => {
-    const eid = parseInt(decisionLogId, 10);
-    if (!Number.isFinite(eid) || eid <= 0) return resolve();
-
-    const payload = {
-      employeeNumber: String(employeeNumber || ""),
-      charge_to: chargeTo,
-      deducted_hours: hours,
-      leave_date: leaveDate,
-      salary_deduction: Boolean(salaryDeduction),
-      decision_source: "half_day_policy_manual_apply",
-      decision: decision || "accepted",
-      ...(payloadExtra && typeof payloadExtra === "object" ? payloadExtra : {}),
-    };
-    let safePayload;
-    try {
-      safePayload = JSON.stringify(payload);
-    } catch (e) {
-      safePayload = null;
-    }
-
-    db.query(
-      `INSERT INTO earnings_audit_log
-        (earning_type, earning_id, action, old_status, new_status, actor, notes, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        "half_day_policy",
-        String(eid),
-        "half_day_deduction_apply",
-        null,
-        decision || "accepted",
-        actorEmployeeNumber != null ? String(actorEmployeeNumber) : null,
-        `Half-day deduction → ${chargeTo} (${hours} hrs) on ${leaveDate}`,
-        safePayload,
-      ],
-      (err) => {
-        if (err) {
-          console.error("[leave] Failed to insert earnings_audit_log (half-day):", err.message);
-        }
-        resolve();
-      },
-    );
-  });
+/** Half-day policy applies are logged via transaction_table + audit_log (leave_transaction) only;
+ *  earnings_audit_log is reserved for leave / SC / CTO ledger rows. */
 
 /** Mirrors POST /api/leave-salary-shortfall so SalaryShortfallRegistry lists half-day salary applies. */
 const insertLeaveSalaryShortfallForHalfDaySalary = ({
@@ -1233,6 +1180,52 @@ router.post("/leave_assignment", (req, res) => {
     period_semester,
   } = req.body;
 
+  const shouldAutoRollForward = () => {
+    const semRaw = period_semester;
+    const semNum = semRaw != null && String(semRaw).trim() !== "" ? parseInt(String(semRaw), 10) : NaN;
+    if (!Number.isFinite(semNum) || semNum <= 0) return false;
+    // If caller didn't meaningfully specify carry-forward, auto-roll prior remaining into this period.
+    const cfProvided = carried_forward_hours !== undefined && carried_forward_hours !== null && carried_forward_hours !== "";
+    if (!cfProvided) return true;
+    const cfNum = parseDbHours(carried_forward_hours) || 0;
+    return cfNum === 0;
+  };
+
+  const loadPriorRemainingRows = (y, sem, cb) => {
+    const semNum = parseInt(String(sem), 10);
+    if (!employeeNumber || !leave_code || !Number.isFinite(semNum)) return cb(null, { ids: [], carry: 0 });
+    db.query(
+      `SELECT id, remaining_hours
+       FROM leave_assignment
+       WHERE employeeNumber = ?
+         AND TRIM(leave_code) = TRIM(?)
+         AND (
+           period_year < ?
+           OR (period_year = ? AND period_semester IS NOT NULL AND CAST(period_semester AS UNSIGNED) < ?)
+         )
+         AND COALESCE(remaining_hours, 0) > 0`,
+      [String(employeeNumber), String(leave_code), y, y, semNum],
+      (err, rows) => {
+        if (err) return cb(err);
+        const list = Array.isArray(rows) ? rows : [];
+        const ids = list.map((r) => r.id).filter((id) => id != null);
+        const carry = list.reduce((s, r) => s + (parseDbHours(r.remaining_hours) || 0), 0);
+        cb(null, { ids, carry: Math.max(0, carry) });
+      },
+    );
+  };
+
+  const zeroOutPriorRows = (ids, done) => {
+    const safeIds = Array.isArray(ids) ? ids.map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
+    if (!safeIds.length) return done();
+    const placeholders = safeIds.map(() => "?").join(",");
+    db.query(
+      `UPDATE leave_assignment SET remaining_hours = 0 WHERE id IN (${placeholders})`,
+      safeIds,
+      () => done(),
+    );
+  };
+
   const checkQuery =
     "SELECT id FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND period_semester <=> ?";
   db.query(
@@ -1266,28 +1259,28 @@ router.post("/leave_assignment", (req, res) => {
         // If UI sends total_hours, treat it as the intended ALLOCATED amount for the period
         // (carry-forward is stored separately and must be included in total/remaining).
         const customHours = parseDbHours(total_hours);
-        const carriedForward = parseDbHours(carried_forward_hours) || 0;
         const allocated = allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== ''
           ? parseDbHours(allocated_hours)
           : customHours;
         const currentYear = period_year || new Date().getFullYear();
         const semester = period_semester || null;
-        const computedTotal = Math.max(0, carriedForward + allocated);
 
-        const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
-        db.query(
-          insertQuery,
-          [
-            leave_code,
-            employeeNumber,
-            computedTotal,
-            computedTotal,
-            carriedForward,
-            allocated,
-            currentYear,
-            semester,
-          ],
-          (insertErr, result) => {
+        const doInsert = (carriedForward, priorIds = []) => {
+          const computedTotal = Math.max(0, (parseDbHours(carriedForward) || 0) + (parseDbHours(allocated) || 0));
+          const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
+          db.query(
+            insertQuery,
+            [
+              leave_code,
+              employeeNumber,
+              computedTotal,
+              computedTotal,
+              carriedForward,
+              allocated,
+              currentYear,
+              semester,
+            ],
+            (insertErr, result) => {
             if (insertErr) {
               logAudit({ employeeNumber: getActorEmployeeNumber(req, employeeNumber) }, 'Assign Leave Failed', 'leave_assignment', null, employeeNumber);
               return res
@@ -1296,6 +1289,10 @@ router.post("/leave_assignment", (req, res) => {
                   error:
                     "Failed to create leave assignment: " + insertErr.message,
                 });
+            }
+            // Avoid double-counting: when we auto-rolled forward, prior rows should no longer contribute to remaining totals.
+            if (shouldAutoRollForward() && (parseDbHours(carriedForward) || 0) > 0) {
+              zeroOutPriorRows(priorIds, () => {});
             }
             const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
             const insertedId = result.insertId;
@@ -1330,8 +1327,20 @@ router.post("/leave_assignment", (req, res) => {
               period_year: currentYear,
               period_semester: semester,
             });
-          },
-        );
+            },
+          );
+        };
+
+        const carriedForwardDirect = parseDbHours(carried_forward_hours) || 0;
+        if (shouldAutoRollForward() && semester != null) {
+          loadPriorRemainingRows(currentYear, semester, (e0, meta) => {
+            if (e0) return doInsert(carriedForwardDirect, []);
+            const carry = meta?.carry || 0;
+            doInsert(carry, meta?.ids || []);
+          });
+        } else {
+          doInsert(carriedForwardDirect, []);
+        }
       } else {
         db.query(
           "SELECT leave_hours FROM leave_table WHERE leave_code = ?",
@@ -1342,34 +1351,37 @@ router.post("/leave_assignment", (req, res) => {
                 .status(500)
                 .json({ error: "Failed to fetch leave type" });
             const defaultHours = leaveType[0]?.leave_hours || 0;
-            const carriedForward = parseDbHours(carried_forward_hours) || 0;
             const allocated =
               allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== ''
                 ? parseDbHours(allocated_hours)
                 : (parseDbHours(defaultHours) || 0);
             const currentYear = period_year || new Date().getFullYear();
             const semester = period_semester || null;
-            const computedTotal = Math.max(0, carriedForward + allocated);
 
-            const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
-            db.query(
-              insertQuery,
-              [
-                leave_code,
-                employeeNumber,
-                computedTotal,
-                computedTotal,
-                carriedForward,
-                allocated,
-                currentYear,
-                semester,
-              ],
-              (insertErr, result) => {
+            const doInsert = (carriedForward, priorIds = []) => {
+              const computedTotal = Math.max(0, (parseDbHours(carriedForward) || 0) + (parseDbHours(allocated) || 0));
+              const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
+              db.query(
+                insertQuery,
+                [
+                  leave_code,
+                  employeeNumber,
+                  computedTotal,
+                  computedTotal,
+                  carriedForward,
+                  allocated,
+                  currentYear,
+                  semester,
+                ],
+                (insertErr, result) => {
                 if (insertErr) {
                   logAudit({ employeeNumber: getActorEmployeeNumber(req, employeeNumber) }, 'Assign Leave Failed', 'leave_assignment', null, employeeNumber);
                   return res
                     .status(500)
                     .json({ error: "Failed to create leave assignment" });
+                }
+                if (shouldAutoRollForward() && (parseDbHours(carriedForward) || 0) > 0) {
+                  zeroOutPriorRows(priorIds, () => {});
                 }
                 const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
                 const insertedId = result.insertId;
@@ -1404,8 +1416,20 @@ router.post("/leave_assignment", (req, res) => {
                   period_year: currentYear,
                   period_semester: semester,
                 });
-              },
-            );
+                },
+              );
+            };
+
+            const carriedForwardDirect = parseDbHours(carried_forward_hours) || 0;
+            if (shouldAutoRollForward() && semester != null) {
+              loadPriorRemainingRows(currentYear, semester, (e0, meta) => {
+                if (e0) return doInsert(carriedForwardDirect, []);
+                const carry = meta?.carry || 0;
+                doInsert(carry, meta?.ids || []);
+              });
+            } else {
+              doInsert(carriedForwardDirect, []);
+            }
           },
         );
       }
@@ -1840,24 +1864,13 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
           overrideReason,
         });
 
-        await insertEarningsAuditLogHalfDay({
-          decisionLogId,
-          actorEmployeeNumber,
-          employeeNumber,
-          chargeTo,
-          hours,
-          leaveDate: leaveDateOnly,
-          salaryDeduction: true,
-          decision,
-        });
-
         const [empName, actorName] = await Promise.all([
           getEmployeeFullName(String(employeeNumber)),
           getEmployeeFullName(actorEmployeeNumber),
         ]);
         const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
         const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
-        const txMsg = `${actorDisplay} recorded half-day as salary deduction (${hours} hrs policy equivalent) for ${empDisplay} (${leaveDateOnly}).`;
+        const txMsg = `${actorDisplay} recorded half-day as salary deduction (${hours} hrs policy equivalent) for ${empDisplay} (${leaveDateOnly}). Balance unchanged (salary deduction).`;
         await insertTransactionLog(String(employeeNumber), txMsg, actorEmployeeNumber, {
           deduction_decision_log_id: decisionLogId,
           charge_to: chargeTo,
@@ -1951,27 +1964,15 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
         overrideReason,
       });
 
-      await insertEarningsAuditLogHalfDay({
-        decisionLogId,
-        actorEmployeeNumber,
-        employeeNumber,
-        chargeTo,
-        hours,
-        leaveDate: leaveDateOnly,
-        salaryDeduction: false,
-        decision,
-        payloadExtra: {
-          available_hours_after: Number((availableAfter || 0).toFixed(4)),
-        },
-      });
-
       const [empName, actorName] = await Promise.all([
         getEmployeeFullName(String(employeeNumber)),
         getEmployeeFullName(actorEmployeeNumber),
       ]);
       const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
       const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
-      const txMsg = `${actorDisplay} applied half-day deduction of ${hours} hrs to ${chargeTo} for ${empDisplay} (${leaveDateOnly}).`;
+      const beforeH = Number(availableBefore || 0);
+      const afterH = Number(availableAfter || 0);
+      const txMsg = `${actorDisplay} applied half-day deduction of ${hours} hrs to ${chargeTo} for ${empDisplay} (${leaveDateOnly}). Balance updated: ${beforeH.toFixed(3)} hrs → ${afterH.toFixed(3)} hrs (−${Number(hours).toFixed(3)} hrs).`;
       await insertTransactionLog(String(employeeNumber), txMsg, actorEmployeeNumber, {
         deduction_decision_log_id: decisionLogId,
         charge_to: chargeTo,
@@ -2070,12 +2071,9 @@ router.get("/leave_request/transactions/:employeeNumber", (req, res) => {
 // POST /leave_request
 //
 // RULES:
-//  1. Each requested date = 8 hours.
-//  2. We ONLY check and deduct from the ALLOCATED row
-//     (the row where carried_forward_hours IS NULL or = 0).
-//     Carry-balance rows are NEVER touched.
-//  3. If the employee's allocated remaining_hours < hours needed
-//     → reject with HTTP 400 "Insufficient Leave Balance".
+//  1. Each requested date = 8 hours (for HR deduction workflows).
+//  2. Employees may file even with low/zero balance; HR approves or denies
+//     and applies deductions via the admin leave flow.
 // ============================================================
 router.post("/leave_request", (req, res) => {
   const { employeeNumber, leave_code, leave_dates, status } = req.body;
@@ -2087,22 +2085,7 @@ router.post("/leave_request", (req, res) => {
       .status(400)
       .json({ error: "At least one leave date is required" });
 
-  const hoursNeeded = dates.length * 8;
-
   const proceed = async () => {
-    const totalRemaining = await getTotalRemainingHours(employeeNumber, leave_code);
-    // ── BALANCE CHECK (TOTAL across rows) ───────────────────────
-    if (totalRemaining < hoursNeeded) {
-      const remainingDays = (totalRemaining / 8).toFixed(1);
-      const neededDays = dates.length;
-      return res.status(400).json({
-        error: "Insufficient Leave Balance",
-        detail: `You requested ${neededDays} day(s) but only have ${remainingDays} allocated day(s) remaining.`,
-        remaining_hours: totalRemaining,
-        required_hours: hoursNeeded,
-      });
-    }
-
     // ── INSERT all leave request rows ──────────────────────────
     const insertPromises = dates.map(
       (date) =>
@@ -2177,8 +2160,10 @@ router.post("/leave_request", (req, res) => {
       });
   };
   proceed().catch((e) => {
-    console.error("[leave_request] balance check error:", e.message);
-    res.status(500).json({ error: "Balance check failed" });
+    console.error("[leave_request] submit error:", e.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to submit leave request" });
+    }
   });
 });
 

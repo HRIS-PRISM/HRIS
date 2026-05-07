@@ -6,6 +6,7 @@ import {
   isLeaveAllowedForGender,
 } from "../leaveGenderUtils";
 import { DeptBadge, EmpCatBadge } from "./RecordsList";
+import { fetchDeductionCreditSnapshots } from "../../../utils/deductionSourceBalances";
 import {
   Box,
   Typography,
@@ -413,6 +414,8 @@ const LeaveInputColumn = ({
 }) => {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [assignmentMap, setAssignmentMap] = useState({});
+  const [scTotalRemaining, setScTotalRemaining] = useState(0);
+  const [ctoTotalRemaining, setCtoTotalRemaining] = useState(0);
   const [existingEarnedByCode, setExistingEarnedByCode] = useState({});
   const [earnedHours, setEarnedHours] = useState({});
   const [earnedDraft, setEarnedDraft] = useState({});
@@ -462,17 +465,24 @@ const LeaveInputColumn = ({
   const fetchBalances = useCallback(async () => {
     if (!employee) {
       setAssignmentMap({});
+      setScTotalRemaining(0);
+      setCtoTotalRemaining(0);
       return;
     }
     const token = localStorage.getItem("token");
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/api/earnings/assignment-balances/${employee.employeeNumber}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+      const snapshots = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
+      setAssignmentMap(
+        snapshots && typeof snapshots.assignmentMap === "object"
+          ? snapshots.assignmentMap
+          : {},
       );
-      setAssignmentMap(r.data || {});
+      setScTotalRemaining(toNum(snapshots?.scRemainingHours));
+      setCtoTotalRemaining(toNum(snapshots?.ctoRemainingHours));
     } catch {
       setAssignmentMap({});
+      setScTotalRemaining(0);
+      setCtoTotalRemaining(0);
     }
   }, [employee]);
 
@@ -508,6 +518,8 @@ const LeaveInputColumn = ({
   useEffect(() => {
     if (!employee) {
       setAssignmentMap({});
+      setScTotalRemaining(0);
+      setCtoTotalRemaining(0);
       setExistingEarnedByCode({});
       return;
     }
@@ -925,6 +937,38 @@ const LeaveInputColumn = ({
               colorHex={empCatMap[String(employee.employeeNumber)].colorHex}
             />
           )}
+          <Tooltip title="Service Credit remaining (from service_credit)">
+            <Chip
+              size="small"
+              icon={<SCIcon sx={{ fontSize: 13 }} />}
+              label={`SC: ${unit === "days" ? (scTotalRemaining / 8).toFixed(3) : scTotalRemaining.toFixed(3)}${unit === "days" ? "d" : "h"}`}
+              sx={{
+                height: 18,
+                fontSize: "0.58rem",
+                fontWeight: 800,
+                fontFamily: T.poppins,
+                bgcolor: "rgba(46,125,50,0.08)",
+                border: "1px solid rgba(46,125,50,0.25)",
+                color: "#1b5e20",
+              }}
+            />
+          </Tooltip>
+          <Tooltip title="CTO remaining (from cto_credit)">
+            <Chip
+              size="small"
+              icon={<CTOIcon sx={{ fontSize: 13 }} />}
+              label={`CTO: ${unit === "days" ? (ctoTotalRemaining / 8).toFixed(3) : ctoTotalRemaining.toFixed(3)}${unit === "days" ? "d" : "h"}`}
+              sx={{
+                height: 18,
+                fontSize: "0.58rem",
+                fontWeight: 800,
+                fontFamily: T.poppins,
+                bgcolor: "rgba(25,118,210,0.08)",
+                border: "1px solid rgba(25,118,210,0.25)",
+                color: "#0d47a1",
+              }}
+            />
+          </Tooltip>
           {!employeeGender && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
               <WarningIcon sx={{ fontSize: 11, color: "#e65100" }} />

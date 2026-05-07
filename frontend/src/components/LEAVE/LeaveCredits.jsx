@@ -46,8 +46,14 @@ const getStatusText = (remaining, total) => {
 };
 
 const semOrder = (s) => {
-  if (!s) return 0;
-  const lower = s.toLowerCase();
+  const raw = String(s ?? '').trim();
+  if (!raw) return 0;
+  const lower = raw.toLowerCase();
+  // Prefer numeric month/semester ordering when values are "1".."12"
+  if (/^\d+$/.test(lower)) {
+    const n = parseInt(lower, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
   if (lower.includes('2nd')) return 2;
   if (lower.includes('1st')) return 1;
   return 0;
@@ -74,7 +80,23 @@ const groupByLeaveCode = (rawAssignments) => {
   });
 
   return Object.values(byCode).map((group) => {
-    const sorted = [...group.entries].sort((a, b) => {
+    // leave_assignment is append-only snapshots; keep only the latest row per period.
+    const latestByPeriod = new Map(); // key = year|sem
+    group.entries.forEach((e) => {
+      const y = e.period_year != null ? String(parseInt(String(e.period_year), 10) || '').trim() : '';
+      const semRaw = e.period_semester != null ? String(e.period_semester).trim() : '';
+      const semNum = semRaw !== '' && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
+      const sem = Number.isFinite(semNum) ? String(semNum) : semRaw;
+      const key = `${y}|${sem}`;
+      const prev = latestByPeriod.get(key);
+      const id = Number(e.id);
+      const prevId = Number(prev?.id);
+      if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
+        latestByPeriod.set(key, e);
+      }
+    });
+
+    const sorted = [...latestByPeriod.values()].sort((a, b) => {
       const yearDiff = (b.period_year || 0) - (a.period_year || 0);
       if (yearDiff !== 0) return yearDiff;
       return semOrder(b.period_semester) - semOrder(a.period_semester);
@@ -705,12 +727,13 @@ const LeaveCredits = ({
         (a) => a.employeeNumber?.toString() === personID?.toString(),
       );
 
-      // One entry per assignment row (one row = one period)
+      // One entry per assignment row (one row = one period snapshot)
       const data = userAssignments.map((a) => {
         const leaveType = typesRes.data.find(
           (lt) => lt.leave_code === a.leave_code,
         );
         return {
+          id: a.id,
           code: a.leave_code,
           name: leaveType?.leave_description || a.leave_code,
           total: (parseFloat(a.total_hours) || 0) / 8,

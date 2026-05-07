@@ -63,6 +63,7 @@ import {
   useOfficialAttendanceMetrics,
   listHalfDayDatesFromDailyRows,
 } from "./useOfficialAttendanceMetrics";
+import { fetchDeductionCreditSnapshots } from "../../../utils/deductionSourceBalances";
 import OverallAttendanceCompareModal from "../../ATTENDANCE/OverallAttendanceCompareModal";
 import {
   buildOverallPutPayloadFromRow,
@@ -512,15 +513,12 @@ const fetchLiveBalances = useCallback(async () => {
   // In-place balance updates (no loading swap) to avoid flicker on refreshKey / websocket sync.
   const token = localStorage.getItem("token");
   try {
-    const [assignRes, scRes, ctoRes] = await Promise.allSettled([
-      axios.get(`${API_BASE_URL}/api/earnings/assignment-balances/${employee.employeeNumber}`, { headers: { Authorization: `Bearer ${token}` } }),
-      axios.get(`${API_BASE_URL}/api/earnings/sc/${employee.employeeNumber}/balance`, { headers: { Authorization: `Bearer ${token}` } }),
-      axios.get(`${API_BASE_URL}/api/earnings/cto/${employee.employeeNumber}/balance`, { headers: { Authorization: `Bearer ${token}` } }),
-    ]);
+    const snaps = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
+    const vlHours = toNum(snaps?.assignmentMap?.VL?.remaining_hours);
     setLiveBalances({
-      vl: assignRes.status === "fulfilled" ? (toNum(assignRes.value.data?.VL?.remaining_hours) / 8).toFixed(3) : "—",
-      sc: scRes.status === "fulfilled" ? (toNum(scRes.value.data?.totalRemaining) / 8).toFixed(3) : "—",
-      cto: ctoRes.status === "fulfilled" ? (toNum(ctoRes.value.data?.totalRemaining) / 8).toFixed(3) : "—",
+      vl: (vlHours / 8).toFixed(3),
+      sc: (toNum(snaps?.scRemainingHours) / 8).toFixed(3),
+      cto: (toNum(snaps?.ctoRemainingHours) / 8).toFixed(3),
     });
   } catch {
     setLiveBalances({ vl: "—", sc: "—", cto: "—" });

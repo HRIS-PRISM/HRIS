@@ -158,6 +158,15 @@ const earningPositiveId = (record) => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
+/** Pending SC/CTO negative deductions are not approved in this grid — they apply via the Attendance / Deduction receipt (ledger). */
+const isPendingScCtoLedgerDeductionRow = (record) => {
+  const t = String(record?._earningType || "").toLowerCase();
+  if (t !== "sc" && t !== "cto") return false;
+  if (String(record?.earn_status || "").toLowerCase() !== "pending") return false;
+  if (String(record?.entry_type || "").toUpperCase() !== "DEDUCTION") return false;
+  return toNum(record?.earned_hours) < 0;
+};
+
 /** Map earnings_audit_log row → synthetic list item (Earnings Records column). */
 const mapEalRowToSynthetic = (row, listYear, listMonth, skipHalfDayDecisionIds) => {
   let p = {};
@@ -636,6 +645,7 @@ const EarningRow = ({
     record._covers_month != null &&
     record._posted_period_month != null &&
     Number(record._covers_month) !== Number(record.period_month);
+  const blockApproveScCtoDeduction = isPendingScCtoLedgerDeductionRow(record);
   return (
     <Box
       sx={{
@@ -699,7 +709,8 @@ const EarningRow = ({
                 ` · SC (${String(record.sc_type).replace(/_/g, " ")})`}
               {type === "cto" && !record.sc_type && ` · CTO`}
             </Typography>
-            <StatusBadge status={status} />
+            {/* Avoid duplicate status badge for half-day rows (Actions column already shows status). */}
+            {!isHalfDayPolicy && <StatusBadge status={status} />}
             {isTardinessAuditRow && (
               <Chip
                 size="small"
@@ -969,40 +980,76 @@ const EarningRow = ({
  
           {status === "pending" && stableEarningId != null && (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-              <Box
-                onClick={() => onApprove(record)}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.6,
-                  px: 1,
-                  py: 0.4,
-                  borderRadius: 1.5,
-                  bgcolor: "rgba(46,125,50,0.07)",
-                  border: "1px solid rgba(46,125,50,0.22)",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                  "&:hover": {
-                    bgcolor: "rgba(46,125,50,0.14)",
-                    border: "1px solid rgba(46,125,50,0.4)",
-                    transform: "translateY(-1px)",
-                  },
-                }}
-              >
-                <ApproveIcon sx={{ fontSize: 11, color: "#2e7d32" }} />
-                <Typography
+              {blockApproveScCtoDeduction ? (
+                <Tooltip
+                  title="SC/CTO deductions are posted from the Attendance deduction receipt (not here). Reject this pending row if it is obsolete."
+                  placement="left"
+                >
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.6,
+                      px: 1,
+                      py: 0.4,
+                      borderRadius: 1.5,
+                      bgcolor: "rgba(0,0,0,0.04)",
+                      border: "1px dashed rgba(0,0,0,0.18)",
+                      cursor: "not-allowed",
+                      opacity: 0.65,
+                    }}
+                  >
+                    <ApproveIcon sx={{ fontSize: 11, color: T.faint }} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.58rem",
+                        fontWeight: 700,
+                        color: T.faint,
+                        fontFamily: T.poppins,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Approve (N/A)
+                    </Typography>
+                  </Box>
+                </Tooltip>
+              ) : (
+                <Box
+                  onClick={() => onApprove(record)}
                   sx={{
-                    fontSize: "0.62rem",
-                    fontWeight: 700,
-                    color: "#2e7d32",
-                    fontFamily: T.poppins,
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.6,
+                    px: 1,
+                    py: 0.4,
+                    borderRadius: 1.5,
+                    bgcolor: "rgba(46,125,50,0.07)",
+                    border: "1px solid rgba(46,125,50,0.22)",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    "&:hover": {
+                      bgcolor: "rgba(46,125,50,0.14)",
+                      border: "1px solid rgba(46,125,50,0.4)",
+                      transform: "translateY(-1px)",
+                    },
                   }}
                 >
-                  Approve
-                </Typography>
-              </Box>
+                  <ApproveIcon sx={{ fontSize: 11, color: "#2e7d32" }} />
+                  <Typography
+                    sx={{
+                      fontSize: "0.62rem",
+                      fontWeight: 700,
+                      color: "#2e7d32",
+                      fontFamily: T.poppins,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Approve
+                  </Typography>
+                </Box>
+              )}
  
               <Box
                 onClick={() => onReject(record)}
@@ -1574,10 +1621,15 @@ const RecordsList = ({
         )
         .filter(Boolean);
  
+      const scList = scRes.status === "fulfilled" ? scRes.value.data?.earnings || [] : [];
+      const scLed = scRes.status === "fulfilled" ? scRes.value.data?.ledger_sc_deductions || [] : [];
+      const ctoList = ctoRes.status === "fulfilled" ? ctoRes.value.data?.earnings || [] : [];
+      const ctoLed = ctoRes.status === "fulfilled" ? ctoRes.value.data?.ledger_cto_deductions || [] : [];
+
       const allEarnings = [
         ...leaveTagged,
-        ...tag(scRes.status === "fulfilled" ? scRes.value.data?.earnings : [], "sc"),
-        ...tag(ctoRes.status === "fulfilled" ? ctoRes.value.data?.earnings : [], "cto"),
+        ...tag([...scList, ...scLed], "sc"),
+        ...tag([...ctoList, ...ctoLed], "cto"),
         ...snapshotEarnings,
       ];
  
@@ -1677,6 +1729,7 @@ const RecordsList = ({
       return;
     }
     if (record._earningsAuditSnapshot) return;
+    if (isPendingScCtoLedgerDeductionRow(record)) return;
     const stableId = earningPositiveId(record);
     if (stableId == null) return;
     setActionLoading(true);

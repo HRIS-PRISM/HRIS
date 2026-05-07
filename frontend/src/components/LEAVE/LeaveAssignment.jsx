@@ -427,8 +427,59 @@ const hoursToDaysInputStr = (hrs) => {
   return String(days).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 };
 const isCommutedLocked = (row) => toNum(row?.remaining_hours) === 0 && toNum(row?.total_hours) > 0 && toNum(row?.used_hours) > 0 && toNum(row?.used_hours) >= toNum(row?.total_hours);
-const getActivePeriods = (periods = []) => (Array.isArray(periods) ? periods : []).filter((p) => !isCommutedLocked(p));
-const getLeaveTypeStatsActive = (periods) => getActivePeriods(periods).reduce((s, p) => ({ totalHours: s.totalHours + toNum(p.total_hours), usedHours: s.usedHours + toNum(p.used_hours), remainingHours: s.remainingHours + toNum(p.remaining_hours) }), { totalHours: 0, usedHours: 0, remainingHours: 0 });
+const normalizePeriodKey = (p) => {
+  const y = p?.period_year != null ? String(parseInt(String(p.period_year), 10) || "").trim() : "";
+  const semRaw = p?.period_semester != null ? String(p.period_semester).trim() : "";
+  const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
+  const sem = Number.isFinite(semNum) ? String(semNum) : semRaw;
+  return `${y}|${sem}`;
+};
+// leave_assignment is append-only snapshots. For UI totals, keep ONLY the latest snapshot per period.
+const latestPeriodsByKey = (periods = []) => {
+  const list = Array.isArray(periods) ? periods : [];
+  const m = new Map();
+  for (const p of list) {
+    const key = normalizePeriodKey(p);
+    const prev = m.get(key);
+    const id = Number(p?.id);
+    const prevId = Number(prev?.id);
+    if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
+      m.set(key, p);
+    }
+  }
+  return Array.from(m.values());
+};
+const getActivePeriods = (periods = []) => latestPeriodsByKey(periods).filter((p) => !isCommutedLocked(p));
+const getLeaveTypeStatsActive = (periods) =>
+  getActivePeriods(periods).reduce(
+    (s, p) => ({
+      totalHours: s.totalHours + toNum(p.total_hours),
+      usedHours: s.usedHours + toNum(p.used_hours),
+      remainingHours: s.remainingHours + toNum(p.remaining_hours),
+    }),
+    { totalHours: 0, usedHours: 0, remainingHours: 0 },
+  );
+
+// Latest running-balance snapshot (service_credit style): pick the latest period row only.
+const getLatestPeriodSnapshot = (periods = []) => {
+  const list = latestPeriodsByKey(periods);
+  if (!list.length) return null;
+  const periodSortValue = (p) => {
+    const y = toNum(p?.period_year);
+    const semRaw = p?.period_semester != null ? String(p.period_semester).trim() : "";
+    const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
+    const m = Number.isFinite(semNum) ? semNum : 0;
+    const id = toNum(p?.id);
+    return { y, m, id };
+  };
+  return [...list].sort((a, b) => {
+    const A = periodSortValue(a);
+    const B = periodSortValue(b);
+    if (B.y !== A.y) return B.y - A.y;
+    if (B.m !== A.m) return B.m - A.m;
+    return B.id - A.id;
+  })[0];
+};
 const getLeaveLabel = (code, types) => { if (!code) return "—"; const f = Array.isArray(types) ? types.find((t) => t.leave_code === code) : null; const d = f?.leave_description || f?.description || f?.leave_name || ""; return d ? `${code} — ${d}` : `${code}`; };
 
 // ─── Conversion defaults ──────────────────────────────────────────────────────
@@ -523,7 +574,15 @@ const GenderBadge = ({ gender, light = false }) => {
 // Shows pending + approved (non-commuted) earnings beside the assignment row.
 // "approved" ones are already baked into total_hours — we show them with a note.
 // "pending" ones are NOT yet in total_hours — we show how much extra is incoming.
-const EarningsBanner = ({ employeeNumber, leaveCode, periodYear, periodSemester, unit }) => {
+const EarningsBanner = ({
+  employeeNumber,
+  leaveCode,
+  periodYear,
+  periodSemester,
+  unit,
+  baseRemainingHours = null,
+  baseTotalHours = null,
+}) => {
   const [earnings, setEarnings] = useState([]);
   const [loading,  setLoading]  = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -584,6 +643,11 @@ const EarningsBanner = ({ employeeNumber, leaveCode, periodYear, periodSemester,
     ? `${h.toFixed(3)} hrs`
     : `${(h / 8).toFixed(3)} days`;
 
+  const baseRem = baseRemainingHours != null ? toNum(baseRemainingHours) : null;
+  const baseTot = baseTotalHours != null ? toNum(baseTotalHours) : null;
+  const nextRemIfPendingApproved = baseRem != null ? Math.max(0, baseRem + pendingHrs) : null;
+  const nextTotIfPendingApproved = baseTot != null ? Math.max(0, baseTot + pendingHrs) : null;
+
   return (
     <Box sx={{ mt: 0.75 }}>
       {/* Summary row */}
@@ -635,6 +699,24 @@ const EarningsBanner = ({ employeeNumber, leaveCode, periodYear, periodSemester,
           {expanded ? "▲ hide" : "▼ details"}
         </Typography>
       </Box>
+
+      {/* NEW: show what pending approval would do to remaining/total */}
+      {pendingHrs > 0 && baseRem != null && baseTot != null && (
+        <Box sx={{ mt: 0.5, px: 0.75 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", px: 1.25, py: 0.6, borderRadius: "7px", bgcolor: "rgba(25,118,210,0.05)", border: "1px solid rgba(25,118,210,0.18)" }}>
+            <InfoIcon sx={{ fontSize: 11, color: "#1565c0" }} />
+            <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins }}>
+              If pending is approved:
+            </Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>
+              Remaining {fmt(baseRem)} → {fmt(nextRemIfPendingApproved)}
+            </Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>
+              · Total {fmt(baseTot)} → {fmt(nextTotIfPendingApproved)}
+            </Typography>
+          </Box>
+        </Box>
+      )}
 
       {/* Expanded detail rows */}
       {expanded && (
@@ -2015,7 +2097,13 @@ const LeaveAssignment = () => {
         const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`);
         const all = Array.isArray(updated.data) ? updated.data : [];
         const empData = all.filter((a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString());
-        const grouped = empData.reduce((acc, a) => { if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] }; acc[a.leave_code].periods.push(a); return acc; }, {});
+        const grouped = empData.reduce((acc, a) => {
+          if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
+          acc[a.leave_code].periods.push(a);
+          return acc;
+        }, {});
+        // Deduplicate snapshot rows so the modal/cards don't double-count the same period.
+        Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
         setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
         if (selectedLeaveTypeInModal) { const r = grouped[selectedLeaveTypeInModal.leave_code]; if (r) setSelectedLeaveTypeInModal(r); }
       }
@@ -2052,7 +2140,12 @@ const LeaveAssignment = () => {
       // keep modal state in sync if open
       if (selectedEmployeeLeaves?.employeeNumber && assignments?.length) {
         const empData = assignments.filter((a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString());
-        const grouped = empData.reduce((acc, a) => { if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] }; acc[a.leave_code].periods.push(a); return acc; }, {});
+        const grouped = empData.reduce((acc, a) => {
+          if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
+          acc[a.leave_code].periods.push(a);
+          return acc;
+        }, {});
+        Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
         setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
         if (selectedLeaveTypeInModal) { const r = grouped[selectedLeaveTypeInModal.leave_code]; if (r) setSelectedLeaveTypeInModal(r); }
       }
@@ -2432,9 +2525,14 @@ if (accessLoading || pageLoading) {
                   ) : viewMode === "grid" ? (
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
-                        const allActive    = grp.leaveTypes.flatMap((lt) => getActivePeriods(lt.periods));
-                        const remH         = allActive.reduce((s, p) => s + toNum(p.remaining_hours), 0);
-                        const totalH       = allActive.reduce((s, p) => s + toNum(p.total_hours), 0);
+                        const remH = grp.leaveTypes.reduce((s, lt) => {
+                          const latest = getLatestPeriodSnapshot(lt.periods);
+                          return s + toNum(latest?.remaining_hours);
+                        }, 0);
+                        const totalH = grp.leaveTypes.reduce((s, lt) => {
+                          const latest = getLatestPeriodSnapshot(lt.periods);
+                          return s + toNum(latest?.total_hours);
+                        }, 0);
                         const overallColor = getStatusColor(remH, totalH);
                         const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info         = getEmployeeInfo(grp.employeeNumber);
@@ -2459,9 +2557,9 @@ if (accessLoading || pageLoading) {
                               </Box>
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
                                 {grp.leaveTypes.slice(0, 3).map((lt) => {
-                                  const stats    = getLeaveTypeStatsActive(lt.periods);
-                                  const displayH = stats.remainingHours;
-                                  const sc       = getStatusColor(stats.remainingHours, stats.totalHours);
+                                  const latest   = getLatestPeriodSnapshot(lt.periods);
+                                  const displayH = toNum(latest?.remaining_hours);
+                                  const sc       = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
                                   return (
                                     <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
                                       <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, whiteSpace: "nowrap", fontFamily: T.poppins }}>
@@ -2495,9 +2593,14 @@ if (accessLoading || pageLoading) {
                         ))}
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
-                        const allActive    = grp.leaveTypes.flatMap((lt) => getActivePeriods(lt.periods));
-                        const remH         = allActive.reduce((s, p) => s + toNum(p.remaining_hours), 0);
-                        const totalH       = allActive.reduce((s, p) => s + toNum(p.total_hours), 0);
+                        const remH = grp.leaveTypes.reduce((s, lt) => {
+                          const latest = getLatestPeriodSnapshot(lt.periods);
+                          return s + toNum(latest?.remaining_hours);
+                        }, 0);
+                        const totalH = grp.leaveTypes.reduce((s, lt) => {
+                          const latest = getLatestPeriodSnapshot(lt.periods);
+                          return s + toNum(latest?.total_hours);
+                        }, 0);
                         const overallColor = getStatusColor(remH, totalH);
                         const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info         = getEmployeeInfo(grp.employeeNumber);
@@ -2529,7 +2632,8 @@ if (accessLoading || pageLoading) {
                             </Typography>
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                               {grp.leaveTypes.slice(0, 3).map((lt) => {
-                                const sc = getStatusColor(getLeaveTypeStatsActive(lt.periods).remainingHours, getLeaveTypeStatsActive(lt.periods).totalHours);
+                                const latest = getLatestPeriodSnapshot(lt.periods);
+                                const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
                                 return (
                                   <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
                                     <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{lt.leave_code}</Typography>
@@ -2603,8 +2707,10 @@ if (accessLoading || pageLoading) {
                           </Box>
                           <Box sx={{ flex: 1, overflowY: "auto" }}>
                             {selectedEmployeeLeaves.leaveTypes.map((lt) => {
-                              const stats    = getLeaveTypeStatsActive(lt.periods);
-                              const sc       = getStatusColor(stats.remainingHours, stats.totalHours);
+                              const latest   = getLatestPeriodSnapshot(lt.periods);
+                              const remH     = toNum(latest?.remaining_hours);
+                              const totalH   = toNum(latest?.total_hours);
+                              const sc       = getStatusColor(remH, totalH);
                               const isActive = selectedLeaveTypeInModal?.leave_code === lt.leave_code;
                               const ltObj    = leaveTypes.find((x) => x.leave_code === lt.leave_code);
                               const restriction = ltObj ? getLeaveGenderRestriction(ltObj) : null;
@@ -2619,7 +2725,7 @@ if (accessLoading || pageLoading) {
                                       <Typography sx={{ fontSize: "0.82rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.text, fontFamily: T.poppins }}>{lt.leave_code}</Typography>
                                     </Box>
                                     <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: sc, fontFamily: T.poppins }}>
-                                      {unit === "hours" ? `${stats.remainingHours.toFixed(1)}h` : `${(stats.remainingHours / 8).toFixed(2)}d`}
+                                      {unit === "hours" ? `${remH.toFixed(1)}h` : `${(remH / 8).toFixed(2)}d`}
                                     </Typography>
                                   </Box>
                                   {ltDesc && <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, mt: 0.1 }} noWrap>{ltDesc}</Typography>}
@@ -2647,7 +2753,9 @@ if (accessLoading || pageLoading) {
                                     const aM = parseInt(a.period_semester, 10) || 0;
                                     const bM = parseInt(b.period_semester, 10) || 0;
                                     if (aM !== bM) return bM - aM;
-                                    return semOrder(b.period_semester) - semOrder(a.period_semester);
+                                    const semDiff = semOrder(b.period_semester) - semOrder(a.period_semester);
+                                    if (semDiff !== 0) return semDiff;
+                                    return toNum(b.id) - toNum(a.id);
                                   })
                                   .map((period, index) => {
                                     const sc         = getStatusColor(period.remaining_hours, period.total_hours);
@@ -2705,6 +2813,8 @@ if (accessLoading || pageLoading) {
                                               periodYear={period.period_year}
                                               periodSemester={period.period_semester}
                                               unit={unit}
+                                              baseRemainingHours={period.remaining_hours}
+                                              baseTotalHours={period.total_hours}
                                             />
                                           </Box>
                                         )}
@@ -2837,6 +2947,8 @@ if (accessLoading || pageLoading) {
                               periodYear={editAssignment.period_year}
                               periodSemester={editAssignment.period_semester}
                               unit={unit}
+                              baseRemainingHours={editAssignment.remaining_hours}
+                              baseTotalHours={editAssignment.total_hours}
                             />
                           </Box>
                         )}

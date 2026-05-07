@@ -498,11 +498,12 @@ const CTODeductionReceipt = ({
           },
         }),
       ]);
-      setExistingCtoDeductions(
-        ctoRes.status === "fulfilled"
-          ? (ctoRes.value.data?.earnings || []).filter(e => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected")
-          : []
-      );
+      const ctoEarn = ctoRes.status === "fulfilled" ? ctoRes.value.data?.earnings || [] : [];
+      const ctoLedger = ctoRes.status === "fulfilled" ? ctoRes.value.data?.ledger_cto_deductions || [] : [];
+      setExistingCtoDeductions([
+        ...ctoEarn.filter((e) => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected"),
+        ...ctoLedger,
+      ]);
       const postedHours =
         tardPostedRes.status === "fulfilled" ? toNum(tardPostedRes.value.data?.posted_hours) : 0;
       const lastLeaveCode =
@@ -541,11 +542,12 @@ const CTODeductionReceipt = ({
             )
           : [],
       );
-      setExistingScDeductions(
-        scRes.status === "fulfilled"
-          ? (scRes.value.data?.earnings || []).filter(e => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected")
-          : []
-      );
+      const scEarn = scRes.status === "fulfilled" ? scRes.value.data?.earnings || [] : [];
+      const scLedger = scRes.status === "fulfilled" ? scRes.value.data?.ledger_sc_deductions || [] : [];
+      setExistingScDeductions([
+        ...scEarn.filter((e) => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected"),
+        ...scLedger,
+      ]);
     } catch {
       setExistingCtoDeductions([]);
       setExistingTardinessDeductions([]);
@@ -1159,9 +1161,11 @@ const CTODeductionReceipt = ({
       } else {
         const absCode = String(absenceSource || "").toUpperCase();
         const tardCodePre = String(tardinessSource || "").toUpperCase();
+        /** Unposted absence still needs a ledger; ignore when salary shortfall already covers it (remaining*ForSalaryApply is net of posted shortfall). */
         if (
           deductSource === "normal" &&
           remainingAbsence > 1e-5 &&
+          remainingAbsenceForSalaryApply > 1e-5 &&
           absCode !== "SALARY_DEDUCTION" &&
           !absenceIsSkipped &&
           !canApplyAttendanceDeductionToCreditSource(
@@ -1171,7 +1175,7 @@ const CTODeductionReceipt = ({
           )
         ) {
           setDeductError(
-            "The selected absence source has no usable balance. Choose Salary Deduction in step 2 or use “Deduct from salary” — only salary shortfall can proceed.",
+            `Absences charged to ${humanizeDeductionCharge(absenceSource)} have no usable balance for ${remainingAbsence.toFixed(3)} day(s). In step 2, set “Absences charged to” to Salary Deduction (or another leave with enough balance), or use “Deduct from salary”. Tardiness charged to Salary Deduction does not fix absence.`,
           );
           setDeducting(false);
           return;
@@ -1179,6 +1183,7 @@ const CTODeductionReceipt = ({
         if (
           deductSource === "normal" &&
           remainingTardiness > 1e-5 &&
+          remainingTardinessForSalaryApply > 1e-5 &&
           tardCodePre !== "SALARY_DEDUCTION" &&
           !tardinessIsSkipped &&
           !canApplyAttendanceDeductionToCreditSource(
@@ -1188,7 +1193,7 @@ const CTODeductionReceipt = ({
           )
         ) {
           setDeductError(
-            "The selected tardiness source has no usable balance. Choose Salary Deduction in step 2 or use “Deduct from salary” — only salary shortfall can proceed.",
+            `Tardiness charged to ${humanizeDeductionCharge(tardinessSource)} has no usable balance for ${remainingTardiness.toFixed(3)} day(s). In step 2, set “Tardiness charged to” to Salary Deduction (or another leave with enough balance), or use “Deduct from salary”.`,
           );
           setDeducting(false);
           return;
@@ -1293,8 +1298,7 @@ const CTODeductionReceipt = ({
           );
           await approveIfId("cto", data?.id);
         } else if (willApplyTardiness && tardCode === "SC") {
-          // Must hit sc_earnings → service_credit (same ledger as AssignmentManagement & SC balance chip).
-          // Posting leave_code "SC" to /earnings/leave only touches leave_assignment, not service_credit.
+          // POST /earnings/sc with DEDUCTION applies service_credit + service_credit_usage only (no sc_earnings row).
           const { data } = await axios.post(
             `${API_BASE_URL}/api/earnings/sc`,
             {
