@@ -14,7 +14,7 @@ import {
   Dialog, DialogContent, Fade, FormControl,
   IconButton, InputAdornment, MenuItem, Paper, Select, Snackbar, styled,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, List, ListItemButton,
-  Typography, CircularProgress as MCircularProgress, LinearProgress,
+  Typography,
 } from '@mui/material';
 import earistLogo from '../../assets/earistLogo.png';
 import hrisLogo from '../../assets/hrisLogo.png';
@@ -102,7 +102,7 @@ const selectSx = {
   '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' },
 };
 
-const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
+const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false, onLoadingChange }) => {
   const [query, setQuery] = useState(value || '');
   const [debouncedQuery, setDebouncedQuery] = useState(value || '');
   const [results, setResults] = useState([]);
@@ -141,10 +141,12 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
     if (q.length < 2) {
       setResults([]);
       setLoading(false);
+      onLoadingChange?.(false);
       return;
     }
 
     setLoading(true);
+    onLoadingChange?.(true);
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -164,10 +166,13 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
         if (err?.code === 'ERR_CANCELED') return;
         setResults([]);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        onLoadingChange?.(false);
+      });
 
     return () => controller.abort();
-  }, [debouncedQuery, open]);
+  }, [debouncedQuery, open, onLoadingChange]);
 
   const queueSearch = (nextValue) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -207,6 +212,8 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
     setDebouncedQuery('');
     setResults([]);
     setOpen(false);
+    setLoading(false);
+    onLoadingChange?.(false);
     onSelectEmployeeNumber('');
   };
 
@@ -230,9 +237,7 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
           ),
           endAdornment: (
             <InputAdornment position="end">
-              {loading ? (
-                <MCircularProgress size={14} sx={{ color: T.accent }} />
-              ) : query ? (
+              {query ? (
                 <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
                   <Close sx={{ fontSize: 14, color: T.faint }} />
                 </IconButton>
@@ -245,9 +250,8 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
       {open && (
         <Paper elevation={6} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1300, mt: 0.5, maxHeight: 280, overflow: 'auto', borderRadius: '10px', border: `1px solid ${T.accentBorder}` }}>
           {loading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
-              <MCircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
+            <Box sx={{ py: 2.5, textAlign: 'center' }}>
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching…</Typography>
             </Box>
           ) : results.length > 0 ? (
             <List dense disablePadding>
@@ -281,119 +285,6 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
   );
 };
 
-const SHIMMER_CSS = `
-@keyframes dtrShimmer {
-  0%   { background-position: -900px 0; }
-  100% { background-position:  900px 0; }
-}
-@keyframes dtrPulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
-}
-@keyframes shimmer {
-  0%   { background-position: -800px 0; }
-  100% { background-position:  800px 0; }
-}
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
-}`;
-
-const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
-  <Box sx={{
-    width: w,
-    height: h,
-    borderRadius: r,
-    background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
-    backgroundSize: '800px 100%',
-    animation: 'shimmer 1.6s infinite linear',
-    flexShrink: 0,
-    ...sx,
-  }} />
-);
-
-const DTROverallWireframe = () => (
-  <>
-    <style>{SHIMMER_CSS}</style>
-    <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
-      <Box sx={{ mb: 2, borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.accentBorder}`, animation: 'blink 2s ease-in-out infinite' }}>
-        <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2.5, position: 'relative', overflow: 'hidden' }}>
-          <Box sx={{ position: 'absolute', top: -50, right: -50, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.06)' }} />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
-            <Box>
-              <Bone w={220} h={18} sx={{ mb: 1 }} />
-              <Bone w={360} h={11} />
-            </Box>
-          </Box>
-        </Box>
-      </Box>
-
-      <Grid container spacing={3}>
-        {[3, 9].map((lg, idx) => (
-          <Grid item xs={12} lg={lg} key={idx}>
-            <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: `blink 2s ease-in-out ${idx * 0.1}s infinite`, height: 'calc(100vh - 280px)' }}>
-              <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-                <Bone w={lg === 3 ? 160 : 240} h={13} />
-              </Box>
-
-              {lg === 3 ? (
-                <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                  {[100, 160, 120, 140, 110, 130].map((w, i) => (
-                    <Box key={i}>
-                      <Bone w={w} h={10} sx={{ mb: 1 }} />
-                      <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
-                    </Box>
-                  ))}
-                </Box>
-              ) : (
-                <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-                  <Box sx={{ display: 'flex', gap: 1.25, mb: 1 }}>
-                    <Box sx={{ flex: 2, height: 38, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
-                    <Box sx={{ width: 130, height: 38, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
-                    <Box sx={{ width: 160, height: 38, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
-                  </Box>
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <Box key={i} sx={{ display: 'grid', gridTemplateColumns: '50px 110px 1fr 130px 130px 120px 80px', gap: 1, alignItems: 'center', py: 0.45 }}>
-                      <Bone w={18} h={18} r={4} />
-                      <Bone w={90} h={11} />
-                      <Bone w="75%" h={11} />
-                      <Bone w={95} h={20} r={12} />
-                      <Bone w={95} h={20} r={12} />
-                      <Bone w={85} h={20} r={12} />
-                      <Bone w={28} h={28} r={6} />
-                    </Box>
-                  ))}
-                </Box>
-              )}
-            </Box>
-          </Grid>
-        ))}
-      </Grid>
-    </Box>
-  </>
-);
-
-// ─── Skeleton shimmer ─────────────────────────────────────────────────────
-const SkeletonChip = () => (
-  <Box sx={{
-    display: 'inline-block', width: 64, height: 20, borderRadius: '10px',
-    bgcolor: 'rgba(0,0,0,0.08)',
-    animation: 'dtr-pulse 1.4s ease-in-out infinite',
-    '@keyframes dtr-pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.4 } },
-  }} />
-);
-
-const SkeletonText = ({ width = 80 }) => (
-  <Box sx={{
-    display: 'inline-block', width, height: 14, borderRadius: 1,
-    bgcolor: 'rgba(0,0,0,0.07)',
-    animation: 'dtr-pulse 1.4s ease-in-out infinite',
-    '@keyframes dtr-pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.4 } },
-  }} />
-);
-
 const generateHash = (data) => {
   const str = JSON.stringify(data);
   let hash = 0;
@@ -424,6 +315,15 @@ const getAuthHeaders = () => {
 
 const DTR_WIDTH_IN = '8.7in';
 const PAGE_SIZE = 30;
+
+/** html2canvas often under-renders faint text; bump contrast on the cloned DOM used for capture */
+const enhanceDtrWatermarksInClone = (clonedDoc) => {
+  if (!clonedDoc?.querySelectorAll) return;
+  clonedDoc.querySelectorAll('.dtr-cell-watermark span').forEach((el) => {
+    el.style.setProperty('color', 'rgba(0,0,0,0.55)');
+    el.style.setProperty('opacity', '1');
+  });
+};
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const DailyTimeRecordFaculty = () => {
@@ -499,6 +399,7 @@ const DailyTimeRecordFaculty = () => {
 
   const [singlePrintLoading, setSinglePrintLoading] = useState(false);
   const [singlePrintStatus, setSinglePrintStatus]   = useState('');
+  const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
 
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1005,7 +906,7 @@ const formatEndDate = (dateString) => { if (!dateString) return ''; const [y,,d]
       const orig = ensureCaptureStyles(dtrRef.current);
       setSinglePrintStatus('Capturing DTR layout...');
       await new Promise((r) => setTimeout(r, 100));
-      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false });
+      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
       restoreCaptureStyles(dtrRef.current, orig);
       const imgData = canvas.toDataURL('image/png');
       const dtrW = 8, dtrH = 9.5, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
@@ -1026,7 +927,7 @@ const formatEndDate = (dateString) => { if (!dateString) return ''; const [y,,d]
       const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
       const orig = ensureCaptureStyles(dtrRef.current);
       await new Promise((r) => setTimeout(r, 100));
-      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false });
+      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
       restoreCaptureStyles(dtrRef.current, orig);
       const imgData = canvas.toDataURL('image/png');
       const dtrW = 8, dtrH = 10, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
@@ -1047,7 +948,7 @@ const formatEndDate = (dateString) => { if (!dateString) return ''; const [y,,d]
       if (!ref) throw new Error('DTR element not found. Please try again.');
       const orig   = ensureCaptureStyles(ref);
       await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(ref, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      const canvas = await html2canvas(ref, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
       restoreCaptureStyles(ref, orig);
       if (!canvas || canvas.width === 0) throw new Error('Failed to capture DTR.');
       const imgData = canvas.toDataURL('image/png');
@@ -1090,7 +991,7 @@ const formatEndDate = (dateString) => { if (!dateString) return ''; const [y,,d]
         if (!ref) continue;
         try {
           const orig   = ensureCaptureStyles(ref);
-          const canvas = await html2canvas(ref, { scale: captureScale, useCORS: true, logging: false });
+          const canvas = await html2canvas(ref, { scale: captureScale, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
           restoreCaptureStyles(ref, orig);
           if (!canvas || canvas.width === 0) continue;
           const imgData = canvas.toDataURL('image/png');
@@ -1137,7 +1038,7 @@ const formatEndDate = (dateString) => { if (!dateString) return ''; const [y,,d]
         if (!ref) continue;
         try {
           const orig   = ensureCaptureStyles(ref);
-          const canvas = await html2canvas(ref, { scale: captureScale, useCORS: true, logging: false });
+          const canvas = await html2canvas(ref, { scale: captureScale, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
           restoreCaptureStyles(ref, orig);
           if (!canvas || canvas.width === 0) continue;
           const imgData = canvas.toDataURL('image/png');
@@ -1194,12 +1095,31 @@ const isDateInRange = (date, s, e) => {
   };
 
   // ─── Access guards ─────────────────────────────────────────────────────
-  if (accessLoading) {
-    return <DTROverallWireframe />;
-  }
-  if (hasAccess === false) {
+  if (!accessLoading && hasAccess === false) {
     return <AccessDenied title="Access Denied" message="You do not have permission to access Daily Time Record." returnPath="/admin-home" returnButtonText="Return to Home" />;
   }
+
+  const loadingOverlayOpen =
+    accessLoading
+    || employeeSearchLoading
+    || (viewMode === 'single' && monthLoading)
+    || (viewMode === 'multiple' && loadingAllUsers)
+    || printingAll
+    || singlePrintLoading;
+
+  const loadingOverlayMessage = (() => {
+    if (accessLoading) return 'Checking access…';
+    if (singlePrintLoading) return singlePrintStatus || 'Preparing DTR…';
+    if (printingAll) return printingStatus || 'Preparing DTRs…';
+    if (viewMode === 'single' && monthLoading) {
+      return selectedMonth !== null ? `Loading DTR — ${monthsShort[selectedMonth]}…` : 'Loading DTR — Fetching records…';
+    }
+    if (viewMode === 'multiple' && loadingAllUsers) {
+      return loadPhase ? `Batch load — ${loadPhase}` : 'Batch load — Loading…';
+    }
+    if (employeeSearchLoading) return 'Searching employees…';
+    return 'Processing…';
+  })();
 
   // ─── DTR table renderers ───────────────────────────────────────────────
   const getTimeFields = (record, type) => {
@@ -1314,6 +1234,61 @@ const isDateInRange = (date, s, e) => {
     return new Date(selectedYear, selectedMonth + 1, 0).getDate();
   })();
 
+  const dtrRawEmpty = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+
+  const dtrWmSpanStyle = {
+    fontSize: '8.5px',
+    fontWeight: 700,
+    fontFamily: 'Arial, "Times New Roman", serif',
+    color: 'rgba(0,0,0,0.48)',
+    letterSpacing: '0.05em',
+    whiteSpace: 'nowrap',
+    userSelect: 'none',
+    lineHeight: 1,
+    WebkitPrintColorAdjust: 'exact',
+    printColorAdjust: 'exact',
+  };
+
+  const renderDtrAmPmWatermarkCell = (rawVal, displayText, rowTint, indicator, colKey) => {
+    const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
+    return (
+      <td
+        key={colKey}
+        style={{
+          ...cellStyle,
+          backgroundColor: rowTint,
+          position: 'relative',
+          verticalAlign: 'middle',
+          overflow: 'visible',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact',
+        }}
+      >
+        {showWm && (
+          <div
+            className="dtr-cell-watermark"
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          >
+            <span style={dtrWmSpanStyle}>{indicator.label}</span>
+          </div>
+        )}
+        <span style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
+      </td>
+    );
+  };
+
   const renderDTRRows = (sourceRecords, type) =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day    = (i + 1).toString().padStart(2, '0');
@@ -1325,35 +1300,29 @@ const isDateInRange = (date, s, e) => {
       const indicator = getDateIndicator(fullDate);
       const tf = getTimeFields(record, type);
       const rt = getRenderedTimeData(record, type);
-      const bg = indicator ? indicator.bgColor : 'transparent';
+      const rowTint = indicator ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)') : 'transparent';
       return (
         <tr key={i}>
-          <td style={{ ...cellStyle, backgroundColor: bg, position: 'relative' }}>
+          <td style={{ ...cellStyle, backgroundColor: rowTint, position: 'relative', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
           </td>
           {type === 'regular' ? (
             <>
-              <td style={{ ...cellStyle, backgroundColor: bg, position: 'relative' }}>
-                {indicator && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: '7px', fontWeight: 'bold', color: 'rgba(0,0,0,0.25)', whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 0 }}>{indicator.label}</div>}
-                <span style={{ position: 'relative', zIndex: 1 }}>{formatTime(tf.timeIN)}</span>
-              </td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span>{formatTime(tf.breaktimeIN)}</span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span>{formatTime(tf.breaktimeOUT)}</span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg, position: 'relative' }}>
-                {indicator && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: '7px', fontWeight: 'bold', color: 'rgba(0,0,0,0.25)', whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 0 }}>{indicator.label}</div>}
-                <span style={{ position: 'relative', zIndex: 1 }}>{formatTime(tf.timeOUT)}</span>
-              </td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span>{rt.minutes}</span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span>{rt.minutes}</span></td>
+              {renderDtrAmPmWatermarkCell(tf.timeIN, formatTime(tf.timeIN || ''), rowTint, indicator, `r-${i}-0`)}
+              {renderDtrAmPmWatermarkCell(tf.breaktimeIN, formatTime(tf.breaktimeIN || ''), rowTint, indicator, `r-${i}-1`)}
+              {renderDtrAmPmWatermarkCell(tf.breaktimeOUT, formatTime(tf.breaktimeOUT || ''), rowTint, indicator, `r-${i}-2`)}
+              {renderDtrAmPmWatermarkCell(tf.timeOUT, formatTime(tf.timeOUT || ''), rowTint, indicator, `r-${i}-3`)}
+              <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{rt.minutes}</span></td>
+              <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{rt.minutes}</span></td>
             </>
           ) : (
             <>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span>{formatTime(tf.timeIN)}</span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span></span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span></span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span>{formatTime(tf.timeOUT)}</span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span></span></td>
-              <td style={{ ...cellStyle, backgroundColor: bg }}><span></span></td>
+              {renderDtrAmPmWatermarkCell(tf.timeIN, formatTime(tf.timeIN || ''), rowTint, indicator, `o-${i}-0`)}
+              {renderDtrAmPmWatermarkCell(null, '', rowTint, indicator, `o-${i}-1`)}
+              {renderDtrAmPmWatermarkCell(null, '', rowTint, indicator, `o-${i}-2`)}
+              {renderDtrAmPmWatermarkCell(tf.timeOUT, formatTime(tf.timeOUT || ''), rowTint, indicator, `o-${i}-3`)}
+              <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span></span></td>
+              <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span></span></td>
             </>
           )}
         </tr>
@@ -1499,14 +1468,14 @@ const isDateInRange = (date, s, e) => {
           </Typography>
           <Typography sx={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
             {loadingAllUsers
-              ? 'Loading employees and DTRs...'
+              ? '—'
               : `${filteredUsers.length} ${filteredUsers.length === 1 ? 'employee' : 'employees'} found`}
           </Typography>
-          <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
-            {loadingAllUsers
-              ? 'Please wait while the selected month is being scanned.'
-              : 'Use the filters on the right to narrow the batch before printing.'}
-          </Typography>
+          {!loadingAllUsers && (
+            <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
+              Use the filters on the right to narrow the batch before printing.
+            </Typography>
+          )}
         </Box>
       )}
 
@@ -1517,6 +1486,7 @@ const isDateInRange = (date, s, e) => {
           <Box sx={{ mb: 1.5 }}>
             <EmployeeSearchField
               value={personID}
+              onLoadingChange={setEmployeeSearchLoading}
               onSelectEmployeeNumber={(next) => {
                 setPersonID(next);
                 setHasSearchedSingle(false);
@@ -1537,10 +1507,24 @@ const isDateInRange = (date, s, e) => {
 
   // ─── Render ────────────────────────────────────────────────────────────
   return (
+    <>
+      <LoadingOverlay open={loadingOverlayOpen} message={loadingOverlayMessage} />
+      <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 600 }}>{snackbar.message}</Alert>
+      </Snackbar>
+      {!accessLoading && (
     <Fade in timeout={500}>
       <Box>
         <style>{`
           html { overflow-y: scroll; }
+          table td .dtr-cell-watermark {
+            position: absolute !important;
+            left: 0 !important; top: 0 !important; right: 0 !important; bottom: 0 !important;
+            display: flex !important; align-items: center !important; justify-content: center !important;
+            pointer-events: none !important; z-index: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           @page { size: A4; margin: 0; }
           @media print {
             .no-print { display: none !important; }
@@ -1552,39 +1536,13 @@ const isDateInRange = (date, s, e) => {
             .table-side-by-side { display: flex !important; flex-direction: row !important; gap: 1.5% !important; width: 100% !important; }
             .table-side-by-side table { width: 47% !important; border: 1px solid black !important; border-collapse: collapse !important; background: white !important; }
             table { page-break-inside: avoid !important; table-layout: fixed !important; }
+            table td, table th {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
             .bulk-dtr-print { display: none !important; }
           }
         `}</style>
-
-        {/* Snackbar */}
-        <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-          <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 600 }}>{snackbar.message}</Alert>
-        </Snackbar>
-
-        <LoadingOverlay
-          open={viewMode === 'single' && monthLoading}
-          message={selectedMonth !== null ? `Loading DTR — ${monthsShort[selectedMonth]}…` : 'Loading DTR — Fetching records…'}
-        />
-        <LoadingOverlay
-          open={viewMode === 'multiple' && loadingAllUsers}
-          message={loadPhase ? `Batch load — ${loadPhase}` : 'Batch load — Loading…'}
-        />
-
-        {/* Print loading overlay (modal) */}
-        {(printingAll || singlePrintLoading) && (
-          <Dialog open maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundColor: '#fff', boxShadow: '0 10px 50px rgba(0,0,0,0.12)', overflow: 'hidden' } }}>
-            <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2 }}>
-              <MCircularProgress size={48} thickness={4} sx={{ color: T.accent }} />
-              <Typography variant="h6" sx={{ fontWeight: 700, color: T.text, lineHeight: 1.3 }}>
-                {singlePrintLoading ? singlePrintStatus || 'Preparing DTR...' : printingStatus || 'Preparing DTRs...'}
-              </Typography>
-              <Typography variant="body2" sx={{ color: T.muted, maxWidth: 280, lineHeight: 1.6 }}>Please wait while the DTR is being prepared.</Typography>
-              <Box sx={{ width: '100%', mt: 1 }}>
-                <LinearProgress sx={{ height: 4, borderRadius: 2, backgroundColor: alpha(T.accent, 0.12), '& .MuiLinearProgress-bar': { borderRadius: 2, backgroundColor: T.accent } }} />
-              </Box>
-            </Box>
-          </Dialog>
-        )}
 
         <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
 
@@ -1738,14 +1696,11 @@ const isDateInRange = (date, s, e) => {
                           <PrintIcon sx={{ fontSize: 15, color: T.accent }} />
                           <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
                             Batch Printing
-                            {loadingAllUsers && loadPhase && (
-                              <Typography component="span" sx={{ fontSize: '0.72rem', color: T.muted, ml: 1, fontWeight: 400 }}>{loadPhase}</Typography>
-                            )}
                           </Typography>
                           {allUsersDTR.length > 0 && (
                             <Box sx={{ px: 1.5, py: 0.3, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}` }}>
                               <Typography sx={{ fontSize: '0.7rem', color: T.accent, fontWeight: 700 }}>
-                                {filteredUsers.length} users{loadingAllUsers ? ' (loading…)' : ''}
+                                {filteredUsers.length} users
                               </Typography>
                             </Box>
                           )}
@@ -1754,7 +1709,7 @@ const isDateInRange = (date, s, e) => {
                           <Tooltip title="Reload all users DTR" placement="top">
                             <IconButton size="small" onClick={fetchAllUsersDTR} disabled={loadingAllUsers || !startDate || !endDate}
                               sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) }, '&:disabled': { opacity: 0.4 } }}>
-                              {loadingAllUsers ? <MCircularProgress size={14} sx={{ color: T.accent }} /> : <Refresh sx={{ fontSize: 16 }} />}
+                              <Refresh sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
                           {selectedUsers.size > 0 && (
@@ -1767,13 +1722,6 @@ const isDateInRange = (date, s, e) => {
                           )}
                         </Box>
                       </Box>
-                      {/* inline progress bar when loading */}
-                      {loadingAllUsers && (
-                        <Box sx={{ mt: 1.5 }}>
-                          <LinearProgress sx={{ height: 3, borderRadius: 2, bgcolor: alpha(T.accent, 0.1), '& .MuiLinearProgress-bar': { bgcolor: T.accent } }} />
-                          <Typography sx={{ fontSize: '0.68rem', color: T.faint, mt: 0.4 }}>{loadPhase}</Typography>
-                        </Box>
-                      )}
                     </Box>
 
                     {allUsersDTR.length > 0 ? (
@@ -1878,38 +1826,38 @@ const isDateInRange = (date, s, e) => {
                                       <Checkbox checked={isSelected} onChange={() => handleUserSelect(user.employeeNumber)} disabled={isPrinted || isLoading} sx={{ '&.Mui-checked': { color: T.accent } }} />
                                     </TableCell>
                                     <TableCell sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600 }}>
-                                      {isLoading ? <SkeletonText width={60} /> : `#${user.employeeNumber}`}
+                                      {isLoading ? '—' : `#${user.employeeNumber}`}
                                     </TableCell>
                                     <TableCell sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {isLoading ? <SkeletonText width={120} /> : (searchQuery ? highlightMatch(user.fullName || '', searchQuery) : user.fullName)}
+                                      {isLoading ? '—' : (searchQuery ? highlightMatch(user.fullName || '', searchQuery) : user.fullName)}
                                     </TableCell>
                                     <TableCell>
-                                      {isLoading ? <SkeletonChip /> : (
+                                      {isLoading ? '—' : (
                                         deptCode !== 'N/A'
                                           ? <Box sx={{ px: 1.2, py: 0.3, borderRadius: 1, bgcolor: alpha(T.accent, 0.07), border: `1px solid ${T.accentBorder}`, display: 'inline-block' }}><Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent }}>{deptCode}</Typography></Box>
                                           : <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>N/A</Typography>
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      {isLoading ? <SkeletonChip /> : (
+                                      {isLoading ? '—' : (
                                         <Chip label={getCategoryLabel(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)} size="small"
                                           sx={{ bgcolor: alpha(getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory), 0.1), color: getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory), border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory)}`, fontWeight: 600, fontSize: '0.68rem', height: 20 }} />
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      {isLoading ? <SkeletonChip /> : (
+                                      {isLoading ? '—' : (
                                         <Chip label={user.registrationStatus === 'Registered' ? '🟢 Registered' : '🟠 Not Registered'} size="small" color={user.registrationStatus === 'Registered' ? 'success' : 'warning'} sx={{ fontWeight: 600, fontSize: '0.68rem', height: 20 }} />
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      {isLoading ? <SkeletonChip /> : (
+                                      {isLoading ? '—' : (
                                         isPrinted
                                           ? <Chip label="Printed" size="small" color="success" sx={{ fontSize: '0.68rem', height: 20, fontWeight: 600 }} />
                                           : <Chip label="Unprinted" size="small" sx={{ fontSize: '0.68rem', height: 20, bgcolor: alpha('#757575', 0.1), color: '#757575', border: '1px solid #bdbdbd' }} />
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      {isLoading ? <SkeletonChip /> : (
+                                      {isLoading ? '—' : (
                                         <Tooltip title={isPrinted ? 'Re-print DTR' : 'Print DTR'}>
                                           <IconButton size="small" onClick={() => showReprintConfirm(user)} sx={{ color: T.accent, bgcolor: T.accentFaint, '&:hover': { bgcolor: T.accentHover }, borderRadius: '6px', width: 28, height: 28 }}>
                                             <PrintIcon sx={{ fontSize: 14 }} />
@@ -1956,10 +1904,10 @@ const isDateInRange = (date, s, e) => {
                       /* Empty batch state */
                       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                          {loadingAllUsers ? <MCircularProgress sx={{ color: T.accent }} /> : <PrintIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />}
+                          <PrintIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                         </Box>
                         <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
-                          {loadingAllUsers ? loadPhase || 'Loading records…' : (!startDate || !endDate ? 'Select a month first' : 'No records loaded')}
+                          {loadingAllUsers ? '—' : (!startDate || !endDate ? 'Select a month first' : 'No records loaded')}
                         </Typography>
                         <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
                           {!startDate || !endDate ? 'Pick a year and month from the left panel — data loads automatically.' : 'Click the reload button in the toolbar to fetch records.'}
@@ -1980,7 +1928,7 @@ const isDateInRange = (date, s, e) => {
 
         {/* ── Bulk Print Preview Modal ── */}
         <Dialog open={previewModalOpen} onClose={() => setPreviewModalOpen(false)} maxWidth="lg" fullWidth
-          PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', visibility: printingAll ? 'hidden' : 'visible', pointerEvents: printingAll ? 'none' : 'auto', display: 'flex', flexDirection: 'column', maxHeight: '90vh' } }}>
+          PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh' } }}>
           <Box sx={{ px: 3, py: 2, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <Box>
               <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff', lineHeight: 1.2 }}>DTR Preview</Typography>
@@ -2073,6 +2021,8 @@ const isDateInRange = (date, s, e) => {
 
       </Box>
     </Fade>
+      )}
+    </>
   );
 };
 

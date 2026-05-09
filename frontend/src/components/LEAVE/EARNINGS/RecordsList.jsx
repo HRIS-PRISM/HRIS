@@ -1622,14 +1622,13 @@ const RecordsList = ({
         .filter(Boolean);
  
       const scList = scRes.status === "fulfilled" ? scRes.value.data?.earnings || [] : [];
-      const scLed = scRes.status === "fulfilled" ? scRes.value.data?.ledger_sc_deductions || [] : [];
       const ctoList = ctoRes.status === "fulfilled" ? ctoRes.value.data?.earnings || [] : [];
-      const ctoLed = ctoRes.status === "fulfilled" ? ctoRes.value.data?.ledger_cto_deductions || [] : [];
+      // SC/CTO ledger deductions: audit_log + transaction_table only (not earnings_audit_log / this grid).
 
       const allEarnings = [
         ...leaveTagged,
-        ...tag([...scList, ...scLed], "sc"),
-        ...tag([...ctoList, ...ctoLed], "cto"),
+        ...tag([...scList], "sc"),
+        ...tag([...ctoList], "cto"),
         ...snapshotEarnings,
       ];
  

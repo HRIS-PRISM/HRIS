@@ -95,71 +95,35 @@
     payrollAuthHeaders,
   } from "../../utils/regularPayrollFromAttendance";
   import {
-    computeOfficialAwareAbsenceAndLate,
     formatOfficialAttendanceSeconds,
     parseOfficialTimeToSeconds,
   } from "../../utils/officialAttendanceFromDailyRows";
-  import { fetchAttendanceCalendarMaps } from "../ATTENDANCE/attendanceLeaveIntegration";
 
   /**
-   * Align earnings tardiness with ATTENDANCE/AttendanceSummary `_lateTotal`: saved DB overall tardiness minus
-   * absent + half-day shortfall seconds when those buckets exist; otherwise keep the saved overall (late-only
-   * equals overall). Same calendar exclusions as the attendance module.
+   * Earnings Management wants Late Total (late-only), not overall tardiness.
+   * Prefer persisted `lateTotalTime` from overall_attendance_record, otherwise derive
+   * late-only from saved overall minus persisted absent/half-day shortfall buckets.
    */
   async function mergeSummaryLateOnlyTardiness(summary, employeeNumber, headers) {
-    if (!summary?.startDate || !summary?.endDate || !employeeNumber) return summary;
-    try {
-      const getAuthHeaders = () => ({ headers });
-      const [r, maps] = await Promise.all([
-        axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
-          params: {
-            personId: String(employeeNumber).trim(),
-            startDate: summary.startDate,
-            endDate: summary.endDate,
-          },
-          headers,
-        }),
-        fetchAttendanceCalendarMaps({
-          apiBaseUrl: API_BASE_URL,
-          getAuthHeaders,
-          startDate: summary.startDate,
-          endDate: summary.endDate,
-          personId: employeeNumber,
-        }),
-      ]);
-      const dailyRows = Array.isArray(r.data) ? r.data : r.data?.data || [];
-      const calendarMaps = {
-        suspensionByDate: maps.suspensionByDate,
-        holidayByDate: maps.holidayByDate,
-        leaveByDate: maps.leaveByDate,
-      };
-      const c = computeOfficialAwareAbsenceAndLate(dailyRows, calendarMaps);
-      const noAbsentNoHalf =
-        c.absentSecTotal === 0 && c.halfDayShortfallSecTotal === 0;
-      if (noAbsentNoHalf) return { ...summary };
-      const saved = summary.overallRenderedOfficialTimeTardiness;
-      const savedTrim =
-        saved != null && String(saved).trim() !== "" ? String(saved).trim() : "";
-      const overallSec = parseOfficialTimeToSeconds(savedTrim);
-      const lateResolved =
-        overallSec != null
-          ? formatOfficialAttendanceSeconds(
-              Math.max(
-                0,
-                overallSec - c.absentSecTotal - c.halfDayShortfallSecTotal,
-              ),
-            )
-          : c.lateShortfallTime;
-      return {
-        ...summary,
-        ...(overallSec != null && savedTrim
-          ? { _savedOverallTardinessFromRecord: savedTrim }
-          : {}),
-        overallRenderedOfficialTimeTardiness: lateResolved,
-      };
-    } catch {
-      return summary;
+    if (!summary) return summary;
+    if (summary?.lateTotalTime != null && String(summary.lateTotalTime).trim() !== "") {
+      return { ...summary, _lateTotal: String(summary.lateTotalTime).trim() };
     }
+    const overallStr =
+      summary?.overallRenderedOfficialTimeTardiness != null
+        ? String(summary.overallRenderedOfficialTimeTardiness).trim()
+        : "";
+    const absentStr = summary?.absentTime != null ? String(summary.absentTime).trim() : "";
+    const halfStr =
+      summary?.halfDayShortfallTime != null ? String(summary.halfDayShortfallTime).trim() : "";
+    const overallSec = parseOfficialTimeToSeconds(overallStr);
+    const absentSec = parseOfficialTimeToSeconds(absentStr) ?? 0;
+    const halfSec = parseOfficialTimeToSeconds(halfStr) ?? 0;
+    if (overallSec == null) return { ...summary };
+    return {
+      ...summary,
+      _lateTotal: formatOfficialAttendanceSeconds(Math.max(0, overallSec - absentSec - halfSec)),
+    };
   }
 
   const T = {

@@ -15,6 +15,16 @@ export const OVERALL_TIME_FIELD_KEYS = [
   'overallRenderedOfficialTimeTardiness',
 ];
 
+// Finalized absence / half-day breakdown fields persisted in overall_attendance_record
+export const OVERALL_ABSENCE_FIELD_KEYS = [
+  'absentDays',
+  'halfDays',
+  'absentTime',
+  'halfDayShortfallTime',
+  'absentDates',
+  'halfDayDates',
+];
+
 export const OVERALL_COMPARE_FIELD_META = [
   { key: 'totalRenderedTimeMorning', label: 'Morning — rendered' },
   { key: 'totalRenderedTimeMorningTardiness', label: 'Morning — tardiness' },
@@ -48,10 +58,22 @@ export function hmsRoughlyEqual(a, b, toleranceSec = 1) {
 
 export function overallRecordsDiffer(saved, proposed, keys = OVERALL_TIME_FIELD_KEYS) {
   if (!saved || !proposed) return true;
-  return keys.some((key) => {
+  const timeDiff = keys.some((key) => {
     const sv = saved[key] ?? '00:00:00';
     const pv = proposed[key] ?? '00:00:00';
     return !hmsRoughlyEqual(sv, pv);
+  });
+  if (timeDiff) return true;
+
+  // If the module computed finalized absence fields, treat them as part of identity too.
+  // This prevents "Duplicate" false-positives when rendered/tardiness matches but
+  // absent/half-day classification differs.
+  return OVERALL_ABSENCE_FIELD_KEYS.some((key) => {
+    if (!(key in proposed)) return false;
+    const sv = saved[key];
+    const pv = proposed[key];
+    if (key === 'absentDays' || key === 'halfDays') return Number(sv ?? 0) !== Number(pv ?? 0);
+    return String(sv ?? '').trim() !== String(pv ?? '').trim();
   });
 }
 
@@ -80,6 +102,12 @@ export function mergeOverallPayload({
     savedRow?.overallTotalOfficialSchedule ??
     proposed?.overallTotalOfficialSchedule ??
     null;
+
+  // Persist module-derived absent/half-day breakdown (summary should not recompute).
+  OVERALL_ABSENCE_FIELD_KEYS.forEach((k) => {
+    if (proposed && Object.prototype.hasOwnProperty.call(proposed, k)) out[k] = proposed[k];
+    else if (savedRow && Object.prototype.hasOwnProperty.call(savedRow, k)) out[k] = savedRow[k];
+  });
   return out;
 }
 

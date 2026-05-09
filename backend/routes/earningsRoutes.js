@@ -836,6 +836,34 @@ const express = require("express");
       );
     });
 
+  /**
+   * SC/CTO balance deductions belong in audit_log + transaction_table only.
+   * earnings_audit_log records earning lifecycle (credits, leave-linked rows), not deduction ledger.
+   */
+  const isScCtoDeductionPayload = (type, payload) => {
+    const t = String(type || "").toLowerCase();
+    if (t !== "sc" && t !== "cto") return false;
+    const p = payload && typeof payload === "object" ? payload : {};
+    if (p.ledger_only === true) return true;
+    const et = String(p.entry_type || p.entryType || "").toUpperCase();
+    if (et === "DEDUCTION") return true;
+    const eh = toNum(p.earned_hours != null ? p.earned_hours : p.earnedHrs);
+    return eh < 0;
+  };
+
+  const isScCtoDeductionEarningsAuditRow = (row) => {
+    if (!row) return false;
+    const t = String(row.earning_type || "").toLowerCase();
+    if (t !== "sc" && t !== "cto") return false;
+    let p = {};
+    try {
+      p = row.payload ? JSON.parse(row.payload) : {};
+    } catch {
+      p = {};
+    }
+    return isScCtoDeductionPayload(t, p);
+  };
+
   const getEarningsAuditMeta = (type, payload) => {
     const t = String(type || "").toLowerCase();
     const p = payload && typeof payload === "object" ? payload : {};
@@ -890,7 +918,7 @@ const express = require("express");
       String(type || "").toLowerCase() === "leave" &&
       (payloadEntryType === "TARDINESS_DEDUCTION" || /\btardiness\b/i.test(String(action || "")));
 
-    if (!isTardinessLeaveAction) {
+    if (!isTardinessLeaveAction && !isScCtoDeductionPayload(type, payload)) {
       // Store also in earnings_audit_log (dedicated earnings audit trail)
       const { actionSuffix, notes } = getEarningsAuditMeta(type, payload);
       insertEarningsAuditLog(
@@ -1010,7 +1038,8 @@ const express = require("express");
       const sql = `SELECT * FROM earnings_audit_log WHERE earning_type = ? AND (${parts.join(" OR ")}) ORDER BY id ASC`;
       db.query(sql, params, (err, rows) => {
         if (err) return res.status(500).json({ error: "Failed to fetch earnings audit log" });
-        res.json(Array.isArray(rows) ? rows : []);
+        const raw = Array.isArray(rows) ? rows : [];
+        res.json(raw.filter((r) => !isScCtoDeductionEarningsAuditRow(r)));
       });
       return;
     }
@@ -1027,7 +1056,7 @@ const express = require("express");
       [tLower, String(eidNum)],
       (err, rows) => {
         if (err) return res.status(500).json({ error: "Failed to fetch earnings audit log" });
-        const list = Array.isArray(rows) ? rows : [];
+        const list = (Array.isArray(rows) ? rows : []).filter((r) => !isScCtoDeductionEarningsAuditRow(r));
         if (list.length > 0 || tLower !== "half_day_policy") {
           return res.json(list);
         }
@@ -1131,7 +1160,7 @@ const express = require("express");
 
   /**
    * GET /api/earnings/period-audit-for-records/:employeeNumber?year=&month=
-   * earnings_audit_log: leave / SC / CTO only (tardiness snapshots use earning_type leave).
+   * earnings_audit_log: leave + SC/CTO earning lifecycle only (not SC/CTO balance deductions).
    * Half-day policy: audit_log leave_transaction rows, reshaped here for the same UI mapper.
    */
   router.get("/period-audit-for-records/:employeeNumber", authenticateToken, (req, res) => {
@@ -1158,7 +1187,9 @@ const express = require("express");
           return res.status(500).json({ error: "Failed to load period earnings audit rows" });
         }
         const list = Array.isArray(rows) ? rows : [];
-        const filteredEal = list.filter((r) => rowMatchesEarningsAuditPeriod(r, y, m));
+        const filteredEal = list.filter(
+          (r) => rowMatchesEarningsAuditPeriod(r, y, m) && !isScCtoDeductionEarningsAuditRow(r),
+        );
 
         db.query(
           `SELECT id, employeeNumber, action, table_name, record_id, targetEmployeeNumber,

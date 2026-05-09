@@ -1104,6 +1104,14 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
     overallRenderedOfficialTime,
     overallRenderedOfficialTimeTardiness,
     overallTotalOfficialSchedule,
+    // Finalized absence / half-day breakdown (computed by attendance modules)
+    absentDays,
+    halfDays,
+    absentTime,
+    halfDayShortfallTime,
+    lateTotalTime,
+    absentDates,
+    halfDayDates,
   } = req.body;
 
   const query = `
@@ -1115,8 +1123,12 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
       totalRenderedOvertime, totalRenderedOvertimeTardiness,
       overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
-      overallTotalOfficialSchedule
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      overallTotalOfficialSchedule,
+      absentDays, halfDays,
+      absentTime, halfDayShortfallTime,
+      lateTotalTime,
+      absentDates, halfDayDates
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   db.query(
@@ -1138,6 +1150,13 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       overallRenderedOfficialTime,
       overallRenderedOfficialTimeTardiness,
       overallTotalOfficialSchedule,
+      absentDays ?? null,
+      halfDays ?? null,
+      absentTime ?? null,
+      halfDayShortfallTime ?? null,
+      lateTotalTime ?? null,
+      absentDates ?? null,
+      halfDayDates ?? null,
     ],
     (error, results) => {
       if (error) {
@@ -1226,6 +1245,14 @@ router.put(
       overallRenderedOfficialTime,
       overallRenderedOfficialTimeTardiness,
       overallTotalOfficialSchedule,
+      // Finalized absence / half-day breakdown (computed by attendance modules)
+      absentDays,
+      halfDays,
+      absentTime,
+      halfDayShortfallTime,
+      lateTotalTime,
+      absentDates,
+      halfDayDates,
     } = req.body;
 
     const { id } = req.params;
@@ -1259,7 +1286,11 @@ router.put(
       totalRenderedServiceCredit = ?, totalRenderedServiceCreditTardiness = ?,
       totalRenderedOvertime = ?, totalRenderedOvertimeTardiness = ?,
       overallRenderedOfficialTime = ?, overallRenderedOfficialTimeTardiness = ?,
-      overallTotalOfficialSchedule = ?
+      overallTotalOfficialSchedule = ?,
+      absentDays = ?, halfDays = ?,
+      absentTime = ?, halfDayShortfallTime = ?,
+      lateTotalTime = ?,
+      absentDates = ?, halfDayDates = ?
       WHERE id = ?
     `;
 
@@ -1282,6 +1313,13 @@ router.put(
             overallRenderedOfficialTime,
             overallRenderedOfficialTimeTardiness,
             overallTotalOfficialSchedule,
+            absentDays ?? null,
+            halfDays ?? null,
+            absentTime ?? null,
+            halfDayShortfallTime ?? null,
+            lateTotalTime ?? null,
+            absentDates ?? null,
+            halfDayDates ?? null,
             id,
           ],
           (error, results) => {

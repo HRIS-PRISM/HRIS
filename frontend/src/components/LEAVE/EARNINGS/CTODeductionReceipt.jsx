@@ -991,6 +991,14 @@ const CTODeductionReceipt = ({
     !(tardinessPending || tardinessApproved);
   const lockedAbsenceUi = absencePending || absenceApproved || scPending || scApproved;
   const lockedTardinessUi = tardinessPending || tardinessApproved;
+  /** Hide Step 2 when there is nothing to charge (both columns would only show idle placeholders). */
+  const showStep2AccountsCard =
+    (absentDays > 0 &&
+      !absenceCoveredBySC &&
+      !absenceFullyDeducted &&
+      remainingAbsenceForSalaryApply > 1e-5 &&
+      !(absencePending || absenceApproved)) ||
+    (tardDays > 0.0001 && !tardinessFullyDeducted);
   const anyNonSalaryApplyUi =
     (willApplyAbsence && !lockedAbsenceUi) || (willApplyTardiness && !lockedTardinessUi);
   const anySalaryApplyUi =
@@ -2424,6 +2432,7 @@ const CTODeductionReceipt = ({
           </Box>
         )}
 
+        {showStep2AccountsCard && (
         <Box
           sx={{
             borderRadius: 1.5,
@@ -2665,8 +2674,11 @@ const CTODeductionReceipt = ({
             </Box>
           </Box>
         </Box>
+        )}
 
-        {(absenceCreditSelectedButBlocked || tardinessCreditSelectedButBlocked) && !bothDone && (
+        {(absenceCreditSelectedButBlocked || tardinessCreditSelectedButBlocked) &&
+          !bothDone &&
+          showStep2AccountsCard && (
           <Alert severity="info" sx={{ py: 0.5, fontSize: "0.65rem", borderRadius: 1.25 }}>
             The selected leave or credit has <strong>no usable balance</strong> for this amount. Credits cannot be
             posted at zero balance — use <strong>Salary Deduction</strong> in step 2, or <strong>Deduct from salary</strong>{" "}

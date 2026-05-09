@@ -550,16 +550,38 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     !officialMetricsLoading &&
     Boolean(officialStart && officialEnd && employee?.employeeNumber);
 
-  /** Matches ATTENDANCE/AttendanceSummary `_lateTotal`: saved overall minus absent/half shortfall when those buckets exist. */
-  const noAbsentNoHalfShortfall =
-    canTrustOfficialMetrics &&
-    Math.abs(toNum(absentTimeHrsOfficial)) < 1e-9 &&
-    Math.abs(toNum(halfDayShortfallHrsOfficial)) < 1e-9;
+  // In Earnings Management, the "tardiness" value should reflect Late Total (late-only),
+  // not overall tardiness (overall includes absent + half-day shortfall).
 
   const ATTEND_FIELDS = [
     { key: "overallRenderedOfficialTime", label: "Overall Rendered" },
-    { key: "overallRenderedOfficialTimeTardiness", label: "Overall Tardiness" },
+    { key: "overallRenderedOfficialTimeTardiness", label: "Late Total" },
   ];
+
+  const tardHrs = useMemo(() => {
+    if (!raw) return 0;
+    const fromDbLate =
+      raw.lateTotalTime != null && String(raw.lateTotalTime).trim() !== ""
+        ? parseHHMM(raw.lateTotalTime)
+        : null;
+    if (fromDbLate != null) return fromDbLate;
+    const fromInjected =
+      raw._lateTotal != null && String(raw._lateTotal).trim() !== ""
+        ? parseHHMM(raw._lateTotal)
+        : null;
+    if (fromInjected != null) return fromInjected;
+
+    const savedOverall = parseHHMM(raw.overallRenderedOfficialTimeTardiness);
+    if (!canTrustOfficialMetrics) return savedOverall;
+    const absentH = toNum(absentTimeHrsOfficial);
+    const halfH = toNum(halfDayShortfallHrsOfficial);
+    return Math.max(0, savedOverall - absentH - halfH);
+  }, [
+    raw,
+    canTrustOfficialMetrics,
+    absentTimeHrsOfficial,
+    halfDayShortfallHrsOfficial,
+  ]);
 
   useEffect(() => {
     if (!raw) {
@@ -568,11 +590,12 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
     const init = {};
     ATTEND_FIELDS.forEach(({ key }) => {
-      init[key] = parseHHMM(raw[key]);
+      if (key === "overallRenderedOfficialTimeTardiness") init[key] = tardHrs;
+      else init[key] = parseHHMM(raw[key]);
     });
     setFields(init);
     setEditing(false);
-  }, [raw]);
+  }, [raw, tardHrs]);
 
   const handleChange = (key, val) =>
     setFields((p) => ({ ...p, [key]: toNum(val) }));
@@ -602,25 +625,13 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
       overallRenderedOfficialTime: hoursToHHMM(
         toNum(fields.overallRenderedOfficialTime),
       ),
-      overallRenderedOfficialTimeTardiness: hoursToHHMM(
-        toNum(fields.overallRenderedOfficialTimeTardiness),
-      ),
+      // Do NOT overwrite overall tardiness on the record; this field is late-only in Earnings UI.
+      overallRenderedOfficialTimeTardiness: raw?.overallRenderedOfficialTimeTardiness,
     };
-    const overallTardStrForDb =
-      raw._savedOverallTardinessFromRecord != null &&
-      String(raw._savedOverallTardinessFromRecord).trim() !== ""
-        ? raw._savedOverallTardinessFromRecord
-        : raw.overallRenderedOfficialTimeTardiness;
-    const savedTardHrs = parseHHMM(overallTardStrForDb);
-    const absentH = toNum(absentTimeHrsOfficial);
-    const halfH = toNum(halfDayShortfallHrsOfficial);
-    const lateTotalHrsForOar = noAbsentNoHalfShortfall
-      ? savedTardHrs
-      : Math.max(0, savedTardHrs - absentH - halfH);
     const tertiaryProposal = canTrustOfficialMetrics
       ? {
           overallRenderedOfficialTime: hoursToHHMM(toNum(renderedHrsOfficial)),
-          overallRenderedOfficialTimeTardiness: hoursToHHMM(lateTotalHrsForOar),
+          overallRenderedOfficialTimeTardiness: raw.overallRenderedOfficialTimeTardiness,
         }
       : null;
     const diffSavedForm = overallRecordsDiffer(
@@ -640,6 +651,10 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
         return;
       }
       const payload = buildOverallPutPayloadFromRow(raw, formProposal);
+      // Persist late-only value into the dedicated field.
+      payload.lateTotalTime = hoursToHHMM(
+        toNum(fields.overallRenderedOfficialTimeTardiness),
+      );
       await putSummaryPayload(payload);
     } catch (err) {
       setError("Save failed: " + (err.response?.data?.message || err.message));
@@ -688,26 +703,6 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
 
   const overallHrs = raw ? parseHHMM(raw.overallRenderedOfficialTime) : 0;
 
-  const tardHrs = (() => {
-    if (!raw) return 0;
-    if (
-      raw._savedOverallTardinessFromRecord != null &&
-      String(raw._savedOverallTardinessFromRecord).trim() !== ""
-    ) {
-      return parseHHMM(raw.overallRenderedOfficialTimeTardiness);
-    }
-    const savedTardHrs = parseHHMM(raw.overallRenderedOfficialTimeTardiness);
-    if (noAbsentNoHalfShortfall) return savedTardHrs;
-    if (canTrustOfficialMetrics) {
-      return Math.max(
-        0,
-        savedTardHrs -
-          toNum(absentTimeHrsOfficial) -
-          toNum(halfDayShortfallHrsOfficial),
-      );
-    }
-    return savedTardHrs;
-  })();
   const stats = attendanceData?.stats || {};
   const lateDays = toNum(stats.late_days);
   /** When official metrics load, match ATTENDANCE/AttendanceSummary: half-days exclude approved leave / holiday / suspension. */

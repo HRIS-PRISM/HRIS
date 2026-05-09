@@ -15,6 +15,8 @@ const {
   fetchLedgerSumForAssignment,
 } = require("../services/leaveCreditUsageService");
 const attendanceWriter = require("../services/attendanceResultWriter");
+const { getCtoCreditRunningTotals } = require("../services/ctoCreditRunningTotals");
+const { appendCtoDeductionSnapshotRowAsync } = require("../services/ctoLedgerSnapshots");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -368,61 +370,16 @@ const getFiledLeaveRequestForDate = ({ employeeNumber, leave_date }) =>
     );
   });
 
+/** Latest CTO snapshot remaining (aligned with ctoCreditRunningTotals / earnings module). */
 const getCtoRemainingHours = (employeeNumber) =>
   new Promise((resolve) => {
-    if (!employeeNumber) return resolve(0);
-    db.query(
-      `SELECT SUM(COALESCE(remaining_hours, 0)) AS total
-       FROM cto_credit
-       WHERE CAST(employeeNumber AS CHAR) = CAST(? AS CHAR)`,
-      [employeeNumber],
-      (err, rows) => {
-        if (err) return resolve(0);
-        const total = parseFloat(rows?.[0]?.total);
-        resolve(Number.isFinite(total) ? total : 0);
-      },
-    );
-  });
-
-const deductCtoHoursAcrossCredits = ({ employeeNumber, hours }) =>
-  new Promise((resolve, reject) => {
-    const need = Math.abs(Number(hours) || 0);
-    if (!employeeNumber || !need) return resolve({ deducted: 0 });
-    db.query(
-      `SELECT id, remaining_hours, used_hours
-       FROM cto_credit
-       WHERE CAST(employeeNumber AS CHAR) = CAST(? AS CHAR)
-         AND COALESCE(remaining_hours, 0) > 0
-       ORDER BY
-         CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END ASC,
-         expiry_date ASC,
-         id ASC`,
-      [employeeNumber],
-      async (err, rows) => {
-        if (err) return reject(err);
-        let remaining = need;
-        let deducted = 0;
-        for (const row of rows || []) {
-          if (remaining <= 0) break;
-          const rem = parseFloat(row.remaining_hours) || 0;
-          const used = parseFloat(row.used_hours) || 0;
-          if (rem <= 0) continue;
-          const take = Math.min(rem, remaining);
-          const newRem = Math.max(0, rem - take);
-          const newUsed = used + take;
-          await new Promise((res, rej) => {
-            db.query(
-              `UPDATE cto_credit SET remaining_hours = ?, used_hours = ? WHERE id = ?`,
-              [newRem, newUsed, row.id],
-              (e) => (e ? rej(e) : res()),
-            );
-          });
-          deducted += take;
-          remaining -= take;
-        }
-        resolve({ deducted });
-      },
-    );
+    const emp = String(employeeNumber || "").trim();
+    if (!emp) return resolve(0);
+    getCtoCreditRunningTotals(emp, (err, cur) => {
+      if (err) return resolve(0);
+      const n = Number(cur?.remaining);
+      resolve(Number.isFinite(n) ? n : 0);
+    });
   });
 
 const buildHalfDayPolicySuggestion = async ({
@@ -1830,6 +1787,7 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
       }
       let availableAfter = availableBefore;
       const leaveDateOnly = toMysqlDateOnly(leave_date);
+      let ctoHalfDayLedger = null;
 
       if (chargeTo === DEDUCTION_SALARY) {
         const overrideReason = String(decision_context?.override_reason || "").trim() || null;
@@ -1909,11 +1867,27 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
       }
 
       if (chargeTo === "CTO") {
-        const result = await deductCtoHoursAcrossCredits({
+        const y = parseInt(String(leaveDateOnly).slice(0, 4), 10);
+        const m = parseInt(String(leaveDateOnly).slice(5, 7), 10);
+        if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+          return res.status(400).json({ error: "Invalid leave_date for CTO ledger period" });
+        }
+        const baseRemark = `Half-day policy · ${leaveDateOnly}`;
+        ctoHalfDayLedger = await appendCtoDeductionSnapshotRowAsync({
           employeeNumber,
-          hours,
+          needHours: hours,
+          period_year: y,
+          period_month: m,
+          expiry_date: null,
+          remarksForLedger: baseRemark,
+          emp_category_snapshot: null,
+          usageDateUsed: leaveDateOnly,
+          usageAction: "offset",
         });
-        if (!Number.isFinite(result?.deducted) || result.deducted < hours) {
+        if (
+          !Number.isFinite(ctoHalfDayLedger?.deducted) ||
+          ctoHalfDayLedger.deducted + 1e-6 < hours
+        ) {
           return res.status(400).json({
             error: "CTO deduction failed due to insufficient remaining credits",
           });
@@ -1960,9 +1934,38 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
           available_hours_before: availableBefore,
           available_hours_after: Number((availableAfter || 0).toFixed(4)),
           has_leave_form: suggestion.has_leave_form,
+          ...(ctoHalfDayLedger?.newCtoCreditId
+            ? {
+                cto_credit_id: ctoHalfDayLedger.newCtoCreditId,
+                cto_usage_id: ctoHalfDayLedger.usageId,
+              }
+            : {}),
         },
         overrideReason,
       });
+
+      if (
+        chargeTo === "CTO" &&
+        decisionLogId &&
+        ctoHalfDayLedger?.usageId &&
+        ctoHalfDayLedger?.newCtoCreditId
+      ) {
+        const rmk = `Half-day policy · ${leaveDateOnly} · deduction_decision_log #${decisionLogId}`;
+        await new Promise((resolve, reject) => {
+          db.query(
+            `UPDATE cto_usage SET remarks = ? WHERE id = ?`,
+            [rmk, ctoHalfDayLedger.usageId],
+            (e) => (e ? reject(e) : resolve()),
+          );
+        });
+        await new Promise((resolve, reject) => {
+          db.query(
+            `UPDATE cto_credit SET remarks = ? WHERE id = ?`,
+            [rmk, ctoHalfDayLedger.newCtoCreditId],
+            (e) => (e ? reject(e) : resolve()),
+          );
+        });
+      }
 
       const [empName, actorName] = await Promise.all([
         getEmployeeFullName(String(employeeNumber)),

@@ -194,6 +194,15 @@ const DTRWireframe = () => (
   </>
 );
 
+/** html2canvas often under-renders faint text; bump contrast on the cloned DOM used for capture */
+const enhanceDtrWatermarksInClone = (clonedDoc) => {
+  if (!clonedDoc?.querySelectorAll) return;
+  clonedDoc.querySelectorAll('.dtr-cell-watermark span').forEach((el) => {
+    el.style.setProperty('color', 'rgba(0,0,0,0.55)');
+    el.style.setProperty('opacity', '1');
+  });
+};
+
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
 
 const DailyTimeRecord = () => {
@@ -333,7 +342,11 @@ const DailyTimeRecord = () => {
           fmt(record?.timeOUT    || ''),
         ];
         [1, 2, 3, 4].forEach((cellIdx, spanIdx) => {
-          const span = cells[cellIdx]?.querySelector('span');
+          // Target ONLY the direct-child time span — never the nested watermark span
+          // inside .dtr-cell-watermark (so HOLIDAY/SUSPENSION/ON LEAVE labels survive).
+          const td = cells[cellIdx];
+          if (!td) return;
+          const span = td.querySelector(':scope > span');
           if (span && span.textContent.trim() !== timeValues[spanIdx]) {
             span.textContent = timeValues[spanIdx];
           }
@@ -349,8 +362,16 @@ const DailyTimeRecord = () => {
     observerRef.current = new MutationObserver((mutations) => {
       if (isRestoringRef.current) return;
       const isTimeTamper = mutations.some((m) => {
-        if (m.type === 'characterData') { const span = m.target.parentElement; return span && span.tagName === 'SPAN'; }
-        if (m.type === 'childList') return m.target.tagName === 'TD' || m.target.tagName === 'SPAN';
+        // Ignore mutations inside the watermark wrapper — those are intentional UI labels.
+        const target = m.target;
+        const isInWatermark = (n) => !!(n && n.closest && n.closest('.dtr-cell-watermark'));
+        if (isInWatermark(target)) return false;
+        if (m.type === 'characterData') {
+          const span = target.parentElement;
+          if (isInWatermark(span)) return false;
+          return span && span.tagName === 'SPAN';
+        }
+        if (m.type === 'childList') return target.tagName === 'TD' || target.tagName === 'SPAN';
         return false;
       });
       if (!isTimeTamper) return;
@@ -523,53 +544,53 @@ const DailyTimeRecord = () => {
   const restoreCaptureStyles = (el, orig) => {
     if (!el || !orig) return;
     try {
-      el.style.backgroundColor = orig.backgroundColor || ''; el.style.width = orig.width || ''; el.style.visibility = orig.visibility || '';
-      el.style.display = orig.display || ''; el.style.position = orig.position || ''; el.style.left = orig.left || ''; el.style.zIndex = orig.zIndex || ''; el.style.opacity = orig.opacity || '';
+      el.style.backgroundColor = orig.backgroundColor || ''; el.style.width = orig.width || '';
+      el.style.visibility = orig.visibility || ''; el.style.display = orig.display || '';
+      el.style.position = orig.position || ''; el.style.left = orig.left || '';
+      el.style.zIndex = orig.zIndex || ''; el.style.opacity = orig.opacity || '';
     } catch (e) { /* noop */ }
   };
 
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
-    setSinglePrintLoading(true);
-    setSinglePrintStatus('Preparing DTR for printing...');
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
+    setSinglePrintLoading(true); setSinglePrintStatus('Preparing DTR for printing...');
     try {
       const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
       const orig = ensureCaptureStyles(dtrRef.current);
+      setSinglePrintStatus('Capturing DTR layout...');
       await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
       restoreCaptureStyles(dtrRef.current, orig);
       const imgData = canvas.toDataURL('image/png');
-      const dtrWidth = 8, dtrHeight = 10;
-      const pw = pdf.internal.pageSize.getWidth(); const ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrWidth) / 2, (ph - dtrHeight) / 2, dtrWidth, dtrHeight);
-      pdf.autoPrint(); window.open(pdf.output('bloburl'), '_blank');
-    } catch (err) { console.error('Error generating print view:', err); }
+      const dtrW = 8, dtrH = 9.5, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
+      pdf.autoPrint();
+      window.open(pdf.output('bloburl'), '_blank');
+    } catch (e) { console.error('Error generating print view:', e); }
     finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
   };
 
   const downloadPDF = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
-    setSinglePrintLoading(true);
-    setSinglePrintStatus('Preparing DTR for download...');
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
+    setSinglePrintLoading(true); setSinglePrintStatus('Preparing DTR for download...');
     try {
       const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
       const orig = ensureCaptureStyles(dtrRef.current);
       await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
       restoreCaptureStyles(dtrRef.current, orig);
       const imgData = canvas.toDataURL('image/png');
-      const dtrWidth = 8, dtrHeight = 10;
-      const pw = pdf.internal.pageSize.getWidth(); const ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrWidth) / 2, (ph - dtrHeight) / 2, dtrWidth, dtrHeight);
+      const dtrW = 8, dtrH = 10, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
       pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
       setSnackbar({ open: true, message: 'DTR downloaded successfully.', severity: 'success' });
-    } catch (err) { console.error('Error generating PDF:', err); }
+    } catch (e) { console.error('Error generating PDF:', e); }
     finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
   };
 
@@ -589,18 +610,18 @@ const DailyTimeRecord = () => {
   // ── Date indicator helpers ─────────────────────────────────────────────────
   const isDateInRange = (date, s, e) => {
     if (!date) return false;
-    const d = new Date(date); d.setHours(0,0,0,0);
-    const sd = s ? new Date(s) : null; if (sd) sd.setHours(0,0,0,0);
-    const ed = e ? new Date(e) : null; if (ed) ed.setHours(0,0,0,0);
-    if (sd && ed) return d >= sd && d <= ed;
-    if (sd) return d >= sd;
-    if (ed) return d <= ed;
+    const d  = String(date).split('T')[0];
+    const st = s ? String(s).split('T')[0] : null;
+    const en = e ? String(e).split('T')[0] : null;
+    if (st && en) return d >= st && d <= en;
+    if (st) return d >= st;
+    if (en) return d <= en;
     return false;
   };
 
   const isApprovedLeaveDate = (dateString) => {
     if (!dateString || approvedLeaves.length === 0) return false;
-    const check = dateString.split('T')[0];
+    const check = String(dateString).split('T')[0];
     return approvedLeaves.some((req) => {
       const dates = Array.isArray(req.leave_date) ? req.leave_date : String(req.leave_date).split(',').map((d) => d.trim());
       return dates.some((d) => d.split('T')[0] === check);
@@ -609,12 +630,12 @@ const DailyTimeRecord = () => {
 
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
-    const date = dateString.split('T')[0];
-    if (isApprovedLeaveDate(date)) return { label: 'ON LEAVE', bgColor: 'rgba(46,125,50,0.2)', borderColor: '#2e7d32' };
+    const date = String(dateString).split('T')[0];
+    if (isApprovedLeaveDate(date)) return { type: 'leave', label: 'ON LEAVE', bgColor: 'rgba(46,125,50,0.2)', textColor: '#000', borderColor: '#2e7d32' };
     const susp = suspensions.find((s) => isDateInRange(date, s.date_start || s.date, s.date_end || s.date));
-    if (susp) return { label: 'SUSPENSION', bgColor: 'rgba(211,47,47,0.2)', borderColor: '#d32f2f' };
+    if (susp) return { type: 'suspension', label: 'SUSPENSION', bgColor: 'rgba(211,47,47,0.2)', textColor: '#000', borderColor: '#d32f2f' };
     const hol = holidays.find((h) => isDateInRange(date, h.date_start || h.date, h.date_end || h.date));
-    if (hol) return { label: 'HOLIDAY', bgColor: 'rgba(237,108,2,0.25)', borderColor: '#ed6c02' };
+    if (hol) return { type: 'holiday', label: 'HOLIDAY', bgColor: 'rgba(237,108,2,0.25)', textColor: '#000', borderColor: '#ed6c02' };
     return null;
   };
 
@@ -693,6 +714,61 @@ const DailyTimeRecord = () => {
     return new Date(selectedYear, selectedMonth + 1, 0).getDate();
   })();
 
+  const dtrRawEmpty = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+
+  const dtrWmSpanStyle = {
+    fontSize: '8.5px',
+    fontWeight: 700,
+    fontFamily: 'Arial, "Times New Roman", serif',
+    color: 'rgba(0,0,0,0.48)',
+    letterSpacing: '0.05em',
+    whiteSpace: 'nowrap',
+    userSelect: 'none',
+    lineHeight: 1,
+    WebkitPrintColorAdjust: 'exact',
+    printColorAdjust: 'exact',
+  };
+
+  const renderDtrAmPmWatermarkCell = (rawVal, displayText, rowTint, indicator, colKey) => {
+    const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
+    return (
+      <td
+        key={colKey}
+        style={{
+          ...cellStyle,
+          backgroundColor: rowTint,
+          position: 'relative',
+          verticalAlign: 'middle',
+          overflow: 'visible',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact',
+        }}
+      >
+        {showWm && (
+          <div
+            className="dtr-cell-watermark"
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          >
+            <span style={dtrWmSpanStyle}>{indicator.label}</span>
+          </div>
+        )}
+        <span style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
+      </td>
+    );
+  };
+
   const renderTableRows = () =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day    = (i + 1).toString().padStart(2, '0');
@@ -700,24 +776,20 @@ const DailyTimeRecord = () => {
       let fullDate = null;
       if (record?.date) { fullDate = record.date; }
       else if (startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
-      const ind    = getDateIndicator(fullDate);
-      const tdBase = { ...cellStyle, backgroundColor: ind ? ind.bgColor : 'transparent' };
-      const tdRel  = { ...tdBase, position: 'relative' };
-      const cellOverlay = (ind) ? (cellValue) => {
-        if (cellValue) return null;
-        return (<div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: '7px', fontWeight: 'bold', color: 'rgba(0,0,0,0.25)', whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 0 }}>{ind.label}</div>);
-      } : () => null;
+      else if (selectedMonth !== null) { fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`; }
+      const indicator = getDateIndicator(fullDate);
+      const rowTint   = indicator ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)') : 'transparent';
       return (
         <tr key={i}>
-          <td style={tdBase}>{day}</td>
-          {[record?.timeIN, record?.breaktimeIN, record?.breaktimeOUT, record?.timeOUT].map((val, ci) => (
-            <td key={ci} style={tdRel}>
-              {cellOverlay(val)}
-              <span style={{ position: 'relative', zIndex: 1 }}>{formatTime(val || '')}</span>
-            </td>
-          ))}
-          <td style={tdBase}><span>{record?.hours   || ''}</span></td>
-          <td style={tdBase}><span>{record?.minutes || ''}</span></td>
+          <td style={{ ...cellStyle, backgroundColor: rowTint, position: 'relative', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+          </td>
+          {renderDtrAmPmWatermarkCell(record?.timeIN,        formatTime(record?.timeIN        || ''), rowTint, indicator, `r-${i}-0`)}
+          {renderDtrAmPmWatermarkCell(record?.breaktimeIN,   formatTime(record?.breaktimeIN   || ''), rowTint, indicator, `r-${i}-1`)}
+          {renderDtrAmPmWatermarkCell(record?.breaktimeOUT,  formatTime(record?.breaktimeOUT  || ''), rowTint, indicator, `r-${i}-2`)}
+          {renderDtrAmPmWatermarkCell(record?.timeOUT,       formatTime(record?.timeOUT       || ''), rowTint, indicator, `r-${i}-3`)}
+          <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{record?.hours   || ''}</span></td>
+          <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{record?.minutes || ''}</span></td>
         </tr>
       );
     });

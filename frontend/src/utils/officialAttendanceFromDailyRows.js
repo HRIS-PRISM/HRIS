@@ -30,7 +30,21 @@ export function formatOfficialAttendanceSeconds(secs) {
 }
 
 function empty(v) {
-  return !v || String(v).trim() === "";
+  if (v == null) return true;
+  const s = String(v).trim();
+  if (!s) return true;
+  // Some endpoints use placeholder glyphs/strings for "no punch".
+  // Treat these as empty so half-day/absent bucketing matches what users see.
+  const normalized = s.replace(/\s+/g, " ").toLowerCase();
+  return (
+    normalized === "—" ||
+    normalized === "-" ||
+    normalized === "--" ||
+    normalized === "n/a" ||
+    normalized === "na" ||
+    normalized === "null" ||
+    normalized === "undefined"
+  );
 }
 
 export function isScheduledByOfficialTime(row) {

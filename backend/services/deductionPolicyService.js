@@ -1,4 +1,5 @@
 const db = require("../db");
+const { getCtoCreditRunningTotals } = require("./ctoCreditRunningTotals");
 
 const SALARY_VALUE = "SALARY_DEDUCTION";
 
@@ -91,20 +92,16 @@ const getTotalRemainingHours = async (employeeNumber, leave_code) => {
   return rows.reduce((sum, r) => sum + parseDbHours(r.remaining_hours), 0);
 };
 
+/** Matches earnings CTO balance: latest snapshot row, not SUM(remaining) across historical ledger rows. */
 const getCtoRemainingHours = (employeeNumber) =>
   new Promise((resolve) => {
-    if (!employeeNumber) return resolve(0);
-    db.query(
-      `SELECT SUM(COALESCE(remaining_hours, 0)) AS total
-       FROM cto_credit
-       WHERE CAST(employeeNumber AS CHAR) = CAST(? AS CHAR)`,
-      [employeeNumber],
-      (err, rows) => {
-        if (err) return resolve(0);
-        const total = parseFloat(rows?.[0]?.total);
-        resolve(Number.isFinite(total) ? total : 0);
-      },
-    );
+    const emp = String(employeeNumber || "").trim();
+    if (!emp) return resolve(0);
+    getCtoCreditRunningTotals(emp, (err, cur) => {
+      if (err) return resolve(0);
+      const n = Number(cur?.remaining);
+      resolve(Number.isFinite(n) ? n : 0);
+    });
   });
 
 async function getRemainingHoursForCode(employeeNumber, leaveCodeRaw) {

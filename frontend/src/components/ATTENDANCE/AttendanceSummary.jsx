@@ -551,58 +551,92 @@ const OverallAttendance = () => {
       if (response.status === 200) {
         const overallRows = response.data.data;
 
-        // Derive absent / half-day from daily rows; Late Total is chosen so Absent + Half + Late = saved Overall Tardiness (module truth).
-        let absentDisplay = null;
-        let halfDayStr = null;
-        let lateStr = null;
-        let overallShortfall = null;
-        let bucketC = null;
-        try {
-          const [d, maps] = await Promise.all([
-            axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
-              params: { personId: employeeNumber, startDate, endDate },
-              ...getAuthHeaders(),
-            }),
-            fetchAttendanceCalendarMaps({
-              apiBaseUrl: API_BASE_URL,
-              getAuthHeaders,
-              startDate,
-              endDate,
-              personId: employeeNumber,
-            }),
-          ]);
-          const dailyRows = Array.isArray(d.data) ? d.data : (d.data?.data || []);
-          const calendarMaps = {
-            suspensionByDate: maps.suspensionByDate,
-            holidayByDate: maps.holidayByDate,
-            leaveByDate: maps.leaveByDate,
-          };
-          const c = computeOfficialAwareAbsenceAndLate(dailyRows, calendarMaps);
-          const absentDateList = listAbsentDatesFromDailyRows(dailyRows, calendarMaps);
-          const halfDayDateList = listHalfDayDatesFromDailyRows(dailyRows, calendarMaps);
-          const absentLine = `${c.absentTime} (${c.absentDays}d)`;
-          const halfLine = `${c.halfDayShortfallTime}${c.halfDays > 0 ? ` (${c.halfDays}d)` : ''}`;
-          absentDisplay =
-            absentDateList.length > 0
-              ? `${absentLine} · ${absentDateList.join(', ')}`
-              : absentLine;
-          halfDayStr =
-            halfDayDateList.length > 0
-              ? `${halfLine} · ${halfDayDateList.join(', ')}`
-              : halfLine;
-          lateStr = c.lateShortfallTime;
-          overallShortfall = c.overallShortfallTime;
-          bucketC = c;
-        } catch {
-          absentDisplay = null;
-          halfDayStr = null;
-          lateStr = null;
-          overallShortfall = null;
-          bucketC = null;
+        // Attendance Summary should not reinterpret absences/half-days.
+        // Prefer finalized values saved by attendance modules (overall_attendance_record),
+        // and only fall back to recomputation for legacy rows that lack these fields.
+        const buildBucketStringsFromStored = (r) => {
+          const aDays = r?.absentDays;
+          const hDays = r?.halfDays;
+          const aTime = r?.absentTime;
+          const hTime = r?.halfDayShortfallTime;
+          const aDates = r?.absentDates;
+          const hDates = r?.halfDayDates;
+
+          const hasAbsent = aDays != null || aTime != null || (aDates != null && String(aDates).trim() !== '');
+          const hasHalf = hDays != null || hTime != null || (hDates != null && String(hDates).trim() !== '');
+
+          const absentLine =
+            aTime != null && aDays != null ? `${aTime} (${aDays}d)` :
+            aTime != null ? String(aTime) :
+            aDays != null ? `00:00:00 (${aDays}d)` : null;
+          const halfLine =
+            hTime != null && hDays != null ? `${hTime}${Number(hDays) > 0 ? ` (${hDays}d)` : ''}` :
+            hTime != null ? String(hTime) :
+            hDays != null ? `00:00:00${Number(hDays) > 0 ? ` (${hDays}d)` : ''}` : null;
+
+          const absentDisplay =
+            absentLine
+              ? (aDates != null && String(aDates).trim() !== '' ? `${absentLine} · ${String(aDates).trim()}` : absentLine)
+              : null;
+          const halfDayStr =
+            halfLine
+              ? (hDates != null && String(hDates).trim() !== '' ? `${halfLine} · ${String(hDates).trim()}` : halfLine)
+              : null;
+
+          return { hasAbsent, hasHalf, absentDisplay, halfDayStr };
+        };
+
+        const legacyNeedsRecompute = (r) => {
+          const b = buildBucketStringsFromStored(r);
+          return !(b.hasAbsent && b.hasHalf);
+        };
+
+        let recompute = null;
+        if ((Array.isArray(overallRows) ? overallRows : []).some(legacyNeedsRecompute)) {
+          try {
+            const [d, maps] = await Promise.all([
+              axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
+                params: { personId: employeeNumber, startDate, endDate },
+                ...getAuthHeaders(),
+              }),
+              fetchAttendanceCalendarMaps({
+                apiBaseUrl: API_BASE_URL,
+                getAuthHeaders,
+                startDate,
+                endDate,
+                personId: employeeNumber,
+              }),
+            ]);
+            const dailyRows = Array.isArray(d.data) ? d.data : (d.data?.data || []);
+            const calendarMaps = {
+              suspensionByDate: maps.suspensionByDate,
+              holidayByDate: maps.holidayByDate,
+              leaveByDate: maps.leaveByDate,
+            };
+            const c = computeOfficialAwareAbsenceAndLate(dailyRows, calendarMaps);
+            const absentDateList = listAbsentDatesFromDailyRows(dailyRows, calendarMaps);
+            const halfDayDateList = listHalfDayDatesFromDailyRows(dailyRows, calendarMaps);
+            recompute = {
+              bucketC: c,
+              absentDisplay:
+                absentDateList.length > 0
+                  ? `${c.absentTime} (${c.absentDays}d) · ${absentDateList.join(', ')}`
+                  : `${c.absentTime} (${c.absentDays}d)`,
+              halfDayStr:
+                halfDayDateList.length > 0
+                  ? `${c.halfDayShortfallTime}${c.halfDays > 0 ? ` (${c.halfDays}d)` : ''} · ${halfDayDateList.join(', ')}`
+                  : `${c.halfDayShortfallTime}${c.halfDays > 0 ? ` (${c.halfDays}d)` : ''}`,
+              lateStr: c.lateShortfallTime,
+              overallShortfall: c.overallShortfallTime,
+            };
+          } catch {
+            recompute = null;
+          }
         }
 
         setAttendanceData(
           (Array.isArray(overallRows) ? overallRows : []).map((r) => {
+            const stored = buildBucketStringsFromStored(r);
             const overallSaved = r.overallRenderedOfficialTimeTardiness;
             const savedTrim =
               overallSaved != null && String(overallSaved).trim() !== ''
@@ -610,26 +644,28 @@ const OverallAttendance = () => {
                 : '';
             const overallSec = parseOfficialTimeToSeconds(savedTrim);
             let lateTotalResolved;
-            if (overallShortfall != null && bucketC && overallSec != null) {
+            if (r?.lateTotalTime != null && String(r.lateTotalTime).trim() !== '') {
+              lateTotalResolved = String(r.lateTotalTime).trim();
+            } else if (recompute?.overallShortfall != null && recompute?.bucketC && overallSec != null) {
               lateTotalResolved = formatOfficialAttendanceSeconds(
                 Math.max(
                   0,
-                  overallSec - bucketC.absentSecTotal - bucketC.halfDayShortfallSecTotal,
+                  overallSec - recompute.bucketC.absentSecTotal - recompute.bucketC.halfDayShortfallSecTotal,
                 ),
               );
-            } else if (bucketC?.absentSecTotal === 0 && bucketC?.halfDayShortfallSecTotal === 0) {
-              lateTotalResolved = savedTrim || lateStr || '';
+            } else if (recompute?.bucketC?.absentSecTotal === 0 && recompute?.bucketC?.halfDayShortfallSecTotal === 0) {
+              lateTotalResolved = savedTrim || recompute?.lateStr || '';
             } else {
-              lateTotalResolved = lateStr || '';
+              lateTotalResolved = recompute?.lateStr || '';
             }
             // Overall Tardiness stays DB (module); absent/half times from buckets; late is residual so the three durations sum to overall.
             return {
               ...r,
-              _absentTotalDays: absentDisplay,
-              _halfTotalDays: halfDayStr,
+              _absentTotalDays: stored.absentDisplay ?? recompute?.absentDisplay ?? null,
+              _halfTotalDays: stored.halfDayStr ?? recompute?.halfDayStr ?? null,
               _lateTotal: lateTotalResolved,
-              ...(overallShortfall != null
-                ? { _computedPayrollOverallShortfall: overallShortfall }
+              ...(recompute?.overallShortfall != null
+                ? { _computedPayrollOverallShortfall: recompute.overallShortfall }
                 : {}),
             };
           }),
