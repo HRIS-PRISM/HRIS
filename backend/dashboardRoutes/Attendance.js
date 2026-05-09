@@ -47,6 +47,59 @@ function logAudit(
   );
 }
 
+// ─── Helper: derive human-readable adjustment type from DB field name ─────────
+const fieldToAdjustmentType = (field = '') => {
+  const f = field.toLowerCase();
+  if (f === 'timein')        return 'Time In';
+  if (f === 'timeout')       return 'Time Out';
+  if (f === 'breaktimein')   return 'Breaktime In';
+  if (f === 'breaktimeout')  return 'Breaktime Out';
+  return 'Manual Entry';
+};
+
+// ─── Helper: write structured rows to attendance_adjustment_log ───────────────
+/**
+ * @param {object} db
+ * @param {object} req              express request (for req.user)
+ * @param {object} opts
+ * @param {string} opts.personID
+ * @param {string} opts.date
+ * @param {string} [opts.dayOfWeek]
+ * @param {'INSERT'|'UPDATE'} opts.operationType
+ * @param {string} [opts.remarks]
+ * @param {{ field: string, before: string|null, after: string|null }[]} opts.changes
+ */
+const writeAdjustmentLog = (db, req, { personID, date, dayOfWeek, operationType, remarks, changes }) => {
+  if (!Array.isArray(changes) || changes.length === 0) return;
+
+  const approvedBy =
+    (req.user && (req.user.employeeNumber || req.user.username)) || null;
+
+  const values = changes.map(({ field, before, after }) => [
+    String(personID),
+    String(date),
+    dayOfWeek || null,
+    field,
+    fieldToAdjustmentType(field),
+    before || null,
+    after  || null,
+    operationType || 'UPDATE',
+    remarks || null,
+    approvedBy,
+  ]);
+
+  const sql = `
+    INSERT INTO attendance_adjustment_log
+      (personID, originalDate, dayOfWeek, fieldName, adjustmentType,
+       valueBefore, valueAfter, operationType, remarks, approvedBy)
+    VALUES ?
+  `;
+
+  db.query(sql, [values], (err) => {
+    if (err) console.error('writeAdjustmentLog error:', err);
+  });
+};
+
 // Helper function to format time
 const formatTime = (time) => {
   if (!time) return null;
@@ -168,8 +221,6 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
       return;
     }
 
-    // HR-approved leave days with no attendancerecord yet (no device row / sync not run):
-    // expose one row per date using official time so attendance modules can display the day.
     const leaveGapSql = `
       SELECT
         lr.id AS leave_request_id,
@@ -272,8 +323,6 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
         });
       }
 
-      // Scheduled workdays in range with no attendancerecord row (no punch / not synced):
-      // return official time only so modules can show full official tardiness.
       const scheduleGapSql = `
         WITH RECURSIVE date_series AS (
           SELECT CAST(? AS DATE) AS cal_date
@@ -738,8 +787,6 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
 });
 
 // ─── OPTIMIZED: Lightweight employee list for instant table render ────────────
-// Returns only names/IDs — no time columns, no officialtime join.
-// Runs ~5-10x faster than the full query.
 router.get('/api/dtr-employee-list', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.query;
 
@@ -790,8 +837,6 @@ router.get('/api/dtr-employee-list', authenticateToken, (req, res) => {
 });
 
 // ─── OPTIMIZED: Paginated attendance — 30 employees at a time ────────────────
-// Returns attendance rows for one page of employees.
-// body: { startDate, endDate, page (1-based), pageSize (default 30) }
 router.post('/api/view-attendance-all-users-paged', authenticateToken, (req, res) => {
   const { startDate, endDate, page = 1, pageSize = 30 } = req.body;
 
@@ -801,7 +846,6 @@ router.post('/api/view-attendance-all-users-paged', authenticateToken, (req, res
 
   const offset = (page - 1) * pageSize;
 
-  // Step 1: fast count of distinct employees
   const countQuery = `
     SELECT COUNT(DISTINCT ar.personID) AS total
     FROM attendancerecord ar
@@ -821,7 +865,6 @@ router.post('/api/view-attendance-all-users-paged', authenticateToken, (req, res
       return res.json({ data: [], total: 0, page, pageSize, totalPages: 0 });
     }
 
-    // Step 2: get attendance rows for just this page's employees
     const pageQuery = `
       WITH ranked_employees AS (
         SELECT DISTINCT
@@ -977,13 +1020,13 @@ router.post('/api/view-attendance-all-users', authenticateToken, (req, res) => {
   });
 });
 
-// Update records
+// ─── UPDATE records (Records-Only tab) — now writes remarks + adjustment log ──
 router.put('/api/view-attendance', authenticateToken, (req, res) => {
-  const { records } = req.body;
+  const { records, remarks } = req.body;
 
   const updatePromises = records.map((record) => {
     const fetchQuery = `
-      SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT
+      SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT, Day
       FROM attendancerecord
       WHERE personID = ? AND date = ?
     `;
@@ -995,25 +1038,34 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
         const old = existing[0] || {};
         const normalize = (val) => (val == null ? '' : String(val).trim());
 
-        const fields = [
+        const FIELDS = [
           { key: 'timeIN',       label: 'Time IN'       },
           { key: 'breaktimeIN',  label: 'Breaktime IN'  },
           { key: 'breaktimeOUT', label: 'Breaktime OUT' },
           { key: 'timeOUT',      label: 'Time OUT'      },
         ];
 
-        const changes = fields
+        const changes = FIELDS
           .filter(({ key }) => normalize(old[key]) !== normalize(record[key]))
-          .map(({ key, label }) =>
-            `${label}: [${normalize(old[key]) || 'empty'} → ${normalize(record[key]) || 'empty'}]`
-          )
-          .join(' | ');
+          .map(({ key, label }) => ({
+            field:  key,
+            label,
+            before: normalize(old[key]),
+            after:  normalize(record[key]),
+          }));
 
         const hasChanged = changes.length > 0;
 
+        const diffStr = changes
+          .map(({ label, before, after }) =>
+            `${label}: [${before || 'empty'} → ${after || 'empty'}]`
+          )
+          .join(' | ');
+
         const updateQuery = `
           UPDATE attendancerecord
-          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?
+          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
+              remarks = ?
           WHERE personID = ? AND date = ?
         `;
 
@@ -1022,6 +1074,7 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
           record.breaktimeIN,
           record.breaktimeOUT,
           record.timeOUT,
+          remarks || null,
           record.personID,
           record.date,
         ];
@@ -1032,11 +1085,20 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
           if (hasChanged) {
             logAudit(
               req.user,
-              `Updated Attendance Record | ${record.date} | ${changes}`,
+              `Updated Attendance Record | ${record.date} | ${diffStr}${remarks ? ` | Remarks: ${remarks}` : ''}`,
               'Attendance Modification',
               record.date,
               record.personID,
             );
+
+            writeAdjustmentLog(db, req, {
+              personID:      record.personID,
+              date:          record.date,
+              dayOfWeek:     old.Day || record.Day || null,
+              operationType: 'UPDATE',
+              remarks,
+              changes: changes.map(({ field, before, after }) => ({ field, before, after })),
+            });
           }
 
           resolve(result);
@@ -1134,21 +1196,13 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
   db.query(
     query,
     [
-      personID,
-      startDate,
-      endDate,
-      totalRenderedTimeMorning,
-      totalRenderedTimeMorningTardiness,
-      totalRenderedTimeAfternoon,
-      totalRenderedTimeAfternoonTardiness,
-      totalRenderedHonorarium,
-      totalRenderedHonorariumTardiness,
-      totalRenderedServiceCredit,
-      totalRenderedServiceCreditTardiness,
-      totalRenderedOvertime,
-      totalRenderedOvertimeTardiness,
-      overallRenderedOfficialTime,
-      overallRenderedOfficialTimeTardiness,
+      personID, startDate, endDate,
+      totalRenderedTimeMorning, totalRenderedTimeMorningTardiness,
+      totalRenderedTimeAfternoon, totalRenderedTimeAfternoonTardiness,
+      totalRenderedHonorarium, totalRenderedHonorariumTardiness,
+      totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
+      totalRenderedOvertime, totalRenderedOvertimeTardiness,
+      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
       overallTotalOfficialSchedule,
       absentDays ?? null,
       halfDays ?? null,
@@ -1172,9 +1226,7 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       );
       notifyAttendanceChanged('overall-created', {
         scope: 'overall_attendance_record',
-        personID,
-        startDate,
-        endDate,
+        personID, startDate, endDate,
       });
       res.status(201).json({
         message: 'Attendance record saved successfully',
@@ -1223,27 +1275,123 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
   });
 });
 
+// List absent dates across employees (for Absences Report)
+// Uses finalized absentDates saved by attendance modules (overall_attendance_record.absentDates).
+router.get('/api/overall_attendance_absences', authenticateToken, (req, res) => {
+  const { from, to, limitDays } = req.query;
+
+  // Default window keeps response bounded for UI usage.
+  const windowDays = Number(limitDays) > 0 ? Math.min(Number(limitDays), 366) : 120;
+
+  // If from/to provided, we still select by record overlap and filter per-date below.
+  const query = `
+    SELECT
+      oar.personID,
+      oar.startDate,
+      oar.endDate,
+      oar.absentDates,
+      da.code AS department
+    FROM overall_attendance_record oar
+    LEFT JOIN department_assignment da
+      ON da.employeeNumber = oar.personID
+    WHERE oar.absentDates IS NOT NULL
+      AND TRIM(oar.absentDates) <> ''
+      AND (
+        (? IS NOT NULL AND ? IS NOT NULL AND oar.startDate <= ? AND oar.endDate >= ?)
+        OR
+        (? IS NULL OR ? IS NULL)
+      )
+    ORDER BY oar.endDate DESC
+  `;
+
+  const toMysqlDateOnly = (d) => {
+    if (!d) return null;
+    const s = String(d).trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  };
+  const fromDateOnly = toMysqlDateOnly(from);
+  const toDateOnly = toMysqlDateOnly(to);
+
+  db.query(
+    query,
+    [
+      fromDateOnly,
+      toDateOnly,
+      toDateOnly,
+      fromDateOnly,
+      fromDateOnly,
+      toDateOnly,
+    ],
+    (error, results) => {
+      if (error) {
+        console.error('Error Fetching overall attendance absences:', error);
+        return res.status(500).json({ message: 'Database error', error });
+      }
+
+      const today = new Date();
+      const cutoff = new Date(today);
+      cutoff.setDate(today.getDate() - windowDays);
+
+      const inWindow = (dateStr) => {
+        const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return false;
+        const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        if (Number.isNaN(dt.getTime())) return false;
+        if (fromDateOnly && dt < new Date(fromDateOnly)) return false;
+        if (toDateOnly && dt > new Date(toDateOnly)) return false;
+        if (!fromDateOnly && !toDateOnly && dt < cutoff) return false;
+        return true;
+      };
+
+      const absences = [];
+      for (const row of Array.isArray(results) ? results : []) {
+        const personID = row.personID;
+        const dept = row.department || row.code || '—';
+        const raw = String(row.absentDates || '');
+        const dateMatches = raw.match(/\d{4}-\d{2}-\d{2}/g) || [];
+        for (const d of dateMatches) {
+          if (!inWindow(d)) continue;
+          absences.push({
+            employeeNumber: String(personID || ''),
+            department: dept,
+            date: d,
+            source: 'overall_attendance_record',
+          });
+        }
+      }
+
+      // Deduplicate (same employee/date can appear across overlapping records)
+      const seen = new Set();
+      const unique = [];
+      for (const a of absences) {
+        const k = `${a.employeeNumber}|${a.date}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        unique.push(a);
+      }
+
+      res.status(200).json({
+        message: 'Overall attendance absences fetched successfully',
+        data: unique,
+      });
+    },
+  );
+});
+
 // Update overall attendance record
 router.put(
   '/api/overall_attendance_record/:id',
   authenticateToken,
   (req, res) => {
     const {
-      personID,
-      startDate,
-      endDate,
-      totalRenderedTimeMorning,
-      totalRenderedTimeMorningTardiness,
-      totalRenderedTimeAfternoon,
-      totalRenderedTimeAfternoonTardiness,
-      totalRenderedHonorarium,
-      totalRenderedHonorariumTardiness,
-      totalRenderedServiceCredit,
-      totalRenderedServiceCreditTardiness,
-      totalRenderedOvertime,
-      totalRenderedOvertimeTardiness,
-      overallRenderedOfficialTime,
-      overallRenderedOfficialTimeTardiness,
+      personID, startDate, endDate,
+      totalRenderedTimeMorning, totalRenderedTimeMorningTardiness,
+      totalRenderedTimeAfternoon, totalRenderedTimeAfternoonTardiness,
+      totalRenderedHonorarium, totalRenderedHonorariumTardiness,
+      totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
+      totalRenderedOvertime, totalRenderedOvertimeTardiness,
+      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
       overallTotalOfficialSchedule,
       // Finalized absence / half-day breakdown (computed by attendance modules)
       absentDays,
@@ -1272,8 +1420,7 @@ router.put(
 
         if (checkResults.length > 0) {
           return res.status(400).json({
-            message:
-              'Duplicate record found with the same personID, startDate, and endDate',
+            message: 'Duplicate record found with the same personID, startDate, and endDate',
           });
         }
 
@@ -1297,21 +1444,13 @@ router.put(
         db.query(
           query,
           [
-            personID,
-            startDate,
-            endDate,
-            totalRenderedTimeMorning,
-            totalRenderedTimeMorningTardiness,
-            totalRenderedTimeAfternoon,
-            totalRenderedTimeAfternoonTardiness,
-            totalRenderedHonorarium,
-            totalRenderedHonorariumTardiness,
-            totalRenderedServiceCredit,
-            totalRenderedServiceCreditTardiness,
-            totalRenderedOvertime,
-            totalRenderedOvertimeTardiness,
-            overallRenderedOfficialTime,
-            overallRenderedOfficialTimeTardiness,
+            personID, startDate, endDate,
+            totalRenderedTimeMorning, totalRenderedTimeMorningTardiness,
+            totalRenderedTimeAfternoon, totalRenderedTimeAfternoonTardiness,
+            totalRenderedHonorarium, totalRenderedHonorariumTardiness,
+            totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
+            totalRenderedOvertime, totalRenderedOvertimeTardiness,
+            overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
             overallTotalOfficialSchedule,
             absentDays ?? null,
             halfDays ?? null,
@@ -1336,14 +1475,9 @@ router.put(
             );
             notifyAttendanceChanged('overall-updated', {
               scope: 'overall_attendance_record',
-              id,
-              personID,
-              startDate,
-              endDate,
+              id, personID, startDate, endDate,
             });
-            res
-              .status(200)
-              .json({ message: 'Record updated successfully', data: results });
+            res.status(200).json({ message: 'Record updated successfully', data: results });
           },
         );
       },
@@ -1380,8 +1514,7 @@ router.delete(
       );
       notifyAttendanceChanged('overall-deleted', {
         scope: 'overall_attendance_record',
-        id,
-        personID,
+        id, personID,
       });
       res.status(200).send({ message: 'Attendance entry deleted' });
     });
@@ -1487,8 +1620,6 @@ router.get('/api/all-device-users', authenticateToken, (req, res) => {
 });
 
 // Auto-save and fetch attendance records
-// When syncDeviceToRecords is false, only returns device-derived rows + DB special fields
-// without INSERT/UPDATE on attendancerecord (avoids overwriting manual edits from Attendance Modification).
 router.post('/api/all-attendance', authenticateToken, async (req, res) => {
   const { personID, startDate, endDate } = req.body;
   const syncDeviceToRecords = req.body.syncDeviceToRecords !== false;
@@ -1560,17 +1691,17 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         if (syncDeviceToRecords) {
           for (const record of records) {
             const officialTimeQuery = `
-            SELECT 
-              officialTimeIN, officialTimeOUT,
-              officialBreaktimeIN, officialBreaktimeOUT,
-              officialHonorariumTimeIN, officialHonorariumTimeOUT,
-              officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-              officialOverTimeIN, officialOverTimeOUT
-            FROM officialtime
-            WHERE employeeID = ? 
-              AND DAYNAME(?) = day
-              AND ? BETWEEN startDate AND endDate
-          `;
+              SELECT 
+                officialTimeIN, officialTimeOUT,
+                officialBreaktimeIN, officialBreaktimeOUT,
+                officialHonorariumTimeIN, officialHonorariumTimeOUT,
+                officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+                officialOverTimeIN, officialOverTimeOUT
+              FROM officialtime
+              WHERE employeeID = ? 
+                AND DAYNAME(?) = day
+                AND ? BETWEEN startDate AND endDate
+            `;
 
             const officialTimeData = await new Promise((resolve, reject) => {
               db.query(
@@ -1615,10 +1746,10 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
 
             if (existingRecord.length === 0) {
               const insertSql = `
-              INSERT INTO attendancerecord 
-              (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `;
+                INSERT INTO attendancerecord 
+                (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `;
               await new Promise((resolve, reject) => {
                 db.query(
                   insertSql,
@@ -1640,22 +1771,22 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             } else {
               const existing = existingRecord[0];
               const hasChanges =
-              (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
-              (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
-              (existing.breaktimeOUT || 'N/A') !== (newBreaktimeOUT || 'N/A') ||
-              (existing.timeOUT || 'N/A') !== (newTimeOUT || 'N/A') ||
-              (existing.specialType || null) !== (specialType || null) ||
-              (existing.specialTimeIN || null) !== (specialTimeIN || null) ||
-              (existing.specialTimeOUT || null) !== (specialTimeOUT || null) ||
-              (existing.day || '') !== newDay;
+                (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
+                (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
+                (existing.breaktimeOUT || 'N/A') !== (newBreaktimeOUT || 'N/A') ||
+                (existing.timeOUT || 'N/A') !== (newTimeOUT || 'N/A') ||
+                (existing.specialType || null) !== (specialType || null) ||
+                (existing.specialTimeIN || null) !== (specialTimeIN || null) ||
+                (existing.specialTimeOUT || null) !== (specialTimeOUT || null) ||
+                (existing.day || '') !== newDay;
 
               if (hasChanges) {
                 const updateSql = `
-                UPDATE attendancerecord
-                SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, 
-                    specialType = ?, specialTimeIN = ?, specialTimeOUT = ?, day = ?
-                WHERE personID = ? AND date = ?
-              `;
+                  UPDATE attendancerecord
+                  SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?, 
+                      specialType = ?, specialTimeIN = ?, specialTimeOUT = ?, day = ?
+                  WHERE personID = ? AND date = ?
+                `;
                 await new Promise((resolve, reject) => {
                   db.query(
                     updateSql,
@@ -1922,7 +2053,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
   }
 });
 
-// DTR Print Status — get print status for multiple employees
+// DTR Print Status
 router.post('/api/dtr-print-status', authenticateToken, async (req, res) => {
   const { employeeNumbers, year, month } = req.body;
 
@@ -2075,7 +2206,7 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
   });
 });
 
-// Get approved leaves within date range (optionally scoped to one employee for attendance UI)
+// Get approved leaves within date range
 router.get('/api/leaves', authenticateToken, (req, res) => {
   const { startDate, endDate, personId, employeeNumber } = req.query;
   const employeeKey = String(personId || employeeNumber || '').trim();
@@ -2244,7 +2375,7 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
 
       const tagged = results.map((row) => ({
         ...row,
-        isNew:       row.recordId == null,
+        isNew:        row.recordId == null,
         timeIN:       row.timeIN       ?? '',
         breaktimeIN:  row.breaktimeIN  ?? '',
         breaktimeOUT: row.breaktimeOUT ?? '',
@@ -2256,9 +2387,9 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
   );
 });
 
-// Upsert full-month records
+// ─── UPSERT full-month records — now writes remarks + adjustment log ──────────
 router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
-  const { records } = req.body;
+  const { records, remarks } = req.body;
 
   if (!Array.isArray(records) || records.length === 0) {
     return res.status(400).json({ error: 'records array is required.' });
@@ -2274,6 +2405,7 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         isEmpty(record.timeIN) && isEmpty(record.breaktimeIN) &&
         isEmpty(record.breaktimeOUT) && isEmpty(record.timeOUT);
 
+      // ── INSERT path ───────────────────────────────────────────────────────
       if (record.isNew) {
         if (allEmpty) { skipped++; continue; }
 
@@ -2285,22 +2417,77 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         });
 
         if (existing) {
-          const updateSql = `UPDATE attendancerecord SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ? WHERE id = ?`;
+          // Race-condition: row appeared between fetch and save — treat as update
+          const updateSql = `
+            UPDATE attendancerecord
+            SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
+                remarks = ?
+            WHERE id = ?
+          `;
           await new Promise((resolve, reject) => {
-            db.query(updateSql, [record.timeIN || null, record.breaktimeIN || null, record.breaktimeOUT || null, record.timeOUT || null, existing.id], (err) => { if (err) reject(err); else resolve(); });
+            db.query(
+              updateSql,
+              [
+                record.timeIN || null, record.breaktimeIN || null,
+                record.breaktimeOUT || null, record.timeOUT || null,
+                remarks || null,
+                existing.id,
+              ],
+              (err) => { if (err) reject(err); else resolve(); },
+            );
           });
           updated++;
-          logAudit(req.user, `Updated Attendance Record (full-month, race-condition) | ${record.date}`, 'Attendance Modification – Full View', record.date, record.personID);
+          logAudit(req.user,
+            `Updated Attendance Record (full-month, race-condition) | ${record.date}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+            'Attendance Modification – Full View', record.date, record.personID);
+
+          const changes = ['timeIN', 'breaktimeIN', 'breaktimeOUT', 'timeOUT']
+            .filter((f) => record[f] && String(record[f]).trim() !== '')
+            .map((f) => ({ field: f, before: '', after: record[f] }));
+          writeAdjustmentLog(db, req, {
+            personID: record.personID, date: record.date, dayOfWeek: record.Day,
+            operationType: 'UPDATE', remarks, changes,
+          });
+
         } else {
-          const insertSql = `INSERT INTO attendancerecord (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+          const insertSql = `
+            INSERT INTO attendancerecord
+              (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, remarks)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `;
           await new Promise((resolve, reject) => {
-            db.query(insertSql, [record.personID, record.date, record.Day, record.timeIN || null, record.breaktimeIN || null, record.breaktimeOUT || null, record.timeOUT || null], (err) => { if (err) reject(err); else resolve(); });
+            db.query(
+              insertSql,
+              [
+                record.personID, record.date, record.Day,
+                record.timeIN || null, record.breaktimeIN || null,
+                record.breaktimeOUT || null, record.timeOUT || null,
+                remarks || null,
+              ],
+              (err) => { if (err) reject(err); else resolve(); },
+            );
           });
           inserted++;
-          logAudit(req.user, `Inserted New Attendance Record (full-month) | ${record.date}`, 'Attendance Modification – Full View', record.date, record.personID);
+          logAudit(req.user,
+            `Inserted New Attendance Record (full-month) | ${record.date}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+            'Attendance Modification – Full View', record.date, record.personID);
+
+          const changes = ['timeIN', 'breaktimeIN', 'breaktimeOUT', 'timeOUT']
+            .filter((f) => record[f] && String(record[f]).trim() !== '')
+            .map((f) => ({ field: f, before: null, after: record[f] }));
+          writeAdjustmentLog(db, req, {
+            personID: record.personID, date: record.date, dayOfWeek: record.Day,
+            operationType: 'INSERT', remarks, changes,
+          });
         }
+
+      // ── UPDATE path ───────────────────────────────────────────────────────
       } else {
-        const fetchSql = `SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT FROM attendancerecord WHERE personID = ? AND date = ?`;
+        const fetchSql = `
+          SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT, Day
+          FROM attendancerecord
+          WHERE personID = ? AND date = ?
+        `;
         const oldRow = await new Promise((resolve, reject) => {
           db.query(fetchSql, [record.personID, record.date], (err, rows) => {
             if (err) reject(err); else resolve(rows[0] ?? {});
@@ -2308,35 +2495,135 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         });
 
         const normalize = (v) => (v == null ? '' : String(v).trim());
-        const fields = [
-          { key: 'timeIN', label: 'Time IN' }, { key: 'breaktimeIN', label: 'Breaktime IN' },
-          { key: 'breaktimeOUT', label: 'Breaktime OUT' }, { key: 'timeOUT', label: 'Time OUT' },
-        ];
-        const diff = fields
-          .filter(({ key }) => normalize(oldRow[key]) !== normalize(record[key]))
-          .map(({ key, label }) => `${label}: [${normalize(oldRow[key]) || 'empty'} → ${normalize(record[key]) || 'empty'}]`)
+        const FIELDS = ['timeIN', 'breaktimeIN', 'breaktimeOUT', 'timeOUT'];
+        const changes = FIELDS
+          .filter((f) => normalize(oldRow[f]) !== normalize(record[f]))
+          .map((f) => ({
+            field:  f,
+            before: normalize(oldRow[f]),
+            after:  normalize(record[f]),
+          }));
+
+        const LABELS = {
+          timeIN: 'Time IN', breaktimeIN: 'Breaktime IN',
+          breaktimeOUT: 'Breaktime OUT', timeOUT: 'Time OUT',
+        };
+        const diffStr = changes
+          .map(({ field, before, after }) =>
+            `${LABELS[field] || field}: [${before || 'empty'} → ${after || 'empty'}]`
+          )
           .join(' | ');
 
-        const updateSql = `UPDATE attendancerecord SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ? WHERE personID = ? AND date = ?`;
+        const updateSql = `
+          UPDATE attendancerecord
+          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
+              remarks = ?
+          WHERE personID = ? AND date = ?
+        `;
         await new Promise((resolve, reject) => {
-          db.query(updateSql, [record.timeIN || null, record.breaktimeIN || null, record.breaktimeOUT || null, record.timeOUT || null, record.personID, record.date], (err) => { if (err) reject(err); else resolve(); });
+          db.query(
+            updateSql,
+            [
+              record.timeIN || null, record.breaktimeIN || null,
+              record.breaktimeOUT || null, record.timeOUT || null,
+              remarks || null,
+              record.personID, record.date,
+            ],
+            (err) => { if (err) reject(err); else resolve(); },
+          );
         });
         updated++;
 
-        if (diff) {
-          logAudit(req.user, `Updated Attendance Record (full-month) | ${record.date} | ${diff}`, 'Attendance Modification – Full View', record.date, record.personID);
+        if (diffStr) {
+          logAudit(req.user,
+            `Updated Attendance Record (full-month) | ${record.date} | ${diffStr}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+            'Attendance Modification – Full View', record.date, record.personID);
+
+          writeAdjustmentLog(db, req, {
+            personID: record.personID, date: record.date,
+            dayOfWeek: oldRow.Day || record.Day || null,
+            operationType: 'UPDATE', remarks, changes,
+          });
         }
       }
     }
 
     const personIDs = [...new Set(records.map((r) => r.personID).filter(Boolean))];
-    notifyAttendanceChanged('full-month-updated', { scope: 'attendancerecord', personIDs, inserted, updated });
+    notifyAttendanceChanged('full-month-updated', {
+      scope: 'attendancerecord', personIDs, inserted, updated,
+    });
 
-    res.json({ message: `Saved successfully. ${inserted} inserted, ${updated} updated, ${skipped} skipped.`, inserted, updated, skipped });
+    res.json({
+      message: `Saved successfully. ${inserted} inserted, ${updated} updated, ${skipped} skipped.`,
+      inserted, updated, skipped,
+    });
   } catch (err) {
     console.error('view-attendance-full PUT error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── GET /api/attendance_adjustment — consumed by AttendanceAdjustmentReports ─
+router.get('/api/attendance_adjustment', authenticateToken, (req, res) => {
+  const { personID, dateFrom, dateTo } = req.query;
+
+  let sql = `
+    SELECT
+      aal.id,
+      aal.personID          AS employeeNumber,
+      aal.originalDate,
+      aal.dayOfWeek,
+      aal.fieldName,
+      aal.adjustmentType,
+      aal.valueBefore,
+      aal.valueAfter,
+      aal.operationType,
+      aal.remarks,
+      aal.approvedBy,
+      aal.adjustedAt,
+      CONCAT_WS(' ', pt.firstName, pt.lastName)   AS employeeName,
+      COALESCE(da.code, '—')                       AS department
+    FROM attendance_adjustment_log aal
+    LEFT JOIN person_table pt
+      ON CAST(pt.agencyEmployeeNum AS CHAR) = CAST(aal.personID AS CHAR)
+    LEFT JOIN department_assignment da
+      ON CAST(da.employeeNumber AS CHAR) = CAST(aal.personID AS CHAR)
+    WHERE 1 = 1
+  `;
+
+  const params = [];
+
+  if (personID) {
+    sql += ' AND CAST(aal.personID AS CHAR) = CAST(? AS CHAR)';
+    params.push(personID);
+  }
+  if (dateFrom) {
+    sql += ' AND aal.originalDate >= ?';
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    sql += ' AND aal.originalDate <= ?';
+    params.push(dateTo);
+  }
+
+  sql += ' ORDER BY aal.adjustedAt DESC LIMIT 2000';
+
+  db.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error('GET /api/attendance_adjustment error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    logAudit(
+      req.user,
+      'Viewed Attendance Adjustment Report',
+      'attendance_adjustment_log',
+      personID || 'all',
+      req.user?.employeeNumber || null,
+    );
+
+    res.json(rows);
+  });
 });
 
 module.exports = router;

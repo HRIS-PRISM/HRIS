@@ -691,6 +691,7 @@ const Home = () => {
   };
 
   const quickActions = [
+    { icon: <AccessTime sx={{ fontSize: 16 }} />, label: "Attendance", link: "/my-attendance" },
     { icon: <AccessTime sx={{ fontSize: 16 }} />, label: "DTR", link: "/daily_time_record" },
     { icon: <Receipt sx={{ fontSize: 16 }} />, label: "Payslip", link: "/payslip" },
     { icon: <ContactPage sx={{ fontSize: 16 }} />, label: "PDS", link: "/pds1" },
@@ -843,8 +844,15 @@ const Home = () => {
           <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
 
             {/* ══ LEFT COLUMN: Carousel + Attendance Calendar ══ */}
-            <Grid item xs={12} md={7} sx={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 0 }}>
-
+<Grid item xs={12} md={7} sx={{ 
+  display: "flex", 
+  flexDirection: "column", 
+  gap: 2, 
+  minHeight: 0,
+  overflow: "hidden",
+  minWidth: 0,
+  height: { xs: "auto", md: "calc(100vh - 260px)" },  // ← ADD THIS (same as right column)
+}}>
               {/* Carousel */}
               <SectionCard sx={{ height: { xs: "52vw", md: "calc(55vh - 100px)" }, minHeight: 280, position: "relative", overflow: "hidden" }}>
                 <Box sx={{ position: "relative", height: "100%" }}>
@@ -890,13 +898,21 @@ const Home = () => {
                 </Box>
               </SectionCard>
 
-              {/* ══ ATTENDANCE CALENDAR — below the carousel ══ */}
-              <SectionCard sx={{ flexShrink: 0 }}>
-                <AttendanceCalendar
-                  employeeNumber={employeeNumber}
-                  holidays={rawHolidays}
-                />
-              </SectionCard>
+{/* ══ ATTENDANCE CALENDAR — below the carousel ══ */}
+<SectionCard sx={{ 
+  flexShrink: 0,
+  overflow: "hidden",
+  minWidth: 0,
+  width: "100%",
+  maxWidth: "100%",
+  flex: 1,
+  minHeight: 0,
+}}>
+<AttendanceCalendar
+    employeeNumber={employeeNumber}
+    holidays={rawHolidays}
+  />
+</SectionCard>
 
             </Grid>
 

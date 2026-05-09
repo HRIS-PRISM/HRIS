@@ -81,6 +81,8 @@ import AttendanceModuleFaculty from "./components/ATTENDANCE/AttendanceModuleFac
 import AttendanceModuleFaculty40 from "./components/ATTENDANCE/AttendanceModuleFacultyDesignated";
 import OverallAttendancePage from "./components/ATTENDANCE/AttendanceSummary";
 import OfficialTimeForm from "./components/ATTENDANCE/OfficialTimeForm";
+import MyAttendance from "./components/MyAttendance";
+import AttendanceAdjustmentReports from "./components/ATTENDANCE/AttendanceAdjustmentReports";
 
 import Remittances from "./components/PAYROLL/Remittances";
 import ItemTable from "./components/PAYROLL/ItemTable";
@@ -112,6 +114,7 @@ import SubjectStillToBeTaken from "./components/FORMS/SubjectStillToBeTaken";
 import IndividualFacultyLoading from "./components/FORMS/IndividualFacultyLoading";
 import HrmsRequestForms from "./components/FORMS/HRMSRequestForms";
 import EmploymentCategoryManagement from "./components/EmploymentCategory";
+import AbsencesReport from "./components/LEAVE/AbsencesReport";
 
 import PDSTemplates from "./components/PDS/PDSTemplates";
 import PDS1 from "./components/PDS/PDS1";
@@ -949,6 +952,22 @@ function App() {
               }
             />
             <Route
+              path="/my-attendance"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <MyAttendance />
+                </ProtectedRoute>
+              }
+            />
+            
+            <Route
               path="/view_attendance"
               element={
                 <ProtectedRoute
@@ -1656,6 +1675,27 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="absences-report"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                  > 
+                  <AbsencesReport />
+                </ProtectedRoute> 
+              }
+              />
+                <Route
+              path="attendance-adjustment-reports"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                  > 
+                  <AttendanceAdjustmentReports />
+                </ProtectedRoute> 
+              }
+              />
+              
             <Route
               path="/leave-request-user"
               element={

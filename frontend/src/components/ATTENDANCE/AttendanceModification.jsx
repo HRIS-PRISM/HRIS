@@ -7,6 +7,7 @@ import React, {
   useMemo,
   memo,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import axios from 'axios';
 import {
@@ -68,6 +69,8 @@ import {
   Close,
   ExpandMore,
   ExpandLess,
+  Notes as NotesIcon,
+  EditCalendar as EditCalendarIcon,
 } from '@mui/icons-material';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
@@ -1089,12 +1092,16 @@ const AuthorizationDialog = ({
 }) => {
   const [acknowledged, setAcknowledged] = useState(false);
   const [showDiff, setShowDiff] = useState(true);
+  const [remarks, setRemarks] = useState('');
+
   useEffect(() => {
     if (open) {
       setAcknowledged(false);
       setShowDiff(true);
+      setRemarks('');
     }
   }, [open]);
+
   const changedRows = isFullMonth
     ? (records || [])
         .filter((rec) => {
@@ -1135,7 +1142,9 @@ const AuthorizationDialog = ({
           return { date: saved.date, day: saved.Day, isInsert: false, changes };
         })
         .filter(Boolean);
-  const canConfirm = acknowledged && changedRows.length > 0;
+
+  const canConfirm = acknowledged && changedRows.length > 0 && remarks.trim().length > 0;
+
   return (
     <Dialog
       open={open}
@@ -1219,7 +1228,9 @@ const AuthorizationDialog = ({
           </Box>
         </Box>
       </DialogTitle>
+
       <DialogContent sx={{ p: 0, bgcolor: '#FFFDF5' }}>
+        {/* ── Changes diff ── */}
         <Box sx={{ px: 3, pt: 2.5, pb: 1 }}>
           <Box
             onClick={() => setShowDiff((p) => !p)}
@@ -1442,7 +1453,87 @@ const AuthorizationDialog = ({
             </Box>
           </Collapse>
         </Box>
-        <Box sx={{ px: 3, pt: 2, pb: 2.5 }}>
+
+        {/* ── Remarks (required) ── */}
+        <Box sx={{ px: 3, pt: 1.5, pb: 1 }}>
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: '8px',
+              border: `1.5px solid ${
+                remarks.trim() ? alpha('#1565c0', 0.35) : T.accentBorder
+              }`,
+              bgcolor: remarks.trim() ? alpha('#1565c0', 0.03) : T.accentFaint,
+              transition: 'all 0.25s ease',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+              <NotesIcon sx={{ fontSize: 14, color: remarks.trim() ? '#1565c0' : T.faint }} />
+              <Typography
+                sx={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.07em',
+                  color: remarks.trim() ? '#1565c0' : T.faint,
+                  fontFamily: T.font,
+                  transition: 'color 0.2s',
+                }}
+              >
+                Remarks / Reason for modification{' '}
+                <span style={{ color: '#C62828' }}>*</span>
+              </Typography>
+            </Box>
+            <textarea
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Describe the reason for this attendance adjustment (required)…"
+              rows={3}
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                borderRadius: '8px',
+                border: `1px solid ${
+                  remarks.trim() ? alpha('#1565c0', 0.4) : T.accentBorder
+                }`,
+                fontSize: '0.82rem',
+                fontFamily: T.font,
+                resize: 'vertical',
+                outline: 'none',
+                boxSizing: 'border-box',
+                background: '#fff',
+                color: T.text,
+                transition: 'border-color 0.18s',
+                lineHeight: 1.6,
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#1565c0';
+                e.target.style.boxShadow = '0 0 0 1.5px #1565c022';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = remarks.trim()
+                  ? alpha('#1565c0', 0.4)
+                  : T.accentBorder;
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            {!remarks.trim() && (
+              <Typography
+                sx={{
+                  fontSize: '0.68rem',
+                  color: '#C62828',
+                  mt: 0.5,
+                  fontFamily: T.font,
+                }}
+              >
+                A reason is required before saving.
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
+        {/* ── Acknowledgement ── */}
+        <Box sx={{ px: 3, pt: 1, pb: 2.5 }}>
           <Box
             sx={{
               p: 2,
@@ -1488,6 +1579,7 @@ const AuthorizationDialog = ({
           </Box>
         </Box>
       </DialogContent>
+
       <DialogActions
         sx={{
           px: 3,
@@ -1505,7 +1597,7 @@ const AuthorizationDialog = ({
           hoverBg="rgba(198,40,40,0.08)"
         />
         <button
-          onClick={onConfirm}
+          onClick={() => onConfirm(remarks.trim())}
           disabled={!canConfirm}
           style={{
             flex: 1,
@@ -1791,6 +1883,7 @@ const EmployeeSearchField = ({
 // ─── Main Component ────────────────────────────────────────────────────────
 const AttendanceSearch = () => {
   const { settings } = useSystemSettings();
+  const navigate = useNavigate();
   const INITIAL_VISIBLE_ROWS = 60;
   const VISIBLE_ROWS_STEP = 60;
 
@@ -2095,7 +2188,7 @@ const AttendanceSearch = () => {
   };
 
   // ── Save: Records-only ───────────────────────────────────────────────────
-  const saveAll = async () => {
+  const saveAll = async (remarks = '') => {
     setAuthDialogOpen(false);
     try {
       setLoading(true);
@@ -2103,7 +2196,7 @@ const AttendanceSearch = () => {
       setSuccess('');
       const response = await axios.put(
         `${API_BASE_URL}/attendance/api/view-attendance`,
-        { records },
+        { records, remarks },
         getAuthHeaders(),
       );
       const msg = response.data.message || 'Records saved successfully!';
@@ -2130,7 +2223,7 @@ const AttendanceSearch = () => {
   };
 
   // ── Save: Full-month ─────────────────────────────────────────────────────
-  const saveFullMonth = async () => {
+  const saveFullMonth = async (remarks = '') => {
     setAuthDialogOpen(false);
     const toSave = fullRecords.filter((rec) => {
       if (rec.isNew) return hasAnyTime(rec);
@@ -2147,7 +2240,7 @@ const AttendanceSearch = () => {
       setSuccess('');
       const response = await axios.put(
         `${API_BASE_URL}/attendance/api/view-attendance-full`,
-        { records: toSave },
+        { records: toSave, remarks },
         getAuthHeaders(),
       );
       const msg = response.data.message || 'Records saved successfully!';
@@ -2270,7 +2363,6 @@ const AttendanceSearch = () => {
     fullControllerRef.current?.abort();
   };
 
-  
   const recordsCount = records.length;
   const fullDaysCount = fullRecords.length;
   const missingCount = fullRecords.filter((r) => r.isNew).length;
@@ -2351,7 +2443,7 @@ const AttendanceSearch = () => {
         </select>
       </Box>
 
-      {/* Month header row: Month label | Quick Dates dropdown | Clear */}
+      {/* Month header row */}
       <Box
         sx={{
           display: 'flex',
@@ -2458,8 +2550,6 @@ const AttendanceSearch = () => {
           );
         })}
       </Box>
-
-
 
       {/* Summary box */}
       <Box
@@ -2701,7 +2791,7 @@ const AttendanceSearch = () => {
           )}
         </Box>
 
-        {/* Records-only tab */}
+        {/* ── Records-only tab ── */}
         {activeTab === 'records' && (
           <Box
             sx={{
@@ -2986,7 +3076,7 @@ const AttendanceSearch = () => {
           </Box>
         )}
 
-        {/* Full Month tab */}
+        {/* ── Full Month tab ── */}
         {activeTab === 'fullMonth' && (
           <Box
             sx={{
@@ -3433,208 +3523,221 @@ const AttendanceSearch = () => {
             px: { xs: 2, sm: 3, md: 6 },
           }}
         >
-
-        {/* ── Page Header ── */}
-        <SectionCard sx={{ mb: 2 }}>
-          <Box
-            sx={{
-              px: 4,
-              py: 3,
-              background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2 }}>
             <Box
               sx={{
-                position: 'absolute',
-                top: -50,
-                right: -50,
-                width: 200,
-                height: 200,
-                borderRadius: '50%',
-                background:
-                  'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)',
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                bottom: -30,
-                left: '30%',
-                width: 150,
-                height: 150,
-                borderRadius: '50%',
-                background:
-                  'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)',
-              }}
-            />
-            <Box
-              sx={{
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2.5,
+                justifyContent: 'space-between',
                 position: 'relative',
-                zIndex: 1,
-              }}
-            >
-              <Edit sx={{ fontSize: 30, color: T.accent }} />
-              <Box>
-                <Typography
-                  sx={{
-                    fontSize: '1.2rem',
-                    fontWeight: 900,
-                    color: T.accent,
-                    lineHeight: 1.2,
-                    mb: 0.25,
-                    fontFamily: T.font,
-                  }}
-                >
-                  Attendance Management
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: '0.78rem',
-                    color: T.accentMid,
-                    fontWeight: 600,
-                    fontFamily: T.font,
-                  }}
-                >
-                  Admin Portal · Review and manage attendance records
-                </Typography>
-              </Box>
-            </Box>
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1.5,
-                position: 'relative',
-                zIndex: 1,
+                overflow: 'hidden',
               }}
             >
               <Box
                 sx={{
-                  px: 2,
-                  py: 0.6,
-                  borderRadius: 5,
-                  bgcolor: alpha(T.accent, 0.1),
-                  border: `1px solid ${alpha(T.accent, 0.18)}`,
+                  position: 'absolute',
+                  top: -50,
+                  right: -50,
+                  width: 200,
+                  height: 200,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)',
                 }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: '0.75rem',
-                    color: T.accent,
-                    fontWeight: 700,
-                    fontFamily: T.font,
-                  }}
-                >
-                  Editable Records
-                </Typography>
-              </Box>
-              <button
-                onClick={handleRefresh}
-                disabled={!personID || !startDate || !endDate}
-                style={{
-                  background: alpha(T.accent, 0.08),
-                  border: `1px solid ${T.accentBorder}`,
-                  borderRadius: '8px',
-                  padding: '7px 10px',
-                  cursor:
-                    !personID || !startDate || !endDate
-                      ? 'not-allowed'
-                      : 'pointer',
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  bottom: -30,
+                  left: '30%',
+                  width: 150,
+                  height: 150,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)',
+                }}
+              />
+              <Box
+                sx={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '5px',
-                  color: T.accent,
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  fontFamily: T.font,
-                  transition: 'all 0.15s',
-                  opacity: !personID || !startDate || !endDate ? 0.5 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (personID && startDate && endDate)
-                    e.currentTarget.style.backgroundColor = alpha(
-                      T.accent,
-                      0.14,
-                    );
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08);
+                  gap: 2.5,
+                  position: 'relative',
+                  zIndex: 1,
                 }}
               >
-                <Refresh sx={{ fontSize: 15 }} />
-                Refresh
-              </button>
+                <Edit sx={{ fontSize: 30, color: T.accent }} />
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: '1.2rem',
+                      fontWeight: 900,
+                      color: T.accent,
+                      lineHeight: 1.2,
+                      mb: 0.25,
+                      fontFamily: T.font,
+                    }}
+                  >
+                    Attendance Management
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.78rem',
+                      color: T.accentMid,
+                      fontWeight: 600,
+                      fontFamily: T.font,
+                    }}
+                  >
+                    Admin Portal · Review and manage attendance records
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* ── Header action buttons ── */}
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
+
+                {/* ── Adjustment Report button ── */}
+                <button
+                  onClick={() => navigate('/attendance-adjustment-reports')}
+                  style={{
+                    background: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    borderRadius: '8px',
+                    padding: '7px 10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    color: T.accent,
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    fontFamily: T.font,
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14);
+                    e.currentTarget.style.borderColor = T.accent;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08);
+                    e.currentTarget.style.borderColor = T.accentBorder;
+                  }}
+                >
+                  <EditCalendarIcon sx={{ fontSize: 15 }} />
+                  Adjustment Report
+                </button>
+
+                {/* ── Refresh button ── */}
+                <button
+                  onClick={handleRefresh}
+                  disabled={!personID || !startDate || !endDate}
+                  style={{
+                    background: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    borderRadius: '8px',
+                    padding: '7px 10px',
+                    cursor:
+                      !personID || !startDate || !endDate
+                        ? 'not-allowed'
+                        : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    color: T.accent,
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    fontFamily: T.font,
+                    transition: 'all 0.15s',
+                    opacity: !personID || !startDate || !endDate ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (personID && startDate && endDate)
+                      e.currentTarget.style.backgroundColor = alpha(
+                        T.accent,
+                        0.14,
+                      );
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08);
+                  }}
+                >
+                  <Refresh sx={{ fontSize: 15 }} />
+                  Refresh
+                </button>
+              </Box>
             </Box>
-          </Box>
-        </SectionCard>
+          </SectionCard>
 
-        <Collapse in={!!error}>
-          <Alert
-            severity="error"
-            onClose={() => setError('')}
-            sx={{
-              mb: 1.5,
-              borderRadius: 2,
-              fontSize: '0.82rem',
-              fontFamily: T.font,
-            }}
-          >
-            {error}
-          </Alert>
-        </Collapse>
-        <Collapse in={!!success}>
-          <Alert
-            severity="success"
-            onClose={() => setSuccess('')}
-            sx={{
-              mb: 1.5,
-              borderRadius: 2,
-              fontSize: '0.82rem',
-              fontFamily: T.font,
-            }}
-          >
-            {success}
-          </Alert>
-        </Collapse>
-
-        {/* ── Two-column layout ── */}
-        <Grid container spacing={2}>
-          {/* LEFT: Sidebar */}
-          <Grid item xs={12} lg={3}>
-            <SectionCard
+          <Collapse in={!!error}>
+            <Alert
+              severity="error"
+              onClose={() => setError('')}
               sx={{
-                height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
-                display: 'flex',
-                flexDirection: 'column',
+                mb: 1.5,
+                borderRadius: 2,
+                fontSize: '0.82rem',
+                fontFamily: T.font,
               }}
             >
-              <PanelHeader icon={FilterList} title="Filter Attendance" />
-              {renderLeftPanel()}
-            </SectionCard>
-          </Grid>
-
-          {/* RIGHT: Records panel */}
-          <Grid item xs={12} lg={9}>
-            <SectionCard
+              {error}
+            </Alert>
+          </Collapse>
+          <Collapse in={!!success}>
+            <Alert
+              severity="success"
+              onClose={() => setSuccess('')}
               sx={{
-                height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
-                display: 'flex',
-                flexDirection: 'column',
+                mb: 1.5,
+                borderRadius: 2,
+                fontSize: '0.82rem',
+                fontFamily: T.font,
               }}
             >
-              {renderRightPanel()}
-            </SectionCard>
-          </Grid>
-        </Grid>
+              {success}
+            </Alert>
+          </Collapse>
 
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+            {/* LEFT: Sidebar */}
+            <Grid item xs={12} lg={3}>
+              <SectionCard
+                sx={{
+                  height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <PanelHeader icon={FilterList} title="Filter Attendance" />
+                {renderLeftPanel()}
+              </SectionCard>
+            </Grid>
+
+            {/* RIGHT: Records panel */}
+            <Grid item xs={12} lg={9}>
+              <SectionCard
+                sx={{
+                  height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {renderRightPanel()}
+              </SectionCard>
+            </Grid>
+          </Grid>
         </Box>
 
         <Zoom in={showScrollTop}>

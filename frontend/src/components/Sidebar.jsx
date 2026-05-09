@@ -272,6 +272,7 @@ const Sidebar = ({
   ];
 
   const attendanceManagementItems = [
+    "my-attendance",
     "view_attendance",
     "attendance_form",
     "search_attendance",
@@ -534,6 +535,8 @@ const Sidebar = ({
       setSelectedItem("home");
     } else if (currentPath === "/attendance-user-state") {
       setSelectedItem("attendance-user-state");
+    } else if (currentPath === "/my-attendance") {
+      setSelectedItem("my-attendance");
     } else if (currentPath === "/daily_time_record") {
       setSelectedItem("daily_time_record");
     } else if (currentPath === "/payslip") {
@@ -1185,6 +1188,63 @@ const Sidebar = ({
                 </ListItemIcon>
                 <ListItemText
                   primary="Attendance"
+                  sx={{ marginLeft: "-10px" }}
+                />
+              </ListItem>
+            )}
+
+            {/* MY ATTENDANCE */}
+            {shouldShowMenuItem("/my-attendance") && (
+              <ListItem
+                button
+                component={Link}
+                to="/my-attendance"
+                onClick={() => handleItemClick("my-attendance")}
+                sx={{
+                  bgcolor:
+                    selectedItem === "my-attendance"
+                      ? settings.accentColor || "#FEF9E1"
+                      : "inherit",
+                  color:
+                    selectedItem === "my-attendance"
+                      ? settings.textPrimaryColor
+                      : settings.textSecondaryColor,
+
+                  "& .MuiListItemIcon-root": {
+                    color:
+                      selectedItem === "my-attendance"
+                        ? settings.textPrimaryColor
+                        : settings.textSecondaryColor,
+                  },
+                  "& .MuiListItemText-primary": {
+                    color:
+                      selectedItem === "my-attendance"
+                        ? settings.textPrimaryColor
+                        : settings.textSecondaryColor,
+                  },
+
+                  "&:hover": {
+                    bgcolor: settings.hoverColor || "#6D2323",
+                    color: settings.textSecondaryColor,
+                    "& .MuiListItemIcon-root": {
+                      color: settings.textSecondaryColor,
+                    },
+                    "& .MuiListItemText-primary": {
+                      color: settings.textSecondaryColor,
+                    },
+                  },
+
+                  borderTopRightRadius:
+                    selectedItem === "my-attendance" ? "15px" : 0,
+                  borderBottomRightRadius:
+                    selectedItem === "my-attendance" ? "15px" : 0,
+                }}
+              >
+                <ListItemIcon>
+                  <CalendarToday />
+                </ListItemIcon>
+                <ListItemText
+                  primary="My Attendance"
                   sx={{ marginLeft: "-10px" }}
                 />
               </ListItem>
