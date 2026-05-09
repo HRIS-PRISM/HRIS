@@ -1568,7 +1568,6 @@ const CompactCalendar = ({
                       cursor: day ? "pointer" : "default",
                       transition: "all 0.15s",
                       py: "1px",
-                      color: holidayData ? "#fff" : isToday ? "#fff" : T.text,
                       "&:hover": day
                         ? {
                             background: holidayData

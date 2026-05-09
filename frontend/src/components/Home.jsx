@@ -27,7 +27,10 @@ import {
   PlayArrow, Pause, AccountCircle, HelpOutline, PrivacyTip, MoreVert, Delete, Save, ArrowDropDown,
 } from "@mui/icons-material";
 
-// ─── Design tokens (mirroring AdminHome) ──────────────────────────────────────
+// ─── Import the new attendance calendar ──────────────────────────────────────
+import AttendanceCalendar from "./AttendanceCalendar";
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {
   accent: "#6d2323",
   accentDark: "#5a1d1d",
@@ -776,10 +779,9 @@ const Home = () => {
         <style>{shimmerKf}</style>
         <Box sx={{ py: -1, px: { xs: -5, sm: -5, md: -5 }, mx: "auto" }}>
 
-          {/* ── HEADER — unified AdminHome style ── */}
+          {/* ── HEADER ── */}
           <SectionCard sx={{ mb: 2 }}>
             <Box sx={{ px: 4, py: 3, background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
-              {/* decorative circles */}
               <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)" }} />
               <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)" }} />
 
@@ -839,9 +841,12 @@ const Home = () => {
 
           {/* ── MAIN GRID ── */}
           <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
-            {/* LEFT — Carousel */}
-            <Grid item xs={12} md={7} sx={{ height: { xs: "52vw", md: "calc(100vh - 260px)" }, display: "flex", flexDirection: "column", minHeight: 0 }}>
-              <SectionCard sx={{ height: "100%", position: "relative", overflow: "hidden" }}>
+
+            {/* ══ LEFT COLUMN: Carousel + Attendance Calendar ══ */}
+            <Grid item xs={12} md={7} sx={{ display: "flex", flexDirection: "column", gap: 2, minHeight: 0 }}>
+
+              {/* Carousel */}
+              <SectionCard sx={{ height: { xs: "52vw", md: "calc(55vh - 100px)" }, minHeight: 280, position: "relative", overflow: "hidden" }}>
                 <Box sx={{ position: "relative", height: "100%" }}>
                   {announcementsLoading ? (
                     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 2 }}>
@@ -862,7 +867,7 @@ const Home = () => {
                               {carouselItems[currentSlide]?.id?.toString().startsWith("holiday-") ? "Holiday" : carouselItems[currentSlide]?.id?.toString().startsWith("suspension-") ? "Suspension" : "Announcement"}
                             </Typography>
                           </Box>
-                          <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.75, lineHeight: 1.2, textShadow: "0 2px 8px rgba(0,0,0,0.5)" }}>{carouselItems[currentSlide]?.title}</Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.75, lineHeight: 1.2, textShadow: "0 2px 8px rgba(0,0,0,0.5)", fontSize: { xs: "1.1rem", md: "1.5rem" } }}>{carouselItems[currentSlide]?.title}</Typography>
                           <Typography sx={{ opacity: 0.85, fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 0.75 }}>
                             <AccessTimeIcon sx={{ fontSize: 14 }} />
                             {(() => { const raw = carouselItems[currentSlide]?.date; if (!raw) return ""; const d = new Date(raw); return isNaN(d) ? raw : d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }); })()}
@@ -884,9 +889,18 @@ const Home = () => {
                   )}
                 </Box>
               </SectionCard>
+
+              {/* ══ ATTENDANCE CALENDAR — below the carousel ══ */}
+              <SectionCard sx={{ flexShrink: 0 }}>
+                <AttendanceCalendar
+                  employeeNumber={employeeNumber}
+                  holidays={rawHolidays}
+                />
+              </SectionCard>
+
             </Grid>
 
-            {/* RIGHT */}
+            {/* ══ RIGHT COLUMN ══ */}
             <Grid item xs={12} md={5} sx={{ height: { xs: "auto", md: "calc(100vh - 260px)" }, display: "flex", flexDirection: "column", minHeight: 0 }}>
               <Box sx={{ display: "flex", flexDirection: "row", gap: 1.5, flex: 1, minHeight: 0, height: "100%" }}>
 
@@ -914,7 +928,7 @@ const Home = () => {
                     </Box>
                   </SectionCard>
 
-                  {/* Calendar */}
+                  {/* Mini Calendar */}
                   <SectionCard sx={{ flexShrink: 0 }}>
                     <PanelHeader
                       icon={CalendarMonth}
@@ -1106,7 +1120,7 @@ const Home = () => {
             </Grid>
           </Grid>
 
-          {/* ── ANNOUNCEMENT DETAIL MODAL — unified AdminHome rich style ── */}
+          {/* ── ANNOUNCEMENT DETAIL MODAL ── */}
           <Modal open={openModal} onClose={handleCloseModal}>
             <Fade in={openModal}>
               <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: { xs: "96%", sm: "82%", md: "68%" }, maxWidth: 720, bgcolor: "background.paper", borderRadius: "16px", boxShadow: "0 32px 80px rgba(0,0,0,0.32)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)" }}>
@@ -1170,11 +1184,10 @@ const Home = () => {
             </Fade>
           </Modal>
 
-          {/* ── NOTIFICATIONS MODAL — unified AdminHome style ── */}
+          {/* ── NOTIFICATIONS MODAL ── */}
           <Modal open={notifModalOpen} onClose={handleCloseNotifModal}>
             <Fade in={notifModalOpen}>
               <Box sx={{ position: "absolute", top: { xs: "50%", md: "76px" }, right: { xs: "50%", md: "20px" }, transform: { xs: "translate(50%, -50%)", md: "none" }, width: { xs: "92%", sm: "400px" }, maxHeight: "85vh", display: "flex", flexDirection: "column", bgcolor: "#fff", border: `0.5px solid rgba(0,0,0,0.09)`, boxShadow: "0 16px 48px rgba(0,0,0,0.14)", borderRadius: "12px", overflow: "hidden" }}>
-                {/* Header */}
                 <Box sx={{ px: 2, py: 1.25, background: T.accent, flexShrink: 0 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box sx={{ width: 28, height: 28, borderRadius: "8px", bgcolor: "rgba(255,255,255,0.12)", border: "0.5px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
