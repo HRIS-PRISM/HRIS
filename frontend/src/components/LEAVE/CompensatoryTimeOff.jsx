@@ -142,6 +142,54 @@ const getStatusColor = (rem, total) => {
 };
 const isExpired = (d) => d ? new Date(d) < new Date() : false;
 
+/** Ledger rows that are balance snapshots, not accrual “periods” — hide from grid chips. */
+const isCtoLedgerSnapshotChip = (r) => {
+  const rm = String(r?.remarks || "");
+  return /cto_direct_deduction/i.test(rm) || /cto_earning_delete_reversal/i.test(rm);
+};
+
+/** Backend stores tokens like cto_earning:12 in remarks for reconciliation; keep in DB, hide in UI. */
+const INTERNAL_CTO_REMARK_RE = /\b(cto_earning:\d+|cto_earning_delete_reversal:\d+|cto_direct_deduction:\d+)\b/gi;
+
+const internalCtoLedgerRemarkToken = (remarks) => {
+  const m = String(remarks || "").match(/\b(cto_earning:\d+|cto_earning_delete_reversal:\d+|cto_direct_deduction:\d+)\b/i);
+  return m ? m[1] : "";
+};
+
+/** Auto-generated when tardiness is applied to CTO (see CTODeductionReceipt); hide in this screen. */
+const AUTO_CTO_TARDINESS_REMARK_RE = /\s*Tardiness deduction:\s*[\d.]+d\s+for\s+[A-Za-z]+\s+\d{4}\s*/gi;
+
+const formatCtoRemarksForDisplay = (remarks) => {
+  let s = String(remarks || "")
+    .replace(INTERNAL_CTO_REMARK_RE, "")
+    .replace(AUTO_CTO_TARDINESS_REMARK_RE, "");
+  return s.split("·").map((p) => p.trim()).filter(Boolean).join(" · ").trim();
+};
+
+/**
+ * Running balance = latest cto_credit row by id (remaining is cumulative there).
+ * earnedForColor ≈ remaining + cumulative used (mirrors backend getCtoCreditRunningTotals).
+ */
+const getCtoEmployeeLedgerSummary = (records) => {
+  const list = [...(records || [])].filter((r) => r != null);
+  if (!list.length) return { remaining: 0, earnedForColor: 0 };
+  list.sort((a, b) => toNum(b.id) - toNum(a.id));
+  const latest = list[0];
+  const remaining = toNum(latest.remaining_hours);
+  let used = toNum(latest.used_hours);
+  if (used <= 0) {
+    for (let i = 1; i < list.length; i++) {
+      const u = toNum(list[i].used_hours);
+      if (u > 0) {
+        used = u;
+        break;
+      }
+    }
+  }
+  const earnedForColor = remaining + used;
+  return { remaining, earnedForColor };
+};
+
 // ─── Badges — identical to LeaveAssignment ───────────────────────────────────
 const DeptBadge = ({ code, light = false }) => {
   if (!code) return null;
@@ -1174,9 +1222,11 @@ if (accessLoading || pageLoading) {
                   ) : viewMode === "grid" ? (
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
-                        const totalRem    = grp.records.reduce((s, r) => s + toNum(r.remaining_hours), 0);
-                        const totalEarned = grp.records.reduce((s, r) => s + toNum(r.earned_hours), 0);
-                        const sc          = getStatusColor(totalRem, totalEarned);
+                        const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records);
+                        const sc = getStatusColor(balRem, earnedForColor);
+                        const chipRecords = grp.records
+                          .filter((r) => !isCtoLedgerSnapshotChip(r))
+                          .sort((a, b) => toNum(b.id) - toNum(a.id));
                         const initials    = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const deptCode    = deptMap[grp.employeeNumber] || null;
                         const empCat      = empCatLabelMap[grp.employeeNumber] || null;
@@ -1200,26 +1250,21 @@ if (accessLoading || pageLoading) {
                                 </Box>
                               </Box>
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
-                                {grp.records.slice(0, 3).map((r) => {
+                                {chipRecords.slice(0, 3).map((r) => {
                                   const rsc = getStatusColor(r.remaining_hours, r.earned_hours);
-                                  const exp = isExpired(r.expiry_date);
-                                  return (
-                                    <Box key={r.id} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: exp ? "rgba(211,47,47,0.07)" : `${rsc}12`, border: `1px solid ${exp ? "rgba(211,47,47,0.2)" : `${rsc}30`}` }}>
-                                      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: exp ? "#d32f2f" : rsc, whiteSpace: "nowrap", fontFamily: T.poppins }}>
-                                        {r.period_year}{r.period_month ? `-${monthName(r.period_month).slice(0, 3)}` : ""}{exp ? " ⚠" : ""} · {fmtHrs(r.remaining_hours, unit)}
-                                      </Typography>
-                                    </Box>
-                                  );
+                                
                                 })}
-                                {grp.records.length > 3 && (
+                                {chipRecords.length > 3 && (
                                   <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.records.length - 3}</Typography>
+                                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{chipRecords.length - 3}</Typography>
                                   </Box>
                                 )}
                               </Box>
                               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pt: 0.75, borderTop: `1px solid ${T.divider}` }}>
                                 <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>{grp.records.length} record{grp.records.length !== 1 ? "s" : ""}</Typography>
-                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{fmtHrs(totalRem, unit)} left</Typography>
+                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>
+                                  Remaining balance: {fmtHrs(balRem, unit)}
+                                </Typography>
                               </Box>
                             </Box>
                           </Grid>
@@ -1234,9 +1279,11 @@ if (accessLoading || pageLoading) {
                         ))}
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
-                        const totalRem    = grp.records.reduce((s, r) => s + toNum(r.remaining_hours), 0);
-                        const totalEarned = grp.records.reduce((s, r) => s + toNum(r.earned_hours), 0);
-                        const sc          = getStatusColor(totalRem, totalEarned);
+                        const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records);
+                        const sc = getStatusColor(balRem, earnedForColor);
+                        const chipRecords = grp.records
+                          .filter((r) => !isCtoLedgerSnapshotChip(r))
+                          .sort((a, b) => toNum(b.id) - toNum(a.id));
                         const initials    = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const deptCode    = deptMap[grp.employeeNumber] || null;
                         const empCat      = empCatLabelMap[grp.employeeNumber] || null;
@@ -1257,9 +1304,9 @@ if (accessLoading || pageLoading) {
                             <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: "inline-block", width: "fit-content" }}>
                               <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{grp.records.length}</Typography>
                             </Box>
-                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{fmtHrs(totalRem, unit)}</Typography>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{fmtHrs(balRem, unit)}</Typography>
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-                              {grp.records.slice(0, 3).map((r) => {
+                              {chipRecords.slice(0, 3).map((r) => {
                                 const rsc = getStatusColor(r.remaining_hours, r.earned_hours);
                                 return (
                                   <Box key={r.id} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${rsc}12`, border: `1px solid ${rsc}30` }}>
@@ -1269,7 +1316,7 @@ if (accessLoading || pageLoading) {
                                   </Box>
                                 );
                               })}
-                              {grp.records.length > 3 && <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.records.length - 3}</Typography></Box>}
+                              {chipRecords.length > 3 && <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{chipRecords.length - 3}</Typography></Box>}
                             </Box>
                           </Box>
                         );
@@ -1387,6 +1434,7 @@ if (accessLoading || pageLoading) {
                                 const pctUsed = earnedH > 0 ? Math.min((usedH / earnedH) * 100, 100) : 0;
                                 const fmt     = (h) => fmtHrs(h, unit);
                                 const expired = isExpired(r.expiry_date);
+                                const remarksShown = formatCtoRemarksForDisplay(r.remarks);
                                 return (
                                   <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                     <Box sx={{ borderRadius: "10px", border: `1px solid ${expired ? "rgba(211,47,47,0.3)" : "#2E7D32"}`, overflow: "hidden", bgcolor: "#fff" }}>
@@ -1425,10 +1473,10 @@ if (accessLoading || pageLoading) {
                                         ))}
                                       </Box>
 
-                                      {r.remarks && (
+                                      {remarksShown && (
                                         <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 0.75 }}>
                                           <InfoIcon sx={{ fontSize: 13, color: T.faint }} />
-                                          <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>{r.remarks}</Typography>
+                                          <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>{remarksShown}</Typography>
                                         </Box>
                                       )}
 
@@ -1563,8 +1611,13 @@ if (accessLoading || pageLoading) {
                           <Grid item xs={12}>
                             <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Remarks</Typography>
                             <FieldInput size="small" fullWidth multiline rows={2}
-                              value={editRecord.remarks || ""}
-                              onChange={(e) => setEditRecord({ ...editRecord, remarks: e.target.value })} />
+                              value={formatCtoRemarksForDisplay(editRecord.remarks || "")}
+                              onChange={(e) => {
+                                const token = internalCtoLedgerRemarkToken(editRecord.remarks);
+                                const v = e.target.value;
+                                const next = token ? (v.trim() ? `${token} · ${v.trim()}` : token) : v;
+                                setEditRecord({ ...editRecord, remarks: next });
+                              }} />
                           </Grid>
                         </Grid>
                       </Box>

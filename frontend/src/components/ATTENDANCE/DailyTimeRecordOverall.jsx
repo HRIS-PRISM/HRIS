@@ -1309,8 +1309,13 @@ const isDateInRange = (date, s, e) => {
 
   const cellStyle = { border: '1px solid black', textAlign: 'center', padding: '0 1px', fontFamily: 'Arial,serif', fontSize: '10px', height: '16px', whiteSpace: 'nowrap' };
 
+  const daysInSelectedMonth = (() => {
+    if (selectedMonth == null || !Number.isFinite(selectedYear)) return 31;
+    return new Date(selectedYear, selectedMonth + 1, 0).getDate();
+  })();
+
   const renderDTRRows = (sourceRecords, type) =>
-    Array.from({ length: 31 }, (_, i) => {
+    Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day    = (i + 1).toString().padStart(2, '0');
       const record = sourceRecords.find((r) => r.date?.endsWith(`-${day}`));
       let fullDate = null;

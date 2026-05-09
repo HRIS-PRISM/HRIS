@@ -521,8 +521,13 @@ const DailyTimeRecordHonorarium = () => {
     whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '52px', letterSpacing: '-0.3px',
   };
 
+  const daysInSelectedMonth = (() => {
+    if (selectedMonth == null || !Number.isFinite(selectedYear)) return 31;
+    return new Date(selectedYear, selectedMonth + 1, 0).getDate();
+  })();
+
   const renderTableRows = () =>
-    Array.from({ length: 31 }, (_, i) => {
+    Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day    = (i + 1).toString().padStart(2, '0');
       const record = records.find((r) => r.date && r.date.endsWith(`-${day}`));
       let fullDate = null;

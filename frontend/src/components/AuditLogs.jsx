@@ -194,7 +194,8 @@ const AuditLogs = () => {
   const canBypassPageAccess =
     userRole === 'superadmin' || userRole === 'technical';
   const canAdminAccessByPage =
-    userRole === 'administrator' && hasAccess === true;
+    (userRole === 'administrator' || userRole === 'admin') &&
+    hasAccess === true;
   const canAccessAuditModule = canBypassPageAccess || canAdminAccessByPage;
   // ACCESSING END
 
@@ -564,6 +565,7 @@ const AuditLogs = () => {
     if (
       userRole &&
       userRole !== 'administrator' &&
+      userRole !== 'admin' &&
       userRole !== 'superadmin' &&
       userRole !== 'technical'
     ) {
@@ -573,11 +575,21 @@ const AuditLogs = () => {
     }
 
     if (employeeFilter) {
-      filtered = filtered.filter((log) =>
-        log.employeeNumber
-          ?.toLowerCase()
-          .includes(employeeFilter.toLowerCase()),
-      );
+      const q = employeeFilter.toLowerCase().trim();
+      if (q) {
+        filtered = filtered.filter((log) => {
+          const actorCol = String(log.employeeNumber || '').toLowerCase();
+          const targetCol = String(log.targetEmployeeNumber || '').toLowerCase();
+          if (actorCol.includes(q) || targetCol.includes(q)) return true;
+          const actorResolved = String(
+            getActorEmployeeNumber(log) || '',
+          ).toLowerCase();
+          const targetResolved = String(
+            getTargetEmployeeNumber(log) || '',
+          ).toLowerCase();
+          return actorResolved.includes(q) || targetResolved.includes(q);
+        });
+      }
     }
 
     if (actionFilter) {
@@ -683,6 +695,7 @@ const AuditLogs = () => {
     const a = action.toUpperCase();
     if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
       return '#ef4444';
+    if (a.includes('REJECT')) return '#b91c1c';
     if (['RESTORE', 'REVERS'].some((k) => a.includes(k))) return '#ec4899';
     if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k))) return '#f97316';
     if (a.includes('ASSIGN')) return '#6366f1';
@@ -702,6 +715,8 @@ const AuditLogs = () => {
     const a = action.toUpperCase();
     if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
       return <DeleteIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('REJECT'))
+      return <CancelIcon sx={{ fontSize: 16 }} />;
     if (['RESTORE', 'REVERS'].some((k) => a.includes(k)))
       return <RefreshIcon sx={{ fontSize: 16 }} />;
     if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k)))
@@ -797,6 +812,10 @@ const AuditLogs = () => {
     UPDATE: ['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'],
     VIEW: ['VIEW', 'OPEN', 'READ'],
     CREATE: ['ADD', 'INSERT', 'CREATE', 'REGISTER'],
+    // Earnings audit actions (leave / SC / CTO) use full phrases like "approved service credit earnings"
+    APPROVED: ['APPROVE'],
+    APPLIED: ['APPLIED'],
+    REJECTED: ['REJECT'],
   };
 
   // Normalize first the action before putting on map
@@ -834,7 +853,12 @@ const AuditLogs = () => {
   // Format module name
   const formatModuleName = (tableName) => {
     if (!tableName) return '';
-    return tableName.toUpperCase().replace(/[\s\-]+/g, '_');
+    const t = String(tableName).toLowerCase();
+    if (t === 'earnings_sc') return 'Earnings — Service credits';
+    if (t === 'earnings_leave') return 'Earnings — Leave';
+    if (t === 'earnings_cto') return 'Earnings — CTO';
+    if (t === 'service_credit') return 'Service credits (ledger)';
+    return String(tableName).toUpperCase().replace(/[\s\-]+/g, '_');
   };
 
   const toSimpleName = (name) => {
@@ -1625,7 +1649,9 @@ const AuditLogs = () => {
   }
 
   const isAdmin =
-    userRole === 'administrator' || canBypassPageAccess;
+    userRole === 'administrator' ||
+    userRole === 'admin' ||
+    canBypassPageAccess;
   const pageTitle = isAdmin ? 'Audit Trail (All Users)' : 'My Activity Log';
 
   return (

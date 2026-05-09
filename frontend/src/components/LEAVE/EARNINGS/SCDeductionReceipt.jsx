@@ -382,11 +382,13 @@ const SCDeductionReceipt = ({
         { headers: { Authorization: `Bearer ${token}` } },
       );
       const all = r.data?.earnings || [];
-      setExistingDeductions(
-        all.filter(
+      const ledger = r.data?.ledger_sc_deductions || [];
+      setExistingDeductions([
+        ...all.filter(
           (e) => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected",
         ),
-      );
+        ...ledger,
+      ]);
     } catch {
       setExistingDeductions([]);
     } finally {

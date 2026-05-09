@@ -129,6 +129,57 @@ const getStatusColor = (rem, total) => {
   return p > 50 ? "#2e7d32" : p > 20 ? "#ed6c02" : "#d32f2f";
 };
 
+/** Backend stores tokens like sc_earning:4 in remarks; keep in DB, hide in UI (same idea as CTO). */
+const INTERNAL_SC_REMARK_RE =
+  /\b(sc_earning:\d+|sc_direct_deduction:\d+|sc_earning_reversal:\d+|sc_earning_delete_reversal:\d+)\b/gi;
+
+const formatScRemarksForDisplay = (remarks) => {
+  let s = String(remarks || "").replace(INTERNAL_SC_REMARK_RE, "");
+  return s.split("·").map((p) => p.trim()).filter(Boolean).join(" · ").trim();
+};
+
+/** Per sc_type chain: latest row by id holds cumulative remaining (mirrors getServiceCreditRunningTotals). */
+const getScLedgerSummaryOneChain = (records) => {
+  const list = [...(records || [])].filter((r) => r != null);
+  if (!list.length) return { remaining: 0, earnedForColor: 0 };
+  list.sort((a, b) => toNum(b.id) - toNum(a.id));
+  const latest = list[0];
+  const remaining = toNum(latest.remaining_hours);
+  let used = toNum(latest.used_hours);
+  if (used <= 0) {
+    for (let i = 1; i < list.length; i++) {
+      const u = toNum(list[i].used_hours);
+      if (u > 0) {
+        used = u;
+        break;
+      }
+    }
+  }
+  const earnedForColor = remaining + used;
+  return { remaining, earnedForColor };
+};
+
+const getScEmployeeLedgerSummary = (records) => {
+  const byType = {};
+  for (const r of records || []) {
+    if (!r) continue;
+    const t = String(r.sc_type ?? "_default");
+    if (!byType[t]) byType[t] = [];
+    byType[t].push(r);
+  }
+  const chains = Object.values(byType);
+  if (!chains.length) return { remaining: 0, earnedForColor: 0 };
+  return chains.reduce(
+    (acc, chain) => {
+      const s = getScLedgerSummaryOneChain(chain);
+      acc.remaining += s.remaining;
+      acc.earnedForColor += s.earnedForColor;
+      return acc;
+    },
+    { remaining: 0, earnedForColor: 0 },
+  );
+};
+
 const computeSCFromOT = (otHours, empCatData) => {
   const ot = toNum(otHours);
   if (!empCatData) return ot;
@@ -798,9 +849,17 @@ const ServiceCredit = () => {
   }, [scRecords, searchTerm, deptFilter, empCatFilter, deptMap, empCatLabelMap]);
 
   const filteredTotals = useMemo(() => {
-    const remaining = filteredRecords.reduce((s, r) => s + toNum(r.remaining_hours), 0);
-    const earned = filteredRecords.reduce((s, r) => s + toNum(r.earned_hours), 0);
-    return { remaining, earned };
+    const acc = {};
+    filteredRecords.forEach((r) => {
+      const num = r.employeeNumber?.toString() || "Unknown";
+      if (!acc[num]) acc[num] = [];
+      acc[num].push(r);
+    });
+    let remaining = 0;
+    Object.values(acc).forEach((recs) => {
+      remaining += getScEmployeeLedgerSummary(recs).remaining;
+    });
+    return { remaining };
   }, [filteredRecords]);
 
   const getEmployeeInfo = useCallback(
@@ -1243,7 +1302,7 @@ if (accessLoading || pageLoading) {
                       </Box>
                       <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
                         <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>
-                          Total: {fmtHrs(filteredTotals.remaining, unit)}
+                          Remaining balance: {fmtHrs(filteredTotals.remaining, unit)}
                         </Typography>
                       </Box>
                       <ToggleButtonGroup value={viewMode} exclusive onChange={(_, v) => v && setViewMode(v)} size="small"
@@ -1311,13 +1370,11 @@ if (accessLoading || pageLoading) {
                   ) : viewMode === "grid" ? (
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
-                        const totalRem     = grp.records.reduce((s, r) => s + toNum(r.remaining_hours), 0);
-                        const totalEarned  = grp.records.reduce((s, r) => s + toNum(r.earned_hours), 0);
-                        const overallColor = getStatusColor(totalRem, totalEarned);
+                        const { remaining: balRem, earnedForColor } = getScEmployeeLedgerSummary(grp.records);
+                        const overallColor = getStatusColor(balRem, earnedForColor);
                         const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const deptCode     = deptMap[grp.employeeNumber] || null;
                         const empCat       = empCatLabelMap[grp.employeeNumber] || null;
-                        const scTypes      = [...new Set(grp.records.map((r) => r.sc_type))];
                         return (
                           <Grid item xs={12} sm={6} md={3} key={grp.employeeNumber} sx={{ display: "flex" }}>
                             <Box onClick={() => openEmployeeSCModal(grp)}
@@ -1345,7 +1402,7 @@ if (accessLoading || pageLoading) {
                                   {grp.records.length} record{grp.records.length !== 1 ? "s" : ""}
                                 </Typography>
                                 <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
-                                  {fmtHrs(totalRem, unit)} left
+                                  Remaining balance: {fmtHrs(balRem, unit)}
                                 </Typography>
                               </Box>
                             </Box>
@@ -1364,13 +1421,11 @@ if (accessLoading || pageLoading) {
                         ))}
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
-                        const totalRem     = grp.records.reduce((s, r) => s + toNum(r.remaining_hours), 0);
-                        const totalEarned  = grp.records.reduce((s, r) => s + toNum(r.earned_hours), 0);
-                        const overallColor = getStatusColor(totalRem, totalEarned);
+                        const { remaining: balRem, earnedForColor } = getScEmployeeLedgerSummary(grp.records);
+                        const overallColor = getStatusColor(balRem, earnedForColor);
                         const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const deptCode     = deptMap[grp.employeeNumber] || null;
                         const empCat       = empCatLabelMap[grp.employeeNumber] || null;
-                        const scTypes      = [...new Set(grp.records.map((r) => r.sc_type))];
                         return (
                           <Box key={grp.employeeNumber} onClick={() => openEmployeeSCModal(grp)}
                             sx={{ px: 1.5, py: 1.25, display: "grid",
@@ -1398,7 +1453,7 @@ if (accessLoading || pageLoading) {
                               </Typography>
                             </Box>
                             <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
-                              {fmtHrs(totalRem, unit)}
+                              {fmtHrs(balRem, unit)}
                             </Typography>
                             {/* SC type chips removed */}
                           </Box>
@@ -1439,7 +1494,7 @@ if (accessLoading || pageLoading) {
                     if (b.period_year !== a.period_year) return b.period_year - a.period_year;
                     return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
                   });
-                  const totalRemModal = sortedRecords.reduce((s, r) => s + toNum(r.remaining_hours), 0);
+                  const { remaining: balRemModal } = getScEmployeeLedgerSummary(sortedRecords);
                   return (
                     <>
                       <Box sx={{ px: 3.5, py: 2, background: T.headerGrad,
@@ -1487,7 +1542,7 @@ if (accessLoading || pageLoading) {
                               </Typography>
                               <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent,
                                 fontFamily: T.poppins, whiteSpace: "nowrap" }}>
-                                Total: {fmtHrs(totalRemModal, unit)}
+                                Remaining: {fmtHrs(balRemModal, unit)}
                               </Typography>
                             </Box>
                           </Box>
@@ -1547,6 +1602,7 @@ if (accessLoading || pageLoading) {
                             // action buttons removed
                             let catSnap = null;
                             try { catSnap = r.emp_category_snapshot ? JSON.parse(r.emp_category_snapshot) : null; } catch {}
+                            const remarksDisplay = formatScRemarksForDisplay(r.remarks);
 
                             return (
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1598,23 +1654,12 @@ if (accessLoading || pageLoading) {
                                     ))}
                                   </Box>
 
-                                  {r.remarks && (
+                                  {remarksDisplay && (
                                     <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}`,
                                       display: "flex", alignItems: "center", gap: 0.75 }}>
                                       <InfoIcon sx={{ fontSize: 13, color: T.faint }} />
-                                      <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>{r.remarks}</Typography>
-                                    </Box>
-                                  )}
-
-                                  {catSnap && (
-                                    <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}`,
-                                      bgcolor: "rgba(103,58,183,0.03)", display: "flex", alignItems: "center", gap: 0.75 }}>
-                                      <InfoIcon sx={{ fontSize: 12, color: "#6a1b9a" }} />
-                                      <Typography sx={{ fontSize: "0.68rem", color: "#6a1b9a", fontFamily: T.poppins }}>
-                                        Recorded under: <strong>{catSnap.label || "Unknown category"}</strong>
-                                        {catSnap.is30hrs && " (30-hr work week)"}
-                                        {catSnap.is40hrs && " (40-hr work week)"}
-                                        . This SC cannot be mixed with SC from a different category.
+                                      <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>
+                                        {remarksDisplay}
                                       </Typography>
                                     </Box>
                                   )}

@@ -81,18 +81,70 @@ export async function fetchDeductionCreditSnapshots(employeeNumber, token) {
   if (!emp) {
     return { assignmentMap: {}, scRemainingHours: 0, ctoRemainingHours: 0 };
   }
-  const [assignRes, scRes, ctoRes] = await Promise.allSettled([
-    axios.get(`${API_BASE_URL}/api/earnings/assignment-balances/${emp}`, { headers }),
+
+  // IMPORTANT:
+  // leave_assignment is append-only (history snapshots). The backend summary endpoint
+  // `/api/earnings/assignment-balances/:emp` uses SUM(...) and will double-count snapshots.
+  // For correct UI balances, compute totals from the latest snapshot per period.
+  const buildAssignmentMapFromRows = (rows) => {
+    const list = Array.isArray(rows) ? rows : [];
+    // For UI "current balance" chips, we want the latest running-balance snapshot per leave_code
+    // (service_credit style), NOT a sum across periods.
+    const latestByCode = new Map(); // code -> latest row
+
+    const periodScore = (r) => {
+      const y = toNum(r?.period_year);
+      const semRaw = r?.period_semester != null ? String(r.period_semester).trim() : "";
+      const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
+      const m = Number.isFinite(semNum) ? semNum : 0;
+      const id = toNum(r?.id);
+      return { y, m, id };
+    };
+
+    for (const r of list) {
+      const code = String(r?.leave_code || "").trim();
+      if (!code) continue;
+      const prev = latestByCode.get(code);
+      if (!prev) {
+        latestByCode.set(code, r);
+        continue;
+      }
+      const A = periodScore(r);
+      const B = periodScore(prev);
+      const isNewer =
+        A.y > B.y ||
+        (A.y === B.y && A.m > B.m) ||
+        (A.y === B.y && A.m === B.m && A.id > B.id);
+      if (isNewer) latestByCode.set(code, r);
+    }
+
+    const map = {};
+    for (const [code, r] of latestByCode.entries()) {
+      map[code] = {
+        leave_code: code,
+        remaining_hours: toNum(r?.remaining_hours),
+        total_hours: toNum(r?.total_hours),
+        used_hours: toNum(r?.used_hours),
+        period_year: r?.period_year ?? null,
+        period_semester: r?.period_semester ?? null,
+      };
+    }
+    return map;
+  };
+
+  const [assignRowsRes, scRes, ctoRes] = await Promise.allSettled([
+    axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment/employee/${emp}`, { headers }),
     axios.get(`${API_BASE_URL}/api/earnings/sc/${emp}/balance`, { headers }),
     axios.get(`${API_BASE_URL}/api/earnings/cto/${emp}/balance`, { headers }),
   ]);
+
+  const assignmentMap =
+    assignRowsRes.status === "fulfilled"
+      ? buildAssignmentMapFromRows(assignRowsRes.value.data)
+      : {};
+
   return {
-    assignmentMap:
-      assignRes.status === "fulfilled" &&
-      assignRes.value.data &&
-      typeof assignRes.value.data === "object"
-        ? assignRes.value.data
-        : {},
+    assignmentMap,
     scRemainingHours:
       scRes.status === "fulfilled" ? toNum(scRes.value.data?.totalRemaining) : 0,
     ctoRemainingHours:

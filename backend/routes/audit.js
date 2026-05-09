@@ -13,7 +13,11 @@ const canAccessAuditLogs = (req, callback) => {
     return callback(null, true);
   }
 
-  if (role !== 'administrator' || !employeeNumber) {
+  if (!employeeNumber) {
+    return callback(null, false);
+  }
+  // Align with earningsRoutes requireAdmin: `admin` and `administrator` may view audit trail when granted page access.
+  if (role !== 'administrator' && role !== 'admin') {
     return callback(null, false);
   }
 

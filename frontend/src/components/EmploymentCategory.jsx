@@ -2150,3 +2150,6 @@ const EmploymentCategoryManagement = () => {
 };
 
 export default EmploymentCategoryManagement;
+
+/** Compact panel for HR leave deduction flows (same data as this module). */
+export { EmploymentCategoryHrPanel } from "./EmploymentCategoryHrPanel";

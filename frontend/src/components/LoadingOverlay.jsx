@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Box, Typography, alpha } from "@mui/material";
 
@@ -6,17 +6,55 @@ const ACCENT = "#6d2323";
 /** Above App shell (AppBar 1201, drawer, footer); portaled to body so parent `transform` cannot clip the overlay */
 const Z_FULL_VIEWPORT = 20000;
 
-const LoadingOverlay = ({ open, message = "Processing…" }) => {
+const LoadingOverlay = ({
+  open,
+  message = "Processing…",
+  showDelayMs = 150,
+  minVisibleMs = 250,
+}) => {
+  const [visible, setVisible] = useState(false);
+  const showTimerRef = useRef(null);
+  const hideTimerRef = useRef(null);
+  const visibleSinceRef = useRef(0);
+
   useEffect(() => {
-    if (!open) return;
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+
+    if (open) {
+      if (visible) return;
+      showTimerRef.current = setTimeout(() => {
+        visibleSinceRef.current = Date.now();
+        setVisible(true);
+      }, Math.max(0, Number(showDelayMs) || 0));
+      return;
+    }
+
+    // open = false
+    if (!visible) return;
+    const elapsed = Date.now() - (visibleSinceRef.current || 0);
+    const remaining = Math.max(0, (Number(minVisibleMs) || 0) - elapsed);
+    hideTimerRef.current = setTimeout(() => {
+      setVisible(false);
+    }, remaining);
+  }, [open, visible, showDelayMs, minVisibleMs]);
+
+  useEffect(() => {
+    if (!visible) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [visible]);
 
-  if (typeof document === "undefined" || !open) return null;
+  if (typeof document === "undefined" || !visible) return null;
 
   return createPortal(
     <Box
