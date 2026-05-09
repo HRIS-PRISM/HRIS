@@ -16,7 +16,7 @@ import {
   Email as EmailIcon, Settings as SettingsIcon, VpnKey, Shield,
   QuestionAnswer, Business, Policy, ContactSupport, Close,
   People as PeopleIcon, Add, Edit, Delete, Save, Cancel,
-  CheckCircle, HelpOutline, ExpandMore, AttachFile,
+  CheckCircle, ExpandMore, AttachFile,
 } from "@mui/icons-material";
 import { useSystemSettings } from "../contexts/SystemSettingsContext";
 import { useSocket } from "../contexts/SocketContext";

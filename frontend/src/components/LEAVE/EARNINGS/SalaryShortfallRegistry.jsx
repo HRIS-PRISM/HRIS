@@ -520,7 +520,7 @@ export function SalaryShortfallRegistry({ employee, year, month }) {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
             <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
-              Salary shortfall registry
+              Salary Shortfall Registry
             </Typography>
             {deductionRows.length > 0 && !loading && (
               <Chip

@@ -24,7 +24,7 @@ import {
   Link,
   IconButton,
 } from "@mui/material";
-import { AccessTime, Lock, Logout, Email, Facebook, ContactSupport } from "@mui/icons-material";
+import { AccessTime, Lock, Logout, Email, Facebook, ContactSupport, LoginOutlined } from "@mui/icons-material";
 import axios from "axios";
 import ProtectedRoute from "./components/ProtectedRoute";
 import {
@@ -191,7 +191,6 @@ function applySystemCSSVariables(s) {
     s.destructiveButtonHoverColor || "#5a6268",
   );
 
-  // Modal CSS variables — available in any module via var(--modal-*)
   root.style.setProperty("--modal-bg", s.modalBackgroundColor || "#FFFFFF");
   root.style.setProperty("--modal-header-bg", s.modalHeaderColor || "#6d2323");
   root.style.setProperty(
@@ -348,7 +347,6 @@ function App() {
         },
       },
 
-
       MuiTableHead: {
         styleOverrides: {
           root: {
@@ -361,7 +359,6 @@ function App() {
         },
       },
 
-
       MuiChip: {
         styleOverrides: {
           filled: {
@@ -370,7 +367,6 @@ function App() {
           },
         },
       },
-
 
       MuiTab: {
         styleOverrides: {
@@ -381,7 +377,6 @@ function App() {
           },
         },
       },
-
 
       MuiLinearProgress: {
         styleOverrides: {
@@ -459,9 +454,6 @@ function App() {
         ],
       },
 
-      // ── Modal / Dialog overrides ───────────────────────────────────────────
-      // These apply automatically to every Dialog across all modules.
-      // No changes needed in individual module files.
       MuiDialog: {
         styleOverrides: {
           paper: {
@@ -515,18 +507,14 @@ function App() {
     },
   });
 
-  // --- Idle and token expiration handling ---
   const [idleWarningOpen, setIdleWarningOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-
   const [sessionExpired, setSessionExpired] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
 
   const idleTimeoutRef = useRef(null);
   const logoutTimeoutRef = useRef(null);
 
-
-  // SESSION EXPIRATION TIMES (in milliseconds)
   const IDLE_WARNING_TIME = 20 * 60 * 1000;
   const AUTO_LOGOUT_TIME = 30 * 60 * 1000;
   const COUNTDOWN_SECONDS = (AUTO_LOGOUT_TIME - IDLE_WARNING_TIME) / 1000;
@@ -579,11 +567,11 @@ function App() {
   };
 
   useEffect(() => {
-  const clockInterval = setInterval(() => {
-    setCurrentTime(new Date());
-  }, 1000);
-  return () => clearInterval(clockInterval);
-}, []);
+    const clockInterval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(clockInterval);
+  }, []);
 
   useEffect(() => {
     let interval;
@@ -645,124 +633,124 @@ function App() {
           overflow: "hidden",
         }}
       >
-<AppBar
-  position="fixed"
-  sx={{
-    zIndex: 1201,
-    bgcolor: systemSettings.secondaryColor,
-    height: "62px",
-    overflow: "hidden",
-  }}
->
-  <Toolbar sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-    {/* LEFT: Logo + System Name */}
-    <Box sx={{ display: "flex", alignItems: "center" }}>
-      <Box
-        sx={{
-          width: 46,
-          height: 46,
-          marginRight: "10px",
-          marginLeft: "-15px",
-          borderRadius: "50%",
-          border: "1px solid white",
-          overflow: "hidden",
-          flexShrink: 0,
-          bgcolor: "rgba(255,255,255,0.15)",
-        }}
-      >
-        {systemSettings.institutionLogo && (
-          <img
-            src={systemSettings.institutionLogo}
-            alt="Institution Logo"
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-              imageRendering: "auto",
-            }}
-          />
-        )}
-      </Box>
-      <Box>
-        <Typography
-          variant="body2"
-          noWrap
+        <AppBar
+          position="fixed"
           sx={{
-            lineHeight: 1.2,
-            color: systemSettings.textColor,
-            marginTop: "8px",
+            zIndex: 1201,
+            bgcolor: systemSettings.secondaryColor,
+            height: "62px",
+            overflow: "hidden",
           }}
         >
-          {systemSettings.institutionName}
-        </Typography>
-        <Typography
-          variant="subtitle1"
-          noWrap
-          sx={{
-            color: systemSettings.textColor,
-            fontWeight: "bold",
-            marginTop: "-5px",
-          }}
-        >
-          {systemSettings.systemName}
-        </Typography>
-      </Box>
-    </Box>
+          <Toolbar sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            {/* LEFT: Logo + System Name */}
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <Box
+                sx={{
+                  width: 46,
+                  height: 46,
+                  marginRight: "10px",
+                  marginLeft: "-15px",
+                  borderRadius: "50%",
+                  border: "1px solid white",
+                  overflow: "hidden",
+                  flexShrink: 0,
+                  bgcolor: "rgba(255,255,255,0.15)",
+                }}
+              >
+                {systemSettings.institutionLogo && (
+                  <img
+                    src={systemSettings.institutionLogo}
+                    alt="Institution Logo"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      display: "block",
+                      imageRendering: "auto",
+                    }}
+                  />
+                )}
+              </Box>
+              <Box>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{
+                    lineHeight: 1.2,
+                    color: systemSettings.textColor,
+                    marginTop: "8px",
+                  }}
+                >
+                  {systemSettings.institutionName}
+                </Typography>
+                <Typography
+                  variant="subtitle1"
+                  noWrap
+                  sx={{
+                    color: systemSettings.textColor,
+                    fontWeight: "bold",
+                    marginTop: "-5px",
+                  }}
+                >
+                  {systemSettings.systemName}
+                </Typography>
+              </Box>
+            </Box>
 
-{/* RIGHT: Live Clock — only shown on authenticated pages */}
-{isAuthenticatedPage && (
-  <Box
-    sx={{
-      display: "flex",
-      alignItems: "center",
-      gap: 1,
-      bgcolor: "rgba(255,255,255,0.1)",
-      border: "1px solid rgba(255,255,255,0.2)",
-      borderRadius: "8px",
-      px: 2,
-      py: 0.5,
-    }}
-  >
-    <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
-    <Box>
-      <Typography
-        sx={{
-          fontWeight: "bold",
-          fontFamily: "monospace",
-          fontSize: "1rem",
-          letterSpacing: 1.5,
-          color: systemSettings.textColor,
-          lineHeight: 1.2,
-        }}
-      >
-        {currentTime.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })}
-      </Typography>
-      <Typography
-        sx={{
-          fontSize: "0.65rem",
-          color: systemSettings.textColor,
-          opacity: 0.75,
-          letterSpacing: 0.5,
-          lineHeight: 1,
-        }}
-      >
-        {currentTime.toLocaleDateString([], {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })}
-      </Typography>
-    </Box>
-  </Box>
-)}
-  </Toolbar>
-</AppBar>
+            {/* RIGHT: Live Clock */}
+            {isAuthenticatedPage && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  bgcolor: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: "8px",
+                  px: 2,
+                  py: 0.5,
+                }}
+              >
+                <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
+                <Box>
+                  <Typography
+                    sx={{
+                      fontWeight: "bold",
+                      fontFamily: "monospace",
+                      fontSize: "1rem",
+                      letterSpacing: 1.5,
+                      color: systemSettings.textColor,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {currentTime.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: "0.65rem",
+                      color: systemSettings.textColor,
+                      opacity: 0.75,
+                      letterSpacing: 0.5,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {currentTime.toLocaleDateString([], {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </Toolbar>
+        </AppBar>
 
         {!["/", "/login", "/register", "/forgot-password"].includes(
           location.pathname,
@@ -793,7 +781,7 @@ function App() {
             marginLeft: drawerOpen ? `${drawerWidth}px` : `${collapsedWidth}px`,
             transition: "margin-left 0.3s ease",
             fontFamily: "Poppins, sans-serif",
-    minHeight: "fit-content",
+            minHeight: "fit-content",
             "& .MuiPaper-root": { borderColor: systemSettings.primaryColor },
             "& .MuiButton-contained": {
               backgroundColor: systemSettings.primaryColor,
@@ -1140,7 +1128,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-              <Route
+            <Route
               path="/pds-templates"
               element={
                 <ProtectedRoute
@@ -1183,7 +1171,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            
             <Route
               path="/pds2"
               element={
@@ -1574,21 +1561,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            {/* <Route
-              path="/overall-payslip"
-              element={
-                <ProtectedRoute
-                  allowedRoles={[
-                    "staff",
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                  ]}
-                >
-                  <PayslipOverall />
-                </ProtectedRoute>
-              }
-            /> */}
             <Route
               path="/distribution-payslip"
               element={
@@ -1749,7 +1721,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-             <Route
+            <Route
               path="/earnings-management"
               element={
                 <ProtectedRoute
@@ -1842,162 +1814,353 @@ function App() {
           </Routes>
         </Box>
 
-        {/* IDLE WARNING DIALOG */}
+        {/* ── IDLE WARNING DIALOG ─────────────────────────────────────────────── */}
         <Dialog
           open={idleWarningOpen && isAuthenticatedPage}
           PaperProps={{
             sx: {
-              borderRadius: 3,
-              boxShadow: "0px 10px 30px rgba(0,0,0,0.15)",
+              borderRadius: "20px",
               overflow: "hidden",
+              background: "rgba(255,248,231,0.98)",
+              border: "1px solid rgba(128,0,32,0.15)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              maxWidth: 400,
+              width: "100%",
             },
           }}
         >
+          {/* Crimson header */}
           <Box
             sx={{
-              bgcolor: systemSettings.primaryColor,
-              color: "white",
-              p: 3,
+              background: "#800020",
+              px: 3,
+              py: 2.5,
               display: "flex",
               alignItems: "center",
-              gap: 2,
+              gap: 1.5,
             }}
           >
-            <AccessTime sx={{ fontSize: 32 }} />
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 600, letterSpacing: 0.5 }}
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.15)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
             >
-              SESSION EXPIRING SOON
-            </Typography>
-          </Box>
-
-          <DialogContent sx={{ pb: 1 }}>
-            <Box sx={{ textAlign: "center", py: 2 }}>
+              <AccessTime sx={{ color: "#fff", fontSize: 20 }} />
+            </Box>
+            <Box>
               <Typography
-                variant="body1"
-                sx={{ color: "text.secondary", mb: 2 }}
+                sx={{
+                  fontSize: "0.62rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.2em",
+                  color: "rgba(255,255,255,0.65)",
+                  textTransform: "uppercase",
+                  mb: 0.25,
+                }}
               >
-                You have been inactive. For security purposes, you will be
-                logged out in:
+                Security Notice
               </Typography>
               <Typography
-                variant="h3"
                 sx={{
-                  fontWeight: 700,
-                  color: systemSettings.primaryColor,
+                  fontSize: "1.05rem",
+                  fontWeight: 800,
+                  color: "#fff",
+                  lineHeight: 1.2,
+                }}
+              >
+                Session Expiring Soon
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Gradient accent bar */}
+          <Box
+            sx={{
+              height: 3,
+              background: "linear-gradient(90deg, #800020, #e84a4a)",
+            }}
+          />
+
+          <DialogContent
+            sx={{
+              background: "transparent",
+              pt: 3,
+              pb: 2,
+              px: 3,
+            }}
+          >
+            <Typography
+              sx={{
+                color: "rgba(75,0,0,0.65)",
+                fontSize: "0.82rem",
+                textAlign: "center",
+                lineHeight: 1.6,
+                mb: 2,
+              }}
+            >
+              You have been inactive. For security purposes, you will be logged
+              out in:
+            </Typography>
+
+            <Box sx={{ textAlign: "center", mb: 2 }}>
+              <Typography
+                sx={{
+                  fontSize: "2.8rem",
+                  fontWeight: 800,
+                  color: "#800020",
                   fontFamily: "monospace",
-                  mb: 1,
+                  letterSpacing: "2px",
+                  lineHeight: 1,
                 }}
               >
                 {formatTime(timeLeft)}
               </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={(timeLeft / COUNTDOWN_SECONDS) * 100}
+              <Typography
                 sx={{
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: "#e0e0e0",
-                  "& .MuiLinearProgress-bar": {
-                    backgroundColor: systemSettings.primaryColor,
-                  },
+                  fontSize: "0.68rem",
+                  color: "rgba(128,0,32,0.45)",
+                  mt: 0.5,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                }}
+              >
+                minutes remaining
+              </Typography>
+            </Box>
+
+            {/* Progress bar */}
+            <Box
+              sx={{
+                height: 6,
+                bgcolor: "rgba(128,0,32,0.1)",
+                borderRadius: "4px",
+                overflow: "hidden",
+                mb: 0.5,
+              }}
+            >
+              <Box
+                sx={{
+                  height: "100%",
+                  bgcolor: "#800020",
+                  borderRadius: "4px",
+                  width: `${(timeLeft / COUNTDOWN_SECONDS) * 100}%`,
+                  transition: "width 1s linear",
                 }}
               />
             </Box>
           </DialogContent>
 
-          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-            <Button
+          <DialogActions
+            sx={{
+              background: "transparent",
+              px: 3,
+              pb: 3,
+              pt: 0,
+              gap: 1.25,
+              borderTop: "none",
+            }}
+          >
+            <Box
+              component="button"
               onClick={handleLogout}
-              startIcon={<Logout />}
-              variant="outlined"
               sx={{
-                textTransform: "none",
-                fontWeight: 500,
-                color: "#6d2323",
-                borderColor: "#6d2323",
-                "&:hover": {
-                  borderColor: "#757575",
-                  backgroundColor: "rgba(117, 117, 117, 0.04)",
-                },
+                flex: 1,
+                height: 46,
+                background: "transparent",
+                border: "1px solid rgba(128,0,32,0.35)",
+                borderRadius: "12px",
+                color: "#800020",
+                fontSize: "0.84rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "background 0.2s",
+                "&:hover": { background: "rgba(128,0,32,0.05)" },
               }}
             >
               Logout Now
-            </Button>
-            <Button
+            </Box>
+            <Box
+              component="button"
               onClick={() => {
                 setIdleWarningOpen(false);
                 resetIdleTimer();
               }}
-              variant="contained"
-              disableElevation
               sx={{
-                px: 3,
-                textTransform: "none",
+                flex: 1.5,
+                height: 46,
+                background: "#800020",
+                border: "none",
+                borderRadius: "12px",
+                color: "#fff",
+                fontSize: "0.84rem",
                 fontWeight: 600,
-                backgroundColor: systemSettings.primaryColor,
-                "&:hover": { backgroundColor: systemSettings.hoverColor },
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "background 0.2s",
+                "&:hover": { background: "#6a001a" },
               }}
             >
               Stay Logged In
-            </Button>
+            </Box>
           </DialogActions>
         </Dialog>
 
-        {/* SESSION EXPIRED DIALOG */}
+        {/* ── SESSION EXPIRED DIALOG ──────────────────────────────────────────── */}
         <Dialog
           open={sessionExpired}
           PaperProps={{
             sx: {
-              borderRadius: 3,
-              boxShadow: "0px 10px 30px rgba(0,0,0,0.15)",
+              borderRadius: "20px",
               overflow: "hidden",
+              background: "rgba(255,248,231,0.98)",
+              border: "1px solid rgba(128,0,32,0.15)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              maxWidth: 480,
+              width: "100%",
             },
           }}
         >
+          {/* Crimson header */}
           <Box
             sx={{
-              bgcolor: systemSettings.primaryColor,
-              color: "white",
-              p: 3,
+              background: "#800020",
+              px: 3.5,
+              py: 3,
               display: "flex",
               alignItems: "center",
-              gap: 2,
+              gap: 1.5,
             }}
           >
-            <Lock sx={{ fontSize: 32 }} />
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 600, letterSpacing: 0.5 }}
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.15)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
             >
-              SESSION EXPIRED
-            </Typography>
+              <Lock sx={{ color: "#fff", fontSize: 22 }} />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: "0.62rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.22em",
+                  color: "rgba(255,255,255,0.65)",
+                  textTransform: "uppercase",
+                  mb: 0.3,
+                  fontFamily: "Poppins, sans-serif",
+                }}
+              >
+                Authentication
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "1.15rem",
+                  fontWeight: 800,
+                  color: "#fff",
+                  lineHeight: 1.2,
+                  fontFamily: "Poppins, sans-serif",
+                }}
+              >
+                Session Expired
+              </Typography>
+            </Box>
           </Box>
 
-          <DialogContent sx={{ textAlign: "center", py: 3 }}>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {/* Gradient accent bar */}
+          <Box
+            sx={{
+              height: 3,
+              background: "linear-gradient(90deg, #800020, #e84a4a)",
+            }}
+          />
+
+          <DialogContent
+            sx={{
+              background: "transparent",
+              pt: 4,
+              pb: 2,
+              px: 4,
+              textAlign: "center",
+            }}
+          >
+            <Box
+              sx={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                bgcolor: "rgba(128,0,32,0.08)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                mx: "auto",
+                mb: 2.5,
+              }}
+            >
+              <Lock sx={{ color: "#800020", fontSize: 30 }} />
+            </Box>
+            <Typography
+              sx={{
+                color: "rgba(75,0,0,0.65)",
+                fontSize: "0.88rem",
+                lineHeight: 1.75,
+                fontFamily: "Poppins, sans-serif",
+              }}
+            >
               You have been inactive for an extended period. For security
-              purposes, your session has expired. Please log in again.
+              purposes, your session has expired. Please sign in again to
+              continue.
             </Typography>
           </DialogContent>
 
-          <DialogActions sx={{ px: 3, pb: 3 }}>
-            <Button
+          <DialogActions
+            sx={{
+              background: "transparent",
+              px: 4,
+              pb: 4,
+              pt: 1,
+              borderTop: "none",
+            }}
+          >
+            <Box
+              component="button"
               onClick={handleSessionExpiredClose}
-              variant="contained"
-              fullWidth
-              disableElevation
               sx={{
-                py: 1.2,
-                textTransform: "none",
+                width: "100%",
+                height: 52,
+                background: "#800020",
+                border: "none",
+                borderRadius: "12px",
+                color: "#fff",
+                fontSize: "0.92rem",
                 fontWeight: 600,
-                backgroundColor: systemSettings.primaryColor,
-                "&:hover": { backgroundColor: systemSettings.hoverColor },
+                cursor: "pointer",
+                fontFamily: "Poppins, sans-serif",
+                letterSpacing: "0.04em",
+                transition: "background 0.2s",
+                "&:hover": { background: "#6a001a" },
               }}
             >
-              OKAY
-            </Button>
+              Back to Sign In
+            </Box>
           </DialogActions>
         </Dialog>
       </Box>
@@ -2030,16 +2193,16 @@ function App() {
         </Typography>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <IconButton
-  onClick={() => {
-    window.location.href = "/settings?tab=contactus";
-  }}
-  color="inherit"
-  size="small"
-  title="Contact Us"
->
-  <ContactSupport fontSize="small" />
-</IconButton>
+          <IconButton
+            onClick={() => {
+              window.location.href = "/settings?tab=contactus";
+            }}
+            color="inherit"
+            size="small"
+            title="Contact Us"
+          >
+            <ContactSupport fontSize="small" />
+          </IconButton>
           <IconButton
             component="a"
             href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}
@@ -2068,4 +2231,3 @@ export default function WrappedApp() {
     </SystemSettingsProvider>
   );
 }
-

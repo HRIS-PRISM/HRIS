@@ -61,6 +61,8 @@ import API_BASE_URL from '../../apiConfig';
     Search,
     SearchOutlined,
     Assignment,
+    UnfoldMore,
+    UnfoldLess,
   } from '@mui/icons-material';
   import { useNavigate } from 'react-router-dom';
   import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -82,21 +84,27 @@ import API_BASE_URL from '../../apiConfig';
     OVERALL_COMPARE_FIELD_META,
   } from './overallAttendanceMerge';
 
-  // ─── Theme tokens (unified with ViewAttendanceRecord) ──────────────────────
+  // ─── Theme tokens (unified) ────────────────────────────────────────────────
   const T = {
-    accent: '#6d2323',
-    accentDark: '#5a1d1d',
-    accentMid: '#8B4545',
-    accentFaint: 'rgba(109,35,35,0.06)',
+    accent:       '#6d2323',
+    accentDark:   '#5a1d1d',
+    accentMid:    '#8B4545',
+    accentFaint:  'rgba(109,35,35,0.06)',
     accentBorder: 'rgba(109,35,35,0.14)',
-    accentHover: 'rgba(109,35,35,0.10)',
-    rowOdd: 'rgba(109,35,35,0.025)',
-    rowHover: 'rgba(109,35,35,0.055)',
-    text: '#1a1a1a',
-    muted: '#6b6b6b',
-    faint: '#a0a0a0',
-    surface: '#ffffff',
-    divider: 'rgba(0,0,0,0.08)',
+    accentHover:  'rgba(109,35,35,0.10)',
+    rowOdd:       '#f9f9f9',
+    rowHover:     '#f3f3f3',
+    text:         '#1a1a1a',
+    muted:        '#6b6b6b',
+    faint:        '#a0a0a0',
+    surface:      '#ffffff',
+    divider:      'rgba(0,0,0,0.08)',
+    holiday:   { bg: 'rgba(245,124,0,0.10)',  color: '#f57c00', border: 'rgba(245,124,0,0.35)'  },
+    leave:     { bg: 'rgba(46,125,50,0.10)',   color: '#2e7d32', border: 'rgba(46,125,50,0.35)'  },
+    suspended: { bg: 'rgba(211,47,47,0.10)',   color: '#d32f2f', border: 'rgba(211,47,47,0.35)'  },
+    absent:    { bg: 'rgba(183,28,28,0.08)',   color: '#b71c1c', border: 'rgba(183,28,28,0.25)'  },
+    rendered:  { bg: 'rgba(27,94,32,0.08)',    color: '#1b5e20', border: 'rgba(27,94,32,0.25)'   },
+    tardiness: { bg: 'rgba(183,28,28,0.08)',   color: '#b71c1c', border: 'rgba(183,28,28,0.25)'  },
   };
 
   // ─── Shimmer keyframes ─────────────────────────────────────────────────────
@@ -114,15 +122,11 @@ import API_BASE_URL from '../../apiConfig';
   const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
     <Box
       sx={{
-        width: w,
-        height: h,
-        borderRadius: r,
-        background:
-          'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+        width: w, height: h, borderRadius: r,
+        background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
         backgroundSize: '800px 100%',
         animation: 'shimmer 1.6s infinite linear',
-        flexShrink: 0,
-        ...sx,
+        flexShrink: 0, ...sx,
       }}
     />
   );
@@ -131,188 +135,48 @@ import API_BASE_URL from '../../apiConfig';
   const AttendanceFacultyWireframe = () => (
     <>
       <style>{shimmerKf}</style>
-      <Box
-        sx={{
-          py: { xs: 1, md: 2 },
-          mt: { xs: 0, md: -2 },
-          mb: { xs: 1, md: 2 },
-          width: '100vw',
-          maxWidth: '100%',
-          position: 'relative',
-          left: '63%',
-          transform: 'translateX(-61%)',
-          px: { xs: 2, sm: 3, md: 6 },
-        }}
-      >
-        {/* Header */}
-        <Box
-          sx={{
-            mb: 2,
-            borderRadius: '12px',
-            overflow: 'hidden',
-            border: '0.5px solid rgba(0,0,0,0.09)',
-            animation: 'blink 2s ease-in-out infinite',
-          }}
-        >
-          <Box
-            sx={{
-              px: 4,
-              py: 3,
-              background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2.5,
-            }}
-          >
-            <Box
-              sx={{
-                width: 30,
-                height: 30,
-                borderRadius: '50%',
-                bgcolor: 'rgba(109,35,35,0.12)',
-              }}
-            />
-            <Box>
-              <Bone w={280} h={18} sx={{ mb: 1 }} />
-              <Bone w={380} h={11} />
-            </Box>
+      <Box sx={{
+        py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '63%', transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}>
+        <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', animation: 'blink 2s ease-in-out infinite' }}>
+          <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
+            <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+            <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
           </Box>
         </Box>
-        {/* Controls */}
-        <Box
-          sx={{
-            mb: 2,
-            borderRadius: '12px',
-            overflow: 'hidden',
-            border: '0.5px solid rgba(0,0,0,0.09)',
-            bgcolor: '#fff',
-            animation: 'blink 2s ease-in-out 0.1s infinite',
-          }}
-        >
-          <Box
-            sx={{
-              px: 2.5,
-              py: 1.25,
-              bgcolor: T.accentFaint,
-              borderBottom: `1px solid ${T.divider}`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.25,
-              minHeight: 42,
-            }}
-          >
-            <Box
-              sx={{
-                width: 14,
-                height: 14,
-                borderRadius: '50%',
-                bgcolor: 'rgba(109,35,35,0.2)',
-              }}
-            />
+        <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.1s infinite' }}>
+          <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 42 }}>
+            <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
             <Bone w={180} h={12} />
           </Box>
           <Box sx={{ px: 2.5, py: 2.5 }}>
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               {[1, 2, 3].map((i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    flex: 1,
-                    height: 40,
-                    borderRadius: '8px',
-                    bgcolor: T.accentFaint,
-                    border: `1px solid ${T.accentBorder}`,
-                  }}
-                />
+                <Box key={i} sx={{ flex: 1, height: 40, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />
               ))}
             </Box>
-            <Box
-              sx={{
-                border: `2px dashed ${T.accentBorder}`,
-                borderRadius: '8px',
-                p: 3,
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 1,
-                  justifyContent: 'center',
-                }}
-              >
+            <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: '8px', p: 3 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
                 {Array.from({ length: 12 }).map((_, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      width: 64,
-                      height: 36,
-                      borderRadius: '6px',
-                      bgcolor: T.accentFaint,
-                    }}
-                  />
+                  <Box key={i} sx={{ width: 64, height: 36, borderRadius: '6px', bgcolor: T.accentFaint }} />
                 ))}
               </Box>
             </Box>
           </Box>
         </Box>
-        {/* Table */}
-        <Box
-          sx={{
-            borderRadius: '12px',
-            overflow: 'hidden',
-            border: '0.5px solid rgba(0,0,0,0.09)',
-            bgcolor: '#fff',
-            animation: 'blink 2s ease-in-out 0.2s infinite',
-          }}
-        >
-          <Box
-            sx={{
-              px: 2.5,
-              py: 1.25,
-              bgcolor: T.accent,
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 1fr 1fr',
-              gap: 2,
-            }}
-          >
+        <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.2s infinite' }}>
+          <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2 }}>
             {[100, 80, 80, 80].map((w, i) => (
-              <Box
-                key={i}
-                sx={{
-                  height: 10,
-                  width: w,
-                  borderRadius: 3,
-                  bgcolor: 'rgba(255,255,255,0.22)',
-                }}
-              />
+              <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />
             ))}
           </Box>
           {[...Array(5)].map((_, i) => (
-            <Box
-              key={i}
-              sx={{
-                px: 2.5,
-                py: 2,
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr 1fr',
-                gap: 2,
-                alignItems: 'center',
-                borderBottom: '1px solid rgba(0,0,0,0.05)',
-                bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd,
-              }}
-            >
-              <Bone w={120} h={12} />
-              <Bone w={80} h={12} />
-              <Bone w={80} h={12} />
-              <Box
-                sx={{
-                  width: 90,
-                  height: 24,
-                  borderRadius: '12px',
-                  bgcolor: T.accentFaint,
-                }}
-              />
+            <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd }}>
+              <Bone w={120} h={12} /><Bone w={80} h={12} /><Bone w={80} h={12} />
+              <Box sx={{ width: 90, height: 24, borderRadius: '12px', bgcolor: T.accentFaint }} />
             </Box>
           ))}
         </Box>
@@ -331,92 +195,48 @@ import API_BASE_URL from '../../apiConfig';
 
   // ─── Panel header bar ──────────────────────────────────────────────────────
   const PanelHeader = ({ icon: Icon, title, rightContent }) => (
-    <Box
-      sx={{
-        px: 2.5,
-        py: 1.5,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: `1px solid ${T.divider}`,
-        bgcolor: T.accentFaint,
-      }}
-    >
+    <Box sx={{
+      px: 2.5, py: 1.5,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: T.accentFaint,
+    }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
         <Icon sx={{ fontSize: 15, color: T.accent }} />
-        <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
-          {title}
-        </Typography>
+        <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>{title}</Typography>
       </Box>
       {rightContent}
     </Box>
   );
 
   // ─── Native input ──────────────────────────────────────────────────────────
-  const NativeInput = ({
-    value,
-    onChange,
-    type = 'text',
-    placeholder,
-    disabled,
-    icon,
-  }) => (
+  const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
     <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       {icon && (
-        <Box
-          sx={{
-            position: 'absolute',
-            left: 10,
-            color: T.accentMid,
-            display: 'flex',
-            alignItems: 'center',
-            zIndex: 1,
-            pointerEvents: 'none',
-          }}
-        >
+        <Box sx={{ position: 'absolute', left: 10, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
           {icon}
         </Box>
       )}
       <input
-        type={type}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        disabled={disabled}
+        type={type} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
         style={{
-          width: '100%',
-          padding: icon ? '9px 13px 9px 34px' : '9px 13px',
-          borderRadius: '8px',
-          border: `1px solid ${T.accentBorder}`,
-          fontSize: '0.875rem',
-          outline: 'none',
-          fontFamily: 'inherit',
-          boxSizing: 'border-box',
-          transition: 'border-color 0.18s',
-          background: disabled ? '#f5f5f5' : '#fff',
-          color: T.text,
+          width: '100%', padding: icon ? '9px 13px 9px 34px' : '9px 13px',
+          borderRadius: '8px', border: `1px solid ${T.accentBorder}`,
+          fontSize: '0.875rem', outline: 'none', fontFamily: 'inherit',
+          boxSizing: 'border-box', transition: 'border-color 0.18s',
+          background: disabled ? '#f5f5f5' : '#fff', color: T.text,
           cursor: disabled ? 'not-allowed' : 'text',
         }}
-        onFocus={(e) => {
-          if (!disabled) {
-            e.target.style.borderColor = T.accent;
-            e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`;
-          }
-        }}
-        onBlur={(e) => {
-          e.target.style.borderColor = T.accentBorder;
-          e.target.style.boxShadow = 'none';
-        }}
+        onFocus={(e) => { if (!disabled) { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`; } }}
+        onBlur={(e) => { e.target.style.borderColor = T.accentBorder; e.target.style.boxShadow = 'none'; }}
       />
     </Box>
   );
 
-  // ─── Employee search (same behavior as AttendanceDevice) ───────────────────
+  // ─── Employee search ───────────────────────────────────────────────────────
   const FieldInput = styled(TextField)({
     '& .MuiOutlinedInput-root': {
-      borderRadius: 8,
-      fontSize: '0.875rem',
-      backgroundColor: '#fff',
+      borderRadius: 8, fontSize: '0.875rem', backgroundColor: '#fff',
       '& fieldset': { borderColor: T.accentBorder },
       '&:hover fieldset': { borderColor: T.accent },
       '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
@@ -435,22 +255,15 @@ import API_BASE_URL from '../../apiConfig';
     if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
     const firstName = parts[0];
     const lastName = parts[parts.length - 1];
-    const middleFormatted = parts
-      .slice(1, parts.length - 1)
-      .map((m) => {
-        const mm = String(m).replace(/\./g, '');
-        return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
-      })
-      .join(' ');
+    const middleFormatted = parts.slice(1, parts.length - 1).map((m) => {
+      const mm = String(m).replace(/\./g, '');
+      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
+    }).join(' ');
     const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
     return suffix ? `${base} ${suffix}` : base;
   };
 
-  const EmployeeSearchField = ({
-    value,
-    onSelectEmployeeNumber,
-    disabled = false,
-  }) => {
+  const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
     const [query, setQuery] = useState(value || '');
     const [debouncedQuery, setDebouncedQuery] = useState(value || '');
     const [results, setResults] = useState([]);
@@ -460,198 +273,83 @@ import API_BASE_URL from '../../apiConfig';
     const containerRef = useRef(null);
     const abortRef = useRef(null);
 
+    useEffect(() => { setQuery(value || ''); setDebouncedQuery(value || ''); }, [value]);
     useEffect(() => {
-      setQuery(value || '');
-      setDebouncedQuery(value || '');
-    }, [value]);
-
-    useEffect(() => {
-      const handleOutside = (event) => {
-        if (!containerRef.current?.contains(event.target)) setOpen(false);
-      };
+      const handleOutside = (event) => { if (!containerRef.current?.contains(event.target)) setOpen(false); };
       document.addEventListener('mousedown', handleOutside);
       return () => document.removeEventListener('mousedown', handleOutside);
     }, []);
-
-    useEffect(() => {
-      return () => {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        if (abortRef.current) abortRef.current.abort();
-      };
+    useEffect(() => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
     }, []);
-
     useEffect(() => {
       if (!open) return;
       if (abortRef.current) abortRef.current.abort();
       const q = debouncedQuery.trim();
-      if (q.length < 2) {
-        setResults([]);
-        setLoading(false);
-        return;
-      }
+      if (q.length < 2) { setResults([]); setLoading(false); return; }
       setLoading(true);
       const controller = new AbortController();
       abortRef.current = controller;
-      axios
-        .get(`${API_BASE_URL}/users/search`, {
-          params: { q },
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json',
-          },
-          signal: controller.signal,
-        })
-        .then((res) => {
-          const list = Array.isArray(res.data) ? res.data : [];
-          setResults(list.slice(0, 20));
-        })
-        .catch((err) => {
-          if (err?.code === 'ERR_CANCELED') return;
-          setResults([]);
-        })
+      axios.get(`${API_BASE_URL}/users/search`, {
+        params: { q },
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      })
+        .then((res) => { const list = Array.isArray(res.data) ? res.data : []; setResults(list.slice(0, 20)); })
+        .catch((err) => { if (err?.code === 'ERR_CANCELED') return; setResults([]); })
         .finally(() => setLoading(false));
       return () => controller.abort();
     }, [debouncedQuery, open]);
 
     const queueSearch = (nextValue) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        setDebouncedQuery(nextValue);
-        setOpen(true);
-      }, 220);
+      debounceRef.current = setTimeout(() => { setDebouncedQuery(nextValue); setOpen(true); }, 220);
     };
-
-    const handleInputChange = (e) => {
-      const next = e.target.value;
-      onSelectEmployeeNumber(next);
-      setQuery(next);
-      queueSearch(next);
-    };
-    const handleSelect = (emp) => {
-      const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
-      onSelectEmployeeNumber(num);
-      setQuery(num);
-      setDebouncedQuery(num);
-      setOpen(false);
-    };
-    const handleClear = () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
-      setQuery('');
-      setDebouncedQuery('');
-      setResults([]);
-      setOpen(false);
-      onSelectEmployeeNumber('');
-    };
+    const handleInputChange = (e) => { const next = e.target.value; onSelectEmployeeNumber(next); setQuery(next); queueSearch(next); };
+    const handleSelect = (emp) => { const num = emp?.employeeNumber ? String(emp.employeeNumber) : ''; onSelectEmployeeNumber(num); setQuery(num); setDebouncedQuery(num); setOpen(false); };
+    const handleClear = () => { if (debounceRef.current) clearTimeout(debounceRef.current); if (abortRef.current) abortRef.current.abort(); setQuery(''); setDebouncedQuery(''); setResults([]); setOpen(false); onSelectEmployeeNumber(''); };
 
     return (
       <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
         <FieldInput
-          fullWidth
-          size="small"
-          value={query}
-          onChange={handleInputChange}
-          onFocus={() => setOpen(true)}
-          placeholder="Type name or employee number..."
-          disabled={disabled}
-          autoComplete="off"
+          fullWidth size="small" value={query} onChange={handleInputChange} onFocus={() => setOpen(true)}
+          placeholder="Type name or employee number..." disabled={disabled} autoComplete="off"
           inputProps={{ autoComplete: 'new-password' }}
           InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchOutlined sx={{ color: T.muted, fontSize: 16 }} />
-              </InputAdornment>
-            ),
+            startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment>,
             endAdornment: (
               <InputAdornment position="end">
-                {loading ? (
-                  <CircularProgress size={14} sx={{ color: T.accent }} />
-                ) : query ? (
-                  <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
-                    <CloseIcon sx={{ fontSize: 14, color: T.faint }} />
-                  </IconButton>
+                {loading ? <CircularProgress size={14} sx={{ color: T.accent }} /> : query ? (
+                  <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}><CloseIcon sx={{ fontSize: 14, color: T.faint }} /></IconButton>
                 ) : null}
               </InputAdornment>
             ),
           }}
         />
         {open && (
-          <Paper
-            elevation={6}
-            sx={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
-              zIndex: 1300,
-              mt: 0.5,
-              maxHeight: 280,
-              overflow: 'auto',
-              borderRadius: '10px',
-              border: `1px solid ${T.accentBorder}`,
-            }}
-          >
+          <Paper elevation={6} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1300, mt: 0.5, maxHeight: 280, overflow: 'auto', borderRadius: '10px', border: `1px solid ${T.accentBorder}` }}>
             {loading ? (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 1,
-                  py: 2.5,
-                }}
-              >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
                 <CircularProgress size={16} sx={{ color: T.accent }} />
-                <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
-                  Searching...
-                </Typography>
+                <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
               </Box>
             ) : results.length > 0 ? (
               <List dense disablePadding>
                 {results.map((emp) => (
-                  <ListItemButton
-                    key={emp.employeeNumber}
-                    onClick={() => handleSelect(emp)}
-                    sx={{
-                      py: 1,
-                      px: 1.5,
-                      borderBottom: `1px solid ${T.divider}`,
-                      '&:hover': { bgcolor: T.accentFaint },
-                      '&:last-child': { borderBottom: 'none' },
-                    }}
-                  >
-                    <Box
-                      sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}
-                    >
-                      <Typography
-                        sx={{
-                          fontSize: '0.83rem',
-                          fontWeight: 700,
-                          color: T.text,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        {formatFullNameForSearch(emp.fullName)}
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
-                        #{emp.employeeNumber}
-                      </Typography>
+                  <ListItemButton key={emp.employeeNumber} onClick={() => handleSelect(emp)}
+                    sx={{ py: 1, px: 1.5, borderBottom: `1px solid ${T.divider}`, '&:hover': { bgcolor: T.accentFaint }, '&:last-child': { borderBottom: 'none' } }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                      <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{formatFullNameForSearch(emp.fullName)}</Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{emp.employeeNumber}</Typography>
                     </Box>
                   </ListItemButton>
                 ))}
               </List>
             ) : (
               <Box sx={{ py: 2.5, textAlign: 'center' }}>
-                <Typography
-                  sx={{
-                    fontSize: '0.78rem',
-                    color: T.faint,
-                    fontStyle: 'italic',
-                  }}
-                >
-                  {query.trim().length >= 2
-                    ? `No registered user found for "${query.trim()}"`
-                    : 'Type at least 2 characters to search users'}
+                <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
+                  {query.trim().length >= 2 ? `No registered user found for "${query.trim()}"` : 'Type at least 2 characters to search users'}
                 </Typography>
               </Box>
             )}
@@ -663,99 +361,19 @@ import API_BASE_URL from '../../apiConfig';
 
   // ─── Row action button ─────────────────────────────────────────────────────
   const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: 'transparent',
-        border: `1px solid ${color}40`,
-        borderRadius: '8px',
-        padding: '9px 18px',
-        cursor: disabled ? 'default' : 'pointer',
-        color,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        fontSize: '0.85rem',
-        fontWeight: 700,
-        fontFamily: 'inherit',
-        transition: 'background-color 0.15s, border-color 0.15s',
-        whiteSpace: 'nowrap',
-        opacity: disabled ? 0.5 : 1,
-      }}
-      onMouseEnter={(e) => {
-        if (!disabled) {
-          e.currentTarget.style.backgroundColor = hoverBg;
-          e.currentTarget.style.borderColor = color;
-        }
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = 'transparent';
-        e.currentTarget.style.borderColor = `${color}40`;
-      }}
-    >
-      {icon}
-      {label}
+    <button onClick={onClick} disabled={disabled}
+      style={{ background: 'transparent', border: `1px solid ${color}40`, borderRadius: '8px', padding: '9px 18px', cursor: disabled ? 'default' : 'pointer', color, display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem', fontWeight: 700, fontFamily: 'inherit', transition: 'background-color 0.15s, border-color 0.15s', whiteSpace: 'nowrap', opacity: disabled ? 0.5 : 1 }}
+      onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; } }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}>
+      {icon}{label}
     </button>
   );
-
-  // ─── Quick filter button ───────────────────────────────────────────────────
-  const QuickBtn = ({ label, icon, onClick, active }) => (
-    <button
-      onClick={onClick}
-      style={{
-        background: active ? T.accent : 'transparent',
-        border: `1px solid ${active ? T.accent : T.accentBorder}`,
-        borderRadius: '6px',
-        padding: '6px 14px',
-        cursor: 'pointer',
-        color: active ? '#fff' : T.accent,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '5px',
-        fontSize: '0.78rem',
-        fontWeight: 700,
-        fontFamily: 'inherit',
-        transition: 'all 0.15s ease',
-        whiteSpace: 'nowrap',
-      }}
-      onMouseEnter={(e) => {
-        if (!active) {
-          e.currentTarget.style.backgroundColor = T.accentFaint;
-          e.currentTarget.style.borderColor = T.accent;
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!active) {
-          e.currentTarget.style.backgroundColor = 'transparent';
-          e.currentTarget.style.borderColor = T.accentBorder;
-        }
-      }}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-
-  // ─── Compact table cell ────────────────────────────────────────────────────
-  const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
-    fontWeight: isHeader ? 700 : 500,
-    padding: '10px 14px',
-    borderBottom: `1px solid ${T.divider}`,
-    fontSize: isHeader ? '0.65rem' : '0.8rem',
-    letterSpacing: isHeader ? '0.08em' : '0.01em',
-    color: isHeader ? '#fff' : T.text,
-    whiteSpace: 'nowrap',
-  }));
 
   // ─── Grace period constant ─────────────────────────────────────────────────
   const GRACE_PERIOD_MS = 15 * 60 * 1000;
 
-  /** Floor duration to whole minutes for attendance totals/tardiness math. */
-  const truncateMsToMinutes = (ms) =>
-    Math.floor(Math.max(0, ms) / 60000) * 60000;
+  const truncateMsToMinutes = (ms) => Math.floor(Math.max(0, ms) / 60000) * 60000;
 
-  /** HH:MM:SS display using minute precision only (seconds not part of calculations). */
   const formatDurationMsNoSeconds = (ms) => {
     const truncated = truncateMsToMinutes(ms);
     const totalSeconds = Math.floor(truncated / 1000);
@@ -768,12 +386,6 @@ import API_BASE_URL from '../../apiConfig';
   /**
    * Converts a HH:MM:SS tardiness string into a human-readable "Xd Yh Zm" format.
    * For the 30hrs faculty module: 6 hours = 1 day.
-   * Seconds are ignored (truncated to minute precision).
-   * Examples:
-   *   "31:43:00" → "5d 1h 43m"
-   *   "06:00:00" → "1d"
-   *   "00:45:00" → "45m"
-   *   "00:00:00" → "0m"
    */
   const formatTardinessAsDaysHours = (hhmmss) => {
     if (!hhmmss || hhmmss === '00:00:00') return '0m';
@@ -791,251 +403,127 @@ import API_BASE_URL from '../../apiConfig';
     return out.trim();
   };
 
-  /**
-   * Total tardiness = late arrival (floor to minute) + early departure (ceil to minute).
-   * Matches common HR breakdown (e.g. 01:13 late + 00:24 undertime = 01:37).
-   */
   const tardinessMsFromLateFloorEarlyCeil = (lateRawMs, earlyRawMs) => {
     const lateMs = truncateMsToMinutes(lateRawMs);
-    const earlyMs =
-      earlyRawMs <= 0
-        ? 0
-        : Math.ceil(earlyRawMs / 60000) * 60000;
+    const earlyMs = earlyRawMs <= 0 ? 0 : Math.ceil(earlyRawMs / 60000) * 60000;
     return lateMs + earlyMs;
   };
 
   // ─── Tab definitions ───────────────────────────────────────────────────────
   const VIEW_TABS = [
-    {
-      key: 'regular',
-      label: 'Regular Time',
-      icon: <Schedule sx={{ fontSize: 14 }} />,
-    },
-    {
-      key: 'honorarium',
-      label: 'Honorarium',
-      icon: <Star sx={{ fontSize: 14 }} />,
-    },
-    {
-      key: 'serviceCredit',
-      label: 'Service Credit',
-      icon: <CreditScore sx={{ fontSize: 14 }} />,
-    },
-    {
-      key: 'overtime',
-      label: 'Overtime',
-      icon: <AccessTime sx={{ fontSize: 14 }} />,
-    },
+    { key: 'regular',       label: 'Regular Time',  icon: <Schedule sx={{ fontSize: 14 }} /> },
+    { key: 'honorarium',    label: 'Honorarium',     icon: <Star sx={{ fontSize: 14 }} /> },
+    { key: 'serviceCredit', label: 'Service Credit', icon: <CreditScore sx={{ fontSize: 14 }} /> },
+    { key: 'overtime',      label: 'Overtime',       icon: <AccessTime sx={{ fontSize: 14 }} /> },
   ];
 
-  // ─── Column definitions ────────────────────────────────────────────────────
+  // ─── Column definitions with collapsible group support ────────────────────
+  // colGroup: columns sharing a group key can be collapsed together.
+  // The FIRST column of each colGroup carries isGroupLeader: true.
   const TAB_COLUMNS = {
+    regular: [
+      { label: 'Date',              key: 'date',            minWidth: 130, group: 'meta',     colGroup: null },
+      { label: 'Day',               key: 'day',             minWidth: 80,  group: 'meta',     colGroup: null },
+      { label: 'Time IN',           key: 'timeIN',          minWidth: 140, group: 'actual',   colGroup: 'times',    isGroupLeader: true },
+      { label: 'Time OUT',          key: 'timeOUT',         minWidth: 140, group: 'actual',   colGroup: 'times' },
+      { label: 'Official Time IN',  key: 'officialTimeIN',  minWidth: 150, group: 'official', colGroup: 'official', isGroupLeader: true },
+      { label: 'Official Time OUT', key: 'officialTimeOUT', minWidth: 150, group: 'official', colGroup: 'official' },
+      { label: 'Rendered',          key: '_rendered',       minWidth: 130, group: 'calc',     colGroup: null },
+      { label: 'Tardiness',         key: '_tardiness',      minWidth: 130, group: 'tard',     colGroup: null },
+    ],
     honorarium: [
-      { label: 'Date', key: 'date', minWidth: 120, group: 'meta' },
-      { label: 'Day', key: 'day', minWidth: 90, group: 'meta' },
-      {
-        label: 'Time IN',
-        key: '_hnTimeIN',
-        minWidth: 140,
-        group: 'actual',
-        dividerBefore: true,
-      },
-      { label: 'Time OUT', key: '_hnTimeOUT', minWidth: 140, group: 'actual' },
-      {
-        label: 'Official Time IN',
-        key: 'officialHonorariumTimeIN',
-        minWidth: 150,
-        group: 'official',
-        dividerBefore: true,
-      },
-      {
-        label: 'Official Time OUT',
-        key: 'officialHonorariumTimeOUT',
-        minWidth: 150,
-        group: 'official',
-      },
-      {
-        label: 'Rendered',
-        key: '_hnRendered',
-        minWidth: 130,
-        group: 'calc',
-        dividerBefore: true,
-      },
-      { label: 'Tardiness', key: '_hnTardiness', minWidth: 130, group: 'tard' },
+      { label: 'Date',                 key: 'date',                      minWidth: 130, group: 'meta',     colGroup: null },
+      { label: 'Day',                  key: 'day',                       minWidth: 80,  group: 'meta',     colGroup: null },
+      { label: 'Time IN',              key: '_hnTimeIN',                 minWidth: 140, group: 'actual',   colGroup: 'hnTimes',    isGroupLeader: true },
+      { label: 'Time OUT',             key: '_hnTimeOUT',                minWidth: 140, group: 'actual',   colGroup: 'hnTimes' },
+      { label: 'Official HN Time IN',  key: 'officialHonorariumTimeIN',  minWidth: 150, group: 'official', colGroup: 'hnOfficial', isGroupLeader: true },
+      { label: 'Official HN Time OUT', key: 'officialHonorariumTimeOUT', minWidth: 150, group: 'official', colGroup: 'hnOfficial' },
+      { label: 'HN Rendered',          key: '_hnRendered',               minWidth: 130, group: 'calc',     colGroup: null },
+      { label: 'HN Tardiness',         key: '_hnTardiness',              minWidth: 130, group: 'tard',     colGroup: null },
     ],
     serviceCredit: [
-      { label: 'Date', key: 'date', minWidth: 120, group: 'meta' },
-      { label: 'Day', key: 'day', minWidth: 90, group: 'meta' },
-      {
-        label: 'Time IN',
-        key: '_scTimeIN',
-        minWidth: 140,
-        group: 'actual',
-        dividerBefore: true,
-      },
-      { label: 'Time OUT', key: '_scTimeOUT', minWidth: 140, group: 'actual' },
-      {
-        label: 'Official Time IN',
-        key: 'officialServiceCreditTimeIN',
-        minWidth: 150,
-        group: 'official',
-        dividerBefore: true,
-      },
-      {
-        label: 'Official Time OUT',
-        key: 'officialServiceCreditTimeOUT',
-        minWidth: 150,
-        group: 'official',
-      },
-      {
-        label: 'Rendered',
-        key: '_scRendered',
-        minWidth: 130,
-        group: 'calc',
-        dividerBefore: true,
-      },
-      { label: 'Tardiness', key: '_scTardiness', minWidth: 130, group: 'tard' },
+      { label: 'Date',                 key: 'date',                         minWidth: 130, group: 'meta',     colGroup: null },
+      { label: 'Day',                  key: 'day',                          minWidth: 80,  group: 'meta',     colGroup: null },
+      { label: 'Time IN',              key: '_scTimeIN',                    minWidth: 140, group: 'actual',   colGroup: 'scTimes',    isGroupLeader: true },
+      { label: 'Time OUT',             key: '_scTimeOUT',                   minWidth: 140, group: 'actual',   colGroup: 'scTimes' },
+      { label: 'Official SC Time IN',  key: 'officialServiceCreditTimeIN',  minWidth: 150, group: 'official', colGroup: 'scOfficial', isGroupLeader: true },
+      { label: 'Official SC Time OUT', key: 'officialServiceCreditTimeOUT', minWidth: 150, group: 'official', colGroup: 'scOfficial' },
+      { label: 'SC Rendered',          key: '_scRendered',                  minWidth: 130, group: 'calc',     colGroup: null },
+      { label: 'SC Tardiness',         key: '_scTardiness',                 minWidth: 130, group: 'tard',     colGroup: null },
     ],
     overtime: [
-      { label: 'Date', key: 'date', minWidth: 120, group: 'meta' },
-      { label: 'Day', key: 'day', minWidth: 90, group: 'meta' },
-      {
-        label: 'Time IN',
-        key: '_otTimeIN',
-        minWidth: 140,
-        group: 'actual',
-        dividerBefore: true,
-      },
-      { label: 'Time OUT', key: '_otTimeOUT', minWidth: 140, group: 'actual' },
-      {
-        label: 'Official Time IN',
-        key: 'officialOverTimeIN',
-        minWidth: 150,
-        group: 'official',
-        dividerBefore: true,
-      },
-      {
-        label: 'Official Time OUT',
-        key: 'officialOverTimeOUT',
-        minWidth: 150,
-        group: 'official',
-      },
-      {
-        label: 'Rendered',
-        key: '_otRendered',
-        minWidth: 130,
-        group: 'calc',
-        dividerBefore: true,
-      },
-      { label: 'Tardiness', key: '_otTardiness', minWidth: 130, group: 'tard' },
+      { label: 'Date',                key: 'date',               minWidth: 130, group: 'meta',     colGroup: null },
+      { label: 'Day',                 key: 'day',                minWidth: 80,  group: 'meta',     colGroup: null },
+      { label: 'Time IN',             key: '_otTimeIN',          minWidth: 140, group: 'actual',   colGroup: 'otTimes',    isGroupLeader: true },
+      { label: 'Time OUT',            key: '_otTimeOUT',         minWidth: 140, group: 'actual',   colGroup: 'otTimes' },
+      { label: 'Official OT Time IN', key: 'officialOverTimeIN', minWidth: 150, group: 'official', colGroup: 'otOfficial', isGroupLeader: true },
+      { label: 'Official OT Time OUT',key: 'officialOverTimeOUT',minWidth: 150, group: 'official', colGroup: 'otOfficial' },
+      { label: 'OT Rendered',         key: '_otRendered',        minWidth: 130, group: 'calc',     colGroup: null },
+      { label: 'OT Tardiness',        key: '_otTardiness',       minWidth: 130, group: 'tard',     colGroup: null },
     ],
   };
 
-  const REGULAR_COLS = [
-    { label: 'Date', minWidth: 120, group: 'meta' },
-    { label: 'Day', minWidth: 90, group: 'meta' },
-    { label: 'Time IN', minWidth: 140, group: 'actual', dividerBefore: true },
-    { label: 'Time OUT', minWidth: 140, group: 'actual' },
-    {
-      label: 'Official Time IN',
-      minWidth: 150,
-      group: 'official',
-      dividerBefore: true,
-    },
-    { label: 'Official Time OUT', minWidth: 150, group: 'official' },
-    { label: 'Rendered', minWidth: 130, group: 'calc', dividerBefore: true },
-    { label: 'Tardiness', minWidth: 130, group: 'tard' },
-  ];
+  const COL_GROUP_META = {
+    times:      { label: 'Device times' },
+    official:   { label: 'Official schedule' },
+    hnTimes:    { label: 'Device times' },
+    hnOfficial: { label: 'Official schedule' },
+    scTimes:    { label: 'Device times' },
+    scOfficial: { label: 'Official schedule' },
+    otTimes:    { label: 'Device times' },
+    otOfficial: { label: 'Official schedule' },
+  };
 
   // ─── getCellValue ──────────────────────────────────────────────────────────
   const getCellValue = (row, colKey, isFurlough = false) => {
     const NA = '00:00:00';
-    const isNA = (v) =>
-      !v || v === '00:00:00 AM' || v === '00:00:00 PM' || v === '00:00:00';
+    const isNA = (v) => !v || v === '00:00:00 AM' || v === '00:00:00 PM' || v === '00:00:00';
     const getSpecialTime = (expectedType, timeField) => {
-      if (row.specialType === expectedType && row[timeField])
-        return row[timeField];
+      if (row.specialType === expectedType && row[timeField]) return row[timeField];
       return NA;
     };
     switch (colKey) {
+      // Regular tab virtual keys
+      case '_rendered':
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTime;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTime;
+      case '_tardiness':
+        if (isFurlough) return '00:00:00';
+        return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFaculty === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty;
+      // Honorarium
       case '_hnTimeIN':
-        return isNA(row.officialHonorariumTimeIN)
-          ? NA
-          : getSpecialTime('HONORARIUM', 'specialTimeIN');
+        return isNA(row.officialHonorariumTimeIN) ? NA : getSpecialTime('HONORARIUM', 'specialTimeIN');
       case '_hnTimeOUT':
-        return isNA(row.officialHonorariumTimeOUT)
-          ? NA
-          : getSpecialTime('HONORARIUM', 'specialTimeOUT');
+        return isNA(row.officialHonorariumTimeOUT) ? NA : getSpecialTime('HONORARIUM', 'specialTimeOUT');
       case '_hnRendered':
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTimeHN ||
-            row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTimeHN;
-        return isNA(row.officialHonorariumTimeIN) ||
-          isNA(row.officialHonorariumTimeOUT) ||
-          row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTimeHN;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeHN;
+        return isNA(row.officialHonorariumTimeIN) || isNA(row.officialHonorariumTimeOUT) || row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeHN;
       case '_hnTardiness':
         if (isFurlough) return '00:00:00';
-        return isNA(row.officialHonorariumTimeIN) ||
-          isNA(row.officialHonorariumTimeOUT) ||
-          row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedfinalcalcFacultyHN;
+        return isNA(row.officialHonorariumTimeIN) || isNA(row.officialHonorariumTimeOUT) || row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedfinalcalcFacultyHN;
+      // Service Credit
       case '_scTimeIN':
-        return isNA(row.officialServiceCreditTimeIN)
-          ? NA
-          : getSpecialTime('SERVICE', 'specialTimeIN');
+        return isNA(row.officialServiceCreditTimeIN) ? NA : getSpecialTime('SERVICE', 'specialTimeIN');
       case '_scTimeOUT':
-        return isNA(row.officialServiceCreditTimeOUT)
-          ? NA
-          : getSpecialTime('SERVICE', 'specialTimeOUT');
+        return isNA(row.officialServiceCreditTimeOUT) ? NA : getSpecialTime('SERVICE', 'specialTimeOUT');
       case '_scRendered':
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTimeSC ||
-            row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTimeSC;
-        return isNA(row.officialServiceCreditTimeIN) ||
-          isNA(row.officialServiceCreditTimeOUT) ||
-          row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTimeSC;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeSC;
+        return isNA(row.officialServiceCreditTimeIN) || isNA(row.officialServiceCreditTimeOUT) || row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeSC;
       case '_scTardiness':
         if (isFurlough) return '00:00:00';
-        return isNA(row.officialServiceCreditTimeIN) ||
-          isNA(row.officialServiceCreditTimeOUT) ||
-          row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedfinalcalcFacultySC;
+        return isNA(row.officialServiceCreditTimeIN) || isNA(row.officialServiceCreditTimeOUT) || row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedfinalcalcFacultySC;
+      // Overtime
       case '_otTimeIN':
-        return isNA(row.officialOverTimeIN)
-          ? NA
-          : getSpecialTime('OVERTIME', 'specialTimeIN');
+        return isNA(row.officialOverTimeIN) ? NA : getSpecialTime('OVERTIME', 'specialTimeIN');
       case '_otTimeOUT':
-        return isNA(row.officialOverTimeOUT)
-          ? NA
-          : getSpecialTime('OVERTIME', 'specialTimeOUT');
+        return isNA(row.officialOverTimeOUT) ? NA : getSpecialTime('OVERTIME', 'specialTimeOUT');
       case '_otRendered':
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTimeOT ||
-            row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTimeOT;
-        return isNA(row.officialOverTimeIN) ||
-          isNA(row.officialOverTimeOUT) ||
-          row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTimeOT;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeOT;
+        return isNA(row.officialOverTimeIN) || isNA(row.officialOverTimeOUT) || row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeOT;
       case '_otTardiness':
         if (isFurlough) return '00:00:00';
-        return isNA(row.officialOverTimeIN) ||
-          isNA(row.officialOverTimeOUT) ||
-          row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedfinalcalcFacultyOT;
+        return isNA(row.officialOverTimeIN) || isNA(row.officialOverTimeOUT) || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedfinalcalcFacultyOT;
+      // Passthrough official fields
       case 'officialHonorariumTimeIN':
       case 'officialHonorariumTimeOUT':
       case 'officialServiceCreditTimeIN':
@@ -1048,750 +536,199 @@ import API_BASE_URL from '../../apiConfig';
     }
   };
 
-  // ─── Floating Totals Bar ───────────────────────────────────────────────────
-  const FloatingTotalsBar = ({
-    totals,
-    visible,
-    onSave,
-    saving,
-    activeTab,
-    startDate,
-    endDate,
-  }) => {
+  // ─── Floating Totals Bar (unified style matching NonTeaching) ─────────────
+  const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDate, endDate }) => {
     const [expanded, setExpanded] = useState(true);
     if (!visible) return null;
 
-    const items = [
-      {
-        label: 'Regular Rendered',
-        value: totals.regularRendered,
-        group: 'regular',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'Absent Days',
-        value: totals.absentDays,
-        group: 'regular',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'Regular Tardiness',
-        value: totals.regularTardiness,
-        group: 'regular',
-        isRegularTardiness: true,
-      },
-      {
-        label: 'HN Rendered',
-        value: totals.hnRendered,
-        group: 'honorarium',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'HN Tardiness',
-        value: totals.hnTardiness,
-        group: 'honorarium',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'SC Rendered',
-        value: totals.scRendered,
-        group: 'serviceCredit',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'SC Tardiness',
-        value: totals.scTardiness,
-        group: 'serviceCredit',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'OT Rendered',
-        value: totals.otRendered,
-        group: 'overtime',
-        isRegularTardiness: false,
-      },
-      {
-        label: 'OT Tardiness',
-        value: totals.otTardiness,
-        group: 'overtime',
-        isRegularTardiness: false,
-      },
+    const allItems = [
+      { label: 'Absent Days',         value: String(Number.isFinite(Number(totals.absentDays)) ? Number(totals.absentDays) : 0), style: T.absent,    accent: true },
+      { label: 'Overall Rendered',    value: totals.regularRendered  || '00:00:00',                                              style: T.rendered,  accent: true },
+      { label: 'Overall Tardiness',   value: formatTardinessAsDaysHours(totals.regularTardiness || '00:00:00'),                  style: T.tardiness, accent: true },
+      { label: 'HN Rendered',         value: totals.hnRendered       || '00:00:00' },
+      { label: 'HN Tardiness',        value: totals.hnTardiness      || '00:00:00' },
+      { label: 'SC Rendered',         value: totals.scRendered       || '00:00:00' },
+      { label: 'SC Tardiness',        value: totals.scTardiness      || '00:00:00' },
+      { label: 'OT Rendered',         value: totals.otRendered       || '00:00:00' },
+      { label: 'OT Tardiness',        value: totals.otTardiness      || '00:00:00' },
     ];
 
     return (
-      <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-        <Paper
-          elevation={12}
-          sx={{
-            borderRadius: '12px',
-            overflow: 'hidden',
-            minWidth: 340,
-            width: '100%',
-            maxWidth: '100%',
-            boxSizing: 'border-box',
-            mx: 'auto',
-            boxShadow: `0 8px 40px ${alpha(T.accent, 0.35)}, 0 2px 10px ${alpha(T.accent, 0.12)}`,
-            border: `1.5px solid ${T.accentBorder}`,
-            bgcolor: '#fff',
-            backdropFilter: 'blur(20px)',
-            transition: 'all 0.25s ease',
-            mt: 2,
-            mb: 2,
-          }}
-        >
-        {/* Bar header */}
-        <Box
-          onClick={() => setExpanded((p) => !p)}
-          sx={{
-            px: 2.5,
-            py: 1.25,
-            background: `linear-gradient(135deg, ${T.accent} 0%, ${T.accentDark} 100%)`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              flexWrap: 'wrap',
-            }}
-          >
-            <WorkHistory sx={{ color: '#fff', fontSize: 14 }} />
-            <Typography
-              sx={{
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: '0.74rem',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-              }}
-            >
-              Attendance Summary
-            </Typography>
-            {startDate && endDate && (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.6,
-                  px: 1,
-                  py: 0.2,
-                  borderRadius: '5px',
-                  bgcolor: 'rgba(255,255,255,0.18)',
-                }}
-              >
-                <Typography
-                  sx={{
-                    color: '#fff',
-                    fontWeight: 700,
-                    fontSize: '0.67rem',
-                    fontFamily: 'monospace',
-                  }}
-                >
+      <Box sx={{ width: '100%' }}>
+        <Paper elevation={8} sx={{
+          borderRadius: '12px', overflow: 'hidden', width: '100%',
+          border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 2,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+        }}>
+          {/* Bar header */}
+          <Box onClick={() => setExpanded(p => !p)} sx={{
+            px: 2.5, py: 1.25, bgcolor: T.accentFaint,
+            borderBottom: `1px solid ${T.accentBorder}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            cursor: 'pointer', userSelect: 'none',
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <WorkHistory sx={{ fontSize: 14, color: T.accent }} />
+              <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Attendance Summary
+              </Typography>
+              {startDate && endDate && (
+                <Typography sx={{ fontSize: '0.67rem', color: T.muted, fontFamily: 'monospace' }}>
                   {startDate} – {endDate}
                 </Typography>
-              </Box>
-            )}
-          </Box>
-          <Box sx={{ color: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!saving) onSave();
-              }}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 1.5,
-                py: 0.65,
-                borderRadius: '10px',
-                bgcolor: '#fff',
-                border: '2px solid rgba(255,255,255,0.95)',
-                boxShadow: `0 0 0 2px ${alpha(T.accent, 0.35)}, 0 4px 18px rgba(0,0,0,0.22)`,
-                cursor: saving ? 'not-allowed' : 'pointer',
-                transition: 'transform 0.18s ease, box-shadow 0.18s ease',
-                '&:hover': !saving
-                  ? {
-                      transform: 'translateY(-1px)',
-                      boxShadow: `0 0 0 2px ${alpha(T.accent, 0.45)}, 0 6px 22px rgba(0,0,0,0.28)`,
-                    }
-                  : {},
-              }}
-            >
-              {saving ? (
-                <CircularProgress size={18} thickness={5} sx={{ color: T.accent, flexShrink: 0 }} />
-              ) : (
-                <SaveAs sx={{ color: T.accent, fontSize: 20, flexShrink: 0 }} />
-              )}
-              {saving ? (
-                <Typography
-                  sx={{
-                    fontSize: '0.72rem',
-                    color: T.accent,
-                    fontWeight: 800,
-                    letterSpacing: '0.02em',
-                    lineHeight: 1.2,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Saving to summary…
-                </Typography>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1, minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      fontSize: '0.58rem',
-                      fontWeight: 700,
-                      color: T.accent,
-                      opacity: 0.88,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Save to
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: '0.74rem',
-                      fontWeight: 900,
-                      color: T.accent,
-                      letterSpacing: '0.02em',
-                    }}
-                  >
-                    Attendance summary
-                  </Typography>
-                </Box>
               )}
             </Box>
-            {expanded ? (
-              <ExpandMore fontSize="small" />
-            ) : (
-              <ExpandLess fontSize="small" />
-            )}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box
+                onClick={(e) => { e.stopPropagation(); if (!saving) onSave(); }}
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 0.75,
+                  px: 1.5, py: 0.6, borderRadius: '8px',
+                  border: `1px solid ${T.accentBorder}`, bgcolor: '#fff',
+                  cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+                  '&:hover': saving ? {} : { bgcolor: T.accentFaint, borderColor: T.accent },
+                }}
+              >
+                {saving
+                  ? <CircularProgress size={14} thickness={5} sx={{ color: T.accent }} />
+                  : <SaveAs sx={{ color: T.accent, fontSize: 16 }} />
+                }
+                <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent }}>
+                  {saving ? 'Saving…' : 'Save to summary'}
+                </Typography>
+              </Box>
+              {expanded
+                ? <ExpandMore sx={{ fontSize: 16, color: T.muted }} />
+                : <ExpandLess sx={{ fontSize: 16, color: T.muted }} />
+              }
+            </Box>
           </Box>
-        </Box>
 
-        <Collapse in={expanded}>
-          <Box
-            sx={{
-              px: 1.5,
-              py: 1.25,
-              display: 'flex',
-              flexWrap: 'nowrap',
-              gap: 0.75,
-              alignItems: 'stretch',
-              justifyContent: 'flex-start',
-              overflow: 'hidden',
-              '&::-webkit-scrollbar-thumb': {
-                background: T.accentBorder,
-                borderRadius: 2,
-              },
-            }}
-          >
-            {items.map(({ label, value, group, isRegularTardiness }) => {
-              const isActive = group === activeTab;
-              const isTard = label.includes('Tardiness');
-              return (
-                <Box
-                  key={label}
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    minWidth: 0,
-                    flex: '1 1 0',
-                    px: 1.2,
-                    py: 1.1,
-                    borderRadius: '8px',
-                    bgcolor: isActive
-                      ? isTard
-                        ? 'rgba(153,27,27,0.12)'
-                        : T.accentFaint
-                      : isTard
-                        ? 'rgba(153,27,27,0.05)'
-                        : T.accentFaint,
-                    border: `1px solid ${isActive ? T.accent : T.accentBorder}`,
-                    boxShadow: isActive
-                      ? `0 0 10px ${alpha(T.accent, 0.22)}`
-                      : 'none',
-                    transform: isActive ? 'translateY(-2px) scale(1.03)' : 'none',
+          <Collapse in={expanded}>
+            <Box sx={{ px: 1.5, py: 1.25, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {allItems.map(({ label, value, style, accent }) => {
+                const isTardLabel = label.includes('Tardiness');
+                const isActive = (
+                  (activeTab === 'regular' && (label === 'Overall Rendered' || label === 'Overall Tardiness' || label === 'Absent Days')) ||
+                  (activeTab === 'honorarium' && (label === 'HN Rendered' || label === 'HN Tardiness')) ||
+                  (activeTab === 'serviceCredit' && (label === 'SC Rendered' || label === 'SC Tardiness')) ||
+                  (activeTab === 'overtime' && (label === 'OT Rendered' || label === 'OT Tardiness'))
+                );
+                return (
+                  <Box key={label} sx={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    px: 1.5, py: 0.75, borderRadius: '6px',
+                    border: `1px solid ${accent ? style.border : isActive ? T.accentBorder : T.divider}`,
+                    bgcolor: accent ? style.bg : isActive ? T.accentFaint : '#fafafa',
+                    minWidth: 90,
+                    transform: isActive && !accent ? 'translateY(-1px)' : 'none',
+                    boxShadow: isActive && !accent ? `0 2px 8px ${alpha(T.accent, 0.12)}` : 'none',
                     transition: 'all 0.2s ease',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      mb: 0.25,
-                      textAlign: 'center',
-                      lineHeight: 1.2,
-                      color: isActive ? T.accent : T.faint,
-                    }}
-                  >
-                    {label}
-                  </Typography>
-
-                  {/* ── Regular Tardiness: show converted Xd Yh Zm + raw HH:MM:SS below ── */}
-                  {isRegularTardiness ? (
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.15 }}>
-                      <Typography
-                        sx={{
-                          fontSize: isActive ? '1.1rem' : '1.02rem',
-                          fontWeight: 800,
-                          color: '#991b1b',
-                          fontFamily: 'monospace',
-                          letterSpacing: '0.04em',
-                          transition: 'all 0.2s',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {formatTardinessAsDaysHours(value || '00:00:00')}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: '0.62rem',
-                          fontWeight: 500,
-                          color: 'rgba(153,27,27,0.45)',
-                          fontFamily: 'monospace',
-                          letterSpacing: '0.03em',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {value || '00:00:00'}
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Typography
-                      sx={{
-                        fontSize: isActive ? '1.1rem' : '1.02rem',
-                        fontWeight: 800,
-                        color: isTard ? '#991b1b' : '#166534',
-                        fontFamily: 'monospace',
-                        letterSpacing: '0.04em',
-                        transition: 'all 0.2s',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {label === 'Absent Days'
-                        ? String(Number.isFinite(Number(value)) ? Number(value) : 0)
-                        : value || '00:00:00'}
+                  }}>
+                    <Typography sx={{
+                      fontSize: '0.6rem', fontWeight: 700,
+                      color: accent ? style.color : isActive ? T.accent : T.faint,
+                      letterSpacing: '0.05em', textTransform: 'uppercase', mb: 0.2,
+                    }}>
+                      {label}
                     </Typography>
-                  )}
-                </Box>
-              );
-            })}
-          </Box>
-        </Collapse>
+                    {label === 'Overall Tardiness' ? (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.1 }}>
+                        <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: style.color, fontFamily: 'monospace' }}>
+                          {value}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.6rem', fontWeight: 500, color: alpha(style.color, 0.55), fontFamily: 'monospace' }}>
+                          {totals.regularTardiness || '00:00:00'}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Typography sx={{
+                        fontSize: '0.82rem', fontWeight: 700,
+                        color: accent ? style.color : isActive ? T.accent : T.muted,
+                        fontFamily: 'monospace',
+                      }}>
+                        {value}
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+          </Collapse>
         </Paper>
       </Box>
     );
   };
 
-  // ─── Sticky Scrollbar ──────────────────────────────────────────────────────
-  const StickyScrollbar = ({ innerRef }) => {
-    const proxyRef = useRef(null);
-    const ghostRef = useRef(null);
-    const syncingRef = useRef(false);
-    useEffect(() => {
-      const inner = innerRef.current;
-      const proxy = proxyRef.current;
-      const ghost = ghostRef.current;
-      if (!inner || !proxy || !ghost) return;
-      const updateWidth = () => {
-        ghost.style.width = inner.scrollWidth + 'px';
-      };
-      const ro = new ResizeObserver(updateWidth);
-      ro.observe(inner);
-      updateWidth();
-      const onInnerScroll = () => {
-        if (syncingRef.current) return;
-        syncingRef.current = true;
-        proxy.scrollLeft = inner.scrollLeft;
-        syncingRef.current = false;
-      };
-      const onProxyScroll = () => {
-        if (syncingRef.current) return;
-        syncingRef.current = true;
-        inner.scrollLeft = proxy.scrollLeft;
-        syncingRef.current = false;
-      };
-      inner.addEventListener('scroll', onInnerScroll);
-      proxy.addEventListener('scroll', onProxyScroll);
-      return () => {
-        inner.removeEventListener('scroll', onInnerScroll);
-        proxy.removeEventListener('scroll', onProxyScroll);
-        ro.disconnect();
-      };
-    }, [innerRef]);
-    return (
-      <Box
-        ref={proxyRef}
-        sx={{
-          position: 'sticky',
-          bottom: 0,
-          left: 0,
-          width: '100%',
-          zIndex: 10,
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          height: 16,
-          bgcolor: '#fff',
-          borderTop: `1px solid ${T.divider}`,
-          '&::-webkit-scrollbar': { height: 12 },
-          '&::-webkit-scrollbar-track': {
-            background: T.accentFaint,
-            borderRadius: 4,
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: T.accentMid,
-            borderRadius: 4,
-            '&:hover': { background: T.accent },
-          },
-        }}
-      >
-        <Box ref={ghostRef} sx={{ height: 1 }} />
-      </Box>
-    );
-  };
-
   // ─── Styled Modal ──────────────────────────────────────────────────────────
-  const StyledModal = ({
-    open,
-    onClose,
-    title,
-    message,
-    type = 'info',
-    onConfirm,
-    showCancel = false,
-    confirmLabel = null,
-  }) => {
+  const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false, confirmLabel = null }) => {
     const typeConfig = {
-      success: {
-        icon: <CheckCircleIcon sx={{ fontSize: 26, color: '#2e7d32' }} />,
-        avatarBg: 'rgba(46,125,50,0.12)',
-        label: 'Success',
-        labelColor: '#2e7d32',
-      },
-      warning: {
-        icon: <WarningIcon sx={{ fontSize: 26, color: '#92400e' }} />,
-        avatarBg: 'rgba(146,64,14,0.12)',
-        label: 'Warning',
-        labelColor: '#92400e',
-      },
-      error: {
-        icon: <ErrorIcon sx={{ fontSize: 26, color: '#991b1b' }} />,
-        avatarBg: 'rgba(153,27,27,0.12)',
-        label: 'Error',
-        labelColor: '#991b1b',
-      },
-      info: {
-        icon: <InfoIcon sx={{ fontSize: 26, color: T.accent }} />,
-        avatarBg: T.accentFaint,
-        label: 'Notice',
-        labelColor: T.accent,
-      },
+      success: { icon: <CheckCircleIcon sx={{ fontSize: 26, color: '#2e7d32' }} />, avatarBg: 'rgba(46,125,50,0.12)', label: 'Success', labelColor: '#2e7d32' },
+      warning: { icon: <WarningIcon sx={{ fontSize: 26, color: '#92400e' }} />,      avatarBg: 'rgba(146,64,14,0.12)',  label: 'Warning', labelColor: '#92400e' },
+      error:   { icon: <ErrorIcon sx={{ fontSize: 26, color: '#991b1b' }} />,        avatarBg: 'rgba(153,27,27,0.12)', label: 'Error',   labelColor: '#991b1b' },
+      info:    { icon: <InfoIcon sx={{ fontSize: 26, color: T.accent }} />,          avatarBg: T.accentFaint,          label: 'Notice',  labelColor: T.accent  },
     };
     const cfg = typeConfig[type] || typeConfig.info;
-    const lines = message
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
-    const isListItem = (l) =>
-      l.startsWith('•') ||
-      l.startsWith('-') ||
-      /^\d{5,}/.test(l) ||
-      /^Employee\s+\d/.test(l);
-    const isNote = (l) =>
-      /^(contact|please|this action|note:|important)/i.test(l);
+    const lines = message.split('\n').map((l) => l.trim()).filter(Boolean);
+    const isListItem = (l) => l.startsWith('•') || l.startsWith('-') || /^\d{5,}/.test(l) || /^Employee\s+\d/.test(l);
+    const isNote = (l) => /^(contact|please|this action|note:|important)/i.test(l);
 
     return (
-      <Dialog
-        open={open}
-        onClose={onClose}
-        maxWidth="sm"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: '12px',
-            overflow: 'hidden',
-            border: `0.5px solid rgba(0,0,0,0.09)`,
-            bgcolor: '#fff',
-          },
-        }}
-      >
-        {/* Header */}
-        <Box
-          sx={{
-            px: 3,
-            py: 3,
-            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          <Box
-            sx={{
-              position: 'absolute',
-              top: -40,
-              right: -40,
-              width: 160,
-              height: 160,
-              borderRadius: '50%',
-              background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`,
-              pointerEvents: 'none',
-            }}
-          />
-          <IconButton
-            size="small"
-            onClick={onClose}
-            sx={{
-              position: 'absolute',
-              top: 12,
-              right: 12,
-              color: T.accent,
-              opacity: 0.45,
-              '&:hover': { opacity: 1, bgcolor: T.accentFaint },
-            }}
-          >
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { borderRadius: '12px', overflow: 'hidden', border: `0.5px solid rgba(0,0,0,0.09)`, bgcolor: '#fff' } }}>
+        <Box sx={{ px: 3, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', position: 'relative', overflow: 'hidden' }}>
+          <Box sx={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`, pointerEvents: 'none' }} />
+          <IconButton size="small" onClick={onClose}
+            sx={{ position: 'absolute', top: 12, right: 12, color: T.accent, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: T.accentFaint } }}>
             <CloseIcon fontSize="small" />
           </IconButton>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-              position: 'relative',
-              zIndex: 1,
-            }}
-          >
-            <Avatar
-              sx={{
-                bgcolor: cfg.avatarBg,
-                width: 48,
-                height: 48,
-                border: `1px solid ${T.accentBorder}`,
-              }}
-            >
-              {cfg.icon}
-            </Avatar>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+            <Avatar sx={{ bgcolor: cfg.avatarBg, width: 48, height: 48, border: `1px solid ${T.accentBorder}` }}>{cfg.icon}</Avatar>
             <Box>
-              <Box
-                sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.4 }}
-              >
-                <Typography
-                  sx={{
-                    fontWeight: 800,
-                    fontSize: '1.05rem',
-                    color: T.accent,
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {title}
-                </Typography>
-                <Chip
-                  label={cfg.label}
-                  size="small"
-                  sx={{
-                    bgcolor: alpha(cfg.labelColor, 0.1),
-                    color: cfg.labelColor,
-                    fontWeight: 700,
-                    fontSize: '0.62rem',
-                    letterSpacing: '0.07em',
-                    textTransform: 'uppercase',
-                    height: 18,
-                    borderRadius: '5px',
-                    border: `1px solid ${alpha(cfg.labelColor, 0.2)}`,
-                  }}
-                />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.4 }}>
+                <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: T.accent, lineHeight: 1.2 }}>{title}</Typography>
+                <Chip label={cfg.label} size="small" sx={{ bgcolor: alpha(cfg.labelColor, 0.1), color: cfg.labelColor, fontWeight: 700, fontSize: '0.62rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 18, borderRadius: '5px', border: `1px solid ${alpha(cfg.labelColor, 0.2)}` }} />
               </Box>
-              <Typography
-                sx={{ fontSize: '0.74rem', color: T.faint, fontWeight: 500 }}
-              >
-                {new Date().toLocaleDateString('en-US', {
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
+              <Typography sx={{ fontSize: '0.74rem', color: T.faint, fontWeight: 500 }}>
+                {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
               </Typography>
             </Box>
           </Box>
         </Box>
-
-        {/* Body */}
-        <Box
-          sx={{
-            px: 3,
-            py: 2.5,
-            borderTop: `1px solid ${T.divider}`,
-            borderBottom: `1px solid ${T.divider}`,
-          }}
-        >
+        <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}`, borderBottom: `1px solid ${T.divider}` }}>
           {lines.map((line, i) => {
             if (isListItem(line)) {
               const clean = line.replace(/^[•\-]\s*/, '');
               const [empPart, ...rest] = clean.split(':');
               return (
-                <Box
-                  key={i}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1.5,
-                    mb: 1,
-                    px: 1.5,
-                    py: 1,
-                    borderRadius: '8px',
-                    bgcolor: T.accentFaint,
-                    border: `1px solid ${T.accentBorder}`,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: '6px',
-                      flexShrink: 0,
-                      bgcolor: alpha(T.accent, 0.1),
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Person
-                      sx={{ fontSize: 14, color: T.accent, opacity: 0.7 }}
-                    />
+                <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, px: 1.5, py: 1, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                  <Box sx={{ width: 28, height: 28, borderRadius: '6px', flexShrink: 0, bgcolor: alpha(T.accent, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Person sx={{ fontSize: 14, color: T.accent, opacity: 0.7 }} />
                   </Box>
                   <Box>
-                    <Typography
-                      sx={{
-                        fontSize: '0.82rem',
-                        fontWeight: 700,
-                        color: T.text,
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {empPart?.trim()}
-                    </Typography>
-                    {rest.length > 0 && (
-                      <Typography
-                        sx={{
-                          fontSize: '0.74rem',
-                          color: T.muted,
-                          fontWeight: 500,
-                          mt: 0.1,
-                        }}
-                      >
-                        {rest.join(':').trim()}
-                      </Typography>
-                    )}
+                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{empPart?.trim()}</Typography>
+                    {rest.length > 0 && <Typography sx={{ fontSize: '0.74rem', color: T.muted, fontWeight: 500, mt: 0.1 }}>{rest.join(':').trim()}</Typography>}
                   </Box>
                 </Box>
               );
             }
             if (isNote(line)) {
               return (
-                <Box
-                  key={i}
-                  sx={{
-                    mt: 1.5,
-                    px: 1.5,
-                    py: 1.25,
-                    borderRadius: '8px',
-                    bgcolor: T.accentFaint,
-                    border: `1px solid ${T.accentBorder}`,
-                    borderLeft: `4px solid ${alpha(T.accent, 0.5)}`,
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 1,
-                  }}
-                >
-                  <InfoIcon
-                    sx={{
-                      fontSize: 13,
-                      color: T.accent,
-                      opacity: 0.6,
-                      mt: 0.2,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Typography
-                    sx={{
-                      fontSize: '0.82rem',
-                      color: T.muted,
-                      fontWeight: 600,
-                      lineHeight: 1.65,
-                    }}
-                  >
-                    {line}
-                  </Typography>
+                <Box key={i} sx={{ mt: 1.5, px: 1.5, py: 1.25, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderLeft: `4px solid ${alpha(T.accent, 0.5)}`, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <InfoIcon sx={{ fontSize: 13, color: T.accent, opacity: 0.6, mt: 0.2, flexShrink: 0 }} />
+                  <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontWeight: 600, lineHeight: 1.65 }}>{line}</Typography>
                 </Box>
               );
             }
-            return (
-              <Typography
-                key={i}
-                sx={{
-                  fontSize: '0.88rem',
-                  color: T.muted,
-                  lineHeight: 1.8,
-                  fontWeight: 500,
-                  mb: i < lines.length - 1 ? 1 : 0,
-                }}
-              >
-                {line}
-              </Typography>
-            );
+            return <Typography key={i} sx={{ fontSize: '0.88rem', color: T.muted, lineHeight: 1.8, fontWeight: 500, mb: i < lines.length - 1 ? 1 : 0 }}>{line}</Typography>;
           })}
         </Box>
-
-        {/* Footer */}
-        <Box
-          sx={{
-            px: 3,
-            py: 2,
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 1,
-          }}
-        >
-          {showCancel && (
-            <RowBtn
-              icon={null}
-              label="Cancel"
-              color={T.muted}
-              hoverBg="rgba(0,0,0,0.05)"
-              onClick={onClose}
-            />
-          )}
-          <button
-            onClick={onConfirm || onClose}
-            style={{
-              background: T.accent,
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '8px 24px',
-              fontWeight: 700,
-              fontSize: '0.82rem',
-              fontFamily: 'inherit',
-              cursor: 'pointer',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = T.accentDark;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = T.accent;
-            }}
-          >
+        <Box sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+          {showCancel && <RowBtn icon={null} label="Cancel" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={onClose} />}
+          <button onClick={onConfirm || onClose}
+            style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 24px', fontWeight: 700, fontSize: '0.82rem', fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDark; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = T.accent; }}>
             {confirmLabel || (showCancel ? 'Confirm' : 'OK')}
           </button>
         </Box>
@@ -1819,10 +756,20 @@ import API_BASE_URL from '../../apiConfig';
     const [showScrollTop, setShowScrollTop] = useState(false);
     const navigate = useNavigate();
 
+    // ── Collapsed column groups per tab ───────────────────────────────────
+    const [collapsedGroups, setCollapsedGroups] = useState({
+      regular:       { times: false, official: true },
+      honorarium:    { hnTimes: false, hnOfficial: true },
+      serviceCredit: { scTimes: false, scOfficial: true },
+      overtime:      { otTimes: false, otOfficial: true },
+    });
+    const toggleColGroup = (tab, groupKey) =>
+      setCollapsedGroups(prev => ({ ...prev, [tab]: { ...prev[tab], [groupKey]: !prev[tab][groupKey] } }));
+
     const resultsRef = useRef(null);
     const tableBodyRef = useRef(null);
 
-    // ── Virtualized row rendering (keeps the DOM light for large ranges) ──
+    // ── Virtualized row rendering ──────────────────────────────────────────
     const ROW_HEIGHT = 44;
     const OVERSCAN_ROWS = 10;
     const rafScrollRef = useRef(0);
@@ -1845,59 +792,22 @@ import API_BASE_URL from '../../apiConfig';
       return () => ro.disconnect();
     }, [tableBodyRef]);
 
-    const { hasAccess, loading: accessLoading } = usePageAccess(
-      'attendance-module-faculty',
-    );
+    const { hasAccess, loading: accessLoading } = usePageAccess('attendance-module-faculty');
 
     const currentYear = new Date().getFullYear();
-    const months = [
-      'JAN',
-      'FEB',
-      'MAR',
-      'APR',
-      'MAY',
-      'JUN',
-      'JUL',
-      'AUG',
-      'SEP',
-      'OCT',
-      'NOV',
-      'DEC',
-    ];
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
     const [selectedMonth, setSelectedMonth] = useState(null);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-    const [snackbar, setSnackbar] = useState({
-      open: false,
-      message: '',
-      severity: 'success',
-    });
+    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
     const [snackbarCountdown, setSnackbarCountdown] = useState(6);
-
-    const showSnackbar = (message, severity = 'success') => {
-      setSnackbar({ open: true, message, severity });
-      setSnackbarCountdown(6);
-    };
+    const showSnackbar = (message, severity = 'success') => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
     const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
-    const [modal, setModal] = useState({
-      open: false,
-      title: '',
-      message: '',
-      type: 'info',
-      onConfirm: null,
-      showCancel: false,
-      confirmLabel: null,
-    });
-    const showModal = (
-      title,
-      message,
-      type = 'info',
-      onConfirm = null,
-      showCancel = false,
-      confirmLabel = null,
-    ) => setModal({ open: true, title, message, type, onConfirm, showCancel, confirmLabel });
+    const [modal, setModal] = useState({ open: false, title: '', message: '', type: 'info', onConfirm: null, showCancel: false, confirmLabel: null });
+    const showModal = (title, message, type = 'info', onConfirm = null, showCancel = false, confirmLabel = null) =>
+      setModal({ open: true, title, message, type, onConfirm, showCancel, confirmLabel });
     const closeModal = () => setModal((p) => ({ ...p, open: false, confirmLabel: null }));
 
     const [compareOpen, setCompareOpen] = useState(false);
@@ -1906,14 +816,11 @@ import API_BASE_URL from '../../apiConfig';
 
     useEffect(() => {
       let timer;
-      if (snackbar.open && snackbarCountdown > 0)
-        timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
+      if (snackbar.open && snackbarCountdown > 0) timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
       return () => clearInterval(timer);
     }, [snackbar.open, snackbarCountdown]);
 
-    useEffect(() => {
-      if (!accessLoading) setPageLoading(false);
-    }, [accessLoading]);
+    useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
     useEffect(() => {
       const en = localStorage.getItem('attendanceFaculty30EmployeeNumber');
@@ -1927,11 +834,7 @@ import API_BASE_URL from '../../apiConfig';
     useEffect(() => {
       if (attendanceData.length === 0) return;
       const timer = setTimeout(() => {
-        if (resultsRef.current)
-          resultsRef.current.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          });
+        if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 300);
       return () => clearTimeout(timer);
     }, [attendanceData]);
@@ -1978,20 +881,14 @@ import API_BASE_URL from '../../apiConfig';
             'No Device Records Found',
             'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.',
             'warning',
-            () => {
-              closeModal();
-              navigate('/view_attendance');
-            },
+            () => { closeModal(); navigate('/view_attendance'); },
           );
           return;
         }
 
         const response = await axios.get(
           `${API_BASE_URL}/attendance/api/attendance`,
-          {
-            params: { personId: employeeNumber, startDate, endDate },
-            ...getAuthHeaders(),
-          },
+          { params: { personId: employeeNumber, startDate, endDate }, ...getAuthHeaders() },
         );
         const rawRows = Array.isArray(response.data) ? response.data : [];
         if (rawRows.length === 0) {
@@ -2003,18 +900,13 @@ import API_BASE_URL from '../../apiConfig';
             'No Official Time Schedule',
             `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching attendance/official schedule rows exist for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`,
             'warning',
-            () => {
-              closeModal();
-              navigate('/official_time');
-            },
+            () => { closeModal(); navigate('/official_time'); },
           );
           return;
         }
         const dateOnly = (val) => (val ? String(val).split('T')[0] : '');
         const byDateRange = rawRows.filter((row) => {
-          const d = dateOnly(row.date),
-            start = dateOnly(row.startDate),
-            end = dateOnly(row.endDate);
+          const d = dateOnly(row.date), start = dateOnly(row.startDate), end = dateOnly(row.endDate);
           if (!d) return true;
           if (!start || !end) return true;
           return d >= start && d <= end;
@@ -2027,11 +919,7 @@ import API_BASE_URL from '../../apiConfig';
           return true;
         });
         const hasOfficialTime = onePerDate.some(
-          (row) =>
-            row.officialTimeIN &&
-            row.officialTimeOUT &&
-            row.officialTimeIN !== '00:00:00 AM' &&
-            row.officialTimeOUT !== '00:00:00 AM',
+          (row) => row.officialTimeIN && row.officialTimeOUT && row.officialTimeIN !== '00:00:00 AM' && row.officialTimeOUT !== '00:00:00 AM',
         );
         if (onePerDate.length === 0) {
           setAttendanceData([]);
@@ -2042,39 +930,23 @@ import API_BASE_URL from '../../apiConfig';
             'No Official Time Schedule',
             `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no rows remained after filtering for this period.\n\nPlease verify official time and date range.\n\nPress OK to open Official Time Management.`,
             'warning',
-            () => {
-              closeModal();
-              navigate('/official_time');
-            },
+            () => { closeModal(); navigate('/official_time'); },
           );
           return;
         }
-        if (!hasOfficialTime) {
-          setShowNoOfficialTimeModal(true);
-          return;
-        }
+        if (!hasOfficialTime) { setShowNoOfficialTimeModal(true); return; }
 
         const processedData = onePerDate.map((row) => {
           const {
-            timeIN,
-            timeOUT,
-            officialTimeIN,
-            officialTimeOUT,
-            officialHonorariumTimeIN,
-            officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN,
-            officialServiceCreditTimeOUT,
-            officialOverTimeIN,
-            officialOverTimeOUT,
+            timeIN, timeOUT, officialTimeIN, officialTimeOUT,
+            officialHonorariumTimeIN, officialHonorariumTimeOUT,
+            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+            officialOverTimeIN, officialOverTimeOUT,
           } = row;
           const startDateFaculty = new Date(`01/01/2000 ${timeIN}`);
           const endDateFaculty = new Date(`01/01/2000 ${timeOUT}`);
-          const startOfficialTimeFaculty = new Date(
-            `01/01/2000 ${officialTimeIN}`,
-          );
-          const endOfficialTimeFaculty = new Date(
-            `01/01/2000 ${officialTimeOUT}`,
-          );
+          const startOfficialTimeFaculty = new Date(`01/01/2000 ${officialTimeIN}`);
+          const endOfficialTimeFaculty = new Date(`01/01/2000 ${officialTimeOUT}`);
           const midnightFaculty = new Date(`01/01/2000 00:00:00 AM`);
           const timeinfaculty =
             startDateFaculty > endOfficialTimeFaculty
@@ -2090,18 +962,11 @@ import API_BASE_URL from '../../apiConfig';
                 : endOfficialTimeFaculty;
           const diffMs = timeoutfaculty - timeinfaculty;
           const diffMsFaculty = endOfficialTimeFaculty - startOfficialTimeFaculty;
-          const formattedFacultyRenderedTime =
-            formatDurationMsNoSeconds(diffMs);
-          const formattedFacultyMaxRenderedTime =
-            formatDurationMsNoSeconds(diffMsFaculty);
-          const isMidnightEdge =
-            timeinfaculty.getTime() === midnightFaculty.getTime();
-          const lateRawMs = isMidnightEdge
-            ? 0
-            : Math.max(0, timeinfaculty - startOfficialTimeFaculty);
-          const earlyRawMs = isMidnightEdge
-            ? 0
-            : Math.max(0, endOfficialTimeFaculty - timeoutfaculty);
+          const formattedFacultyRenderedTime = formatDurationMsNoSeconds(diffMs);
+          const formattedFacultyMaxRenderedTime = formatDurationMsNoSeconds(diffMsFaculty);
+          const isMidnightEdge = timeinfaculty.getTime() === midnightFaculty.getTime();
+          const lateRawMs = isMidnightEdge ? 0 : Math.max(0, timeinfaculty - startOfficialTimeFaculty);
+          const earlyRawMs = isMidnightEdge ? 0 : Math.max(0, endOfficialTimeFaculty - timeoutfaculty);
           const formattedfinalcalcFaculty = formatDurationMsNoSeconds(
             tardinessMsFromLateFloorEarlyCeil(lateRawMs, earlyRawMs),
           );
@@ -2114,82 +979,31 @@ import API_BASE_URL from '../../apiConfig';
             const mid = new Date(`01/01/2000 00:00:00 AM`);
             const msToHHMMSS = (ms) => formatDurationMsNoSeconds(ms);
             if (os.getTime() === mid.getTime() || oe.getTime() === mid.getTime())
-              return {
-                rendered: '00:00:00',
-                maxRendered: '00:00:00',
-                tardiness: '00:00:00',
-              };
+              return { rendered: '00:00:00', maxRendered: '00:00:00', tardiness: '00:00:00' };
             if (!tIn || !tOut || isNaN(s.getTime()) || isNaN(e.getTime()))
-              return {
-                rendered: '00:00:00',
-                maxRendered: msToHHMMSS(oe - os),
-                tardiness: msToHHMMSS(oe - os),
-              };
+              return { rendered: '00:00:00', maxRendered: msToHHMMSS(oe - os), tardiness: msToHHMMSS(oe - os) };
             const isWithinGrace = s > os && s - os <= GRACE_PERIOD_MS;
             const effectiveStart = isWithinGrace ? os : s;
             const clampedStart = effectiveStart > os ? effectiveStart : os;
             const clampedEnd = e < oe ? e : oe;
-            const diffMs =
-              clampedEnd > clampedStart ? clampedEnd - clampedStart : 0;
+            const diffMs = clampedEnd > clampedStart ? clampedEnd - clampedStart : 0;
             const offDiffMs = oe - os;
-            const lateRawMs =
-              clampedStart > os ? clampedStart - os : 0;
-            const earlyRawMs =
-              clampedEnd < oe ? oe - clampedEnd : 0;
-            const tardMs = tardinessMsFromLateFloorEarlyCeil(
-              lateRawMs,
-              earlyRawMs,
-            );
-            return {
-              rendered: msToHHMMSS(diffMs),
-              maxRendered: msToHHMMSS(offDiffMs),
-              tardiness: msToHHMMSS(tardMs),
-            };
+            const lateRawMs = clampedStart > os ? clampedStart - os : 0;
+            const earlyRawMs = clampedEnd < oe ? oe - clampedEnd : 0;
+            const tardMs = tardinessMsFromLateFloorEarlyCeil(lateRawMs, earlyRawMs);
+            return { rendered: msToHHMMSS(diffMs), maxRendered: msToHHMMSS(offDiffMs), tardiness: msToHHMMSS(tardMs) };
           };
 
-          const hnTIn =
-            row.specialType === 'HONORARIUM' && row.specialTimeIN
-              ? row.specialTimeIN
-              : timeIN;
-          const hnTOut =
-            row.specialType === 'HONORARIUM' && row.specialTimeOUT
-              ? row.specialTimeOUT
-              : timeOUT;
-          const scTIn =
-            row.specialType === 'SERVICE' && row.specialTimeIN
-              ? row.specialTimeIN
-              : timeIN;
-          const scTOut =
-            row.specialType === 'SERVICE' && row.specialTimeOUT
-              ? row.specialTimeOUT
-              : timeOUT;
-          const otTIn =
-            row.specialType === 'OVERTIME' && row.specialTimeIN
-              ? row.specialTimeIN
-              : timeIN;
-          const otTOut =
-            row.specialType === 'OVERTIME' && row.specialTimeOUT
-              ? row.specialTimeOUT
-              : timeOUT;
+          const hnTIn  = row.specialType === 'HONORARIUM' && row.specialTimeIN  ? row.specialTimeIN  : timeIN;
+          const hnTOut = row.specialType === 'HONORARIUM' && row.specialTimeOUT ? row.specialTimeOUT : timeOUT;
+          const scTIn  = row.specialType === 'SERVICE'    && row.specialTimeIN  ? row.specialTimeIN  : timeIN;
+          const scTOut = row.specialType === 'SERVICE'    && row.specialTimeOUT ? row.specialTimeOUT : timeOUT;
+          const otTIn  = row.specialType === 'OVERTIME'   && row.specialTimeIN  ? row.specialTimeIN  : timeIN;
+          const otTOut = row.specialType === 'OVERTIME'   && row.specialTimeOUT ? row.specialTimeOUT : timeOUT;
 
-          const hn = calcSeg(
-            hnTIn,
-            hnTOut,
-            officialHonorariumTimeIN,
-            officialHonorariumTimeOUT,
-          );
-          const sc = calcSeg(
-            scTIn,
-            scTOut,
-            officialServiceCreditTimeIN,
-            officialServiceCreditTimeOUT,
-          );
-          const ot = calcSeg(
-            otTIn,
-            otTOut,
-            officialOverTimeIN,
-            officialOverTimeOUT,
-          );
+          const hn = calcSeg(hnTIn, hnTOut, officialHonorariumTimeIN, officialHonorariumTimeOUT);
+          const sc = calcSeg(scTIn, scTOut, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
+          const ot = calcSeg(otTIn, otTOut, officialOverTimeIN, officialOverTimeOUT);
 
           return {
             ...row,
@@ -2224,34 +1038,14 @@ import API_BASE_URL from '../../apiConfig';
 
     // ── Status helpers ────────────────────────────────────────────────────────
     const getStatusLabelForDate = useCallback(
-      (date) =>
-        getLeaveStatusLabelForDate(date, {
-          suspensionByDate,
-          holidayByDate,
-          leaveByDate,
-        }),
+      (date) => getLeaveStatusLabelForDate(date, { suspensionByDate, holidayByDate, leaveByDate }),
       [suspensionByDate, holidayByDate, leaveByDate],
     );
 
     const getStatusStyle = (label) => {
-      if (label === 'WORK SUSPENDED')
-        return {
-          bgcolor: alpha('#d32f2f', 0.12),
-          color: '#d32f2f',
-          border: `1px solid ${alpha('#d32f2f', 0.4)}`,
-        };
-      if (label === 'HOLIDAY')
-        return {
-          bgcolor: alpha('#f57c00', 0.12),
-          color: '#f57c00',
-          border: `1px solid ${alpha('#f57c00', 0.4)}`,
-        };
-      if (label === 'ON LEAVE')
-        return {
-          bgcolor: alpha('#2e7d32', 0.12),
-          color: '#2e7d32',
-          border: `1px solid ${alpha('#2e7d32', 0.4)}`,
-        };
+      if (label === 'WORK SUSPENDED') return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
+      if (label === 'HOLIDAY')        return { bgcolor: alpha('#f57c00', 0.12), color: '#f57c00', border: `1px solid ${alpha('#f57c00', 0.4)}` };
+      if (label === 'ON LEAVE')       return { bgcolor: alpha('#2e7d32', 0.12), color: '#2e7d32', border: `1px solid ${alpha('#2e7d32', 0.4)}` };
       return {};
     };
 
@@ -2274,113 +1068,50 @@ import API_BASE_URL from '../../apiConfig';
       const absentDays = computeAbsentDays(attendanceData, leaveByDate);
       const regularRendered = sumTimeRows(attendanceData, (row) => {
         const isFurlough = Boolean(getStatusLabelForDate(row.date));
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTime ||
-            row.formattedFacultyMaxRenderedTime === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTime;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedFacultyRenderedTime === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTime;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTime;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTime;
       });
       const regularTardiness = sumTimeRows(attendanceData, (row) => {
         if (Boolean(getStatusLabelForDate(row.date))) return null;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedfinalcalcFaculty === 'NaN:NaN:NaN'
-          ? row.formattedFacultyMaxRenderedTime
-          : row.formattedfinalcalcFaculty;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFaculty === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTime : row.formattedfinalcalcFaculty;
       });
       const hnRendered = sumTimeRows(attendanceData, (row) => {
         const isFurlough = Boolean(getStatusLabelForDate(row.date));
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTimeHN ||
-            row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTimeHN;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTimeHN;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeHN;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeHN;
       });
       const hnTardiness = sumTimeRows(attendanceData, (row) => {
         if (Boolean(getStatusLabelForDate(row.date))) return null;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN'
-          ? row.formattedFacultyMaxRenderedTimeHN
-          : row.formattedfinalcalcFacultyHN;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN;
       });
       const scRendered = sumTimeRows(attendanceData, (row) => {
         const isFurlough = Boolean(getStatusLabelForDate(row.date));
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTimeSC ||
-            row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTimeSC;
-        return !row.officialTimeSC ||
-          !row.timeOUT ||
-          row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTimeSC;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeSC;
+        return !row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeSC;
       });
       const scTardiness = sumTimeRows(attendanceData, (row) => {
         if (Boolean(getStatusLabelForDate(row.date))) return null;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN'
-          ? row.formattedFacultyMaxRenderedTimeSC
-          : row.formattedfinalcalcFacultySC;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC;
       });
       const otRendered = sumTimeRows(attendanceData, (row) => {
         const isFurlough = Boolean(getStatusLabelForDate(row.date));
-        if (isFurlough)
-          return !row.formattedFacultyMaxRenderedTimeOT ||
-            row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN'
-            ? '00:00:00'
-            : row.formattedFacultyMaxRenderedTimeOT;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyRenderedTimeOT;
+        if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeOT;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeOT;
       });
       const otTardiness = sumTimeRows(attendanceData, (row) => {
         if (Boolean(getStatusLabelForDate(row.date))) return null;
-        return !row.officialTimeIN ||
-          !row.timeOUT ||
-          row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN'
-          ? row.formattedFacultyMaxRenderedTimeOT
-          : row.formattedfinalcalcFacultyOT;
+        return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT;
       });
-      return {
-        absentDays,
-        regularRendered,
-        regularTardiness,
-        hnRendered,
-        hnTardiness,
-        scRendered,
-        scTardiness,
-        otRendered,
-        otTardiness,
-      };
+      return { absentDays, regularRendered, regularTardiness, hnRendered, hnTardiness, scRendered, scTardiness, otRendered, otTardiness };
     }, [attendanceData, sumTimeRows, getStatusLabelForDate, leaveByDate]);
 
     const getTabTotalsValues = (tab) => {
       switch (tab) {
-        case 'regular':
-          return [totals.regularRendered, totals.regularTardiness];
-        case 'honorarium':
-          return [totals.hnRendered, totals.hnTardiness];
-        case 'serviceCredit':
-          return [totals.scRendered, totals.scTardiness];
-        case 'overtime':
-          return [totals.otRendered, totals.otTardiness];
-        default:
-          return [];
+        case 'regular':       return [totals.regularRendered, totals.regularTardiness];
+        case 'honorarium':    return [totals.hnRendered, totals.hnTardiness];
+        case 'serviceCredit': return [totals.scRendered, totals.scTardiness];
+        case 'overtime':      return [totals.otRendered, totals.otTardiness];
+        default:              return [];
       }
     };
 
@@ -2390,26 +1121,22 @@ import API_BASE_URL from '../../apiConfig';
       if (en) localStorage.setItem('employeeNumber', en);
       if (startDate) localStorage.setItem('startDate', startDate);
       if (endDate) localStorage.setItem('endDate', endDate);
-      navigate('/attendance_summary', {
-        state: { employeeNumber: en, startDate, endDate },
-      });
+      navigate('/attendance_summary', { state: { employeeNumber: en, startDate, endDate } });
     }, [employeeNumber, startDate, endDate, navigate]);
 
     const buildOverallRecordPayload = () => ({
-      personID: employeeNumber,
-      startDate,
-      endDate,
-      totalRenderedTimeMorning: '00:00:00',
-      totalRenderedTimeMorningTardiness: '00:00:00',
-      totalRenderedTimeAfternoon: '00:00:00',
-      totalRenderedTimeAfternoonTardiness: '00:00:00',
-      totalRenderedHonorarium: totals.hnRendered,
-      totalRenderedHonorariumTardiness: totals.hnTardiness,
-      totalRenderedServiceCredit: totals.scRendered,
-      totalRenderedServiceCreditTardiness: totals.scTardiness,
-      totalRenderedOvertime: totals.otRendered,
-      totalRenderedOvertimeTardiness: totals.otTardiness,
-      overallRenderedOfficialTime: totals.regularRendered,
+      personID: employeeNumber, startDate, endDate,
+      totalRenderedTimeMorning:             '00:00:00',
+      totalRenderedTimeMorningTardiness:    '00:00:00',
+      totalRenderedTimeAfternoon:           '00:00:00',
+      totalRenderedTimeAfternoonTardiness:  '00:00:00',
+      totalRenderedHonorarium:              totals.hnRendered,
+      totalRenderedHonorariumTardiness:     totals.hnTardiness,
+      totalRenderedServiceCredit:           totals.scRendered,
+      totalRenderedServiceCreditTardiness:  totals.scTardiness,
+      totalRenderedOvertime:                totals.otRendered,
+      totalRenderedOvertimeTardiness:       totals.otTardiness,
+      overallRenderedOfficialTime:          totals.regularRendered,
       overallRenderedOfficialTimeTardiness: totals.regularTardiness,
     });
 
@@ -2429,10 +1156,7 @@ import API_BASE_URL from '../../apiConfig';
       try {
         const dup = await axios.get(
           `${API_BASE_URL}/attendance/api/overall_attendance_record`,
-          {
-            params: { personID: employeeNumber, startDate, endDate },
-            ...getAuthHeaders(),
-          },
+          { params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders() },
         );
         const existingList = dup.data?.data || [];
         if (existingList.length) {
@@ -2442,10 +1166,7 @@ import API_BASE_URL from '../../apiConfig';
               'Duplicate attendance summary',
               `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
               'info',
-              () => {
-                closeModal();
-                navigateToOverallAttendanceSummary();
-              },
+              () => { closeModal(); navigateToOverallAttendanceSummary(); },
               true,
               'Continue to summary',
             );
@@ -2458,11 +1179,7 @@ import API_BASE_URL from '../../apiConfig';
         }
       } catch (e) {
         console.error('Duplicate-check failed:', e);
-        showModal(
-          'Verification Failed',
-          'Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.',
-          'error',
-        );
+        showModal('Verification Failed', 'Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.', 'error');
         return;
       } finally {
         setSaving(false);
@@ -2475,10 +1192,7 @@ import API_BASE_URL from '../../apiConfig';
           record,
           getAuthHeaders(),
         );
-        showSnackbar(
-          response.data.message || 'Attendance record saved successfully!',
-          'success',
-        );
+        showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
         navigateToOverallAttendanceSummary();
       } catch (err) {
         console.error('Error saving overall attendance:', err);
@@ -2489,45 +1203,26 @@ import API_BASE_URL from '../../apiConfig';
     };
 
     const handleSubmitRef = useRef(handleSubmit);
-    useEffect(() => {
-      handleSubmitRef.current = handleSubmit;
-    });
+    useEffect(() => { handleSubmitRef.current = handleSubmit; });
 
     useAttendanceRealtimeRefresh(
       useCallback(() => {
         if (!employeeNumber || !startDate || !endDate) return;
         handleSubmitRef.current();
       }, [employeeNumber, startDate, endDate]),
-      {
-        personId: employeeNumber,
-        startDate,
-        endDate,
-        requireDateRange: true,
-        matchMode: 'strict',
-      },
+      { personId: employeeNumber, startDate, endDate, requireDateRange: true, matchMode: 'strict' },
     );
 
-    const handleCompareClose = () => {
-      setCompareOpen(false);
-      setPendingSavedOverall(null);
-      setPendingProposedOverall(null);
-    };
+    const handleCompareClose = () => { setCompareOpen(false); setPendingSavedOverall(null); setPendingProposedOverall(null); };
 
     const handleCompareConfirm = async (choices) => {
-      if (!pendingSavedOverall?.id || !pendingProposedOverall) {
-        handleCompareClose();
-        return;
-      }
+      if (!pendingSavedOverall?.id || !pendingProposedOverall) { handleCompareClose(); return; }
       setCompareOpen(false);
       setSaving(true);
       try {
         const merged = mergeOverallPayload({
-          savedRow: pendingSavedOverall,
-          proposed: pendingProposedOverall,
-          choices,
-          personID: employeeNumber,
-          startDate,
-          endDate,
+          savedRow: pendingSavedOverall, proposed: pendingProposedOverall,
+          choices, personID: employeeNumber, startDate, endDate,
         });
         await putMergedOverall(merged, pendingSavedOverall.id);
       } catch (err) {
@@ -2542,271 +1237,222 @@ import API_BASE_URL from '../../apiConfig';
 
     const handleMonthClick = (monthIndex) => {
       const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-      const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+      const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
       setStartDate(start.toISOString().substring(0, 10));
       setEndDate(end.toISOString().substring(0, 10));
       setSelectedMonth(monthIndex);
     };
 
     const handleClearFilters = () => {
-      setEmployeeNumber('');
-      setStartDate('');
-      setEndDate('');
-      setAttendanceData([]);
-      setError('');
-      setSuccess('');
-      setSelectedMonth(null);
+      setEmployeeNumber(''); setStartDate(''); setEndDate('');
+      setAttendanceData([]); setError(''); setSuccess(''); setSelectedMonth(null);
     };
 
     const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // ── Guards ────────────────────────────────────────────────────────────────
     if (pageLoading || accessLoading) return <AttendanceFacultyWireframe />;
-    if (hasAccess === false)
-      return (
-        <AccessDenied
-          title="Access Denied"
-          message="You do not have permission to access Attendance Module for Faculty (30 hours). Contact your administrator to request access."
-          returnPath="/admin-home"
-          returnButtonText="Return to Home"
-        />
-      );
-
-    const columns = activeTab !== 'regular' ? TAB_COLUMNS[activeTab] : null;
-    const tabTotals = getTabTotalsValues(activeTab);
-
-    // ─── Table cell builder ────────────────────────────────────────────────────
-    const buildCell = (content, group, isEven, dividerBefore = false) => (
-      <TableCell
-        sx={{
-          fontSize: '0.8rem',
-          fontFamily: 'monospace',
-          borderBottom: `1px solid ${T.divider}`,
-          borderLeft:
-            group === 'actual'
-              ? `3px solid ${alpha(T.accent, 0.4)}`
-              : dividerBefore
-                ? `2px solid ${T.accentBorder}`
-                : 'none',
-          px: 1.75,
-          py: 1,
-          whiteSpace: 'nowrap',
-          textAlign: 'center',
-          fontWeight:
-            group === 'calc' || group === 'tard' || group === 'actual'
-              ? 700
-              : 400,
-          color:
-            group === 'calc'
-              ? '#166534'
-              : group === 'tard'
-                ? '#991b1b'
-                : group === 'official'
-                  ? '#374151'
-                  : '#111827',
-          bgcolor:
-            group === 'actual'
-              ? isEven
-                ? alpha(T.accent, 0.07)
-                : alpha(T.accent, 0.12)
-              : group === 'calc'
-                ? isEven
-                  ? 'rgba(21,128,61,0.05)'
-                  : 'rgba(21,128,61,0.09)'
-                : group === 'tard'
-                  ? isEven
-                    ? 'rgba(153,27,27,0.04)'
-                    : 'rgba(153,27,27,0.08)'
-                  : isEven
-                    ? '#fff'
-                    : T.rowOdd,
-          transition: 'background-color 0.12s',
-          'tr:hover &': { bgcolor: T.rowHover + ' !important' },
-        }}
-      >
-        {content}
-      </TableCell>
+    if (hasAccess === false) return (
+      <AccessDenied
+        title="Access Denied"
+        message="You do not have permission to access Attendance Module for Faculty (30 hours). Contact your administrator to request access."
+        returnPath="/admin-home"
+        returnButtonText="Return to Home"
+      />
     );
 
-    // ─── Two-row sticky header builder ────────────────────────────────────────
-    const groupSpans = [
-      { label: '', span: 2, group: 'meta' },
-      {
-        label: 'Employee Device Records',
-        span: 2,
-        group: 'actual',
-        dividerBefore: true,
-      },
-      {
-        label: 'Official Schedule',
-        span: 2,
-        group: 'official',
-        dividerBefore: true,
-      },
-      { label: 'Rendered', span: 1, group: 'calc', dividerBefore: true },
-      { label: 'Tardiness', span: 1, group: 'tard' },
-    ];
+    // ─────────────────────────────────────────────────────────────────────────
+    // COLUMN VISIBILITY (same pattern as NonTeaching)
+    // ─────────────────────────────────────────────────────────────────────────
+    const allColumns   = TAB_COLUMNS[activeTab];
+    const curCollapsed = collapsedGroups[activeTab] || {};
 
-    const hBg = (g) =>
-      g === 'actual'
-        ? alpha(T.accent, 0.12)
-        : g === 'official'
-          ? alpha(T.accent, 0.05)
-          : g === 'calc'
-            ? 'rgba(21,128,61,0.09)'
-            : g === 'tard'
-              ? 'rgba(153,27,27,0.09)'
-              : alpha(T.accent, 0.03);
-    const hBg2 = (g) =>
-      g === 'actual'
-        ? alpha(T.accent, 0.08)
-        : g === 'official'
-          ? alpha(T.accent, 0.03)
-          : g === 'calc'
-            ? 'rgba(21,128,61,0.06)'
-            : g === 'tard'
-              ? 'rgba(153,27,27,0.06)'
-              : alpha(T.accent, 0.02);
+    const columnSlots = allColumns.reduce((acc, col) => {
+      const g = col.colGroup;
+      if (!g) { acc.push({ col, isCollapsedPlaceholder: false }); return acc; }
+      const collapsed = !!curCollapsed[g];
+      if (collapsed) {
+        if (col.isGroupLeader) acc.push({ col, isCollapsedPlaceholder: true });
+      } else {
+        acc.push({ col, isCollapsedPlaceholder: false });
+      }
+      return acc;
+    }, []);
 
-    const buildTwoRowHead = (cols) => (
+    const tabTotals = getTabTotalsValues(activeTab);
+
+    // ─── Single-row table head ────────────────────────────────────────────────
+    const buildTableHead = () => (
       <TableHead>
         <TableRow>
-          {groupSpans.map(({ label, span, group, dividerBefore }, gi) => (
-            <TableCell
-              key={gi}
-              colSpan={span}
-              sx={{
-                textAlign: 'center',
-                fontWeight: 700,
-                fontSize: '0.62rem',
-                letterSpacing: '0.07em',
-                textTransform: 'uppercase',
-                py: 0.85,
-                px: 1.75,
-                whiteSpace: 'nowrap',
-                position: 'sticky',
-                top: 0,
-                zIndex: 3,
-                borderBottom: `1px solid ${T.accentBorder}`,
-                borderLeft: dividerBefore
-                  ? `2px solid ${alpha(T.accent, 0.3)}`
-                  : 'none',
-                bgcolor: hBg(group),
-                color:
-                  group === 'actual'
-                    ? T.accent
-                    : group === 'calc'
-                      ? '#166534'
-                      : group === 'tard'
-                        ? '#991b1b'
-                        : 'transparent',
-              }}
-            >
-              {label}
-            </TableCell>
-          ))}
-        </TableRow>
-        <TableRow>
-          {cols.map(({ label, minWidth, group, dividerBefore }) => (
-            <TableCell
-              key={label}
-              sx={{
-                minWidth: minWidth || 120,
-                textAlign: 'center',
-                position: 'sticky',
-                top: 32,
-                zIndex: 2,
-                fontSize: '0.65rem',
-                fontWeight: 700,
-                py: 0.85,
-                px: 1.75,
-                whiteSpace: 'nowrap',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
-                borderLeft: dividerBefore
-                  ? `2px solid ${alpha(T.accent, 0.3)}`
-                  : 'none',
-                bgcolor: hBg2(group),
-                color: '#fff',
-                background:
-                  group === 'actual'
-                    ? T.accent
-                    : group === 'calc'
-                      ? '#166534'
-                      : group === 'tard'
-                        ? '#991b1b'
-                        : group === 'official'
-                          ? T.accentMid
-                          : T.accentDark,
-              }}
-            >
-              {label}
-            </TableCell>
-          ))}
+          {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }) => {
+            const g = col.colGroup;
+            const groupLabel = g ? COL_GROUP_META[g]?.label || g : null;
+
+            if (isCp) {
+              return (
+                <TableCell
+                  key={col.key + '_ph'}
+                  onClick={() => toggleColGroup(activeTab, g)}
+                  sx={{
+                    position: 'sticky', top: 0, zIndex: 3,
+                    bgcolor: '#b07070',
+                    px: 0.75, py: 1,
+                    minWidth: 36, width: 36, maxWidth: 36,
+                    cursor: 'pointer', textAlign: 'center',
+                    borderBottom: `2px solid ${T.accentBorder}`,
+                    borderRight: `1px solid rgba(255,255,255,0.2)`,
+                    verticalAlign: 'middle',
+                    '&:hover': { bgcolor: T.accentMid },
+                    transition: 'background-color 0.15s',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
+                    <UnfoldMore sx={{ fontSize: 13, color: '#fff' }} />
+                    <Typography sx={{
+                      fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)',
+                      writingMode: 'vertical-rl', textOrientation: 'mixed',
+                      transform: 'rotate(180deg)',
+                      letterSpacing: '0.04em', textTransform: 'uppercase',
+                      maxHeight: 80, overflow: 'hidden',
+                    }}>
+                      {groupLabel}
+                    </Typography>
+                  </Box>
+                </TableCell>
+              );
+            }
+
+            const isLeader = col.isGroupLeader && g && !curCollapsed[g];
+            return (
+              <TableCell
+                key={col.key + '_h'}
+                sx={{
+                  position: 'sticky', top: 0, zIndex: 3,
+                  bgcolor: T.accent,
+                  fontWeight: 700, fontSize: '0.65rem',
+                  letterSpacing: '0.05em', textTransform: 'uppercase',
+                  color: '#fff', textAlign: 'center',
+                  px: 1.5,
+                  pt: isLeader ? 0.5 : 1,
+                  pb: 1,
+                  minWidth: col.minWidth || 80,
+                  borderBottom: `2px solid ${T.accentBorder}`,
+                  borderRight: `1px solid rgba(255,255,255,0.15)`,
+                  whiteSpace: 'nowrap',
+                  verticalAlign: 'bottom',
+                }}
+              >
+                {isLeader && (
+                  <Box
+                    onClick={() => toggleColGroup(activeTab, g)}
+                    sx={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.4,
+                      mb: 0.6, cursor: 'pointer',
+                      px: 0.75, py: 0.2, borderRadius: '4px',
+                      bgcolor: 'rgba(255,255,255,0.14)',
+                      border: '1px solid rgba(255,255,255,0.25)',
+                      transition: 'background-color 0.15s',
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.24)' },
+                    }}
+                  >
+                    <UnfoldLess sx={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }} />
+                    <Typography sx={{ fontSize: '0.57rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                      {groupLabel} · collapse
+                    </Typography>
+                  </Box>
+                )}
+                {col.label}
+              </TableCell>
+            );
+          })}
         </TableRow>
       </TableHead>
     );
+
+    // ─── Cell builder ─────────────────────────────────────────────────────────
+    const buildCell = (content, group, isEven) => (
+      <TableCell sx={{
+        borderBottom: `1px solid ${T.divider}`,
+        borderRight: `1px solid ${T.divider}`,
+        px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'center',
+        color: group === 'official' ? T.faint : T.text,
+        fontWeight: group === 'official' ? 400 : 500,
+        fontSize: group === 'official' ? '0.75rem' : '0.8rem',
+        fontFamily: 'monospace',
+        bgcolor: isEven ? '#fff' : T.rowOdd,
+        transition: 'background-color 0.12s',
+        'tr:hover &': { bgcolor: `${T.rowHover} !important` },
+      }}>{content}</TableCell>
+    );
+
+    // Collapsed placeholder body cell
+    const buildCollapsedCell = (isEven) => (
+      <TableCell sx={{
+        minWidth: 36, width: 36, maxWidth: 36,
+        bgcolor: isEven ? 'rgba(109,35,35,0.03)' : 'rgba(109,35,35,0.06)',
+        borderBottom: `1px solid ${T.divider}`,
+        borderRight: `1px solid ${T.divider}`,
+        p: 0,
+      }} />
+    );
+
+    // ─── Totals row ────────────────────────────────────────────────────────────
+    const renderTotalsRow = (label, renderedVal, tardinessVal) => {
+      const nonCalcCount = columnSlots.filter(s => s.isCollapsedPlaceholder || (s.col.group !== 'calc' && s.col.group !== 'tard')).length;
+      const calcSlots    = columnSlots.filter(s => !s.isCollapsedPlaceholder && (s.col.group === 'calc' || s.col.group === 'tard'));
+
+      return (
+        <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accentBorder}` }}>
+          {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }, ci) => {
+            if (ci === 0) return (
+              <TableCell key={col.key + '_tl'} colSpan={nonCalcCount}
+                sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.faint, textAlign: 'right', pr: 2.5, py: 1.25, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                {label}
+              </TableCell>
+            );
+            if (ci < nonCalcCount) return null;
+            if (isCp) return null;
+            const isRendered  = col.group === 'calc';
+            const isTardiness = col.group === 'tard';
+            if (isRendered) return (
+              <TableCell key={col.key + '_tr'} sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
+                {renderedVal || '00:00:00'}
+              </TableCell>
+            );
+            if (isTardiness) return (
+              <TableCell key={col.key + '_tt'} sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
+                {tardinessVal || '00:00:00'}
+              </TableCell>
+            );
+            return <TableCell key={col.key + '_td'} sx={{ borderBottom: 'none', bgcolor: '#fafafa', textAlign: 'center', color: T.faint, fontSize: '0.75rem' }}>—</TableCell>;
+          })}
+        </TableRow>
+      );
+    };
 
     // ─────────────────────────────────────────────────────────────────────────
     // RENDER
     // ─────────────────────────────────────────────────────────────────────────
     return (
       <Fade in timeout={400}>
-        <Box
-          sx={{
-            py: { xs: 1, md: 2 },
-            mt: { xs: 0, md: -2 },
-            mb: { xs: 1, md: 2 },
-            width: '100vw',
-            maxWidth: '100%',
-            position: 'relative',
-            left: '63%',
-            transform: 'translateX(-61%)',
-            px: { xs: 2, sm: 3, md: 6 },
-            pb: attendanceData.length > 0 ? '160px' : undefined,
-          }}
-        >
+        <Box sx={{
+          py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+          width: '100vw', maxWidth: '100%',
+          position: 'relative', left: '63%', transform: 'translateX(-61%)',
+          px: { xs: 2, sm: 3, md: 6 },
+          pb: attendanceData.length > 0 ? '160px' : undefined,
+        }}>
           <style>{shimmerKf}</style>
 
           {/* ── Snackbar ── */}
-          <Snackbar
-            open={snackbar.open}
-            autoHideDuration={6000}
-            onClose={handleCloseSnackbar}
-            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-          >
-            <Alert
-              onClose={handleCloseSnackbar}
-              severity={snackbar.severity}
-              variant="filled"
-              sx={{
-                width: '100%',
-                fontWeight: 600,
-                backgroundColor:
-                  snackbar.severity === 'success' ? '#4caf50' : undefined,
-                color: snackbar.severity === 'success' ? '#ffffff' : undefined,
-                '& .MuiAlert-icon': {
-                  color: snackbar.severity === 'success' ? '#ffffff' : undefined,
-                },
-              }}
-            >
+          <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+            <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
+              sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <span>{snackbar.message}</span>
                 {snackbar.open && snackbarCountdown > 0 && (
-                  <Chip
-                    label={`${snackbarCountdown}s`}
-                    size="small"
-                    sx={{
-                      backgroundColor:
-                        snackbar.severity === 'success'
-                          ? 'rgba(255,255,255,0.3)'
-                          : undefined,
-                      color:
-                        snackbar.severity === 'success' ? '#ffffff' : undefined,
-                      fontWeight: 700,
-                    }}
-                  />
+                  <Chip label={`${snackbarCountdown}s`} size="small" sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }} />
                 )}
               </Box>
             </Alert>
@@ -2816,138 +1462,30 @@ import API_BASE_URL from '../../apiConfig';
 
           {/* ── Page Header ── */}
           <SectionCard sx={{ mb: 2 }}>
-            <Box
-              sx={{
-                px: 4,
-                py: 3,
-                background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'relative',
-                overflow: 'hidden',
-              }}
-            >
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: -50,
-                  right: -50,
-                  width: 200,
-                  height: 200,
-                  borderRadius: '50%',
-                  background:
-                    'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)',
-                }}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: -30,
-                  left: '30%',
-                  width: 150,
-                  height: 150,
-                  borderRadius: '50%',
-                  background:
-                    'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)',
-                }}
-              />
-
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2.5,
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
+            <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
                 <WorkHistory sx={{ fontSize: 30, color: T.accent }} />
                 <Box>
-                  <Typography
-                    sx={{
-                      fontSize: '1.2rem',
-                      fontWeight: 900,
-                      color: T.accent,
-                      lineHeight: 1.2,
-                      mb: 0.25,
-                    }}
-                  >
+                  <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
                     Attendance Records (30hrs)
                   </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: '0.78rem',
-                      color: T.accentMid,
-                      fontWeight: 600,
-                    }}
-                  >
-                    30hrs · Job Order (JO) Faculty · Generate and review
-                    attendance records
+                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>
+                    30hrs · Job Order (JO) Faculty · Generate and review attendance records
                   </Typography>
                 </Box>
               </Box>
-
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1.5,
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 2,
-                    py: 0.6,
-                    borderRadius: 5,
-                    bgcolor: alpha('#4caf50', 0.12),
-                    border: '1px solid rgba(76,175,80,0.25)',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: '0.72rem',
-                      color: '#2e7d32',
-                      fontWeight: 700,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 0.5,
-                    }}
-                  >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
+                  <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <CheckCircleIcon sx={{ fontSize: 12 }} /> 30hrs | JO
                   </Typography>
                 </Box>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!employeeNumber || !startDate || !endDate}
-                  style={{
-                    background: alpha(T.accent, 0.08),
-                    border: `1px solid ${T.accentBorder}`,
-                    borderRadius: '8px',
-                    padding: '7px 10px',
-                    cursor:
-                      !employeeNumber || !startDate || !endDate
-                        ? 'not-allowed'
-                        : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    color: T.accent,
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    fontFamily: 'inherit',
-                    transition: 'all 0.15s',
-                    opacity: !employeeNumber || !startDate || !endDate ? 0.5 : 1,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14);
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08);
-                  }}
-                >
+                <button onClick={handleSubmit} disabled={!employeeNumber || !startDate || !endDate}
+                  style={{ background: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '8px', padding: '7px 10px', cursor: (!employeeNumber || !startDate || !endDate) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '5px', color: T.accent, fontSize: '0.75rem', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s', opacity: (!employeeNumber || !startDate || !endDate) ? 0.5 : 1 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14); }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08); }}>
                   <Refresh sx={{ fontSize: 15 }} /> Refresh
                 </button>
               </Box>
@@ -2956,221 +1494,62 @@ import API_BASE_URL from '../../apiConfig';
 
           {/* ── Alerts ── */}
           <Collapse in={!!error}>
-            <Alert
-              severity="error"
-              onClose={() => setError('')}
-              sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}
-            >
-              {error}
-            </Alert>
+            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{error}</Alert>
           </Collapse>
           <Collapse in={!!success}>
-            <Alert
-              severity="success"
-              onClose={() => setSuccess('')}
-              sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}
-            >
-              {success}
-            </Alert>
+            <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{success}</Alert>
           </Collapse>
 
           {/* ── Controls Card ── */}
           <SectionCard sx={{ mb: 2 }}>
             <PanelHeader icon={FilterList} title="Filter Attendance Records" />
-
             <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
               {/* Input row */}
               <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
                 <Box sx={{ flex: 1, minWidth: 160 }}>
-                  <Typography
-                    sx={{
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      color: T.accent,
-                      mb: 0.6,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Employee Number
-                  </Typography>
-                  <EmployeeSearchField
-                    value={employeeNumber}
-                    onSelectEmployeeNumber={setEmployeeNumber}
-                  />
+                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Employee Number</Typography>
+                  <EmployeeSearchField value={employeeNumber} onSelectEmployeeNumber={setEmployeeNumber} />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 160 }}>
-                  <Typography
-                    sx={{
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      color: T.accent,
-                      mb: 0.6,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Start Date
-                  </Typography>
-                  <NativeInput
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    icon={<CalendarToday sx={{ fontSize: 15 }} />}
-                  />
+                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Start Date</Typography>
+                  <NativeInput type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} icon={<CalendarToday sx={{ fontSize: 15 }} />} />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 160 }}>
-                  <Typography
-                    sx={{
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      color: T.accent,
-                      mb: 0.6,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    End Date
-                  </Typography>
-                  <NativeInput
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    icon={<CalendarToday sx={{ fontSize: 15 }} />}
-                  />
+                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>End Date</Typography>
+                  <NativeInput type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} icon={<CalendarToday sx={{ fontSize: 15 }} />} />
                 </Box>
               </Box>
 
               <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
 
-              <Typography
-                sx={{
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                  color: T.accent,
-                  mb: 1.25,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.75,
-                }}
-              >
-                <FilterList sx={{ fontSize: 13 }} />
-                Quick Date Selection
+              <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <FilterList sx={{ fontSize: 13 }} /> Quick Date Selection
               </Typography>
 
               {/* Month picker */}
-              <Box
-                sx={{
-                  p: 2.5,
-                  borderRadius: 2,
-                  border: `2px dashed ${T.accentBorder}`,
-                  bgcolor: T.accentFaint,
-                }}
-              >
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    alignItems: { xs: 'flex-start', sm: 'center' },
-                    justifyContent: 'space-between',
-                    gap: 2,
-                    mb: 2,
-                  }}
-                >
+              <Box sx={{ p: 2.5, borderRadius: 2, border: `2px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
                   <Box>
-                    <Typography
-                      sx={{
-                        fontSize: '0.8rem',
-                        fontWeight: 700,
-                        color: T.accent,
-                        mb: 0.3,
-                      }}
-                    >
-                      Select Entire Month
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
-                      Choose a year, then click any month to set the date range
-                    </Typography>
+                    <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent, mb: 0.3 }}>Select Entire Month</Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>Choose a year, then click any month to set the date range</Typography>
                   </Box>
                   <FormControl sx={{ minWidth: 130 }} size="small">
-                    <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                      Year
-                    </InputLabel>
-                    <Select
-                      value={selectedYear}
-                      label="Year"
-                      onChange={(e) => {
-                        setSelectedYear(e.target.value);
-                        setSelectedMonth(null);
-                        showSnackbar(
-                          'Year changed — please click a month to load records.',
-                          'info',
-                        );
-                      }}
-                      sx={{
-                        bgcolor: '#fff',
-                        borderRadius: 2,
-                        fontWeight: 600,
-                        fontSize: '0.85rem',
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: T.accentBorder,
-                        },
-                      }}
-                    >
-                      {yearOptions.map((y) => (
-                        <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>
-                          {y}
-                        </MenuItem>
-                      ))}
+                    <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Year</InputLabel>
+                    <Select value={selectedYear} label="Year"
+                      onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar('Year changed — please click a month to load records.', 'info'); }}
+                      sx={{ bgcolor: '#fff', borderRadius: 2, fontWeight: 600, fontSize: '0.85rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}>
+                      {yearOptions.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>{y}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </Box>
-
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: 0.75,
-                    justifyContent: 'center',
-                  }}
-                >
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, justifyContent: 'center' }}>
                   {months.map((month, index) => {
                     const sel = selectedMonth === index;
                     return (
-                      <button
-                        key={month}
-                        onClick={() => handleMonthClick(index)}
-                        style={{
-                          background: sel ? T.accent : '#fff',
-                          border: `1px solid ${sel ? T.accent : T.accentBorder}`,
-                          borderRadius: '6px',
-                          padding: '7px 14px',
-                          cursor: 'pointer',
-                          color: sel ? '#fff' : T.accent,
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                          fontFamily: 'inherit',
-                          transition: 'all 0.15s ease',
-                          boxShadow: sel
-                            ? `0 2px 8px ${alpha(T.accent, 0.25)}`
-                            : 'none',
-                          letterSpacing: '0.04em',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!sel) {
-                            e.currentTarget.style.backgroundColor = T.accentFaint;
-                            e.currentTarget.style.borderColor = T.accent;
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!sel) {
-                            e.currentTarget.style.backgroundColor = '#fff';
-                            e.currentTarget.style.borderColor = T.accentBorder;
-                          }
-                        }}
-                      >
+                      <button key={month} onClick={() => handleMonthClick(index)}
+                        style={{ background: sel ? T.accent : '#fff', border: `1px solid ${sel ? T.accent : T.accentBorder}`, borderRadius: '6px', padding: '7px 14px', cursor: 'pointer', color: sel ? '#fff' : T.accent, fontSize: '0.75rem', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s ease', boxShadow: sel ? `0 2px 8px ${alpha(T.accent, 0.25)}` : 'none', letterSpacing: '0.04em' }}
+                        onMouseEnter={(e) => { if (!sel) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; } }}
+                        onMouseLeave={(e) => { if (!sel) { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = T.accentBorder; } }}>
                         {month}
                       </button>
                     );
@@ -3179,34 +1558,12 @@ import API_BASE_URL from '../../apiConfig';
               </Box>
 
               {/* Clear + Search */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  mt: 2,
-                  flexWrap: 'wrap',
-                  gap: 1,
-                }}
-              >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
+                <RowBtn icon={<Clear sx={{ fontSize: 13 }} />} label="Clear All Filters" color="#C62828" hoverBg="rgba(198,40,40,0.08)" onClick={handleClearFilters} />
                 <RowBtn
-                  icon={<Clear sx={{ fontSize: 13 }} />}
-                  label="Clear All Filters"
-                  color="#C62828"
-                  hoverBg="rgba(198,40,40,0.08)"
-                  onClick={handleClearFilters}
-                />
-                <RowBtn
-                  icon={
-                    loading ? (
-                      <CircularProgress size={12} sx={{ color: T.accent }} />
-                    ) : (
-                      <Search sx={{ fontSize: 13 }} />
-                    )
-                  }
+                  icon={loading ? <CircularProgress size={12} sx={{ color: T.accent }} /> : <Search sx={{ fontSize: 13 }} />}
                   label={loading ? 'Loading…' : 'Search Records'}
-                  color={T.accent}
-                  hoverBg={T.accentFaint}
+                  color={T.accent} hoverBg={T.accentFaint}
                   disabled={!employeeNumber || !startDate || !endDate || loading}
                   onClick={handleSubmit}
                 />
@@ -3223,27 +1580,10 @@ import API_BASE_URL from '../../apiConfig';
                   title={`Records for ${employeeNumber}`}
                   rightContent={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
-                        {startDate} → {endDate}
-                      </Typography>
-                      <Box
-                        sx={{
-                          px: 1.5,
-                          py: 0.3,
-                          borderRadius: 5,
-                          bgcolor: alpha(T.accent, 0.1),
-                          border: `1px solid ${alpha(T.accent, 0.18)}`,
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: '0.72rem',
-                            color: T.accent,
-                            fontWeight: 700,
-                          }}
-                        >
-                          {attendanceData.length}{' '}
-                          {attendanceData.length === 1 ? 'record' : 'records'}
+                      <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>{startDate} → {endDate}</Typography>
+                      <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>
+                          {attendanceData.length} {attendanceData.length === 1 ? 'record' : 'records'}
                         </Typography>
                       </Box>
                     </Box>
@@ -3251,53 +1591,14 @@ import API_BASE_URL from '../../apiConfig';
                 />
 
                 {/* Tab switcher */}
-                <Box sx={{ px: 2.5, pt: 2 }}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      border: `1px solid ${T.accentBorder}`,
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      mb: 2,
-                    }}
-                  >
+                <Box sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
+                  <Box sx={{ display: 'flex', border: `1px solid ${T.accentBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
                     {VIEW_TABS.map(({ key, label, icon }, i, arr) => (
-                      <button
-                        key={key}
-                        onClick={() => setActiveTab(key)}
-                        style={{
-                          flex: 1,
-                          border: 'none',
-                          borderRight:
-                            i < arr.length - 1
-                              ? `1px solid ${T.accentBorder}`
-                              : 'none',
-                          borderRadius: 0,
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          background:
-                            activeTab === key ? T.accent : 'transparent',
-                          color: activeTab === key ? '#fff' : T.accent,
-                          fontSize: '0.78rem',
-                          fontWeight: 700,
-                          fontFamily: 'inherit',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '5px',
-                          transition: 'all 0.15s ease',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (activeTab !== key)
-                            e.currentTarget.style.backgroundColor = T.accentFaint;
-                        }}
-                        onMouseLeave={(e) => {
-                          if (activeTab !== key)
-                            e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                      >
-                        {icon}
-                        {label}
+                      <button key={key} onClick={() => setActiveTab(key)}
+                        style={{ flex: 1, border: 'none', borderRight: i < arr.length - 1 ? `1px solid ${T.accentBorder}` : 'none', borderRadius: 0, padding: '8px 12px', cursor: 'pointer', background: activeTab === key ? T.accent : 'transparent', color: activeTab === key ? '#fff' : T.accent, fontSize: '0.78rem', fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.15s ease' }}
+                        onMouseEnter={(e) => { if (activeTab !== key) e.currentTarget.style.backgroundColor = T.accentFaint; }}
+                        onMouseLeave={(e) => { if (activeTab !== key) e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                        {icon}{label}
                       </button>
                     ))}
                   </Box>
@@ -3305,543 +1606,125 @@ import API_BASE_URL from '../../apiConfig';
 
                 {/* Table */}
                 <Box sx={{ px: 2.5, pb: 2.5 }}>
-                  <Box
-                    sx={{
-                      position: 'relative',
-                      borderRadius: '8px',
-                      border: `1px solid ${T.accentBorder}`,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <Box
-                      ref={tableBodyRef}
-                      onScroll={onTableScroll}
-                      sx={{
-                        overflowX: 'auto',
-                        overflowY: 'auto',
-                        maxHeight: 500,
-                        scrollbarWidth: 'thin',
-                        '&::-webkit-scrollbar': { height: 6, width: 6 },
-                        '&::-webkit-scrollbar-track': {
-                          background: T.accentFaint,
-                          borderRadius: 4,
-                        },
-                        '&::-webkit-scrollbar-thumb': {
-                          background: T.accentMid,
-                          borderRadius: 4,
-                        },
-                      }}
-                    >
-                      {/* REGULAR TAB */}
-                      {activeTab === 'regular' && (
-                        <Table
-                          sx={{
-                            minWidth: REGULAR_COLS.reduce(
-                              (s, c) => s + (c.minWidth || 120),
-                              0,
-                            ),
-                            borderCollapse: 'collapse',
-                          }}
-                        >
-                          {buildTwoRowHead(REGULAR_COLS)}
-                          <TableBody>
-                            {(() => {
-                              const total = attendanceData.length;
-                              const start = Math.max(
-                                0,
-                                Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS,
-                              );
-                              const end = Math.min(
-                                total,
-                                Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) +
-                                  OVERSCAN_ROWS,
-                              );
-                              const topH = start * ROW_HEIGHT;
-                              const bottomH = (total - end) * ROW_HEIGHT;
-                              const visible = attendanceData.slice(start, end);
+                  <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
+                    <Box ref={tableBodyRef} onScroll={onTableScroll}
+                      sx={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 500, scrollbarWidth: 'thin', '&::-webkit-scrollbar': { height: 6, width: 6 }, '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 }, '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 } }}>
+                      <Table
+                        sx={{
+                          minWidth: columnSlots.reduce((s, { col, isCollapsedPlaceholder: cp }) => s + (cp ? 36 : (col.minWidth || 100)), 0),
+                          borderCollapse: 'collapse',
+                        }}
+                      >
+                        {buildTableHead()}
+                        <TableBody>
+                          {(() => {
+                            const total    = attendanceData.length;
+                            const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
+                            const endIdx   = Math.min(total, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN_ROWS);
+                            const topH     = startIdx * ROW_HEIGHT;
+                            const bottomH  = (total - endIdx) * ROW_HEIGHT;
+                            const visibleRows = attendanceData.slice(startIdx, endIdx);
 
-                              return (
-                                <>
-                                  {topH > 0 && (
-                                    <TableRow>
-                                      <TableCell
-                                        colSpan={8}
-                                        sx={{
-                                          p: 0,
-                                          borderBottom: 'none',
-                                          height: topH,
-                                        }}
-                                      />
+                            return (
+                              <>
+                                {topH > 0 && (
+                                  <TableRow>
+                                    <TableCell colSpan={columnSlots.length} sx={{ p: 0, borderBottom: 'none', height: topH }} />
+                                  </TableRow>
+                                )}
+
+                                {visibleRows.map((row, vi) => {
+                                  const index       = startIdx + vi;
+                                  const statusLabel = getStatusLabelForDate(row.date);
+                                  const isFurlough  = Boolean(statusLabel);
+                                  const isEven      = index % 2 === 0;
+
+                                  return (
+                                    <TableRow key={row.date || index} sx={{ '&:hover td': { bgcolor: `${T.rowHover} !important` } }}>
+                                      {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }) => {
+                                        if (isCp) return <React.Fragment key={col.key + '_cp'}>{buildCollapsedCell(isEven)}</React.Fragment>;
+
+                                        if (col.key === 'date') return (
+                                          <TableCell key={col.key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, borderRight: `1px solid ${T.divider}`, px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'left', transition: 'background-color 0.12s' }}>
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.25 }}>
+                                              <span>{row.date}</span>
+                                              {statusLabel && (
+                                                <Chip size="small" label={statusLabel}
+                                                  sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, mt: 0.3, ...getStatusStyle(statusLabel) }} />
+                                              )}
+                                            </Box>
+                                          </TableCell>
+                                        );
+
+                                        if (col.key === 'day') return (
+                                          <TableCell key={col.key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, borderRight: `1px solid ${T.divider}`, px: 1.5, py: 0.9, textAlign: 'center', transition: 'background-color 0.12s' }}>
+                                            {row.day}
+                                          </TableCell>
+                                        );
+
+                                        // For regular tab, map virtual keys to row fields
+                                        let cellKey = col.key;
+                                        let cellGroup = col.group;
+
+                                        // regular tab passthrough fields (not virtual)
+                                        if (activeTab === 'regular' && (col.key === 'timeIN' || col.key === 'timeOUT')) {
+                                          return (
+                                            <React.Fragment key={col.key}>
+                                              {buildCell(row[col.key] || '—', col.group, isEven)}
+                                            </React.Fragment>
+                                          );
+                                        }
+                                        if (activeTab === 'regular' && (col.key === 'officialTimeIN' || col.key === 'officialTimeOUT')) {
+                                          return (
+                                            <React.Fragment key={col.key}>
+                                              {buildCell(row[col.key] || '—', col.group, isEven)}
+                                            </React.Fragment>
+                                          );
+                                        }
+
+                                        return (
+                                          <React.Fragment key={col.key}>
+                                            {buildCell(getCellValue(row, col.key, isFurlough), col.group, isEven)}
+                                          </React.Fragment>
+                                        );
+                                      })}
                                     </TableRow>
-                                  )}
+                                  );
+                                })}
 
-                                  {visible.map((row, vi) => {
-                                    const index = start + vi;
-                                    const statusLabel = getStatusLabelForDate(row.date);
-                                    const isFurlough = Boolean(statusLabel);
-                                    const isEven = index % 2 === 0;
-                                    return (
-                                      <TableRow
-                                        key={row.date || index}
-                                        sx={{
-                                          '&:hover td': {
-                                            bgcolor: `${T.rowHover} !important`,
-                                          },
-                                        }}
-                                      >
-                                        <TableCell
-                                          sx={{
-                                            fontSize: '0.8rem',
-                                            fontWeight: 600,
-                                            color: T.text,
-                                            bgcolor: isEven ? '#fff' : T.rowOdd,
-                                            borderBottom: `1px solid ${T.divider}`,
-                                            px: 1.75,
-                                            py: 1,
-                                            whiteSpace: 'nowrap',
-                                            textAlign: 'center',
-                                            transition: 'background-color 0.12s',
-                                          }}
-                                        >
-                                          <Box
-                                            sx={{
-                                              display: 'flex',
-                                              flexDirection: 'column',
-                                              alignItems: 'center',
-                                              gap: 0.3,
-                                            }}
-                                          >
-                                            <span>{row.date}</span>
-                                            {statusLabel && (
-                                              <Chip
-                                                size="small"
-                                                label={statusLabel}
-                                                sx={{
-                                                  fontWeight: 700,
-                                                  fontSize: '0.62rem',
-                                                  height: 16,
-                                                  ...getStatusStyle(statusLabel),
-                                                }}
-                                              />
-                                            )}
-                                          </Box>
-                                        </TableCell>
-                                        <TableCell
-                                          sx={{
-                                            fontSize: '0.8rem',
-                                            color: T.muted,
-                                            bgcolor: isEven ? '#fff' : T.rowOdd,
-                                            borderBottom: `1px solid ${T.divider}`,
-                                            px: 1.75,
-                                            py: 1,
-                                            textAlign: 'center',
-                                            transition: 'background-color 0.12s',
-                                          }}
-                                        >
-                                          {row.day}
-                                        </TableCell>
-                                        {buildCell(
-                                          row.timeIN || '—',
-                                          'actual',
-                                          isEven,
-                                          true,
-                                        )}
-                                        {buildCell(row.timeOUT || '—', 'actual', isEven)}
-                                        {buildCell(
-                                          row.officialTimeIN || '—',
-                                          'official',
-                                          isEven,
-                                          true,
-                                        )}
-                                        {buildCell(
-                                          row.officialTimeOUT || '—',
-                                          'official',
-                                          isEven,
-                                        )}
-                                        {buildCell(
-                                          isFurlough
-                                            ? !row.formattedFacultyMaxRenderedTime ||
-                                              row.formattedFacultyMaxRenderedTime ===
-                                                'NaN:NaN:NaN'
-                                              ? '00:00:00'
-                                              : row.formattedFacultyMaxRenderedTime
-                                            : !row.officialTimeIN ||
-                                                !row.timeOUT ||
-                                                row.formattedFacultyRenderedTime ===
-                                                  'NaN:NaN:NaN'
-                                              ? '00:00:00'
-                                              : row.formattedFacultyRenderedTime,
-                                          'calc',
-                                          isEven,
-                                          true,
-                                        )}
-                                        {buildCell(
-                                          isFurlough
-                                            ? '00:00:00'
-                                            : !row.officialTimeIN ||
-                                                !row.timeOUT ||
-                                                row.formattedfinalcalcFaculty ===
-                                                  'NaN:NaN:NaN'
-                                              ? row.formattedFacultyMaxRenderedTime
-                                              : row.formattedfinalcalcFaculty,
-                                          'tard',
-                                          isEven,
-                                        )}
-                                      </TableRow>
-                                    );
-                                  })}
+                                {bottomH > 0 && (
+                                  <TableRow>
+                                    <TableCell colSpan={columnSlots.length} sx={{ p: 0, borderBottom: 'none', height: bottomH }} />
+                                  </TableRow>
+                                )}
+                              </>
+                            );
+                          })()}
 
-                                  {bottomH > 0 && (
-                                    <TableRow>
-                                      <TableCell
-                                        colSpan={8}
-                                        sx={{
-                                          p: 0,
-                                          borderBottom: 'none',
-                                          height: bottomH,
-                                        }}
-                                      />
-                                    </TableRow>
-                                  )}
-                                </>
-                              );
-                            })()}
-                            {/* Totals row */}
-                            <TableRow
-                              sx={{
-                                bgcolor: T.accentFaint,
-                                borderTop: `2px solid ${T.accentBorder}`,
-                              }}
-                            >
-                              <TableCell
-                                colSpan={6}
-                                sx={{
-                                  fontSize: '0.7rem',
-                                  fontWeight: 700,
-                                  letterSpacing: '0.06em',
-                                  textTransform: 'uppercase',
-                                  color: T.faint,
-                                  textAlign: 'right',
-                                  pr: 2.5,
-                                  py: 1.25,
-                                  borderBottom: 'none',
-                                }}
-                              >
-                                Overall Rendered Time ({startDate} – {endDate})
-                              </TableCell>
-                              <TableCell
-                                sx={{
-                                  fontFamily: 'monospace',
-                                  fontWeight: 800,
-                                  fontSize: '0.88rem',
-                                  color: '#166534',
-                                  textAlign: 'center',
-                                  py: 1.25,
-                                  borderBottom: 'none',
-                                  borderLeft: `2px solid ${T.accentBorder}`,
-                                  bgcolor: 'rgba(21,128,61,0.07)',
-                                }}
-                              >
-                                {totals.regularRendered || '00:00:00'}
-                              </TableCell>
-                              <TableCell
-                                sx={{
-                                  fontFamily: 'monospace',
-                                  fontWeight: 800,
-                                  fontSize: '0.88rem',
-                                  color: '#991b1b',
-                                  textAlign: 'center',
-                                  py: 1.25,
-                                  borderBottom: 'none',
-                                  bgcolor: 'rgba(153,27,27,0.07)',
-                                }}
-                              >
-                                {totals.regularTardiness || '00:00:00'}
-                              </TableCell>
-                            </TableRow>
-                          </TableBody>
-                        </Table>
-                      )}
-
-                      {/* HN / SC / OT TABS */}
-                      {activeTab !== 'regular' && columns && (
-                        <Table
-                          sx={{
-                            minWidth: columns.reduce(
-                              (s, c) => s + (c.minWidth || 120),
-                              0,
-                            ),
-                            borderCollapse: 'collapse',
-                          }}
-                        >
-                          {buildTwoRowHead(columns)}
-                          <TableBody>
-                            {(() => {
-                              const total = attendanceData.length;
-                              const start = Math.max(
-                                0,
-                                Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS,
-                              );
-                              const end = Math.min(
-                                total,
-                                Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) +
-                                  OVERSCAN_ROWS,
-                              );
-                              const topH = start * ROW_HEIGHT;
-                              const bottomH = (total - end) * ROW_HEIGHT;
-                              const visible = attendanceData.slice(start, end);
-
-                              return (
-                                <>
-                                  {topH > 0 && (
-                                    <TableRow>
-                                      <TableCell
-                                        colSpan={columns.length}
-                                        sx={{
-                                          p: 0,
-                                          borderBottom: 'none',
-                                          height: topH,
-                                        }}
-                                      />
-                                    </TableRow>
-                                  )}
-
-                                  {visible.map((row, vi) => {
-                                    const ri = start + vi;
-                                    const isFurlough = Boolean(
-                                      getStatusLabelForDate(row.date),
-                                    );
-                                    const isEven = ri % 2 === 0;
-                                    return (
-                                      <TableRow
-                                        key={row.date || ri}
-                                        sx={{
-                                          '&:hover td': {
-                                            bgcolor: `${T.rowHover} !important`,
-                                          },
-                                        }}
-                                      >
-                                        {columns.map(
-                                          ({ key, group, dividerBefore: db }) => {
-                                            if (key === 'date') {
-                                              const statusLabel = getStatusLabelForDate(
-                                                row.date,
-                                              );
-                                              return (
-                                                <TableCell
-                                                  key={key}
-                                                  sx={{
-                                                    fontSize: '0.8rem',
-                                                    fontWeight: 600,
-                                                    color: T.text,
-                                                    bgcolor: isEven ? '#fff' : T.rowOdd,
-                                                    borderBottom: `1px solid ${T.divider}`,
-                                                    px: 1.75,
-                                                    py: 1,
-                                                    whiteSpace: 'nowrap',
-                                                    textAlign: 'center',
-                                                    transition:
-                                                      'background-color 0.12s',
-                                                  }}
-                                                >
-                                                  <Box
-                                                    sx={{
-                                                      display: 'flex',
-                                                      flexDirection: 'column',
-                                                      alignItems: 'center',
-                                                      gap: 0.3,
-                                                    }}
-                                                  >
-                                                    <span>{row.date}</span>
-                                                    {statusLabel && (
-                                                      <Chip
-                                                        size="small"
-                                                        label={statusLabel}
-                                                        sx={{
-                                                          fontWeight: 700,
-                                                          fontSize: '0.62rem',
-                                                          height: 16,
-                                                          ...getStatusStyle(statusLabel),
-                                                        }}
-                                                      />
-                                                    )}
-                                                  </Box>
-                                                </TableCell>
-                                              );
-                                            }
-                                            if (key === 'day') {
-                                              return (
-                                                <TableCell
-                                                  key={key}
-                                                  sx={{
-                                                    fontSize: '0.8rem',
-                                                    color: T.muted,
-                                                    bgcolor: isEven ? '#fff' : T.rowOdd,
-                                                    borderBottom: `1px solid ${T.divider}`,
-                                                    px: 1.75,
-                                                    py: 1,
-                                                    textAlign: 'center',
-                                                    transition:
-                                                      'background-color 0.12s',
-                                                  }}
-                                                >
-                                                  {row.day}
-                                                </TableCell>
-                                              );
-                                            }
-                                            return (
-                                              <React.Fragment key={key}>
-                                                {buildCell(
-                                                  getCellValue(row, key, isFurlough),
-                                                  group,
-                                                  isEven,
-                                                  db,
-                                                )}
-                                              </React.Fragment>
-                                            );
-                                          },
-                                        )}
-                                      </TableRow>
-                                    );
-                                  })}
-
-                                  {bottomH > 0 && (
-                                    <TableRow>
-                                      <TableCell
-                                        colSpan={columns.length}
-                                        sx={{
-                                          p: 0,
-                                          borderBottom: 'none',
-                                          height: bottomH,
-                                        }}
-                                      />
-                                    </TableRow>
-                                  )}
-                                </>
-                              );
-                            })()}
-                            {/* Totals row */}
-                            <TableRow
-                              sx={{
-                                bgcolor: T.accentFaint,
-                                borderTop: `2px solid ${T.accentBorder}`,
-                              }}
-                            >
-                              <TableCell
-                                colSpan={6}
-                                sx={{
-                                  fontSize: '0.7rem',
-                                  fontWeight: 700,
-                                  letterSpacing: '0.06em',
-                                  textTransform: 'uppercase',
-                                  color: T.faint,
-                                  textAlign: 'right',
-                                  pr: 2.5,
-                                  py: 1.25,
-                                  borderBottom: 'none',
-                                }}
-                              >
-                                Overall Rendered Time ({startDate} – {endDate})
-                              </TableCell>
-                              <TableCell
-                                sx={{
-                                  fontFamily: 'monospace',
-                                  fontWeight: 800,
-                                  fontSize: '0.88rem',
-                                  color: '#166534',
-                                  textAlign: 'center',
-                                  py: 1.25,
-                                  borderBottom: 'none',
-                                  borderLeft: `2px solid ${T.accentBorder}`,
-                                  bgcolor: 'rgba(21,128,61,0.07)',
-                                }}
-                              >
-                                {tabTotals[0] || '00:00:00'}
-                              </TableCell>
-                              <TableCell
-                                sx={{
-                                  fontFamily: 'monospace',
-                                  fontWeight: 800,
-                                  fontSize: '0.88rem',
-                                  color: '#991b1b',
-                                  textAlign: 'center',
-                                  py: 1.25,
-                                  borderBottom: 'none',
-                                  bgcolor: 'rgba(153,27,27,0.07)',
-                                }}
-                              >
-                                {tabTotals[1] || '00:00:00'}
-                              </TableCell>
-                            </TableRow>
-                          </TableBody>
-                        </Table>
-                      )}
+                          {/* Totals row */}
+                          {renderTotalsRow(
+                            `Overall Rendered Time (${startDate} – ${endDate})`,
+                            tabTotals[0],
+                            tabTotals[1],
+                          )}
+                        </TableBody>
+                      </Table>
                     </Box>
                   </Box>
 
                   {/* Footer legend */}
-                  <Box
-                    sx={{
-                      px: 0,
-                      pt: 1.5,
-                      display: 'flex',
-                      gap: 2.5,
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                    }}
-                  >
+                  <Box sx={{ px: 0, pt: 1.5, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
                     {[
-                      {
-                        icon: (
-                          <Box
-                            sx={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '2px',
-                              bgcolor: alpha(T.accent, 0.12),
-                              border: `1px solid ${alpha(T.accent, 0.3)}`,
-                            }}
-                          />
-                        ),
-                        label: 'Employee device punch-in/out',
-                      },
-                      {
-                        icon: (
-                          <Box
-                            sx={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '2px',
-                              bgcolor: 'rgba(21,128,61,0.1)',
-                              border: '1px solid rgba(21,128,61,0.3)',
-                            }}
-                          />
-                        ),
-                        label: 'Computed rendered time',
-                      },
-                      {
-                        icon: (
-                          <Box
-                            sx={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '2px',
-                              bgcolor: 'rgba(153,27,27,0.08)',
-                              border: '1px solid rgba(153,27,27,0.3)',
-                            }}
-                          />
-                        ),
-                        label: 'Computed tardiness',
-                      },
+                      { swatch: { bgcolor: alpha(T.accent, 0.12), border: `1px solid ${alpha(T.accent, 0.3)}` }, label: 'Employee device punch-in/out' },
+                      { swatch: { bgcolor: T.rendered.bg, border: `1px solid ${T.rendered.border}` },             label: 'Computed rendered time' },
+                      { swatch: { bgcolor: T.tardiness.bg, border: `1px solid ${T.tardiness.border}` },           label: 'Computed tardiness' },
+                      { swatch: { bgcolor: T.holiday.bg, border: `1px solid ${T.holiday.border}` },               label: 'Holiday' },
+                      { swatch: { bgcolor: T.leave.bg, border: `1px solid ${T.leave.border}` },                   label: 'On leave' },
+                      { swatch: { bgcolor: T.suspended.bg, border: `1px solid ${T.suspended.border}` },           label: 'Work suspended' },
                     ].map((item, i) => (
-                      <Box
-                        key={i}
-                        sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}
-                      >
-                        {item.icon}
-                        <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
-                          {item.label}
-                        </Typography>
+                      <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: '2px', ...item.swatch }} />
+                        <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
                       </Box>
                     ))}
                   </Box>
@@ -3862,109 +1745,34 @@ import API_BASE_URL from '../../apiConfig';
           />
 
           {/* ── No Official Time Modal ── */}
-          <Dialog
-            open={showNoOfficialTimeModal}
-            onClose={() => setShowNoOfficialTimeModal(false)}
-            maxWidth="sm"
-            fullWidth
-            PaperProps={{
-              sx: {
-                borderRadius: '12px',
-                border: '0.5px solid rgba(0,0,0,0.09)',
-              },
-            }}
-          >
-            <Box
-              sx={{
-                px: 3,
-                py: 3,
-                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-              }}
-            >
-              <Avatar
-                sx={{ bgcolor: alpha('#ff9800', 0.15), width: 48, height: 48 }}
-              >
+          <Dialog open={showNoOfficialTimeModal} onClose={() => setShowNoOfficialTimeModal(false)} maxWidth="sm" fullWidth
+            PaperProps={{ sx: { borderRadius: '12px', border: '0.5px solid rgba(0,0,0,0.09)' } }}>
+            <Box sx={{ px: 3, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Avatar sx={{ bgcolor: alpha('#ff9800', 0.15), width: 48, height: 48 }}>
                 <WorkHistory sx={{ fontSize: 24, color: '#ff9800' }} />
               </Avatar>
               <Box>
-                <Typography
-                  sx={{ fontWeight: 800, fontSize: '1.05rem', color: T.accent }}
-                >
-                  No Official Time Schedule
-                </Typography>
-                <Typography sx={{ fontSize: '0.74rem', color: T.faint }}>
-                  Employee #{employeeNumber}
-                </Typography>
+                <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: T.accent }}>No Official Time Schedule</Typography>
+                <Typography sx={{ fontSize: '0.74rem', color: T.faint }}>Employee #{employeeNumber}</Typography>
               </Box>
             </Box>
             <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}` }}>
-              <Alert
-                severity="warning"
-                sx={{ mb: 2, borderRadius: 2, fontSize: '0.82rem' }}
-              >
-                Cannot generate attendance records. This employee needs an
-                official time schedule set up first.
+              <Alert severity="warning" sx={{ mb: 2, borderRadius: 2, fontSize: '0.82rem' }}>
+                Cannot generate attendance records. This employee needs an official time schedule set up first.
               </Alert>
-              <Box
-                sx={{
-                  p: 2,
-                  borderRadius: '8px',
-                  bgcolor: T.accentFaint,
-                  border: `1px solid ${T.accentBorder}`,
-                }}
-              >
-                <Typography
-                  sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.accent }}
-                >
-                  Please set up the official time schedule in the Official Time
-                  Management module.
+              <Box sx={{ p: 2, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.accent }}>
+                  Please set up the official time schedule in the Official Time Management module.
                 </Typography>
               </Box>
             </Box>
-            <Box
-              sx={{
-                px: 3,
-                py: 2,
-                display: 'flex',
-                gap: 1,
-                justifyContent: 'flex-end',
-                borderTop: `1px solid ${T.divider}`,
-              }}
-            >
-              <RowBtn
-                icon={null}
-                label="Close"
-                color={T.muted}
-                hoverBg="rgba(0,0,0,0.05)"
-                onClick={() => setShowNoOfficialTimeModal(false)}
-              />
+            <Box sx={{ px: 3, py: 2, display: 'flex', gap: 1, justifyContent: 'flex-end', borderTop: `1px solid ${T.divider}` }}>
+              <RowBtn icon={null} label="Close" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={() => setShowNoOfficialTimeModal(false)} />
               <button
-                onClick={() => {
-                  setShowNoOfficialTimeModal(false);
-                  navigate('/official_time');
-                }}
-                style={{
-                  background: T.accent,
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '8px 20px',
-                  fontWeight: 700,
-                  fontSize: '0.82rem',
-                  fontFamily: 'inherit',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = T.accentDark;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = T.accent;
-                }}
-              >
+                onClick={() => { setShowNoOfficialTimeModal(false); navigate('/official_time'); }}
+                style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 20px', fontWeight: 700, fontSize: '0.82rem', fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDark; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = T.accent; }}>
                 Setup Official Time
               </button>
             </Box>
@@ -3994,20 +1802,7 @@ import API_BASE_URL from '../../apiConfig';
 
           {/* ── Scroll to Top FAB ── */}
           <Zoom in={showScrollTop}>
-            <Fab
-              size="small"
-              sx={{
-                position: 'fixed',
-                bottom: 24,
-                right: 45,
-                zIndex: 1000,
-                bgcolor: T.accent,
-                color: '#fff',
-                '&:hover': { bgcolor: T.accentDark },
-                boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
-              }}
-              onClick={scrollToTop}
-            >
+            <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={scrollToTop}>
               <KeyboardArrowUp />
             </Fab>
           </Zoom>

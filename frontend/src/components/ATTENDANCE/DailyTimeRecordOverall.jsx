@@ -558,9 +558,11 @@ const DailyTimeRecordFaculty = () => {
     // Hide seconds in rendered time values (e.g. 08:30:00 AM -> 08:30 AM).
     return normalized.replace(/^(\d{1,2}:\d{2}):\d{2}(\s?[AP]M)?$/i, '$1$2');
   };
-  const formatMonth = (dateString) => { if (!dateString) return ''; return new Date(dateString).toLocaleDateString(undefined, { month: 'long' }).toUpperCase(); };
-  const formatStartDate = (dateString) => { if (!dateString) return ''; return new Date(dateString).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }); };
-  const formatEndDate   = (dateString) => { if (!dateString) return ''; const d = new Date(dateString); return `${d.getDate()}, ${d.getFullYear()}`; };
+const MONTHS_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_UPPER = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+const formatMonth = (dateString) => { if (!dateString) return ''; const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1; return MONTHS_UPPER[m] || ''; };
+const formatStartDate = (dateString) => { if (!dateString) return ''; const [,m,d] = dateString.split('T')[0].split('-'); return `${MONTHS_LONG[parseInt(m)-1]} ${parseInt(d)}`; };
+const formatEndDate = (dateString) => { if (!dateString) return ''; const [y,,d] = dateString.split('T')[0].split('-'); return `${parseInt(d)}, ${y}`; };
 
   const formattedStartDate = formatStartDate(startDate);
   const formattedEndDate   = formatEndDate(endDate);
@@ -1162,17 +1164,16 @@ const DailyTimeRecordFaculty = () => {
     });
   };
 
-  const isDateInRange = (date, s, e) => {
+const isDateInRange = (date, s, e) => {
     if (!date) return false;
-    const d = new Date(date); d.setHours(0,0,0,0);
-    const st = s ? new Date(s) : null; if (st) st.setHours(0,0,0,0);
-    const en = e ? new Date(e) : null; if (en) en.setHours(0,0,0,0);
+    const d = String(date).split('T')[0];
+    const st = s ? String(s).split('T')[0] : null;
+    const en = e ? String(e).split('T')[0] : null;
     if (st && en) return d >= st && d <= en;
     if (st) return d >= st;
     if (en) return d <= en;
     return false;
   };
-
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
     const date = String(dateString).split('T')[0];

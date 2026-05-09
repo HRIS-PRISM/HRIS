@@ -1957,6 +1957,15 @@ const LeaveRequest = () => {
 
   const selectedEmployeeObj = employeeOptions.find((o) => o.employeeNumber === newRequest.employeeNumber) || null;
 
+  // ── Status filter color map ────────────────────────────────────────────────
+  const statusColorMap = {
+    all: T.accent,
+    '0': '#F57C00',
+    '1': '#1565C0',
+    '2': '#2E7D32',
+    '3': '#C62828',
+  };
+
   return (
     <Fade in timeout={400}>
       <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
