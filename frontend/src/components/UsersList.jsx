@@ -869,6 +869,16 @@ const UsersList = () => {
     finally { setAccessChangeInProgress((prev) => ({ ...prev, [pageId]: false })); }
   };
 
+  const isPageAuthorizedForRole = (page, role) => {
+    const roleKey = String(role || "").trim();
+    if (!roleKey) return false;
+    const allowed = String(page?.page_group || "")
+      .split(",")
+      .map((g) => g.trim())
+      .filter(Boolean);
+    return allowed.includes(roleKey);
+  };
+
   const closePageAccessDialog = () => { window.dispatchEvent(new Event("pageAccessUpdated")); setPageAccessDialog(false); setSelectedUser(null); setPages([]); setPageAccess({}); setActiveAccessCategory(null); };
   const openUserDetails  = (user) => { setSelectedUserForDetails(user); setDetailsDrawerOpen(true); setAnimatedValue(0); fetchUserPageAccess(user); };
   const closeUserDetails = () => { setDetailsDrawerOpen(false); setSelectedUserForDetails(null); setActiveTab("info"); setAnimatedValue(0); };
@@ -1723,13 +1733,14 @@ const UsersList = () => {
                     return sortedDescs.map((desc) => {
                       const isActive       = activeAccessCategory === desc;
                       const pagesInGroup   = groupedPages[desc] || [];
-                      const enabledInGroup = pagesInGroup.filter((pg) => pageAccess[pg.id]).length;
-                      const allEnabled     = enabledInGroup === pagesInGroup.length && pagesInGroup.length > 0;
+                      const eligiblePages  = pagesInGroup.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role));
+                      const enabledInGroup = eligiblePages.filter((pg) => pageAccess[pg.id]).length;
+                      const allEnabled     = enabledInGroup === eligiblePages.length && eligiblePages.length > 0;
                       return (
                         <Box key={desc} onClick={() => setActiveAccessCategory(desc)} sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 3, py: 1, cursor: 'pointer', borderLeft: isActive ? `3px solid ${T.accent}` : '3px solid transparent', bgcolor: isActive ? T.accentFaint : 'transparent', transition: 'all 0.15s', '&:hover': { bgcolor: isActive ? T.accentFaint : T.accentHover } }}>
                           <Box sx={{ color: isActive ? T.accent : T.faint, flexShrink: 0 }}>{categoryIcons[desc] || <FolderSpecial sx={{ fontSize: 13 }} />}</Box>
                           <Typography sx={{ fontSize: '0.8rem', fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.muted, flex: 1 }}>{desc}</Typography>
-                          <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: allEnabled ? '#16a34a' : isActive ? T.accent : T.faint }}>{enabledInGroup}/{pagesInGroup.length}</Typography>
+                          <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: allEnabled ? '#16a34a' : isActive ? T.accent : T.faint }}>{enabledInGroup}/{eligiblePages.length}</Typography>
                           {isActive && <ChevronRight sx={{ fontSize: 12, color: alpha(T.accent, 0.35) }} />}
                         </Box>
                       );
@@ -1738,7 +1749,7 @@ const UsersList = () => {
                 </Box>
                 <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${T.divider}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: T.accentFaint }}>
                   <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>Toggle All</Typography>
-                  <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && Object.values(pageAccess).every((v) => v === true)} onChange={(e) => { const enableAll = e.target.checked; pages.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                  <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); return eligible.length > 0 && eligible.every((pg) => pageAccess[pg.id] === true); })()} onChange={(e) => { const enableAll = e.target.checked; const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); eligible.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
                 </Box>
               </Box>
               {/* Center panel */}
@@ -1755,24 +1766,25 @@ const UsersList = () => {
                   const groupedPages  = pages.reduce((acc, page) => { const desc = page.page_description || "Uncategorized"; if (!acc[desc]) acc[desc] = []; acc[desc].push(page); return acc; }, {});
                   const pagesInGroup  = groupedPages[activeAccessCategory] || [];
                   const descInfo      = getDescriptionColor(activeAccessCategory, settings);
-                  const enabledCount  = pagesInGroup.filter((pg) => pageAccess[pg.id]).length;
+                  const eligiblePages = pagesInGroup.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role));
+                  const enabledCount  = eligiblePages.filter((pg) => pageAccess[pg.id]).length;
                   return (
                     <Fade in={!!activeAccessCategory} timeout={250} key={activeAccessCategory}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                         <Box sx={{ px: 3.5, py: 2.5, bgcolor: T.surface, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar sx={{ bgcolor: descInfo.sx.bgcolor, width: 36, height: 36 }}>{React.cloneElement(descInfo.icon, { sx: { color: descInfo.sx.color, fontSize: 17 } })}</Avatar>
-                            <Box><Typography sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text }}>{activeAccessCategory}</Typography><Typography sx={{ fontSize: '0.68rem', color: T.faint }}>{enabledCount} of {pagesInGroup.length} enabled</Typography></Box>
+                            <Box><Typography sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text }}>{activeAccessCategory}</Typography><Typography sx={{ fontSize: '0.68rem', color: T.faint }}>{enabledCount} of {eligiblePages.length} enabled</Typography></Box>
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.muted }}>Toggle All</Typography>
-                            <Switch size="small" checked={enabledCount === pagesInGroup.length && pagesInGroup.length > 0} onChange={(e) => { const enableAll = e.target.checked; pagesInGroup.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                            <Switch size="small" checked={enabledCount === eligiblePages.length && eligiblePages.length > 0} onChange={(e) => { const enableAll = e.target.checked; eligiblePages.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
                           </Box>
                         </Box>
                         <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
                           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                             {pagesInGroup.map((page) => {
-                              const userRoleInPageGroup = page.page_group ? page.page_group.split(",").map((g) => g.trim()).includes(selectedUser?.role) : false;
+                              const userRoleInPageGroup = isPageAuthorizedForRole(page, selectedUser?.role);
                               const isEnabled = userRoleInPageGroup && !!pageAccess[page.id];
                               return (
                                 <Box key={page.id} sx={{ display: 'flex', alignItems: 'center', px: 3, py: 1.75, bgcolor: T.surface, border: `1px solid ${T.accentBorder}`, borderRadius: 2, '&:hover': { boxShadow: `0 2px 8px rgba(0,0,0,0.06)` }, transition: 'box-shadow 0.15s' }}>
@@ -1810,12 +1822,12 @@ const UsersList = () => {
                     <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#16a34a', flexShrink: 0 }} />
                     <Typography sx={{ fontSize: '0.55rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Accessible Pages</Typography>
                   </Box>
-                  <Typography sx={{ fontSize: '0.7rem', color: T.muted, pl: 2.25 }}>{!pageAccessLoading && pages.length > 0 ? `${pages.filter((pg) => pageAccess[pg.id]).length} of ${pages.length} total` : '—'}</Typography>
+                  <Typography sx={{ fontSize: '0.7rem', color: T.muted, pl: 2.25 }}>{!pageAccessLoading && pages.length > 0 ? (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); const enabled = eligible.filter((pg) => pageAccess[pg.id]).length; return `${enabled} of ${eligible.length} total`; })() : '—'}</Typography>
                 </Box>
                 <Box sx={{ flex: 1, overflowY: 'auto', py: 1.5, '&::-webkit-scrollbar': { width: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: alpha('#16a34a', 0.2), borderRadius: 2 } }}>
-                  {pages.filter((pg) => pageAccess[pg.id]).length > 0 ? (
+                  {pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role) && pageAccess[pg.id]).length > 0 ? (
                     <Box sx={{ px: 1.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                      {pages.filter((pg) => pageAccess[pg.id]).map((page) => {
+                      {pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role) && pageAccess[pg.id]).map((page) => {
                         const isInActiveCategory = activeAccessCategory && (page.page_description || "Uncategorized") === activeAccessCategory;
                         return (
                           <Box key={page.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.25, py: 0.75, borderRadius: 1.5, bgcolor: isInActiveCategory ? alpha('#16a34a', 0.1) : alpha('#16a34a', 0.04), border: `1px solid ${isInActiveCategory ? alpha('#16a34a', 0.25) : alpha('#16a34a', 0.1)}`, transition: 'all 0.15s' }}>

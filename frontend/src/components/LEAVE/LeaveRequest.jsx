@@ -94,6 +94,7 @@ import LeaveDatePickerModal from './LeaveDatePicker';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import { EmploymentCategoryHrPanel } from '../EmploymentCategoryHrPanel';
+import { getLeaveTypeStatsActive } from './leaveAssignmentBalanceUtils';
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -760,13 +761,22 @@ const ViewModal = ({
         if (assignRes.status === 'fulfilled') {
           const all = Array.isArray(assignRes.value.data) ? assignRes.value.data : [];
           const mine = all.filter((a) => a.employeeNumber?.toString() === request.employeeNumber?.toString());
-          const map = {};
+          const byCode = {};
           mine.forEach((a) => {
             const code = a.leave_code;
+            if (!byCode[code]) byCode[code] = [];
+            byCode[code].push(a);
+          });
+          const map = {};
+          Object.keys(byCode).forEach((code) => {
             const desc = leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
-            if (!map[code]) map[code] = { code, description: desc, totalHours: 0, allocatedHours: 0 };
-            map[code].totalHours += parseFloat(a.remaining_hours || 0);
-            map[code].allocatedHours += parseFloat(a.allocated_hours || 0);
+            const stats = getLeaveTypeStatsActive(byCode[code]);
+            map[code] = {
+              code,
+              description: desc,
+              totalHours: stats.remainingHours,
+              allocatedHours: stats.totalHours,
+            };
           });
           const result = Object.values(map).map((b) => ({
             ...b,
@@ -1541,10 +1551,7 @@ const LeaveRequest = () => {
         const matches = assignment.filter(
           (a) => a.employeeNumber?.toString() === newRequest.employeeNumber?.toString() && a.leave_code === newRequest.leave_code,
         );
-        const available = matches.reduce((sum, row) => {
-          const rowAvail = parseFloat(row.remaining_hours ?? ((parseFloat(row.allocated_hours) || 0) - (parseFloat(row.used_hours) || 0))) || 0;
-          return sum + rowAvail;
-        }, 0);
+        const available = getLeaveTypeStatsActive(matches).remainingHours;
         if (!alive) return;
         setLeaveBalance({ loading: false, availableHours: available, error: '' });
       } catch (e) {

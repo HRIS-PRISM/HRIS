@@ -2,13 +2,6 @@ import API_BASE_URL from '../../apiConfig';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import {
-  computeOfficialAwareAbsenceAndLate,
-  formatOfficialAttendanceSeconds,
-  listAbsentDatesFromDailyRows,
-  listHalfDayDatesFromDailyRows,
-  parseOfficialTimeToSeconds,
-} from '../../utils/officialAttendanceFromDailyRows';
-import {
   Box,
   Typography,
   Table,
@@ -65,7 +58,6 @@ import {
 } from '../../hooks/useCRUDButtonStyles';
 import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
-import { fetchAttendanceCalendarMaps } from './attendanceLeaveIntegration';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
@@ -551,9 +543,9 @@ const OverallAttendance = () => {
       if (response.status === 200) {
         const overallRows = response.data.data;
 
-        // Attendance Summary should not reinterpret absences/half-days.
-        // Prefer finalized values saved by attendance modules (overall_attendance_record),
-        // and only fall back to recomputation for legacy rows that lack these fields.
+        // Absent / half-day strings come only from overall_attendance_record (saved by
+        // Non-Teaching, Faculty Designated, and Faculty 30hrs modules). No second fetch
+        // to daily attendance for recomputation here.
         const buildBucketStringsFromStored = (r) => {
           const aDays = r?.absentDays;
           const hDays = r?.halfDays;
@@ -561,9 +553,6 @@ const OverallAttendance = () => {
           const hTime = r?.halfDayShortfallTime;
           const aDates = r?.absentDates;
           const hDates = r?.halfDayDates;
-
-          const hasAbsent = aDays != null || aTime != null || (aDates != null && String(aDates).trim() !== '');
-          const hasHalf = hDays != null || hTime != null || (hDates != null && String(hDates).trim() !== '');
 
           const absentLine =
             aTime != null && aDays != null ? `${aTime} (${aDays}d)` :
@@ -583,56 +572,8 @@ const OverallAttendance = () => {
               ? (hDates != null && String(hDates).trim() !== '' ? `${halfLine} · ${String(hDates).trim()}` : halfLine)
               : null;
 
-          return { hasAbsent, hasHalf, absentDisplay, halfDayStr };
+          return { absentDisplay, halfDayStr };
         };
-
-        const legacyNeedsRecompute = (r) => {
-          const b = buildBucketStringsFromStored(r);
-          return !(b.hasAbsent && b.hasHalf);
-        };
-
-        let recompute = null;
-        if ((Array.isArray(overallRows) ? overallRows : []).some(legacyNeedsRecompute)) {
-          try {
-            const [d, maps] = await Promise.all([
-              axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
-                params: { personId: employeeNumber, startDate, endDate },
-                ...getAuthHeaders(),
-              }),
-              fetchAttendanceCalendarMaps({
-                apiBaseUrl: API_BASE_URL,
-                getAuthHeaders,
-                startDate,
-                endDate,
-                personId: employeeNumber,
-              }),
-            ]);
-            const dailyRows = Array.isArray(d.data) ? d.data : (d.data?.data || []);
-            const calendarMaps = {
-              suspensionByDate: maps.suspensionByDate,
-              holidayByDate: maps.holidayByDate,
-              leaveByDate: maps.leaveByDate,
-            };
-            const c = computeOfficialAwareAbsenceAndLate(dailyRows, calendarMaps);
-            const absentDateList = listAbsentDatesFromDailyRows(dailyRows, calendarMaps);
-            const halfDayDateList = listHalfDayDatesFromDailyRows(dailyRows, calendarMaps);
-            recompute = {
-              bucketC: c,
-              absentDisplay:
-                absentDateList.length > 0
-                  ? `${c.absentTime} (${c.absentDays}d) · ${absentDateList.join(', ')}`
-                  : `${c.absentTime} (${c.absentDays}d)`,
-              halfDayStr:
-                halfDayDateList.length > 0
-                  ? `${c.halfDayShortfallTime}${c.halfDays > 0 ? ` (${c.halfDays}d)` : ''} · ${halfDayDateList.join(', ')}`
-                  : `${c.halfDayShortfallTime}${c.halfDays > 0 ? ` (${c.halfDays}d)` : ''}`,
-              lateStr: c.lateShortfallTime,
-              overallShortfall: c.overallShortfallTime,
-            };
-          } catch {
-            recompute = null;
-          }
-        }
 
         setAttendanceData(
           (Array.isArray(overallRows) ? overallRows : []).map((r) => {
@@ -642,31 +583,17 @@ const OverallAttendance = () => {
               overallSaved != null && String(overallSaved).trim() !== ''
                 ? String(overallSaved).trim()
                 : '';
-            const overallSec = parseOfficialTimeToSeconds(savedTrim);
             let lateTotalResolved;
             if (r?.lateTotalTime != null && String(r.lateTotalTime).trim() !== '') {
               lateTotalResolved = String(r.lateTotalTime).trim();
-            } else if (recompute?.overallShortfall != null && recompute?.bucketC && overallSec != null) {
-              lateTotalResolved = formatOfficialAttendanceSeconds(
-                Math.max(
-                  0,
-                  overallSec - recompute.bucketC.absentSecTotal - recompute.bucketC.halfDayShortfallSecTotal,
-                ),
-              );
-            } else if (recompute?.bucketC?.absentSecTotal === 0 && recompute?.bucketC?.halfDayShortfallSecTotal === 0) {
-              lateTotalResolved = savedTrim || recompute?.lateStr || '';
             } else {
-              lateTotalResolved = recompute?.lateStr || '';
+              lateTotalResolved = savedTrim || '';
             }
-            // Overall Tardiness stays DB (module); absent/half times from buckets; late is residual so the three durations sum to overall.
             return {
               ...r,
-              _absentTotalDays: stored.absentDisplay ?? recompute?.absentDisplay ?? null,
-              _halfTotalDays: stored.halfDayStr ?? recompute?.halfDayStr ?? null,
+              _absentTotalDays: stored.absentDisplay ?? null,
+              _halfTotalDays: stored.halfDayStr ?? null,
               _lateTotal: lateTotalResolved,
-              ...(recompute?.overallShortfall != null
-                ? { _computedPayrollOverallShortfall: recompute.overallShortfall }
-                : {}),
             };
           }),
         );
@@ -685,12 +612,7 @@ const OverallAttendance = () => {
     }
   };
 
-  /**
-   * Debounced realtime refetch. Ignores `attendanceChanged` from calendar **reads**
-   * (`scope` suspensions / leaves / holiday and `*-fetched` actions) — those fire when
-   * this page loads `fetchAttendanceCalendarMaps` and would otherwise cause a refetch storm
-   * (`ERR_INSUFFICIENT_RESOURCES`).
-   */
+  /** Debounced realtime refetch when attendance data changes for this person and range. */
   useAttendanceRealtimeRefresh(fetchAttendanceData, {
     personId: employeeNumber,
     startDate,
