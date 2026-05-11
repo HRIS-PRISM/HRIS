@@ -207,91 +207,6 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   />
 );
 
-// ─── Conversion defaults ──────────────────────────────────────────────────────
-const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "8hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.125).toFixed(3)),
-}));
-const DEFAULT_HOURS_6 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "6hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.167).toFixed(3)),
-}));
-const DEFAULT_MINUTES = Array.from({ length: 60 }, (_, i) => ({
-  rate_type: "minute",
-  day_type: "minute",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.002).toFixed(3)),
-}));
-const DEFAULT_LWP_TABLE = Array.from({ length: 30 }, (_, i) => ({
-  d: i + 1,
-  e: Number(((i + 1) * 0.04167).toFixed(3)),
-}));
-const DEFAULT_ABS_TABLE = [
-  { a: 0.5, e: 1.229 },
-  { a: 1.0, e: 1.208 },
-  { a: 1.5, e: 1.188 },
-  { a: 2.0, e: 1.167 },
-  { a: 2.5, e: 1.146 },
-  { a: 3.0, e: 1.125 },
-  { a: 3.5, e: 1.104 },
-  { a: 4.0, e: 1.083 },
-  { a: 4.5, e: 1.063 },
-  { a: 5.0, e: 1.042 },
-  { a: 5.5, e: 1.021 },
-  { a: 6.0, e: 1.0 },
-  { a: 6.5, e: 0.979 },
-  { a: 7.0, e: 0.958 },
-  { a: 7.5, e: 0.938 },
-  { a: 8.0, e: 0.917 },
-  { a: 8.5, e: 0.854 },
-  { a: 9.0, e: 0.833 },
-  { a: 9.5, e: 0.875 },
-  { a: 10.0, e: 0.833 },
-  { a: 10.5, e: 0.813 },
-  { a: 11.0, e: 0.792 },
-  { a: 11.5, e: 0.771 },
-  { a: 12.0, e: 0.75 },
-  { a: 12.5, e: 0.729 },
-  { a: 13.0, e: 0.708 },
-  { a: 13.5, e: 0.687 },
-  { a: 14.0, e: 0.667 },
-  { a: 14.5, e: 0.646 },
-  { a: 15.0, e: 0.625 },
-  { a: 15.5, e: 0.604 },
-  { a: 16.0, e: 0.583 },
-  { a: 16.5, e: 0.562 },
-  { a: 17.0, e: 0.542 },
-  { a: 17.5, e: 0.521 },
-  { a: 18.0, e: 0.5 },
-  { a: 18.5, e: 0.479 },
-  { a: 19.0, e: 0.458 },
-  { a: 19.5, e: 0.437 },
-  { a: 20.0, e: 0.417 },
-  { a: 20.5, e: 0.396 },
-  { a: 21.0, e: 0.375 },
-  { a: 21.5, e: 0.354 },
-  { a: 22.0, e: 0.333 },
-  { a: 22.5, e: 0.312 },
-  { a: 23.0, e: 0.292 },
-  { a: 23.5, e: 0.271 },
-  { a: 24.0, e: 0.25 },
-  { a: 24.5, e: 0.229 },
-  { a: 25.0, e: 0.208 },
-  { a: 25.5, e: 0.187 },
-  { a: 26.0, e: 0.167 },
-  { a: 26.5, e: 0.146 },
-  { a: 27.0, e: 0.125 },
-  { a: 27.5, e: 0.104 },
-  { a: 28.0, e: 0.083 },
-  { a: 28.5, e: 0.062 },
-  { a: 29.0, e: 0.042 },
-  { a: 29.5, e: 0.021 },
-];
-
 function sanitizeDecimal(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -329,6 +244,50 @@ const AccentButton = styled(Button)({
   "&:active": { transform: "translateY(0)" },
 });
 
+// ─── Compact unit toggle ──────────────────────────────────────────────────────
+/**
+ * Small inline Days/Hours toggle for use inside column headers.
+ * Renders a pill-style ToggleButtonGroup that is visually unobtrusive.
+ */
+const InputUnitToggle = ({ value, onChange }) => (
+  <ToggleButtonGroup
+    value={value}
+    exclusive
+    onChange={(_, v) => v && onChange(v)}
+    size="small"
+    sx={{
+      "& .MuiToggleButton-root": {
+        px: 0.9,
+        py: 0.15,
+        border: `1px solid ${T.accentBorder}`,
+        fontSize: "0.6rem",
+        fontWeight: 700,
+        color: T.muted,
+        fontFamily: T.poppins,
+        minHeight: 22,
+        lineHeight: 1,
+        textTransform: "none",
+        "&.Mui-selected": {
+          bgcolor: T.accent,
+          color: "#fff",
+          borderColor: T.accent,
+        },
+        "&:first-of-type": { borderRadius: "5px 0 0 5px" },
+        "&:last-of-type": { borderRadius: "0 5px 5px 0" },
+      },
+    }}
+  >
+    <ToggleButton value="days">
+      <DayIcon sx={{ fontSize: 10, mr: 0.3 }} />
+      Days
+    </ToggleButton>
+    <ToggleButton value="hours">
+      <HourIcon sx={{ fontSize: 10, mr: 0.3 }} />
+      Hours
+    </ToggleButton>
+  </ToggleButtonGroup>
+);
+
 const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
   <Box
     sx={{
@@ -363,11 +322,14 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
 const CTOInputColumn = ({
   employee,
   empCatMap,
-  unit,
+  unit,       // parent display unit (used for record list, submit button label)
   year,
   month,
   onRecordsRefresh,
 }) => {
+  // ── Local input unit — defaults to "days", user can switch to "hours" ────────
+  const [inputUnit, setInputUnit] = useState("days");
+
   const [otHours, setOtHours] = useState(0);
   const [otDraft, setOtDraft] = useState(null);
   const [expiryDate, setExpiryDate] = useState("");
@@ -386,13 +348,20 @@ const CTOInputColumn = ({
     setError("");
   }, [employee, year, month]);
 
+  // When inputUnit toggles, reset draft so display recalculates cleanly
+  useEffect(() => {
+    setOtDraft(null);
+  }, [inputUnit]);
+
   const earned = toNum(otHours);
+
+  // Display value is always in terms of the LOCAL inputUnit
   const otDisplay =
     otDraft !== null
       ? otDraft
       : earned === 0
         ? ""
-        : unit === "days"
+        : inputUnit === "days"
           ? String(parseFloat((earned / 8).toFixed(3)))
           : String(earned);
 
@@ -426,6 +395,7 @@ const CTOInputColumn = ({
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
+      // Use the parent unit for the success message (matches the records list display)
       setSuccess(
         `${fmtHrs(earned, unit)} CTO submitted for ${monthName(month)} ${year}.`,
       );
@@ -445,7 +415,9 @@ const CTOInputColumn = ({
   if (!employee)
     return (
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <ColHeader icon={CTOIcon} label="Cmpensatory Time Off Input" color={T.accent} />
+        <ColHeader icon={CTOIcon} label="Compensatory Time Off Input" color={T.accent}>
+          <InputUnitToggle value={inputUnit} onChange={setInputUnit} />
+        </ColHeader>
         <Box
           sx={{
             flex: 1,
@@ -473,7 +445,18 @@ const CTOInputColumn = ({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <ColHeader icon={CTOIcon} label="Compensatory Time Off Input" color={T.accent} />
+      {/* ── Column header with inline unit toggle ── */}
+      <ColHeader icon={CTOIcon} label="Compensatory Time Off Input" color={T.accent}>
+        <Tooltip title="Switch the input fields between Days and Hours. The records list uses the global unit setting." placement="left">
+          <Box>
+            <InputUnitToggle value={inputUnit} onChange={(v) => {
+              setInputUnit(v);
+              setOtDraft(null);
+            }} />
+          </Box>
+        </Tooltip>
+      </ColHeader>
+
       <Box
         sx={{
           flex: 1,
@@ -528,6 +511,22 @@ const CTOInputColumn = ({
           >
             {monthName(month)} {year} — {calDays} days ({calDays * 8}h max)
           </Typography>
+          {/* Subtle reminder of active input mode */}
+          <Chip
+            label={`Input: ${inputUnit}`}
+            size="small"
+            sx={{
+              ml: "auto",
+              height: 16,
+              fontSize: "0.55rem",
+              fontWeight: 700,
+              bgcolor: alpha(T.accent, 0.08),
+              color: T.accent,
+              border: `1px solid ${T.accentBorder}`,
+              fontFamily: T.poppins,
+              "& .MuiChip-label": { px: 0.6 },
+            }}
+          />
         </Box>
         <Box
           sx={{
@@ -560,7 +559,8 @@ const CTOInputColumn = ({
             mb: 0.5,
           }}
         >
-          OT Hours Input
+          {/* Label updates to reflect current inputUnit */}
+          OT {inputUnit === "days" ? "Days" : "Hours"} Input
         </Typography>
         <Box
           sx={{
@@ -596,7 +596,7 @@ const CTOInputColumn = ({
                   letterSpacing: "0.04em",
                 }}
               >
-                OT Hours
+                OT {inputUnit === "days" ? "Days" : "Hours"}
               </Typography>
               <Typography
                 sx={{
@@ -612,17 +612,18 @@ const CTOInputColumn = ({
               <input
                 type="text"
                 inputMode="decimal"
-                placeholder={unit === "days" ? "0.000 days" : "0.000 hrs"}
+                placeholder={inputUnit === "days" ? "0.000 days" : "0.000 hrs"}
                 value={otDisplay}
                 onChange={(e) => {
                   setOtDraft(e.target.value);
                   const n = parseFloat(e.target.value);
-                  if (!isNaN(n)) setOtHours(toHours(n, unit));
+                  // Always store internally as hours
+                  if (!isNaN(n)) setOtHours(toHours(n, inputUnit));
                 }}
                 onFocus={() => setOtDraft(otDisplay)}
                 onBlur={() => {
                   const n = parseFloat(otDraft);
-                  setOtHours(isNaN(n) ? 0 : toHours(n, unit));
+                  setOtHours(isNaN(n) ? 0 : toHours(n, inputUnit));
                   setOtDraft(null);
                 }}
                 onKeyDown={(e) => {
@@ -642,6 +643,7 @@ const CTOInputColumn = ({
                   color: "#1a1a1a",
                 }}
               />
+              {/* Always show both representations when a value is entered */}
               {earned > 0 && (
                 <Typography
                   sx={{
@@ -653,9 +655,9 @@ const CTOInputColumn = ({
                     mt: 0.2,
                   }}
                 >
-                  {unit === "days"
-                    ? `${(earned / 8).toFixed(3)}d`
-                    : `${earned.toFixed(3)}h`}
+                  {inputUnit === "days"
+                    ? `≈ ${earned.toFixed(3)} hrs`
+                    : `≈ ${(earned / 8).toFixed(3)} days`}
                 </Typography>
               )}
             </Box>
@@ -683,16 +685,30 @@ const CTOInputColumn = ({
             >
               CTO Earned
             </Typography>
+            {/* Summary always shows both for clarity */}
             <Typography
               sx={{
                 fontSize: "1rem",
                 fontWeight: 900,
                 color: earned > 0 ? "#1a1a1a" : T.faint,
                 fontFamily: T.poppins,
+                lineHeight: 1.15,
               }}
             >
-              {earned > 0 ? fmtHrs(earned, unit) : "—"}
+              {earned > 0 ? `${(earned / 8).toFixed(3)} days` : "—"}
             </Typography>
+            {earned > 0 && (
+              <Typography
+                sx={{
+                  fontSize: "0.62rem",
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  fontWeight: 600,
+                }}
+              >
+                {earned.toFixed(3)} hrs
+              </Typography>
+            )}
           </Box>
         </Box>
         <Box sx={{ mb: 1 }}>
@@ -768,8 +784,9 @@ const CTOInputColumn = ({
           {loading
             ? "Saving…"
             : earned > 0
-              ? `Submit ${fmtHrs(earned, unit)} CTO →`
-              : "Enter OT hours above"}
+              // Submit label always shows both units for confirmation clarity
+              ? `Submit ${(earned / 8).toFixed(3)} days (${earned.toFixed(3)} hrs) CTO →`
+              : `Enter OT ${inputUnit} above`}
         </AccentButton>
       </Box>
     </Box>

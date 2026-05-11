@@ -1792,6 +1792,328 @@ function FloatingConversionWidget({ onNavigateToModule }) {
   );
 }
 
+
+const CommutationWarningModal = ({
+  open,
+  onClose,
+  onConfirm,
+  period,        // the assignment row being commuted
+  unit = "days", // current display unit from parent
+  leaveTypes = [],
+  allPeriods = [], // ALL period rows for this employee+leaveCode (for history breakdown)
+  loading = false,
+}) => {
+  if (!period) return null;
+ 
+  const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const fmt = (h) =>
+    unit === "hours"
+      ? `${toNum(h).toFixed(3)} hrs`
+      : `${(toNum(h) / 8).toFixed(3)} days`;
+ 
+  const remHrs     = toNum(period.remaining_hours);
+  const carriedHrs = toNum(period.carried_forward_hours);
+  const allocHrs   = toNum(period.allocated_hours) || Math.max(0, toNum(period.total_hours) - carriedHrs);
+  const usedHrs    = toNum(period.used_hours);
+  const totalHrs   = toNum(period.total_hours);
+ 
+  // Previous periods that contributed their balance to this one
+  const previousPeriods = allPeriods.filter(
+    (p) =>
+      p.id !== period.id &&
+      toNum(p.remaining_hours) === 0 &&
+      toNum(p.total_hours) > 0
+  );
+  const hasCarryOver = carriedHrs > 0;
+  const ltObj = leaveTypes.find((lt) => lt.leave_code === period.leave_code);
+  const leaveDesc = ltObj?.leave_description || ltObj?.leave_name || "";
+ 
+  return (
+    <Modal
+      open={open}
+      onClose={!loading ? onClose : undefined}
+      sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}
+    >
+      <Fade in={open}>
+        <Box
+          sx={{
+            width: "100%",
+            maxWidth: 520,
+            borderRadius: "14px",
+            overflow: "hidden",
+            boxShadow: "0 32px 80px rgba(0,0,0,0.28)",
+            bgcolor: "#fff",
+            display: "flex",
+            flexDirection: "column",
+            fontFamily: T.poppins,
+          }}
+        >
+          {/* ── Header ── */}
+          <Box
+            sx={{
+              px: 3.5,
+              py: 2.5,
+              background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 50%, #b91c1c 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              position: "relative",
+              overflow: "hidden",
+              flexShrink: 0,
+            }}
+          >
+            {/* decorative blobs */}
+            <Box sx={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.05)" }} />
+            <Box sx={{ position: "absolute", bottom: -20, left: "40%", width: 100, height: 100, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
+ 
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+              <Box
+                sx={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: "10px",
+                  bgcolor: "rgba(255,255,255,0.15)",
+                  border: "1px solid rgba(255,255,255,0.25)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <WarningIcon sx={{ fontSize: 20, color: "#fbbf24" }} />
+              </Box>
+              <Box>
+                <Typography sx={{ fontWeight: 800, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, fontFamily: T.poppins }}>
+                  Transfer to Commutation
+                </Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.6)", fontFamily: T.poppins }}>
+                  This action cannot be undone — please review carefully
+                </Typography>
+              </Box>
+            </Box>
+            <IconButton
+              onClick={onClose}
+              disabled={loading}
+              size="small"
+              sx={{ color: "rgba(255,255,255,0.7)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}
+            >
+              <Close sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
+ 
+          {/* ── Body ── */}
+          <Box sx={{ px: 3.5, py: 2.5, overflowY: "auto", flex: 1 }}>
+ 
+            {/* Big commutation amount */}
+            <Box
+              sx={{
+                mb: 2.5,
+                p: 2.5,
+                borderRadius: "10px",
+                background: "linear-gradient(135deg, rgba(109,35,35,0.06) 0%, rgba(109,35,35,0.02) 100%)",
+                border: `1.5px solid rgba(109,35,35,0.18)`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <Box>
+                <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: alpha(T.accent, 0.55), textTransform: "uppercase", letterSpacing: "0.09em", mb: 0.4, fontFamily: T.poppins }}>
+                  Amount to be commuted
+                </Typography>
+                <Typography sx={{ fontWeight: 900, color: T.accent, fontSize: "2.1rem", lineHeight: 1, fontFamily: T.poppins }}>
+                  {unit === "hours" ? `${remHrs.toFixed(3)}` : `${(remHrs / 8).toFixed(3)}`}
+                  <Box component="span" sx={{ fontSize: "1rem", fontWeight: 700, ml: 0.75, color: T.accentMid }}>
+                    {unit === "hours" ? "hrs" : "days"}
+                  </Box>
+                </Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins, mt: 0.35 }}>
+                  {unit === "hours" ? `(${(remHrs / 8).toFixed(3)} days)` : `(${remHrs.toFixed(3)} hrs)`}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: "right" }}>
+                <Box sx={{ px: 1.5, py: 0.5, borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, mb: 0.75, display: "inline-block" }}>
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{period.leave_code}</Typography>
+                </Box>
+                {leaveDesc && (
+                  <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, maxWidth: 140, textAlign: "right" }} noWrap>{leaveDesc}</Typography>
+                )}
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, mt: 0.5 }}>
+                  {period.period_year}{period.period_semester ? ` · Month ${period.period_semester}` : ""}
+                </Typography>
+              </Box>
+            </Box>
+ 
+            {/* Balance breakdown */}
+            <Box sx={{ mb: 2, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1 }}>
+              {[
+                ["Carried Over", carriedHrs, hasCarryOver ? "#2e7d32" : T.faint],
+                ["Allocated",    allocHrs,   "#1565c0"],
+                ["Used",         usedHrs,    "#e65100"],
+                ["Remaining",    remHrs,     T.accent],
+              ].map(([label, val, color]) => (
+                <Box key={label} sx={{ p: 1.25, borderRadius: "8px", textAlign: "center", bgcolor: `${color}0d`, border: `1px solid ${color}22` }}>
+                  <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>{label}</Typography>
+                  <Typography sx={{ fontWeight: 800, color, fontSize: "0.82rem", lineHeight: 1, fontFamily: T.poppins }}>
+                    {unit === "hours" ? `${toNum(val).toFixed(3)}h` : `${(toNum(val) / 8).toFixed(3)}d`}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+ 
+            {/* Carry-over warning — the most important one */}
+            {hasCarryOver && (
+              <Box
+                sx={{
+                  mb: 2,
+                  px: 2,
+                  py: 1.5,
+                  borderRadius: "10px",
+                  bgcolor: "rgba(234,179,8,0.07)",
+                  border: "1.5px solid rgba(234,179,8,0.35)",
+                  display: "flex",
+                  gap: 1.25,
+                }}
+              >
+                <WarningIcon sx={{ fontSize: 18, color: "#b45309", flexShrink: 0, mt: 0.15 }} />
+                <Box>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#92400e", fontFamily: T.poppins, mb: 0.25 }}>
+                    This period includes carry-over from previous periods
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.7rem", color: "#78350f", fontFamily: T.poppins, lineHeight: 1.6 }}>
+                    The <strong>{fmt(carriedHrs)}</strong> carried-over balance embedded in this assignment
+                    is the rolled-up remaining balance from <strong>all prior periods</strong>.
+                    Commuting this record will transfer the <strong>entire remaining {fmt(remHrs)}</strong> —
+                    including those carried-forward credits — to Commutation in one action.
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+ 
+            {/* Previous zero-balance periods note */}
+            {previousPeriods.length > 0 && (
+              <Box
+                sx={{
+                  mb: 2,
+                  px: 2,
+                  py: 1.25,
+                  borderRadius: "8px",
+                  bgcolor: "rgba(25,118,210,0.05)",
+                  border: "1px solid rgba(25,118,210,0.18)",
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.75 }}>
+                  <InfoIcon sx={{ fontSize: 13, color: "#1565c0" }} />
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#1565c0", fontFamily: T.poppins }}>
+                    {previousPeriods.length} previous period{previousPeriods.length !== 1 ? "s" : ""} already fully consumed
+                  </Typography>
+                </Box>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
+                  {previousPeriods.map((pp) => (
+                    <Box key={pp.id} sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins }}>
+                        {pp.period_year}{pp.period_semester ? ` · Month ${pp.period_semester}` : ""}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#2e7d32", fontFamily: T.poppins }}>
+                        {fmt(pp.total_hours)} total · {fmt(pp.remaining_hours)} remaining
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+                <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, mt: 0.75, fontStyle: "italic" }}>
+                  Their balances were already rolled into the current period's carry-over above.
+                </Typography>
+              </Box>
+            )}
+ 
+            {/* Irreversible warning */}
+            <Box
+              sx={{
+                px: 2,
+                py: 1.5,
+                borderRadius: "10px",
+                bgcolor: "rgba(220,38,38,0.06)",
+                border: "1.5px solid rgba(220,38,38,0.22)",
+                display: "flex",
+                gap: 1.25,
+              }}
+            >
+              <CommutationIcon sx={{ fontSize: 18, color: "#dc2626", flexShrink: 0, mt: 0.1 }} />
+              <Box>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: "#991b1b", fontFamily: T.poppins, mb: 0.2 }}>
+                  Irreversible action
+                </Typography>
+                <Typography sx={{ fontSize: "0.68rem", color: "#7f1d1d", fontFamily: T.poppins, lineHeight: 1.65 }}>
+                  Once confirmed, this assignment's remaining balance will be <strong>zeroed out</strong> and a
+                  Commutation record will be created. The assignment will be <strong>locked</strong> and
+                  cannot be edited or re-used. This cannot be undone without manual database intervention.
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+ 
+          {/* ── Footer ── */}
+          <Box
+            sx={{
+              px: 3.5,
+              py: 2,
+              borderTop: `1px solid ${T.divider}`,
+              bgcolor: "#fafafa",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic", maxWidth: 220 }}>
+              Transferring {fmt(remHrs)} of {period.leave_code} for {period.period_year}
+              {period.period_semester ? ` · Month ${period.period_semester}` : ""}
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <AccentButton
+                onClick={onClose}
+                disabled={loading}
+                variant="outlined"
+                sx={{
+                  fontSize: "0.8rem",
+                  fontFamily: T.poppins,
+                  borderColor: T.accentBorder,
+                  color: T.muted,
+                  "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent },
+                }}
+              >
+                Cancel
+              </AccentButton>
+              <AccentButton
+                onClick={onConfirm}
+                disabled={loading}
+                variant="contained"
+                startIcon={
+                  loading
+                    ? <CircularProgress size={12} sx={{ color: "#fff" }} />
+                    : <CommutationIcon sx={{ fontSize: "14px !important" }} />
+                }
+                sx={{
+                  fontSize: "0.8rem",
+                  fontFamily: T.poppins,
+                  bgcolor: "#dc2626",
+                  color: "#fff",
+                  boxShadow: "0 2px 12px rgba(220,38,38,0.38)",
+                  "&:hover": { bgcolor: "#b91c1c" },
+                  "&:disabled": { bgcolor: "#e0e0e0 !important", color: "#aaa !important" },
+                }}
+              >
+                {loading ? "Transferring…" : "Yes, Transfer to Commutation"}
+              </AccentButton>
+            </Box>
+          </Box>
+        </Box>
+      </Fade>
+    </Modal>
+  );
+};
+
+
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 const LeaveAssignment = () => {
   const { hasAccess, loading: accessLoading } = usePageAccess("leave-assignment");
@@ -1833,6 +2155,8 @@ const LeaveAssignment = () => {
   const [employeeLeavesModalOpen,    setEmployeeLeavesModalOpen]    = useState(false);
   const [selectedEmployeeLeaves,     setSelectedEmployeeLeaves]     = useState(null);
   const [selectedLeaveTypeInModal,   setSelectedLeaveTypeInModal]   = useState(null);
+
+  const [commutationWarning, setCommutationWarning] = useState(null);
 
   // Commutation actions removed
 
@@ -2122,41 +2446,47 @@ const LeaveAssignment = () => {
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  const handleTransferToCommutation = async (assignmentRow) => {
-    if (!assignmentRow?.id) return;
-    const rem = toNum(assignmentRow.remaining_hours);
-    if (rem <= 0) return;
-    if (!window.confirm("Transfer remaining balance to Commutation?")) return;
-    setCommuteLoadingId(assignmentRow.id);
-    setError("");
-    try {
-      await axios.post(
-        `${API_BASE_URL}/commutationRoute/leave_commutation/commute/${assignmentRow.id}`,
-        {},
-        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
+ const handleTransferToCommutation = async (assignmentRow) => {
+  if (!assignmentRow?.id) return;
+  const rem = toNum(assignmentRow.remaining_hours);
+  if (rem <= 0) return;
+  setCommutationWarning(null); // close the warning modal
+  setCommuteLoadingId(assignmentRow.id);
+  setError("");
+  try {
+    await axios.post(
+      `${API_BASE_URL}/commutationRoute/leave_commutation/commute/${assignmentRow.id}`,
+      {},
+      { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
+    );
+    await fetchAssignments();
+ 
+    if (selectedEmployeeLeaves?.employeeNumber && assignments?.length) {
+      const empData = assignments.filter(
+        (a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString()
       );
-      await fetchAssignments();
-
-      // keep modal state in sync if open
-      if (selectedEmployeeLeaves?.employeeNumber && assignments?.length) {
-        const empData = assignments.filter((a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString());
-        const grouped = empData.reduce((acc, a) => {
-          if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
-          acc[a.leave_code].periods.push(a);
-          return acc;
-        }, {});
-        Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
-        setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
-        if (selectedLeaveTypeInModal) { const r = grouped[selectedLeaveTypeInModal.leave_code]; if (r) setSelectedLeaveTypeInModal(r); }
+      const grouped = empData.reduce((acc, a) => {
+        if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
+        acc[a.leave_code].periods.push(a);
+        return acc;
+      }, {});
+      Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
+      setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
+      if (selectedLeaveTypeInModal) {
+        const r = grouped[selectedLeaveTypeInModal.leave_code];
+        if (r) setSelectedLeaveTypeInModal(r);
       }
-
-      setSuccessAction("edit"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 800);
-    } catch (err) {
-      setError("Transfer failed: " + (err.response?.data?.error || err.message));
-    } finally {
-      setCommuteLoadingId(null);
     }
-  };
+ 
+    setSuccessAction("edit");
+    setSuccessOpen(true);
+    setTimeout(() => setSuccessOpen(false), 800);
+  } catch (err) {
+    setError("Transfer failed: " + (err.response?.data?.error || err.message));
+  } finally {
+    setCommuteLoadingId(null);
+  }
+};
 
   const handleOpenModal = (assignment) => {
     setEditAssignment({ ...assignment }); setOriginalAssignment({ ...assignment });
@@ -2831,28 +3161,26 @@ if (accessLoading || pageLoading) {
                                                 Edit
                                               </AccentButton>
                                             )}
-                                            {!isLocked && remHrs > 0 && (
-                                              <AccentButton
-                                                onClick={(e) => { e.stopPropagation(); handleTransferToCommutation(period); }}
-                                                variant="contained"
-                                                size="small"
-                                                startIcon={commuteLoadingId === period.id ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "12px !important" }} />}
-                                                disabled={commuteLoadingId === period.id}
-                                                sx={{
-                                                  fontSize: "0.72rem",
-                                                  fontFamily: T.poppins,
-                                                  px: 1.5,
-                                                  height: 28,
-                                                  bgcolor: T.accent,
-                                                  color: "#fff",
-                                                  boxShadow: "none",
-                                                  "&:hover": { bgcolor: T.accentDark, transform: "none" },
-                                                  "&:disabled": { bgcolor: "#e0e0e0 !important", color: "#aaa !important" },
-                                                }}
-                                              >
-                                                Transfer to Commutation
-                                              </AccentButton>
-                                            )}
+                                          {!isLocked && remHrs > 0 && (
+   <AccentButton
+     onClick={(e) => { e.stopPropagation(); setCommutationWarning(period); }}
+     variant="contained"
+     size="small"
+     startIcon={<CommutationIcon sx={{ fontSize: "12px !important" }} />}
+     sx={{
+       fontSize: "0.72rem",
+       fontFamily: T.poppins,
+       px: 1.5,
+       height: 28,
+       bgcolor: T.accent,
+       color: "#fff",
+       boxShadow: "none",
+       "&:hover": { bgcolor: T.accentDark, transform: "none" },
+     }}
+   >
+     Transfer to Commutation
+   </AccentButton>
+ )}
                                           </Box>
                                         </Box>
                                       </Box>
@@ -3036,6 +3364,25 @@ if (accessLoading || pageLoading) {
               </Box>
             </Fade>
           </Modal>
+
+           <CommutationWarningModal
+   open={!!commutationWarning}
+   onClose={() => !commuteLoadingId && setCommutationWarning(null)}
+   onConfirm={() => handleTransferToCommutation(commutationWarning)}
+   period={commutationWarning}
+   unit={unit}
+   leaveTypes={leaveTypes}
+   allPeriods={
+     commutationWarning && selectedLeaveTypeInModal
+       ? selectedLeaveTypeInModal.periods
+       : commutationWarning && selectedEmployeeLeaves
+         ? (selectedEmployeeLeaves.leaveTypes.find(
+             lt => lt.leave_code === commutationWarning.leave_code
+           )?.periods || [])
+         : []
+   }
+   loading={commuteLoadingId === commutationWarning?.id}
+ />
         </Box>
       </Fade>
 

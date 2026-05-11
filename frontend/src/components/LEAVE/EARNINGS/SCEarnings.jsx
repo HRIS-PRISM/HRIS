@@ -207,91 +207,6 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   />
 );
 
-// ─── Conversion defaults ──────────────────────────────────────────────────────
-const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "8hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.125).toFixed(3)),
-}));
-const DEFAULT_HOURS_6 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "6hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.167).toFixed(3)),
-}));
-const DEFAULT_MINUTES = Array.from({ length: 60 }, (_, i) => ({
-  rate_type: "minute",
-  day_type: "minute",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.002).toFixed(3)),
-}));
-const DEFAULT_LWP_TABLE = Array.from({ length: 30 }, (_, i) => ({
-  d: i + 1,
-  e: Number(((i + 1) * 0.04167).toFixed(3)),
-}));
-const DEFAULT_ABS_TABLE = [
-  { a: 0.5, e: 1.229 },
-  { a: 1.0, e: 1.208 },
-  { a: 1.5, e: 1.188 },
-  { a: 2.0, e: 1.167 },
-  { a: 2.5, e: 1.146 },
-  { a: 3.0, e: 1.125 },
-  { a: 3.5, e: 1.104 },
-  { a: 4.0, e: 1.083 },
-  { a: 4.5, e: 1.063 },
-  { a: 5.0, e: 1.042 },
-  { a: 5.5, e: 1.021 },
-  { a: 6.0, e: 1.0 },
-  { a: 6.5, e: 0.979 },
-  { a: 7.0, e: 0.958 },
-  { a: 7.5, e: 0.938 },
-  { a: 8.0, e: 0.917 },
-  { a: 8.5, e: 0.854 },
-  { a: 9.0, e: 0.833 },
-  { a: 9.5, e: 0.875 },
-  { a: 10.0, e: 0.833 },
-  { a: 10.5, e: 0.813 },
-  { a: 11.0, e: 0.792 },
-  { a: 11.5, e: 0.771 },
-  { a: 12.0, e: 0.75 },
-  { a: 12.5, e: 0.729 },
-  { a: 13.0, e: 0.708 },
-  { a: 13.5, e: 0.687 },
-  { a: 14.0, e: 0.667 },
-  { a: 14.5, e: 0.646 },
-  { a: 15.0, e: 0.625 },
-  { a: 15.5, e: 0.604 },
-  { a: 16.0, e: 0.583 },
-  { a: 16.5, e: 0.562 },
-  { a: 17.0, e: 0.542 },
-  { a: 17.5, e: 0.521 },
-  { a: 18.0, e: 0.5 },
-  { a: 18.5, e: 0.479 },
-  { a: 19.0, e: 0.458 },
-  { a: 19.5, e: 0.437 },
-  { a: 20.0, e: 0.417 },
-  { a: 20.5, e: 0.396 },
-  { a: 21.0, e: 0.375 },
-  { a: 21.5, e: 0.354 },
-  { a: 22.0, e: 0.333 },
-  { a: 22.5, e: 0.312 },
-  { a: 23.0, e: 0.292 },
-  { a: 23.5, e: 0.271 },
-  { a: 24.0, e: 0.25 },
-  { a: 24.5, e: 0.229 },
-  { a: 25.0, e: 0.208 },
-  { a: 25.5, e: 0.187 },
-  { a: 26.0, e: 0.167 },
-  { a: 26.5, e: 0.146 },
-  { a: 27.0, e: 0.125 },
-  { a: 27.5, e: 0.104 },
-  { a: 28.0, e: 0.083 },
-  { a: 28.5, e: 0.062 },
-  { a: 29.0, e: 0.042 },
-  { a: 29.5, e: 0.021 },
-];
-
 function sanitizeDecimal(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -329,6 +244,50 @@ const AccentButton = styled(Button)({
   "&:active": { transform: "translateY(0)" },
 });
 
+// ─── Compact unit toggle ──────────────────────────────────────────────────────
+/**
+ * Small inline Days/Hours toggle for use inside column headers.
+ * Independent of the parent `unit` prop — controls input fields only.
+ */
+const InputUnitToggle = ({ value, onChange }) => (
+  <ToggleButtonGroup
+    value={value}
+    exclusive
+    onChange={(_, v) => v && onChange(v)}
+    size="small"
+    sx={{
+      "& .MuiToggleButton-root": {
+        px: 0.9,
+        py: 0.15,
+        border: `1px solid ${T.accentBorder}`,
+        fontSize: "0.6rem",
+        fontWeight: 700,
+        color: T.muted,
+        fontFamily: T.poppins,
+        minHeight: 22,
+        lineHeight: 1,
+        textTransform: "none",
+        "&.Mui-selected": {
+          bgcolor: T.accent,
+          color: "#fff",
+          borderColor: T.accent,
+        },
+        "&:first-of-type": { borderRadius: "5px 0 0 5px" },
+        "&:last-of-type": { borderRadius: "0 5px 5px 0" },
+      },
+    }}
+  >
+    <ToggleButton value="days">
+      <DayIcon sx={{ fontSize: 10, mr: 0.3 }} />
+      Days
+    </ToggleButton>
+    <ToggleButton value="hours">
+      <HourIcon sx={{ fontSize: 10, mr: 0.3 }} />
+      Hours
+    </ToggleButton>
+  </ToggleButtonGroup>
+);
+
 const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
   <Box
     sx={{
@@ -363,9 +322,15 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
 const SL_VL_AUTO_CODES = ["SL", "VL"];
 const SL_VL_DEFAULT_HOURS = 1.25 * 8;
 
+/**
+ * CompactInputGrid — renders a grid of OT type input cells.
+ *
+ * `inputUnit` is now passed explicitly from the parent so each cell
+ * displays and commits in the correct unit.
+ */
 const CompactInputGrid = ({
   fields,
-  unit,
+  inputUnit,   // "days" | "hours" — local input unit, NOT the parent display unit
   values,
   drafts,
   onDraftChange,
@@ -385,17 +350,20 @@ const CompactInputGrid = ({
           }}
         >
           {row.map((field) => {
-            const val = toNum(values[field.key]);
+            const val = toNum(values[field.key]);  // always stored in hours internally
             const draft = drafts[field.key];
             const isActive = val > 0;
+
+            // Derive the display value in terms of `inputUnit`
             const displayVal =
               draft !== undefined
                 ? draft
                 : val === 0
                   ? ""
-                  : unit === "days"
+                  : inputUnit === "days"
                     ? String(parseFloat((val / 8).toFixed(3)))
                     : String(val);
+
             return (
               <Box
                 key={field.key}
@@ -445,18 +413,19 @@ const CompactInputGrid = ({
                   <input
                     type="text"
                     inputMode="decimal"
-                    placeholder={unit === "days" ? "0.000 d" : "0.000 h"}
+                    placeholder={inputUnit === "days" ? "0.000 d" : "0.000 h"}
                     value={displayVal}
                     onChange={(e) => {
                       onDraftChange(field.key, e.target.value);
                       const n = parseFloat(e.target.value);
-                      if (!isNaN(n)) onCommit(field.key, toHours(n, unit));
+                      // Always commit internally as hours
+                      if (!isNaN(n)) onCommit(field.key, toHours(n, inputUnit));
                       else onCommit(field.key, 0);
                     }}
                     onFocus={() => onDraftChange(field.key, displayVal)}
                     onBlur={() => {
                       const n = parseFloat(draft ?? displayVal);
-                      onCommit(field.key, isNaN(n) ? 0 : toHours(n, unit));
+                      onCommit(field.key, isNaN(n) ? 0 : toHours(n, inputUnit));
                       onDraftChange(field.key, undefined);
                     }}
                     onKeyDown={(e) => {
@@ -476,6 +445,7 @@ const CompactInputGrid = ({
                       color: "#1a1a1a",
                     }}
                   />
+                  {/* Always show the alternate unit as a hint */}
                   {isActive && (
                     <Typography
                       sx={{
@@ -487,9 +457,9 @@ const CompactInputGrid = ({
                         mt: 0.2,
                       }}
                     >
-                      {unit === "days"
-                        ? `${(val / 8).toFixed(3)}d`
-                        : `${val.toFixed(3)}h`}
+                      {inputUnit === "days"
+                        ? `≈ ${val.toFixed(3)} hrs`
+                        : `≈ ${(val / 8).toFixed(3)} days`}
                     </Typography>
                   )}
                 </Box>
@@ -554,18 +524,20 @@ const fetchAttendanceForEmployee = async (
   return earningsData;
 };
 
-// ─── Leave Input Column ────────────────────────────────────────────────────────
-
+// ─── SC Input Column ───────────────────────────────────────────────────────────
 const SCInputColumn = ({
   employee,
   empCatMap,
-  unit,
+  unit,       // parent display unit (used for success message & records list)
   year,
   month,
   onRecordsRefresh,
 }) => {
+  // ── Local input unit — defaults to "days", user can switch to "hours" ────────
+  const [inputUnit, setInputUnit] = useState("days");
+
   const [otTypes, setOtTypes] = useState([]);
-  const [otValues, setOtValues] = useState({});
+  const [otValues, setOtValues] = useState({});   // always stored as HOURS internally
   const [otDrafts, setOtDrafts] = useState({});
   const [remarks, setRemarks] = useState("");
   const [loading, setLoading] = useState(false);
@@ -611,18 +583,22 @@ const SCInputColumn = ({
     setError("");
   }, [employee, year, month]);
 
+  // When inputUnit toggles, wipe drafts so each cell recalculates its display
+  useEffect(() => {
+    setOtDrafts({});
+  }, [inputUnit]);
+
   const computedSC = useMemo(() => {
     let totalOT = 0,
       totalSC = 0;
     otTypes.forEach((t) => {
-      const ot = toNum(otValues[t.id]);
+      const ot = toNum(otValues[t.id]);  // hours
       totalOT += ot;
       totalSC += ot * (t.multiplier || 1);
     });
     return { totalOT, total: parseFloat(totalSC.toFixed(3)) };
   }, [otValues, otTypes]);
 
-  /** Stored on `sc_earnings.sc_type` — same default for all employment categories (no tempo/leave-only split). */
   const payloadScType = "non_commutative";
 
   const handleSave = async () => {
@@ -664,6 +640,7 @@ const SCInputColumn = ({
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
+      // Success message uses the parent unit for consistency with the records list
       setSuccess(
         `${fmtHrs(computedSC.total, unit)} SC submitted for ${monthName(month)} ${year}.`,
       );
@@ -686,7 +663,9 @@ const SCInputColumn = ({
           icon={SCIcon}
           label="Service Credit Input"
           color={T.accent}
-        />
+        >
+          <InputUnitToggle value={inputUnit} onChange={setInputUnit} />
+        </ColHeader>
         <Box
           sx={{
             flex: 1,
@@ -714,7 +693,18 @@ const SCInputColumn = ({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <ColHeader icon={SCIcon} label="Service Credit Input" color={T.accent} />
+      {/* ── Column header with inline unit toggle ── */}
+      <ColHeader icon={SCIcon} label="Service Credit Input" color={T.accent}>
+        <Tooltip title="Switch the input fields between Days and Hours. The records list uses the global unit setting." placement="left">
+          <Box>
+            <InputUnitToggle value={inputUnit} onChange={(v) => {
+              setInputUnit(v);
+              setOtDrafts({});
+            }} />
+          </Box>
+        </Tooltip>
+      </ColHeader>
+
       <Box
         sx={{
           flex: 1,
@@ -769,6 +759,22 @@ const SCInputColumn = ({
           >
             {monthName(month)} {year} — {calDays} days ({calDays * 8}h max)
           </Typography>
+          {/* Active input mode indicator */}
+          <Chip
+            label={`Input: ${inputUnit}`}
+            size="small"
+            sx={{
+              ml: "auto",
+              height: 16,
+              fontSize: "0.55rem",
+              fontWeight: 700,
+              bgcolor: alpha(T.accent, 0.08),
+              color: T.accent,
+              border: `1px solid ${T.accentBorder}`,
+              fontFamily: T.poppins,
+              "& .MuiChip-label": { px: 0.6 },
+            }}
+          />
         </Box>
         <Typography
           sx={{
@@ -781,15 +787,18 @@ const SCInputColumn = ({
             mb: 0.5,
           }}
         >
-          OT Hours Input
+          {/* Label reflects current inputUnit */}
+          OT {inputUnit === "days" ? "Days" : "Hours"} Input
         </Typography>
+
+        {/* Pass inputUnit down instead of the parent unit prop */}
         <CompactInputGrid
           fields={otTypes.map((t) => ({
             key: t.id,
             label: t.name,
             subtitle: `×${t.multiplier || 1} → SC`,
           }))}
-          unit={unit}
+          inputUnit={inputUnit}
           values={otValues}
           drafts={otDrafts}
           onDraftChange={(key, val) =>
@@ -801,6 +810,8 @@ const SCInputColumn = ({
           }
           onCommit={(key, val) => setOtValues((p) => ({ ...p, [key]: val }))}
         />
+
+        {/* Summary always shows both units */}
         <Box
           sx={{
             display: "grid",
@@ -831,9 +842,20 @@ const SCInputColumn = ({
                 fontWeight: 800,
                 color: "#1a1a1a",
                 fontFamily: T.poppins,
+                lineHeight: 1.15,
               }}
             >
-              {computedSC.totalOT.toFixed(3)}h
+              {(computedSC.totalOT / 8).toFixed(3)} days
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "0.62rem",
+                color: T.muted,
+                fontFamily: T.poppins,
+                fontWeight: 600,
+              }}
+            >
+              {computedSC.totalOT.toFixed(3)} hrs
             </Typography>
           </Box>
           <Box>
@@ -853,10 +875,25 @@ const SCInputColumn = ({
                 fontWeight: 900,
                 color: computedSC.total > 0 ? "#1a1a1a" : T.faint,
                 fontFamily: T.poppins,
+                lineHeight: 1.15,
               }}
             >
-              {computedSC.total > 0 ? fmtHrs(computedSC.total, unit) : "—"}
+              {computedSC.total > 0
+                ? `${(computedSC.total / 8).toFixed(3)} days`
+                : "—"}
             </Typography>
+            {computedSC.total > 0 && (
+              <Typography
+                sx={{
+                  fontSize: "0.62rem",
+                  color: T.muted,
+                  fontFamily: T.poppins,
+                  fontWeight: 600,
+                }}
+              >
+                {computedSC.total.toFixed(3)} hrs
+              </Typography>
+            )}
           </Box>
         </Box>
       </Box>
@@ -907,14 +944,13 @@ const SCInputColumn = ({
           {loading
             ? "Saving…"
             : computedSC.total > 0
-              ? `Submit ${fmtHrs(computedSC.total, unit)} SC →`
-              : "Enter OT hours above"}
+              // Submit label shows both for confirmation clarity
+              ? `Submit ${(computedSC.total / 8).toFixed(3)} days (${computedSC.total.toFixed(3)} hrs) SC →`
+              : `Enter OT ${inputUnit} above`}
         </AccentButton>
       </Box>
     </Box>
   );
 };
-
-// ─── CTO Input Column ──────────────────────────────────────────────────────────
 
 export { SCInputColumn };
