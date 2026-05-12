@@ -22,9 +22,7 @@ import {
   Button,
   Fab,
   Zoom,
-  Avatar,
   Checkbox,
-  Dialog,
   LinearProgress,
   IconButton,
   Table,
@@ -879,7 +877,7 @@ const ViewAttendanceRecord = () => {
           '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
         }}
       >
-        Faculty Designated(40hrs)
+        Faculty designated
       </Button>
     </Box>
   );
@@ -897,9 +895,6 @@ const ViewAttendanceRecord = () => {
     message: '',
     severity: 'success',
   });
-
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
 
   // ── Unified overlay (matches AllAttendanceRecord) ──
   const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
@@ -932,17 +927,16 @@ const ViewAttendanceRecord = () => {
   }, [searchQuery]);
   const trimmedSearch = debouncedSearch.trim();
 
-  const [progressTotal, setProgressTotal] = useState(0);
-  const [progressDone, setProgressDone] = useState(0);
   const [loadPhase, setLoadPhase] = useState('');
 
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
 
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsRowsPerPage, setRecordsRowsPerPage] = useState(50);
+
   const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
-  const progressDoneRef = useRef(0);
-  const progressRafRef = useRef(null);
 
   const { hasAccess, loading: accessLoading } =
     usePageAccess('view-attendance');
@@ -979,15 +973,6 @@ const ViewAttendanceRecord = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (progressRafRef.current) {
-        window.cancelAnimationFrame(progressRafRef.current);
-        progressRafRef.current = null;
-      }
-    };
-  }, []);
-
   const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
     try {
@@ -1009,11 +994,13 @@ const ViewAttendanceRecord = () => {
         map[String(a.employeeNumber)] = a.code || '';
       });
       setDepartmentAssignmentsMap(map);
+      return map;
     } catch (err) {
       console.error('Error fetching departments/assignments:', err);
       setDepartments([]);
       setDepartmentAssignmentsMap({});
       showSnackbar('Failed to load departments for filtering', 'warning');
+      return {};
     } finally {
       setLoadingDepartments(false);
     }
@@ -1109,98 +1096,73 @@ const ViewAttendanceRecord = () => {
       return;
     }
     setLoadingAllUsers(true);
-    setProgressDone(0);
-    progressDoneRef.current = 0;
-    if (progressRafRef.current) {
-      window.cancelAnimationFrame(progressRafRef.current);
-      progressRafRef.current = null;
-    }
-    setProgressTotal(0);
     setLoadPhase('Loading employee list…');
     try {
-      const usersRes = await axios.get(
-        `${API_BASE_URL}/attendance/api/all-device-users`,
-        getAuthHeaders(),
-      );
+      const [usersRes, summaryRes] = await Promise.all([
+        axios.get(
+          `${API_BASE_URL}/attendance/api/all-device-users`,
+          getAuthHeaders(),
+        ),
+        axios.post(
+          `${API_BASE_URL}/attendance/api/device-attendance-summary`,
+          { startDate, endDate },
+          getAuthHeaders(),
+        ),
+      ]);
+
       let users = usersRes.data || [];
+      const summaryRows = Array.isArray(summaryRes.data)
+        ? summaryRes.data
+        : [];
+
+      let dm = departmentAssignmentsMap || {};
       if (
         departmentCodeFilter &&
-        Object.keys(departmentAssignmentsMap || {}).length === 0 &&
+        Object.keys(dm).length === 0 &&
         !loadingDepartments
-      )
-        await fetchDepartmentsAndAssignments();
+      ) {
+        dm = await fetchDepartmentsAndAssignments();
+      }
       if (departmentCodeFilter) {
-        const dm = departmentAssignmentsMap || {};
         users = users.filter((u) => {
           const dc = dm[String(u?.PersonID ?? '')] || '';
           if (departmentCodeFilter === '__UNASSIGNED__') return !dc;
           return dc === departmentCodeFilter;
         });
       }
-      setProgressTotal(users.length);
-      setProgressDone(0);
-      progressDoneRef.current = 0;
-      const dtrPromises = users.map(async (user) => {
+
+      const countByPerson = new Map();
+      for (const row of summaryRows) {
+        const pid = row?.PersonID;
+        if (pid == null || pid === '') continue;
+        countByPerson.set(String(pid), Number(row.recordsCount) || 0);
+      }
+
+      const all = users.map((user) => {
         const empNo = user?.PersonID;
         const dn = user?.PersonName || empNo || 'Unknown';
-        try {
-          const dr = await axios.post(
-            `${API_BASE_URL}/attendance/api/all-attendance`,
-            { personID: empNo, startDate, endDate },
-            getAuthHeaders(),
-          );
-          const dd = Array.isArray(dr.data) ? dr.data : [];
-          return {
-            employeeNumber: empNo,
-            firstName: dn.split(' ')[0],
-            lastName: dn.split(' ').slice(1).join(' '),
-            fullName: dn,
-            recordsCount: dd.length,
-            hasRecords: dd.length > 0,
-          };
-        } catch {
-          return {
-            employeeNumber: empNo,
-            firstName: dn.split(' ')[0],
-            lastName: dn.split(' ').slice(1).join(' '),
-            fullName: dn,
-            recordsCount: 0,
-            hasRecords: false,
-          };
-        } finally {
-          progressDoneRef.current += 1;
-          if (!progressRafRef.current) {
-            progressRafRef.current = window.requestAnimationFrame(() => {
-              setProgressDone(progressDoneRef.current);
-              progressRafRef.current = null;
-            });
-          }
-        }
+        const n = countByPerson.get(String(empNo)) ?? 0;
+        return {
+          employeeNumber: empNo,
+          firstName: dn.split(' ')[0],
+          lastName: dn.split(' ').slice(1).join(' '),
+          fullName: dn,
+          recordsCount: n,
+          hasRecords: n > 0,
+        };
       });
-      const all = await Promise.all(dtrPromises);
-      if (progressRafRef.current) {
-        window.cancelAnimationFrame(progressRafRef.current);
-        progressRafRef.current = null;
-      }
-      setProgressDone(progressDoneRef.current);
+
       all.sort((a, b) =>
         (a.lastName || '')
           .toUpperCase()
           .localeCompare((b.lastName || '').toUpperCase()),
       );
       setAllUsersDTR(all);
-      const totalRecs = all.reduce((s, u) => s + (u.recordsCount || 0), 0);
       const withRecs = all.filter((u) => u.hasRecords).length;
       showSnackbar(
-        `Loaded ${all.length} employees (${withRecs} with records)`,
+        `Loaded ${all.length} employees (${withRecs} with device records in this period)`,
         'success',
       );
-      if (totalRecs > 0) {
-        setModalMessage(
-          `Successfully auto-saved ${totalRecs} attendance records for ${withRecs} employees to the database.`,
-        );
-        setShowSuccessModal(true);
-      }
     } catch (err) {
       console.error('Error fetching all users DTR:', err);
       showSnackbar(
@@ -1208,11 +1170,6 @@ const ViewAttendanceRecord = () => {
         'error',
       );
     } finally {
-      if (progressRafRef.current) {
-        window.cancelAnimationFrame(progressRafRef.current);
-        progressRafRef.current = null;
-      }
-      setProgressDone(progressDoneRef.current);
       setLoadingAllUsers(false);
       setLoadPhase('');
     }
@@ -1409,6 +1366,25 @@ const ViewAttendanceRecord = () => {
       }).length,
     [records],
   );
+
+  const recordsTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(records.length / recordsRowsPerPage)),
+    [records.length, recordsRowsPerPage],
+  );
+
+  const paginatedRecords = useMemo(() => {
+    const s = (recordsPage - 1) * recordsRowsPerPage;
+    return records.slice(s, s + recordsRowsPerPage);
+  }, [records, recordsPage, recordsRowsPerPage]);
+
+  useEffect(() => {
+    setRecordsPage(1);
+  }, [records.length, personID, startDate, endDate]);
+
+  const goToRecordsPage = (p) =>
+    setRecordsPage(
+      Math.min(Math.max(1, p), recordsTotalPages),
+    );
 
   // ── Guards ──
   if (pageLoading || accessLoading) return <ViewAttendanceWireframe />;
@@ -1673,7 +1649,7 @@ const ViewAttendanceRecord = () => {
             </Typography>
             <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {loadingAllUsers
-                ? `${progressDone} / ${progressTotal} processed`
+                ? 'Aggregating device punches for the selected period…'
                 : 'Use filters on the right to narrow the list.'}
             </Typography>
           </Box>
@@ -1763,45 +1739,6 @@ const ViewAttendanceRecord = () => {
             {snackbar.message}
           </Alert>
         </Snackbar>
-
-        {/* Batch Success Modal (multiple-user flow) */}
-        <Dialog
-          open={showSuccessModal}
-          onClose={() => setShowSuccessModal(false)}
-          maxWidth="sm"
-          fullWidth
-          PaperProps={{ sx: { borderRadius: 3 } }}
-        >
-          <Box
-            sx={{
-              p: 4,
-              textAlign: 'center',
-              background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
-            }}
-          >
-            <Avatar sx={{ width: 64, height: 64, mx: 'auto', mb: 2, bgcolor: '#4caf50' }}>
-              <CheckCircle sx={{ fontSize: 36, color: '#fff' }} />
-            </Avatar>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', color: T.accent, mb: 1.5 }}>
-              Records Auto-Saved Successfully!
-            </Typography>
-            <Typography sx={{ fontSize: '0.85rem', color: T.muted, mb: 3, lineHeight: 1.6 }}>
-              {modalMessage}
-            </Typography>
-            <AccentButton
-              variant="contained"
-              onClick={() => setShowSuccessModal(false)}
-              sx={{
-                bgcolor: T.accent,
-                color: '#fff',
-                boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
-                '&:hover': { bgcolor: T.accentDark },
-              }}
-            >
-              OK
-            </AccentButton>
-          </Box>
-        </Dialog>
 
         <Box
           sx={{
@@ -2034,8 +1971,58 @@ const ViewAttendanceRecord = () => {
                                 </Typography>
                               ))}
                             </Box>
+                            <Box
+                              sx={{
+                                px: 2.5,
+                                py: 0.75,
+                                display: 'flex',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: 1,
+                                borderBottom: `1px solid ${T.divider}`,
+                                bgcolor: alpha(T.accent, 0.02),
+                              }}
+                            >
+                              <Typography sx={{ fontSize: '0.72rem', color: T.muted, mr: 'auto' }}>
+                                {records.length > recordsRowsPerPage
+                                  ? `Showing ${(recordsPage - 1) * recordsRowsPerPage + 1}–${Math.min(records.length, recordsPage * recordsRowsPerPage)} of ${records.length}`
+                                  : `${records.length} row${records.length === 1 ? '' : 's'}`}
+                              </Typography>
+                              <FormControl size="small" sx={{ minWidth: 92 }}>
+                                <Select
+                                  value={recordsRowsPerPage}
+                                  onChange={(e) => {
+                                    setRecordsRowsPerPage(Number(e.target.value));
+                                    setRecordsPage(1);
+                                  }}
+                                  sx={selectSx}
+                                >
+                                  {[25, 50, 100, 200].map((n) => (
+                                    <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} / page</MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                              {recordsTotalPages > 1 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                  {[{ label: '«', fn: () => goToRecordsPage(1), dis: recordsPage === 1 }, { label: '‹', fn: () => goToRecordsPage(recordsPage - 1), dis: recordsPage === 1 }].map(({ label, fn, dis }) => (
+                                    <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                      <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
+                                    </IconButton>
+                                  ))}
+                                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.muted, minWidth: 56, textAlign: 'center' }}>
+                                    {recordsPage} / {recordsTotalPages}
+                                  </Typography>
+                                  {[{ label: '›', fn: () => goToRecordsPage(recordsPage + 1), dis: recordsPage === recordsTotalPages }, { label: '»', fn: () => goToRecordsPage(recordsTotalPages), dis: recordsPage === recordsTotalPages }].map(({ label, fn, dis }) => (
+                                    <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                      <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
+                                    </IconButton>
+                                  ))}
+                                </Box>
+                              )}
+                            </Box>
                             <Box sx={{ overflowX: 'auto' }}>
-                              {records.map((record, index) => {
+                              {paginatedRecords.map((record, index) => {
+                                const globalIndex = (recordsPage - 1) * recordsRowsPerPage + index;
                                 const hasTimeIn = !!record.Time1;
                                 const hasBreakIn = !!record.Time3;
                                 const hasBreakOut = !!record.Time2;
@@ -2062,7 +2049,7 @@ const ViewAttendanceRecord = () => {
 
                                 return (
                                   <Box
-                                    key={index}
+                                    key={`${record.PersonID}-${record.Date}-${globalIndex}`}
                                     sx={{
                                       display: 'grid',
                                       gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
@@ -2071,7 +2058,7 @@ const ViewAttendanceRecord = () => {
                                       gap: 1,
                                       alignItems: 'center',
                                       minWidth: 900,
-                                      bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.03)' : index % 2 === 0 ? '#fff' : T.rowOdd,
+                                      bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.03)' : globalIndex % 2 === 0 ? '#fff' : T.rowOdd,
                                       borderBottom: hasAnyUncategorized ? '1px solid rgba(244,67,54,0.12)' : `1px solid ${T.divider}`,
                                       transition: 'background 0.12s',
                                       '&:hover': { bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.07)' : T.rowHover },
@@ -2457,9 +2444,7 @@ const ViewAttendanceRecord = () => {
           open={loading || loadingAllUsers}
           message={
             loadingAllUsers
-              ? progressTotal > 0
-                ? `Loading all users — ${progressDone} / ${progressTotal}`
-                : `Loading all users — ${loadPhase || 'Please wait…'}`
+              ? `Loading all users — ${loadPhase || 'Please wait…'}`
               : personName
                 ? `Loading attendance — ${personName}…`
                 : 'Loading attendance…'

@@ -1619,6 +1619,50 @@ router.get('/api/all-device-users', authenticateToken, (req, res) => {
   });
 });
 
+// Aggregated day counts per employee for a date range (fast path for "All Users" list).
+// Matches the grouping used by /api/all-attendance (one row per PersonID per calendar day).
+router.post('/api/device-attendance-summary', authenticateToken, (req, res) => {
+  const { startDate, endDate } = req.body || {};
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
+
+  const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime();
+  const endTimestamp = new Date(`${endDate}T23:59:59Z`).getTime();
+
+  const sql = `
+    SELECT
+      PersonID,
+      COUNT(*) AS recordsCount
+    FROM (
+      SELECT
+        PersonID,
+        DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt
+      FROM AttendanceRecordInfo
+      WHERE AttendanceDateTime BETWEEN ? AND ?
+      GROUP BY PersonID, dt
+    ) daily
+    GROUP BY PersonID
+  `;
+
+  db.query(sql, [startTimestamp, endTimestamp], (err, results) => {
+    if (err) {
+      console.error('Error fetching device attendance summary:', err);
+      return res.status(500).json({ error: err.message });
+    }
+
+    logAudit(
+      req.user,
+      'view',
+      'Device Attendance Summary',
+      `${startDate} to ${endDate}`,
+      null,
+    );
+    res.json(results);
+  });
+});
+
 // Auto-save and fetch attendance records
 router.post('/api/all-attendance', authenticateToken, async (req, res) => {
   const { personID, startDate, endDate } = req.body;
