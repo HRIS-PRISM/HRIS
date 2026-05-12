@@ -35,6 +35,13 @@ import { useSocket } from "../../contexts/SocketContext";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
 import { getLeaveGenderRestriction, isLeaveAllowedForGender } from "./leaveGenderUtils";
+import {
+  toNum,
+  isCommutedLocked,
+  latestPeriodsByKey,
+  getLatestPeriodSnapshot,
+  sumDedupedRemainingHours,
+} from "./leaveAssignmentBalanceUtils";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -391,7 +398,6 @@ const MONTH_NAMES = {
   "9": "September",
 };
 
-const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const normalizeMonth = (v) => {
   if (v === undefined || v === null || v === "") return null;
   const n = parseInt(String(v), 10);
@@ -425,60 +431,6 @@ const hoursToDaysInputStr = (hrs) => {
   if (!Number.isFinite(days) || days === 0) return "";
   if (Number.isInteger(days)) return String(days);
   return String(days).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-};
-const isCommutedLocked = (row) => toNum(row?.remaining_hours) === 0 && toNum(row?.total_hours) > 0 && toNum(row?.used_hours) > 0 && toNum(row?.used_hours) >= toNum(row?.total_hours);
-const normalizePeriodKey = (p) => {
-  const y = p?.period_year != null ? String(parseInt(String(p.period_year), 10) || "").trim() : "";
-  const semRaw = p?.period_semester != null ? String(p.period_semester).trim() : "";
-  const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
-  const sem = Number.isFinite(semNum) ? String(semNum) : semRaw;
-  return `${y}|${sem}`;
-};
-// leave_assignment is append-only snapshots. For UI totals, keep ONLY the latest snapshot per period.
-const latestPeriodsByKey = (periods = []) => {
-  const list = Array.isArray(periods) ? periods : [];
-  const m = new Map();
-  for (const p of list) {
-    const key = normalizePeriodKey(p);
-    const prev = m.get(key);
-    const id = Number(p?.id);
-    const prevId = Number(prev?.id);
-    if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
-      m.set(key, p);
-    }
-  }
-  return Array.from(m.values());
-};
-const getActivePeriods = (periods = []) => latestPeriodsByKey(periods).filter((p) => !isCommutedLocked(p));
-const getLeaveTypeStatsActive = (periods) =>
-  getActivePeriods(periods).reduce(
-    (s, p) => ({
-      totalHours: s.totalHours + toNum(p.total_hours),
-      usedHours: s.usedHours + toNum(p.used_hours),
-      remainingHours: s.remainingHours + toNum(p.remaining_hours),
-    }),
-    { totalHours: 0, usedHours: 0, remainingHours: 0 },
-  );
-
-// Latest running-balance snapshot (service_credit style): pick the latest period row only.
-const getLatestPeriodSnapshot = (periods = []) => {
-  const list = latestPeriodsByKey(periods);
-  if (!list.length) return null;
-  const periodSortValue = (p) => {
-    const y = toNum(p?.period_year);
-    const semRaw = p?.period_semester != null ? String(p.period_semester).trim() : "";
-    const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
-    const m = Number.isFinite(semNum) ? semNum : 0;
-    const id = toNum(p?.id);
-    return { y, m, id };
-  };
-  return [...list].sort((a, b) => {
-    const A = periodSortValue(a);
-    const B = periodSortValue(b);
-    if (B.y !== A.y) return B.y - A.y;
-    if (B.m !== A.m) return B.m - A.m;
-    return B.id - A.id;
-  })[0];
 };
 const getLeaveLabel = (code, types) => { if (!code) return "—"; const f = Array.isArray(types) ? types.find((t) => t.leave_code === code) : null; const d = f?.leave_description || f?.description || f?.leave_name || ""; return d ? `${code} — ${d}` : `${code}`; };
 
@@ -1065,9 +1017,9 @@ const BulkAutoAssignDialog = ({
         if (exists) { skipped++; continue; }
         setProgressMsg(`${lt.leave_code} → ${emp.fullName}`);
         try {
-          const prevRem = assignments
-            .filter((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code)
-            .reduce((s, a) => s + toNum(a.remaining_hours), 0);
+          const prevRem = sumDedupedRemainingHours(
+            assignments.filter((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code),
+          );
           await axios.post(
             `${API_BASE_URL}/leaveRoute/leave_assignment`,
             { leave_code: lt.leave_code, employeeNumber: emp.employeeNumber, total_hours: 0, carried_forward_hours: prevRem, allocated_hours: 0, period_year: parseInt(targetYear, 10), period_semester: null },
@@ -1457,6 +1409,11 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
   const total    = allocatedHours + carriedHours;
   const restriction = getLeaveGenderRestriction(lt);
   const hasValue = allocatedHours > 0;
+  const hasCarry = carriedHours > 0;
+  const resultColLabel = hasCarry && hasValue ? "New total" : hasCarry ? "Remaining" : "total";
+  const addStr = unit === "hours" ? `${allocatedHours.toFixed(3)}h` : `${(allocatedHours / 8).toFixed(3)}d`;
+  const remStr = unit === "hours" ? `${carriedHours.toFixed(3)}h` : `${(carriedHours / 8).toFixed(3)}d`;
+  const sumStr = unit === "hours" ? `${total.toFixed(3)}h` : `${(total / 8).toFixed(3)}d`;
 
   return (
     <Box sx={{
@@ -1504,11 +1461,22 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
           }}
         />
       </Box>
-      <Box sx={{ textAlign: "center" }}>
-        <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>total</Typography>
-        <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: hasValue ? "#1976d2" : T.faint, fontFamily: T.poppins }}>
-          {unit === "hours" ? `${total.toFixed(3)}h` : `${(total / 8).toFixed(3)}d`}
-        </Typography>
+      <Box sx={{ textAlign: "center", minWidth: 0, px: 0.25 }}>
+        <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>{resultColLabel}</Typography>
+        {hasCarry && hasValue ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "center", gap: 0.35, mt: 0.2 }}>
+            <Typography component="span" sx={{ fontSize: "0.58rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>
+              {addStr} + {remStr} =
+            </Typography>
+            <Typography component="span" sx={{ fontSize: "0.8rem", fontWeight: 800, color: "#1976d2", fontFamily: T.poppins }}>
+              {sumStr}
+            </Typography>
+          </Box>
+        ) : (
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: hasValue ? "#1976d2" : T.faint, fontFamily: T.poppins, lineHeight: 1.25, mt: 0.15 }}>
+            {sumStr}
+          </Typography>
+        )}
       </Box>
     </Box>
   );
@@ -2266,7 +2234,7 @@ const LeaveAssignment = () => {
     const map = {};
     filteredLeaveTypesForNew.forEach((lt) => {
       const rows = assignments.filter((a) => a.employeeNumber?.toString() === empNum && a.leave_code === lt.leave_code);
-      map[lt.leave_code] = rows.reduce((s, r) => s + toNum(r.remaining_hours), 0);
+      map[lt.leave_code] = sumDedupedRemainingHours(rows);
     });
     return map;
   }, [selectedEmployee, filteredLeaveTypesForNew, assignments]);

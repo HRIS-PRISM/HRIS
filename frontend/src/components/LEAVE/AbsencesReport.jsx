@@ -43,6 +43,26 @@ import {
   NavigateNext,
 } from '@mui/icons-material';
 
+/** Match absence rows to `employeeNames` keys (trimmed string). */
+function normalizeEmployeeKey(v) {
+  if (v === undefined || v === null) return '';
+  return String(v).trim();
+}
+
+/** Leave GET already joins `person_table`; also works for `/person_table/:id` rows. */
+function displayNameFromPersonOrLeaveRow(row) {
+  if (!row || typeof row !== 'object') return '';
+  const full = row.fullName != null ? String(row.fullName).trim() : '';
+  if (full) return full;
+  const parts = [
+    row.firstName,
+    row.middleName,
+    row.lastName,
+    row.nameExtension,
+  ].map((x) => (x != null ? String(x).trim() : '')).filter(Boolean);
+  return parts.join(' ').trim();
+}
+
 // ─── Theme tokens (unified with other modules) ────────────────────────────────
 const T = {
   accent:       '#6d2323',
@@ -324,18 +344,49 @@ const AbsencesReport = () => {
       setLeaveTypes(types);
       setLeaveRequests(requests);
 
-      // Fetch employee names
-      const empNums = [...new Set(requests.map(r => r.employeeNumber).filter(Boolean))];
-      const names   = { ...employeeNames };
+      const attendanceAbs = Array.isArray(attendanceAbsRes.data?.data) ? attendanceAbsRes.data.data : [];
+
+      // Employee display names: seed from leave list (API joins person_table), then fetch gaps
+      // (AWOL-only employees never appear on leave requests but still need names).
+      const names = {};
       const deptSet = new Set();
 
-      await Promise.all(empNums.map(async emp => {
-        try {
-          const res = await axios.get(`${API_BASE_URL}/personalinfo/person_table/${emp}`, getAuthHeaders());
-          names[emp] = [res.data.firstName, res.data.lastName].filter(Boolean).join(' ') || 'Unknown';
-          if (res.data.department) deptSet.add(res.data.department);
-        } catch { names[emp] = 'Unknown'; }
-      }));
+      requests.forEach((r) => {
+        const key = normalizeEmployeeKey(r.employeeNumber ?? r.employeeId ?? r.employee_id);
+        if (!key) return;
+        const label = displayNameFromPersonOrLeaveRow(r);
+        if (label) names[key] = label;
+      });
+
+      const needFetch = new Set();
+      requests.forEach((r) => {
+        const key = normalizeEmployeeKey(r.employeeNumber ?? r.employeeId ?? r.employee_id);
+        if (key && !names[key]) needFetch.add(key);
+      });
+      attendanceAbs.forEach((a) => {
+        const key = normalizeEmployeeKey(a.employeeNumber);
+        if (key && !names[key]) needFetch.add(key);
+      });
+
+      await Promise.all(
+        [...needFetch].map(async (emp) => {
+          try {
+            const res = await axios.get(
+              `${API_BASE_URL}/personalinfo/person_table/${encodeURIComponent(emp)}`,
+              getAuthHeaders(),
+            );
+            const label = displayNameFromPersonOrLeaveRow(res.data) || 'Unknown';
+            names[emp] = label;
+            const agency = normalizeEmployeeKey(res.data?.agencyEmployeeNum);
+            if (agency && agency !== emp) names[agency] = label;
+            const pid = res.data?.id;
+            if (pid != null && String(pid) !== emp) names[String(pid)] = label;
+            if (res.data?.department) deptSet.add(res.data.department);
+          } catch {
+            names[emp] = 'Unknown';
+          }
+        }),
+      );
 
       setEmployeeNames(names);
 
@@ -353,6 +404,8 @@ const AbsencesReport = () => {
       const absenceRecords = [];
       const leaveByEmpDate = new Map();
       requests.forEach(req => {
+        const empKey = normalizeEmployeeKey(req.employeeNumber ?? req.employeeId ?? req.employee_id);
+        if (!empKey) return;
         const dates = Array.isArray(req.leave_date)
           ? req.leave_date
           : String(req.leave_date || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -376,7 +429,7 @@ const AbsencesReport = () => {
           const rec = {
             id:             `${req.id}-${date}`,
             requestId:      req.id,
-            employeeNumber: String(req.employeeNumber || ''),
+            employeeNumber: empKey,
             department:     req.department || req.code || '—',
             date,
             absenceType:    absType,
@@ -397,9 +450,8 @@ const AbsencesReport = () => {
       });
 
       // Add attendance absences as AWOL only when no leave request exists for same employee+date.
-      const attendanceAbs = Array.isArray(attendanceAbsRes.data?.data) ? attendanceAbsRes.data.data : [];
       attendanceAbs.forEach((a) => {
-        const employeeNumber = String(a.employeeNumber || '');
+        const employeeNumber = normalizeEmployeeKey(a.employeeNumber);
         const date = String(a.date || '');
         if (!employeeNumber || !date) return;
         const k = `${employeeNumber}|${date}`;
@@ -720,7 +772,7 @@ const AbsencesReport = () => {
                           {absences.length === 0 ? 'No absence records found' : 'No records match your filters'}
                         </Typography>
                         <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
-                          {absences.length === 0 ? 'Data is pulled from Leave Requests and Attendance modules.' : 'Try adjusting your filter criteria.'}
+                          {absences.length === 0 ? 'Data is pulled from Leave Requests and attendance saved from Non-Teaching, Faculty Designated, and Faculty 30hrs modules.' : 'Try adjusting your filter criteria.'}
                         </Typography>
                       </Box>
                     </td>
@@ -812,7 +864,7 @@ const AbsencesReport = () => {
         <Box sx={{ mt: 1.5, px: 0.5, display: 'flex', alignItems: 'center', gap: 0.75 }} className="no-print">
           <InfoIcon sx={{ fontSize: 13, color: T.faint }} />
           <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
-            Data sourced from <strong>Leave Request Management</strong> and <strong>Overall Attendance</strong> modules. Click any row to view details.
+            AWOL dates follow <strong>absent dates saved</strong> from <strong>Non-Teaching</strong>, <strong>Faculty Designated</strong>, and <strong>Faculty 30hrs</strong> attendance modules (plus <strong>Leave Request Management</strong>). Click any row to view details.
           </Typography>
         </Box>
 
