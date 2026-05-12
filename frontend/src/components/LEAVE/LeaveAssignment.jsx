@@ -61,7 +61,6 @@ const T = {
   surface:      "#ffffff",
   divider:      "rgba(0,0,0,0.08)",
   poppins:      "'Poppins', sans-serif",
-  // Earnings colours
   earnPending:  { bg: "rgba(237,108,2,0.10)", color: "#bf360c", border: "rgba(237,108,2,0.30)" },
   earnApproved: { bg: "rgba(46,125,50,0.10)", color: "#1b5e20", border: "rgba(46,125,50,0.30)" },
 };
@@ -107,218 +106,69 @@ const LeaveAssignmentWireframe = () => (
         px: { xs: 2, sm: 3, md: 6 },
       }}
     >
-      {/* ── Page header skeleton ── */}
-      <Box
-        sx={{
-          mb: 2,
-          borderRadius: "12px",
-          overflow: "hidden",
-          border: `1px solid rgba(109,35,35,0.12)`,
-          animation: "laPulse 2s ease-in-out infinite",
-        }}
-      >
-        <Box
-          sx={{
-            p: 3,
-            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 2,
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
+      <Box sx={{ mb: 2, borderRadius: "12px", overflow: "hidden", border: `1px solid rgba(109,35,35,0.12)`, animation: "laPulse 2s ease-in-out infinite" }}>
+        <Box sx={{ p: 3, background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, position: "relative", overflow: "hidden" }}>
           <Box sx={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.06)" }} />
           <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.04)" }} />
           <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
             <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.1)", flexShrink: 0 }} />
-            <Box>
-              <Bone w={240} h={16} sx={{ mb: 1 }} />
-              <Bone w={360} h={10} />
-            </Box>
+            <Box><Bone w={240} h={16} sx={{ mb: 1 }} /><Bone w={360} h={10} /></Box>
           </Box>
           <Box sx={{ display: "flex", gap: 1, position: "relative", zIndex: 1 }}>
-            <Bone w={120} h={30} r={20} />
-            <Bone w={36} h={36} r={8} />
+            <Bone w={120} h={30} r={20} /><Bone w={36} h={36} r={8} />
           </Box>
         </Box>
       </Box>
-
-      {/* ── Two-column body skeleton ── */}
       <Box sx={{ display: "grid", gridTemplateColumns: "4fr 8fr", gap: 2 }}>
-
-        {/* ── Left col — Add Assignment Form ── */}
-        <Box
-          sx={{
-            borderRadius: "12px",
-            border: `1px solid rgba(109,35,35,0.12)`,
-            overflow: "hidden",
-            bgcolor: "#fff",
-            height: "calc(100vh - 280px)",
-            minHeight: 480,
-            display: "flex",
-            flexDirection: "column",
-            animation: "laPulse 2s ease-in-out 0.05s infinite",
-          }}
-        >
-          {/* Col header */}
+        <Box sx={{ borderRadius: "12px", border: `1px solid rgba(109,35,35,0.12)`, overflow: "hidden", bgcolor: "#fff", height: "calc(100vh - 280px)", minHeight: 480, display: "flex", flexDirection: "column", animation: "laPulse 2s ease-in-out 0.05s infinite" }}>
           <Box sx={{ px: 2.5, py: 1.25, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(109,35,35,0.05)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} />
-              <Bone w={160} h={10} />
-            </Box>
-            {/* Hours/Days toggle skeleton */}
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Bone w={50} h={9} />
-              <Bone w={100} h={26} r={6} />
-            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} /><Bone w={160} h={10} /></Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Bone w={50} h={9} /><Bone w={100} h={26} r={6} /></Box>
           </Box>
-
           <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 1.5, flex: 1, overflowY: "hidden" }}>
-            {/* Employee autocomplete */}
-            <Box>
-              <Bone w={130} h={10} sx={{ mb: 0.75 }} />
-              <Bone w="100%" h={36} r={8} />
-            </Box>
-            {/* Period row */}
+            <Box><Bone w={130} h={10} sx={{ mb: 0.75 }} /><Bone w="100%" h={36} r={8} /></Box>
             <Box sx={{ display: "grid", gridTemplateColumns: "4fr 8fr", gap: 1.5 }}>
-              <Box>
-                <Bone w={80} h={10} sx={{ mb: 0.75 }} />
-                <Bone w="100%" h={36} r={8} />
-              </Box>
-              <Box>
-                <Bone w={100} h={10} sx={{ mb: 0.75 }} />
-                <Bone w="100%" h={36} r={8} />
-              </Box>
+              <Box><Bone w={80} h={10} sx={{ mb: 0.75 }} /><Bone w="100%" h={36} r={8} /></Box>
+              <Box><Bone w={100} h={10} sx={{ mb: 0.75 }} /><Bone w="100%" h={36} r={8} /></Box>
             </Box>
-            {/* Column headers */}
             <Box sx={{ display: "grid", gridTemplateColumns: "140px 1fr 90px", gap: 1, px: 1.5, py: 0.75, bgcolor: "rgba(109,35,35,0.04)", borderRadius: 1 }}>
               {[70, 90, 50].map((w, i) => <Bone key={i} w={w} h={9} />)}
             </Box>
-            {/* Leave type rows */}
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "140px 1fr 90px",
-                    gap: 1,
-                    px: 1.5,
-                    py: 0.85,
-                    borderRadius: 1.5,
-                    border: "1px solid rgba(0,0,0,0.08)",
-                    bgcolor: "rgba(0,0,0,0.01)",
-                    animation: `laPulse 1.6s ease-in-out ${i * 0.07}s infinite`,
-                  }}
-                >
-                  <Box>
-                    <Bone w={55} h={12} sx={{ mb: 0.4 }} />
-                    <Bone w={75} h={8} />
-                  </Box>
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Bone w={70} h={28} r={6} />
-                  </Box>
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <Bone w="100%" h={30} r={6} />
-                  </Box>
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Bone w={55} h={12} />
-                  </Box>
+                <Box key={i} sx={{ display: "grid", gridTemplateColumns: "140px 1fr 90px", gap: 1, px: 1.5, py: 0.85, borderRadius: 1.5, border: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(0,0,0,0.01)", animation: `laPulse 1.6s ease-in-out ${i * 0.07}s infinite` }}>
+                  <Box><Bone w={55} h={12} sx={{ mb: 0.4 }} /><Bone w={75} h={8} /></Box>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center" }}><Bone w={70} h={28} r={6} /></Box>
+                  <Box sx={{ display: "flex", alignItems: "center" }}><Bone w="100%" h={30} r={6} /></Box>
                 </Box>
               ))}
             </Box>
           </Box>
-
-          {/* Submit button area */}
-          <Box sx={{ px: 2.5, pb: 2, pt: 1, borderTop: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}>
-            <Bone w="100%" h={40} r={8} />
-          </Box>
+          <Box sx={{ px: 2.5, pb: 2, pt: 1, borderTop: "1px solid rgba(0,0,0,0.08)", flexShrink: 0 }}><Bone w="100%" h={40} r={8} /></Box>
         </Box>
-
-        {/* ── Right col — Records Panel ── */}
-        <Box
-          sx={{
-            borderRadius: "12px",
-            border: `1px solid rgba(109,35,35,0.12)`,
-            overflow: "hidden",
-            bgcolor: "#fff",
-            height: "calc(100vh - 280px)",
-            minHeight: 480,
-            display: "flex",
-            flexDirection: "column",
-            animation: "laPulse 2s ease-in-out 0.1s infinite",
-          }}
-        >
-          {/* Records header */}
+        <Box sx={{ borderRadius: "12px", border: `1px solid rgba(109,35,35,0.12)`, overflow: "hidden", bgcolor: "#fff", height: "calc(100vh - 280px)", minHeight: 480, display: "flex", flexDirection: "column", animation: "laPulse 2s ease-in-out 0.1s infinite" }}>
           <Box sx={{ px: 2.5, py: 1.75, borderBottom: "1px solid rgba(0,0,0,0.08)", bgcolor: "rgba(109,35,35,0.05)", flexShrink: 0 }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.25 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Box sx={{ width: 15, height: 15, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} />
-                <Bone w={180} h={12} />
-              </Box>
-              <Box sx={{ display: "flex", gap: 0.75 }}>
-                <Bone w={130} h={22} r={20} />
-                <Bone w={56} h={28} r={6} />
-              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Box sx={{ width: 15, height: 15, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.2)" }} /><Bone w={180} h={12} /></Box>
+              <Box sx={{ display: "flex", gap: 0.75 }}><Bone w={130} h={22} r={20} /><Bone w={56} h={28} r={6} /></Box>
             </Box>
-            {/* Search + dept filter */}
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Bone w="100%" h={32} r={8} />
-              <Bone w={130} h={32} r={8} sx={{ flexShrink: 0 }} />
-            </Box>
+            <Box sx={{ display: "flex", gap: 1 }}><Bone w="100%" h={32} r={8} /><Bone w={130} h={32} r={8} sx={{ flexShrink: 0 }} /></Box>
           </Box>
-
-          {/* Grid of employee cards */}
           <Box sx={{ flex: 1, overflowY: "hidden", p: 2 }}>
             <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1.5 }}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    p: 1.75,
-                    borderRadius: 2,
-                    border: "1px solid rgba(109,35,35,0.12)",
-                    bgcolor: "#fff",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 0.75,
-                    animation: `laPulse 1.6s ease-in-out ${i * 0.06}s infinite`,
-                  }}
-                >
-                  {/* Avatar + name row */}
+                <Box key={i} sx={{ p: 1.75, borderRadius: 2, border: "1px solid rgba(109,35,35,0.12)", bgcolor: "#fff", display: "flex", flexDirection: "column", gap: 0.75, animation: `laPulse 1.6s ease-in-out ${i * 0.06}s infinite` }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
                     <Box sx={{ width: 32, height: 32, borderRadius: "8px", bgcolor: "rgba(109,35,35,0.1)", flexShrink: 0 }} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Bone w="85%" h={12} sx={{ mb: 0.4 }} />
-                      <Box sx={{ display: "flex", gap: 0.4 }}>
-                        <Bone w={40} h={9} />
-                        <Bone w={32} h={14} r={20} />
-                        <Bone w={36} h={14} r={20} />
-                      </Box>
-                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}><Bone w="85%" h={12} sx={{ mb: 0.4 }} /><Box sx={{ display: "flex", gap: 0.4 }}><Bone w={40} h={9} /><Bone w={32} h={14} r={20} /><Bone w={36} h={14} r={20} /></Box></Box>
                   </Box>
-                  {/* Leave type chips */}
-                  <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}>
-                    {[28, 32, 24].map((w, j) => (
-                      <Bone key={j} w={w} h={18} r={4} />
-                    ))}
-                  </Box>
-                  {/* Footer row */}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", pt: 0.75, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-                    <Bone w={70} h={9} />
-                    <Bone w={60} h={9} />
-                  </Box>
+                  <Box sx={{ display: "flex", gap: 0.4, flexWrap: "wrap" }}>{[28, 32, 24].map((w, j) => <Bone key={j} w={w} h={18} r={4} />)}</Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", pt: 0.75, borderTop: "1px solid rgba(0,0,0,0.06)" }}><Bone w={70} h={9} /><Bone w={60} h={9} /></Box>
                 </Box>
               ))}
             </Box>
           </Box>
-
-          {/* Pagination */}
-          <Box sx={{ px: 2, py: 0.75, borderTop: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}>
-            <Bone w={220} h={28} r={6} />
-          </Box>
+          <Box sx={{ px: 2, py: 0.75, borderTop: "1px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}><Bone w={220} h={28} r={6} /></Box>
         </Box>
       </Box>
     </Box>
@@ -423,7 +273,6 @@ const getStatusColor = (remaining, total) => { if (!total || total === 0) return
 const hoursToDisplay = (hours, unit) => unit === "hours" ? parseFloat(hours || 0).toFixed(3) : (parseFloat(hours || 0) / 8).toFixed(3);
 const displayToHours = (val, unit) => unit === "hours" ? parseFloat(val || 0) : parseFloat((parseFloat(val || 0) * 8).toFixed(3));
 const hoursToLabel = (h, unit) => unit === "hours" ? `${parseFloat(h || 0).toFixed(3)} hrs` : `${(parseFloat(h || 0) / 8).toFixed(3)} days`;
-/** Days string for editable fields (hours÷8). Regex /\.\?0+$/ on "10" incorrectly became "1"; only trim after a decimal. */
 const hoursToDaysInputStr = (hrs) => {
   const h = parseFloat(hrs);
   if (!Number.isFinite(h) || h === 0) return "";
@@ -479,6 +328,18 @@ function sanitizeDecimal(v) {
   return Number(n.toFixed(3));
 }
 
+// ─── Sort periods: latest first ───────────────────────────────────────────────
+const sortPeriodsDesc = (periods) =>
+  [...periods].sort((a, b) => {
+    if (b.period_year !== a.period_year) return b.period_year - a.period_year;
+    const aM = parseInt(a.period_semester, 10) || 0;
+    const bM = parseInt(b.period_semester, 10) || 0;
+    if (aM !== bM) return bM - aM;
+    const semDiff = semOrder(b.period_semester) - semOrder(a.period_semester);
+    if (semDiff !== 0) return semDiff;
+    return toNum(b.id) - toNum(a.id);
+  });
+
 // ─── Dept badge ────────────────────────────────────────────────────────────────
 const DeptBadge = ({ code, light = false }) => {
   if (!code) return null;
@@ -522,18 +383,10 @@ const GenderBadge = ({ gender, light = false }) => {
   );
 };
 
-// ─── NEW: Earnings Banner shown in period modal cards ─────────────────────────
-// Shows pending + approved (non-commuted) earnings beside the assignment row.
-// "approved" ones are already baked into total_hours — we show them with a note.
-// "pending" ones are NOT yet in total_hours — we show how much extra is incoming.
+// ─── EarningsBanner ───────────────────────────────────────────────────────────
 const EarningsBanner = ({
-  employeeNumber,
-  leaveCode,
-  periodYear,
-  periodSemester,
-  unit,
-  baseRemainingHours = null,
-  baseTotalHours = null,
+  employeeNumber, leaveCode, periodYear, periodSemester, unit,
+  baseRemainingHours = null, baseTotalHours = null,
 }) => {
   const [earnings, setEarnings] = useState([]);
   const [loading,  setLoading]  = useState(false);
@@ -544,31 +397,12 @@ const EarningsBanner = ({
     let cancelled = false;
     setLoading(true);
     const token = localStorage.getItem("token");
-    // Fetch all earnings for this employee + leave code (no month filter — show all)
-    axios
-      .get(`${API_BASE_URL}/api/earnings/leave/${employeeNumber}?all=true`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+    axios.get(`${API_BASE_URL}/api/earnings/leave/${employeeNumber}?all=true`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {
         if (cancelled) return;
         const all = Array.isArray(r.data?.earnings) ? r.data.earnings : [];
-        // Filter to this leave code only, and not rejected
-        const relevant = all.filter(
-          (e) =>
-            e.leave_code === leaveCode &&
-            e.earn_status !== "rejected" &&
-            (
-              // Match by period_year
-              !periodYear ||
-              String(e.period_year) === String(periodYear) ||
-              // If no match on year, still show so user knows earnings exist
-              true
-            )
-        );
-        // Only keep entries whose period_year matches the assignment period
-        const filtered = relevant.filter(
-          (e) => !periodYear || String(e.period_year) === String(periodYear)
-        );
+        const relevant = all.filter((e) => e.leave_code === leaveCode && e.earn_status !== "rejected");
+        const filtered = relevant.filter((e) => !periodYear || String(e.period_year) === String(periodYear));
         setEarnings(filtered.length > 0 ? filtered : relevant.slice(0, 5));
       })
       .catch(() => {})
@@ -582,19 +416,13 @@ const EarningsBanner = ({
       <Typography sx={{ fontSize: "0.62rem", color: "#1565c0", fontFamily: T.poppins }}>Checking earnings…</Typography>
     </Box>
   );
-
   if (earnings.length === 0) return null;
 
   const pendingEarnings  = earnings.filter((e) => e.earn_status === "pending");
   const approvedEarnings = earnings.filter((e) => e.earn_status === "approved");
-
   const pendingHrs  = pendingEarnings.reduce((s, e) => s + toNum(e.earned_hours), 0);
   const approvedHrs = approvedEarnings.reduce((s, e) => s + toNum(e.earned_hours), 0);
-
-  const fmt = (h) => unit === "hours"
-    ? `${h.toFixed(3)} hrs`
-    : `${(h / 8).toFixed(3)} days`;
-
+  const fmt = (h) => unit === "hours" ? `${h.toFixed(3)} hrs` : `${(h / 8).toFixed(3)} days`;
   const baseRem = baseRemainingHours != null ? toNum(baseRemainingHours) : null;
   const baseTot = baseTotalHours != null ? toNum(baseTotalHours) : null;
   const nextRemIfPendingApproved = baseRem != null ? Math.max(0, baseRem + pendingHrs) : null;
@@ -602,75 +430,26 @@ const EarningsBanner = ({
 
   return (
     <Box sx={{ mt: 0.75 }}>
-      {/* Summary row */}
-      <Box
-        onClick={() => setExpanded((v) => !v)}
-        sx={{
-          display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap",
-          px: 1.25, py: 0.65, borderRadius: "8px",
-          bgcolor: pendingHrs > 0 ? T.earnPending.bg : "rgba(46,125,50,0.06)",
-          border: `1px solid ${pendingHrs > 0 ? T.earnPending.border : "rgba(46,125,50,0.22)"}`,
-          cursor: "pointer",
-          "&:hover": { filter: "brightness(0.97)" },
-        }}
-      >
+      <Box onClick={() => setExpanded((v) => !v)}
+        sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", px: 1.25, py: 0.65, borderRadius: "8px", bgcolor: pendingHrs > 0 ? T.earnPending.bg : "rgba(46,125,50,0.06)", border: `1px solid ${pendingHrs > 0 ? T.earnPending.border : "rgba(46,125,50,0.22)"}`, cursor: "pointer", "&:hover": { filter: "brightness(0.97)" } }}>
         <EarnIcon sx={{ fontSize: 12, color: pendingHrs > 0 ? T.earnPending.color : "#2e7d32", flexShrink: 0 }} />
-        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: pendingHrs > 0 ? T.earnPending.color : "#2e7d32", fontFamily: T.poppins }}>
-          Earnings for this leave type
-        </Typography>
-
-        {approvedHrs > 0 && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.2, borderRadius: "5px", bgcolor: T.earnApproved.bg, border: `1px solid ${T.earnApproved.border}` }}>
-            <CheckIcon sx={{ fontSize: 10, color: T.earnApproved.color }} />
-            <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: T.earnApproved.color, fontFamily: T.poppins }}>{fmt(approvedHrs)} approved</Typography>
-          </Box>
-        )}
-        {pendingHrs > 0 && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.2, borderRadius: "5px", bgcolor: T.earnPending.bg, border: `1px solid ${T.earnPending.border}` }}>
-            <PendingIcon sx={{ fontSize: 10, color: T.earnPending.color }} />
-            <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: T.earnPending.color, fontFamily: T.poppins }}>{fmt(pendingHrs)} pending</Typography>
-          </Box>
-        )}
-
-        {approvedHrs > 0 && (
-          <Tooltip title="Approved earnings are already included in the Total shown above.">
-            <Typography sx={{ fontSize: "0.58rem", color: "#2e7d32", fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>
-              ✓ included in total
-            </Typography>
-          </Tooltip>
-        )}
-        {pendingHrs > 0 && approvedHrs === 0 && (
-          <Tooltip title="These pending earnings are NOT yet added to the assignment total. They will be added once approved.">
-            <Typography sx={{ fontSize: "0.58rem", color: T.earnPending.color, fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>
-              ⏳ not yet in total
-            </Typography>
-          </Tooltip>
-        )}
-
-        <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, ml: approvedHrs > 0 || pendingHrs > 0 ? 0 : "auto" }}>
-          {expanded ? "▲ hide" : "▼ details"}
-        </Typography>
+        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: pendingHrs > 0 ? T.earnPending.color : "#2e7d32", fontFamily: T.poppins }}>Earnings for this leave type</Typography>
+        {approvedHrs > 0 && (<Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.2, borderRadius: "5px", bgcolor: T.earnApproved.bg, border: `1px solid ${T.earnApproved.border}` }}><CheckIcon sx={{ fontSize: 10, color: T.earnApproved.color }} /><Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: T.earnApproved.color, fontFamily: T.poppins }}>{fmt(approvedHrs)} approved</Typography></Box>)}
+        {pendingHrs > 0 && (<Box sx={{ display: "flex", alignItems: "center", gap: 0.4, px: 0.75, py: 0.2, borderRadius: "5px", bgcolor: T.earnPending.bg, border: `1px solid ${T.earnPending.border}` }}><PendingIcon sx={{ fontSize: 10, color: T.earnPending.color }} /><Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: T.earnPending.color, fontFamily: T.poppins }}>{fmt(pendingHrs)} pending</Typography></Box>)}
+        {approvedHrs > 0 && (<Tooltip title="Approved earnings are already included in the Total shown above."><Typography sx={{ fontSize: "0.58rem", color: "#2e7d32", fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>✓ included in total</Typography></Tooltip>)}
+        {pendingHrs > 0 && approvedHrs === 0 && (<Tooltip title="These pending earnings are NOT yet added to the assignment total."><Typography sx={{ fontSize: "0.58rem", color: T.earnPending.color, fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>⏳ not yet in total</Typography></Tooltip>)}
+        <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, ml: approvedHrs > 0 || pendingHrs > 0 ? 0 : "auto" }}>{expanded ? "▲ hide" : "▼ details"}</Typography>
       </Box>
-
-      {/* NEW: show what pending approval would do to remaining/total */}
       {pendingHrs > 0 && baseRem != null && baseTot != null && (
         <Box sx={{ mt: 0.5, px: 0.75 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", px: 1.25, py: 0.6, borderRadius: "7px", bgcolor: "rgba(25,118,210,0.05)", border: "1px solid rgba(25,118,210,0.18)" }}>
             <InfoIcon sx={{ fontSize: 11, color: "#1565c0" }} />
-            <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins }}>
-              If pending is approved:
-            </Typography>
-            <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>
-              Remaining {fmt(baseRem)} → {fmt(nextRemIfPendingApproved)}
-            </Typography>
-            <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>
-              · Total {fmt(baseTot)} → {fmt(nextTotIfPendingApproved)}
-            </Typography>
+            <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins }}>If pending is approved:</Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>Remaining {fmt(baseRem)} → {fmt(nextRemIfPendingApproved)}</Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>· Total {fmt(baseTot)} → {fmt(nextTotIfPendingApproved)}</Typography>
           </Box>
         </Box>
       )}
-
-      {/* Expanded detail rows */}
       {expanded && (
         <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 0.4, px: 0.5 }}>
           {earnings.map((e) => {
@@ -678,50 +457,22 @@ const EarningsBanner = ({
             const isApproved = e.earn_status === "approved";
             const meta = isPending ? T.earnPending : T.earnApproved;
             return (
-              <Box key={e.id} sx={{
-                display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap",
-                px: 1.25, py: 0.5, borderRadius: "7px",
-                bgcolor: meta.bg, border: `1px solid ${meta.border}`,
-              }}>
+              <Box key={e.id} sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", px: 1.25, py: 0.5, borderRadius: "7px", bgcolor: meta.bg, border: `1px solid ${meta.border}` }}>
                 {isPending  && <PendingIcon sx={{ fontSize: 11, color: meta.color, flexShrink: 0 }} />}
                 {isApproved && <CheckIcon   sx={{ fontSize: 11, color: meta.color, flexShrink: 0 }} />}
-                <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: meta.color, fontFamily: T.poppins }}>
-                  {fmt(toNum(e.earned_hours))}
-                </Typography>
-                <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>
-                  {e.period_year}{e.period_month ? ` · Month ${e.period_month}` : ""}
-                </Typography>
-                <Chip
-                  label={isPending ? "Pending" : "Approved"}
-                  size="small"
-                  sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}
-                />
-                {isApproved && (
-                  <Typography sx={{ fontSize: "0.58rem", color: "#4caf50", fontFamily: T.poppins, fontStyle: "italic" }}>
-                    already in assignment total
-                  </Typography>
-                )}
-                {isPending && (
-                  <Typography sx={{ fontSize: "0.58rem", color: T.earnPending.color, fontFamily: T.poppins, fontStyle: "italic" }}>
-                    will be added on approval
-                  </Typography>
-                )}
-                {e.remarks && (
-                  <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>
-                    {e.remarks}
-                  </Typography>
-                )}
+                <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: meta.color, fontFamily: T.poppins }}>{fmt(toNum(e.earned_hours))}</Typography>
+                <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins }}>{e.period_year}{e.period_month ? ` · Month ${e.period_month}` : ""}</Typography>
+                <Chip label={isPending ? "Pending" : "Approved"} size="small" sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }} />
+                {isApproved && <Typography sx={{ fontSize: "0.58rem", color: "#4caf50", fontFamily: T.poppins, fontStyle: "italic" }}>already in assignment total</Typography>}
+                {isPending && <Typography sx={{ fontSize: "0.58rem", color: T.earnPending.color, fontFamily: T.poppins, fontStyle: "italic" }}>will be added on approval</Typography>}
+                {e.remarks && <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, ml: "auto", fontStyle: "italic" }}>{e.remarks}</Typography>}
               </Box>
             );
           })}
-
-          {/* Grand total row if mixed */}
           {pendingHrs > 0 && approvedHrs > 0 && (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.5, borderRadius: "7px", bgcolor: "rgba(25,118,210,0.07)", border: "1px solid rgba(25,118,210,0.2)", mt: 0.25 }}>
               <InfoIcon sx={{ fontSize: 11, color: "#1565c0" }} />
-              <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins }}>
-                If all approved: total would be {fmt(approvedHrs + pendingHrs)}
-              </Typography>
+              <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: "#1565c0", fontFamily: T.poppins }}>If all approved: total would be {fmt(approvedHrs + pendingHrs)}</Typography>
             </Box>
           )}
         </Box>
@@ -731,10 +482,7 @@ const EarningsBanner = ({
 };
 
 // ─── CreditInput ───────────────────────────────────────────────────────────────
-const CreditInput = ({
-  label, valueHours, onChangeHours, unit,
-  required = false, disabled = false, color = T.accent, autoFilled = false,
-}) => {
+const CreditInput = ({ label, valueHours, onChangeHours, unit, required = false, disabled = false, color = T.accent, autoFilled = false }) => {
   const [inputVal, setInputVal] = useState("");
   const isFocused = useRef(false);
 
@@ -746,48 +494,21 @@ const CreditInput = ({
     return hoursToDaysInputStr(n) || "";
   }, [unit]);
 
-  useEffect(() => {
-    if (!isFocused.current) {
-      setInputVal(toDisplayStr(valueHours));
-    }
-  }, [valueHours, toDisplayStr]);
+  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(valueHours)); }, [valueHours, toDisplayStr]);
+  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(valueHours)); }, [unit]); // eslint-disable-line
 
-  useEffect(() => {
-    if (!isFocused.current) {
-      setInputVal(toDisplayStr(valueHours));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unit]);
-
-  const handleFocus = () => {
-    isFocused.current = true;
-    if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
-  };
-
-  const handleChange = (e) => {
-    setInputVal(e.target.value);
-  };
-
+  const handleFocus = () => { isFocused.current = true; if (!inputVal || parseFloat(inputVal) === 0) setInputVal(""); };
+  const handleChange = (e) => { setInputVal(e.target.value); };
   const handleBlur = () => {
     isFocused.current = false;
     const num = parseFloat(inputVal);
-    const hrs = isNaN(num) || inputVal.trim() === ""
-      ? 0
-      : unit === "hours"
-        ? num
-        : parseFloat((num * 8).toFixed(6));
+    const hrs = isNaN(num) || inputVal.trim() === "" ? 0 : unit === "hours" ? num : parseFloat((num * 8).toFixed(6));
     onChangeHours(hrs);
     setInputVal(hrs === 0 ? "" : toDisplayStr(hrs));
   };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") e.currentTarget.blur();
-  };
-
+  const handleKeyDown = (e) => { if (e.key === "Enter") e.currentTarget.blur(); };
   const rawNum = parseFloat(inputVal) || 0;
-  const equivalentLabel = unit === "hours"
-    ? `= ${(rawNum / 8).toFixed(3)} days`
-    : `= ${(rawNum * 8).toFixed(3)} hrs`;
+  const equivalentLabel = unit === "hours" ? `= ${(rawNum / 8).toFixed(3)} days` : `= ${(rawNum * 8).toFixed(3)} hrs`;
 
   return (
     <Box>
@@ -795,33 +516,10 @@ const CreditInput = ({
         {label}{required && <span style={{ color: "#c62828" }}> *</span>}
         {autoFilled && <span style={{ color: "#2e7d32", marginLeft: 6, fontSize: "0.65rem", fontWeight: 800 }}>● auto-filled</span>}
       </Typography>
-      <FieldInput
-        type="text"
-        inputMode="decimal"
-        size="small"
-        fullWidth
-        disabled={disabled}
-        value={inputVal}
-        onChange={handleChange}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        sx={{
-          "& .MuiOutlinedInput-root": {
-            borderColor: autoFilled ? "rgba(46,125,50,0.5)" : T.accentBorder,
-            bgcolor: autoFilled ? "rgba(46,125,50,0.03)" : "#fff",
-          },
-          "& .MuiInputBase-input": { color, fontWeight: 700 },
-        }}
-        InputProps={{
-          endAdornment: (
-            <InputAdornment position="end">
-              <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontWeight: 700, whiteSpace: "nowrap" }}>
-                {equivalentLabel}
-              </Typography>
-            </InputAdornment>
-          ),
-        }}
+      <FieldInput type="text" inputMode="decimal" size="small" fullWidth disabled={disabled} value={inputVal}
+        onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur} onKeyDown={handleKeyDown}
+        sx={{ "& .MuiOutlinedInput-root": { borderColor: autoFilled ? "rgba(46,125,50,0.5)" : T.accentBorder, bgcolor: autoFilled ? "rgba(46,125,50,0.03)" : "#fff" }, "& .MuiInputBase-input": { color, fontWeight: 700 } }}
+        InputProps={{ endAdornment: (<InputAdornment position="end"><Typography sx={{ fontSize: "0.68rem", color: T.faint, fontWeight: 700, whiteSpace: "nowrap" }}>{equivalentLabel}</Typography></InputAdornment>) }}
       />
     </Box>
   );
@@ -829,7 +527,7 @@ const CreditInput = ({
 
 // ─── RemainingBalance ─────────────────────────────────────────────────────────
 const RemainingBalance = ({ hoursLike, color, unit = "days", alignItems = "flex-end", large = false }) => {
-  const h = toNum(hoursLike);
+  const h    = toNum(hoursLike);
   const days = (h / 8).toFixed(3);
   const hrs  = h.toFixed(3);
   return (
@@ -844,11 +542,8 @@ const RemainingBalance = ({ hoursLike, color, unit = "days", alignItems = "flex-
   );
 };
 
-// (Commutation transfer UI removed)
 // ─── BulkAutoAssignDialog ──────────────────────────────────────────────────────
-const BulkAutoAssignDialog = ({
-  open, onClose, leaveTypes, assignments, employees, onSuccess, deptMap = {},
-}) => {
+const BulkAutoAssignDialog = ({ open, onClose, leaveTypes, assignments, employees, onSuccess, deptMap = {} }) => {
   const [targetYear,         setTargetYear]         = useState(new Date().getFullYear() + 1);
   const [selectedLeaveCodes, setSelectedLeaveCodes] = useState([]);
   const [running,            setRunning]            = useState(false);
@@ -864,30 +559,17 @@ const BulkAutoAssignDialog = ({
   const yearOptions = useMemo(() => {
     const opts = [];
     for (let y = new Date().getFullYear() - 2; y <= new Date().getFullYear() + 5; y++)
-      opts.push({
-        value: y,
-        label: y === new Date().getFullYear()     ? `${y} — Current`
-             : y === new Date().getFullYear() + 1 ? `${y} — Next Year`
-             : String(y),
-      });
+      opts.push({ value: y, label: y === new Date().getFullYear() ? `${y} — Current` : y === new Date().getFullYear() + 1 ? `${y} — Next Year` : String(y) });
     return opts;
   }, []);
 
-  const allDeptCodes = useMemo(() => {
-    const codes = [...new Set(Object.values(deptMap).filter(Boolean))].sort();
-    return codes;
-  }, [deptMap]);
+  const allDeptCodes = useMemo(() => [...new Set(Object.values(deptMap).filter(Boolean))].sort(), [deptMap]);
 
   const employeesWithAssignments = useMemo(() => {
     const nums = [...new Set(assignments.map((a) => a.employeeNumber?.toString()))];
     return nums.map((num) => {
       const info = employees.find((e) => e.employeeNumber?.toString() === num);
-      return {
-        employeeNumber: num,
-        fullName: info?.fullName || num,
-        sex: info?.sex || info?.gender || null,
-        deptCode: deptMap[num] || null,
-      };
+      return { employeeNumber: num, fullName: info?.fullName || num, sex: info?.sex || info?.gender || null, deptCode: deptMap[num] || null };
     });
   }, [assignments, employees, deptMap]);
 
@@ -901,10 +583,7 @@ const BulkAutoAssignDialog = ({
   const searchedLeaveTypes = useMemo(() => {
     if (!ltSearch.trim()) return filteredLeaveTypesForDropdown;
     const s = ltSearch.toLowerCase();
-    return filteredLeaveTypesForDropdown.filter(
-      (lt) => lt.leave_code.toLowerCase().includes(s) ||
-               (lt.leave_description || "").toLowerCase().includes(s)
-    );
+    return filteredLeaveTypesForDropdown.filter((lt) => lt.leave_code.toLowerCase().includes(s) || (lt.leave_description || "").toLowerCase().includes(s));
   }, [filteredLeaveTypesForDropdown, ltSearch]);
 
   useEffect(() => {
@@ -912,10 +591,7 @@ const BulkAutoAssignDialog = ({
     setSelectedLeaveCodes((prev) => prev.filter((c) => validCodes.has(c)));
   }, [filteredLeaveTypesForDropdown]);
 
-  const selectedLeaveTypeObjects = useMemo(
-    () => leaveTypes.filter((lt) => selectedLeaveCodes.includes(lt.leave_code)),
-    [leaveTypes, selectedLeaveCodes],
-  );
+  const selectedLeaveTypeObjects = useMemo(() => leaveTypes.filter((lt) => selectedLeaveCodes.includes(lt.leave_code)), [leaveTypes, selectedLeaveCodes]);
 
   const pendingByEmployee = useMemo(() => {
     const map = {};
@@ -940,12 +616,7 @@ const BulkAutoAssignDialog = ({
       const hasPending = pendingEmpNums.has(emp.employeeNumber);
       const pendingInfo = hasPending ? pendingByEmployee.find((p) => p.employeeNumber === emp.employeeNumber) : null;
       const alreadyDoneCount = selectedLeaveTypeObjects.filter((lt) =>
-        isLeaveAllowedForGender(lt, emp.sex) &&
-        assignments.some((a) =>
-          a.employeeNumber?.toString() === emp.employeeNumber &&
-          a.leave_code === lt.leave_code &&
-          a.period_year?.toString() === targetYear.toString()
-        )
+        isLeaveAllowedForGender(lt, emp.sex) && assignments.some((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code && a.period_year?.toString() === targetYear.toString())
       ).length;
       const eligibleCount = selectedLeaveTypeObjects.filter((lt) => isLeaveAllowedForGender(lt, emp.sex)).length;
       return { ...emp, hasPending, pendingInfo, alreadyDoneCount, eligibleCount };
@@ -955,10 +626,7 @@ const BulkAutoAssignDialog = ({
   const filteredEmployees = useMemo(() => {
     let list = allEmployeesAnnotated;
     if (filterDept !== "all") list = list.filter((e) => (e.deptCode || "") === filterDept);
-    if (empSearch.trim()) {
-      const s = empSearch.toLowerCase();
-      list = list.filter((e) => e.fullName.toLowerCase().includes(s) || e.employeeNumber.includes(s));
-    }
+    if (empSearch.trim()) { const s = empSearch.toLowerCase(); list = list.filter((e) => e.fullName.toLowerCase().includes(s) || e.employeeNumber.includes(s)); }
     if (empFilterStatus === "pending") list = list.filter((e) => e.hasPending);
     if (empFilterStatus === "ready")   list = list.filter((e) => !e.hasPending);
     return list;
@@ -968,38 +636,21 @@ const BulkAutoAssignDialog = ({
     if (!selectedLeaveCodes.length) return { toCreate: 0, skipped: 0 };
     let toCreate = 0, toSkip = 0;
     selectedLeaveTypeObjects.forEach((lt) => {
-      employeesWithAssignments
-        .filter((emp) => isLeaveAllowedForGender(lt, emp.sex))
-        .forEach((emp) => {
-          const exists = assignments.some(
-            (a) => a.employeeNumber?.toString() === emp.employeeNumber &&
-                   a.leave_code === lt.leave_code &&
-                   a.period_year?.toString() === targetYear.toString()
-          );
-          if (exists) toSkip++; else toCreate++;
-        });
+      employeesWithAssignments.filter((emp) => isLeaveAllowedForGender(lt, emp.sex)).forEach((emp) => {
+        const exists = assignments.some((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code && a.period_year?.toString() === targetYear.toString());
+        if (exists) toSkip++; else toCreate++;
+      });
     });
     return { toCreate, skipped: toSkip };
   }, [selectedLeaveTypeObjects, employeesWithAssignments, assignments, targetYear, selectedLeaveCodes]);
 
-  const allVisibleSelected = searchedLeaveTypes.length > 0 &&
-    searchedLeaveTypes.every((lt) => selectedLeaveCodes.includes(lt.leave_code));
+  const allVisibleSelected = searchedLeaveTypes.length > 0 && searchedLeaveTypes.every((lt) => selectedLeaveCodes.includes(lt.leave_code));
 
   const handleToggleAll = () => {
-    if (allVisibleSelected) {
-      const visibleCodes = new Set(searchedLeaveTypes.map((lt) => lt.leave_code));
-      setSelectedLeaveCodes((prev) => prev.filter((c) => !visibleCodes.has(c)));
-    } else {
-      const toAdd = searchedLeaveTypes.map((lt) => lt.leave_code);
-      setSelectedLeaveCodes((prev) => [...new Set([...prev, ...toAdd])]);
-    }
+    if (allVisibleSelected) { const visibleCodes = new Set(searchedLeaveTypes.map((lt) => lt.leave_code)); setSelectedLeaveCodes((prev) => prev.filter((c) => !visibleCodes.has(c))); }
+    else { const toAdd = searchedLeaveTypes.map((lt) => lt.leave_code); setSelectedLeaveCodes((prev) => [...new Set([...prev, ...toAdd])]); }
   };
-
-  const handleToggleOne = (code) => {
-    setSelectedLeaveCodes((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
-  };
+  const handleToggleOne = (code) => setSelectedLeaveCodes((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
 
   const handleRun = async () => {
     if (!selectedLeaveCodes.length || pendingByEmployee.length > 0) return;
@@ -1009,19 +660,12 @@ const BulkAutoAssignDialog = ({
     for (const lt of selectedLeaveTypeObjects) {
       const eligible = employeesWithAssignments.filter((emp) => isLeaveAllowedForGender(lt, emp.sex));
       for (const emp of eligible) {
-        const exists = assignments.some(
-          (a) => a.employeeNumber?.toString() === emp.employeeNumber &&
-                 a.leave_code === lt.leave_code &&
-                 a.period_year?.toString() === targetYear.toString()
-        );
+        const exists = assignments.some((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code && a.period_year?.toString() === targetYear.toString());
         if (exists) { skipped++; continue; }
         setProgressMsg(`${lt.leave_code} → ${emp.fullName}`);
         try {
-          const prevRem = sumDedupedRemainingHours(
-            assignments.filter((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code),
-          );
-          await axios.post(
-            `${API_BASE_URL}/leaveRoute/leave_assignment`,
+          const prevRem = sumDedupedRemainingHours(assignments.filter((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code));
+          await axios.post(`${API_BASE_URL}/leaveRoute/leave_assignment`,
             { leave_code: lt.leave_code, employeeNumber: emp.employeeNumber, total_hours: 0, carried_forward_hours: prevRem, allocated_hours: 0, period_year: parseInt(targetYear, 10), period_semester: null },
             { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
           );
@@ -1037,9 +681,7 @@ const BulkAutoAssignDialog = ({
 
   const handleClose = () => {
     if (running) return;
-    setResults(null); setProgress(0); setProgressMsg("");
-    setSelectedLeaveCodes([]); setFilterGender("all"); setFilterDept("all");
-    setEmpSearch(""); setLtSearch(""); setEmpFilterStatus("all");
+    setResults(null); setProgress(0); setProgressMsg(""); setSelectedLeaveCodes([]); setFilterGender("all"); setFilterDept("all"); setEmpSearch(""); setLtSearch(""); setEmpFilterStatus("all");
     onClose();
   };
 
@@ -1047,18 +689,13 @@ const BulkAutoAssignDialog = ({
   const canRun  = !running && selectedLeaveCodes.length > 0 && preview.toCreate > 0 && !blocked;
 
   if (results) return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth
-      PaperProps={{ sx: { borderRadius: "12px", fontFamily: T.poppins, overflow: "hidden" } }}>
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: "12px", fontFamily: T.poppins, overflow: "hidden" } }}>
       <Box sx={{ px: 4, pt: 4.5, pb: 3.5, textAlign: "center" }}>
         <Box sx={{ width: 52, height: 52, borderRadius: "50%", bgcolor: results.errors > 0 ? "rgba(237,108,2,0.1)" : "rgba(46,125,50,0.1)", display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
           {results.errors > 0 ? <WarningIcon sx={{ fontSize: 24, color: "#ed6c02" }} /> : <CheckIcon sx={{ fontSize: 24, color: "#2e7d32" }} />}
         </Box>
-        <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#1a1a1a", mb: 0.5, fontFamily: T.poppins }}>
-          {results.errors > 0 ? "Completed with errors" : "Assignments created"}
-        </Typography>
-        <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontFamily: T.poppins }}>
-          Period: <strong>{targetYear}</strong>
-        </Typography>
+        <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#1a1a1a", mb: 0.5, fontFamily: T.poppins }}>{results.errors > 0 ? "Completed with errors" : "Assignments created"}</Typography>
+        <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontFamily: T.poppins }}>Period: <strong>{targetYear}</strong></Typography>
         <Box sx={{ display: "flex", justifyContent: "center", gap: 4, mt: 3.5, pt: 3, borderTop: `1px solid ${T.divider}` }}>
           {[["Created", results.created, "#2e7d32"], ["Skipped", results.skipped, T.muted], ["Errors", results.errors, "#d32f2f"]].map(([label, val, color]) => (
             <Box key={label} sx={{ textAlign: "center" }}>
@@ -1076,47 +713,27 @@ const BulkAutoAssignDialog = ({
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth={false}
-      PaperProps={{
-        sx: {
-          borderRadius: "14px", fontFamily: T.poppins,
-          boxShadow: "0 24px 72px rgba(0,0,0,0.22)",
-          width: "min(1320px, 96vw)",
-          maxHeight: "90vh",
-          display: "flex", flexDirection: "column", overflow: "hidden",
-        }
-      }}>
+      PaperProps={{ sx: { borderRadius: "14px", fontFamily: T.poppins, boxShadow: "0 24px 72px rgba(0,0,0,0.22)", width: "min(1320px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" } }}>
       <Box sx={{ px: 3.5, py: 2, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-          <Box sx={{ width: 34, height: 34, borderRadius: "8px", bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <AutoAssignIcon sx={{ fontSize: 16, color: "#fff" }} />
-          </Box>
+          <Box sx={{ width: 34, height: 34, borderRadius: "8px", bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}><AutoAssignIcon sx={{ fontSize: 16, color: "#fff" }} /></Box>
           <Box>
             <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.92rem", fontFamily: T.poppins, lineHeight: 1.2 }}>Reset to Default</Typography>
-            <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>
-              Create new-period assignments for all employees with existing records
-            </Typography>
+            <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>Create new-period assignments for all employees with existing records</Typography>
           </Box>
         </Box>
-        <IconButton onClick={handleClose} disabled={running} size="small" sx={{ color: "rgba(255,255,255,0.65)", "&:hover": { bgcolor: "rgba(255,255,255,0.1)" } }}>
-          <Close sx={{ fontSize: 16 }} />
-        </IconButton>
+        <IconButton onClick={handleClose} disabled={running} size="small" sx={{ color: "rgba(255,255,255,0.65)", "&:hover": { bgcolor: "rgba(255,255,255,0.1)" } }}><Close sx={{ fontSize: 16 }} /></IconButton>
       </Box>
-
       <Box sx={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
         {/* Column 1: Configuration */}
         <Box sx={{ width: 240, flexShrink: 0, borderRight: `1px solid ${T.divider}`, display: "flex", flexDirection: "column", overflow: "hidden", bgcolor: "#fafafa" }}>
-          <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: "#f3f3f3" }}>
-            <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins }}>Configuration</Typography>
-          </Box>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: "#f3f3f3" }}><Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins }}>Configuration</Typography></Box>
           <Box sx={{ px: 2, py: 2, display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
             <Box>
               <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, mb: 0.5, fontFamily: T.poppins }}>Period Year <span style={{ color: "#c62828" }}>*</span></Typography>
               <FormControl fullWidth size="small">
-                <Select value={targetYear} onChange={(e) => !running && setTargetYear(e.target.value)} disabled={running}
-                  sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontWeight: 700, fontFamily: T.poppins, fontSize: "0.82rem" } }}>
-                  {yearOptions.map((y) => (
-                    <MenuItem key={y.value} value={y.value} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>{y.label}</MenuItem>
-                  ))}
+                <Select value={targetYear} onChange={(e) => !running && setTargetYear(e.target.value)} disabled={running} sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontWeight: 700, fontFamily: T.poppins, fontSize: "0.82rem" } }}>
+                  {yearOptions.map((y) => <MenuItem key={y.value} value={y.value} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>{y.label}</MenuItem>)}
                 </Select>
               </FormControl>
             </Box>
@@ -1124,14 +741,9 @@ const BulkAutoAssignDialog = ({
               <Box>
                 <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, mb: 0.5, fontFamily: T.poppins }}>Department</Typography>
                 <FormControl fullWidth size="small">
-                  <Select value={filterDept} onChange={(e) => !running && setFilterDept(e.target.value)} disabled={running}
-                    sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontFamily: T.poppins, fontSize: "0.82rem" } }}>
+                  <Select value={filterDept} onChange={(e) => !running && setFilterDept(e.target.value)} disabled={running} sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontFamily: T.poppins, fontSize: "0.82rem" } }}>
                     <MenuItem value="all" sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>All departments</MenuItem>
-                    {allDeptCodes.map((c) => (
-                      <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><DomainIcon sx={{ fontSize: 13, color: T.accent }} />{c}</Box>
-                      </MenuItem>
-                    ))}
+                    {allDeptCodes.map((c) => <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><DomainIcon sx={{ fontSize: 13, color: T.accent }} />{c}</Box></MenuItem>)}
                   </Select>
                 </FormControl>
               </Box>
@@ -1139,24 +751,10 @@ const BulkAutoAssignDialog = ({
             <Box>
               <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, mb: 0.5, fontFamily: T.poppins }}>Gender Filter</Typography>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-                {[
-                  { val: "all",    label: "All genders",  icon: <GenderIcon sx={{ fontSize: 13 }} /> },
-                  { val: "male",   label: "Male only",    icon: <MaleIcon   sx={{ fontSize: 13, color: filterGender === "male"   ? "#fff" : "#1565C0" }} /> },
-                  { val: "female", label: "Female only",  icon: <FemaleIcon sx={{ fontSize: 13, color: filterGender === "female" ? "#fff" : "#c2185b" }} /> },
-                ].map(({ val, label, icon }) => (
+                {[{ val: "all", label: "All genders", icon: <GenderIcon sx={{ fontSize: 13 }} /> }, { val: "male", label: "Male only", icon: <MaleIcon sx={{ fontSize: 13, color: filterGender === "male" ? "#fff" : "#1565C0" }} /> }, { val: "female", label: "Female only", icon: <FemaleIcon sx={{ fontSize: 13, color: filterGender === "female" ? "#fff" : "#c2185b" }} /> }].map(({ val, label, icon }) => (
                   <Box key={val} onClick={() => !running && setFilterGender(val)}
-                    sx={{
-                      display: "flex", alignItems: "center", gap: 0.75,
-                      px: 1.25, py: 0.75, borderRadius: "7px", cursor: running ? "default" : "pointer",
-                      fontSize: "0.78rem", fontWeight: filterGender === val ? 700 : 500,
-                      fontFamily: T.poppins, transition: "all 0.12s",
-                      bgcolor: filterGender === val ? (val === "male" ? "#1565C0" : val === "female" ? "#c2185b" : T.accent) : "#fff",
-                      color: filterGender === val ? "#fff" : T.text,
-                      border: `1px solid ${filterGender === val ? (val === "male" ? "#1565C0" : val === "female" ? "#c2185b" : T.accent) : T.divider}`,
-                      "&:hover": filterGender !== val && !running ? { bgcolor: "rgba(0,0,0,0.04)" } : {},
-                    }}>
-                    {icon}
-                    <Typography sx={{ fontSize: "0.78rem", fontWeight: "inherit", fontFamily: T.poppins, color: "inherit" }}>{label}</Typography>
+                    sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, py: 0.75, borderRadius: "7px", cursor: running ? "default" : "pointer", fontSize: "0.78rem", fontWeight: filterGender === val ? 700 : 500, fontFamily: T.poppins, transition: "all 0.12s", bgcolor: filterGender === val ? (val === "male" ? "#1565C0" : val === "female" ? "#c2185b" : T.accent) : "#fff", color: filterGender === val ? "#fff" : T.text, border: `1px solid ${filterGender === val ? (val === "male" ? "#1565C0" : val === "female" ? "#c2185b" : T.accent) : T.divider}`, "&:hover": filterGender !== val && !running ? { bgcolor: "rgba(0,0,0,0.04)" } : {} }}>
+                    {icon}<Typography sx={{ fontSize: "0.78rem", fontWeight: "inherit", fontFamily: T.poppins, color: "inherit" }}>{label}</Typography>
                   </Box>
                 ))}
               </Box>
@@ -1165,12 +763,7 @@ const BulkAutoAssignDialog = ({
             <Box>
               <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins, mb: 1 }}>Summary</Typography>
               <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75 }}>
-                {[
-                  { label: "Employees",  val: filteredEmployees.length,  color: T.accent },
-                  { label: "Types Sel.", val: selectedLeaveCodes.length,  color: "#1976d2" },
-                  { label: "To Create",  val: preview.toCreate,          color: "#2e7d32" },
-                  { label: "Exist",      val: preview.skipped,           color: T.muted },
-                ].map(({ label, val, color }) => (
+                {[{ label: "Employees", val: filteredEmployees.length, color: T.accent }, { label: "Types Sel.", val: selectedLeaveCodes.length, color: "#1976d2" }, { label: "To Create", val: preview.toCreate, color: "#2e7d32" }, { label: "Exist", val: preview.skipped, color: T.muted }].map(({ label, val, color }) => (
                   <Box key={label} sx={{ textAlign: "center", py: 1, px: 0.5, borderRadius: "7px", bgcolor: "#fff", border: `1px solid ${T.divider}` }}>
                     <Typography sx={{ fontWeight: 800, fontSize: "1.1rem", color, lineHeight: 1, fontFamily: T.poppins }}>{val}</Typography>
                     <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, mt: 0.25, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</Typography>
@@ -1181,10 +774,7 @@ const BulkAutoAssignDialog = ({
             {pendingByEmployee.length > 0 ? (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, py: 1, borderRadius: "7px", bgcolor: "rgba(230,81,0,0.07)", border: "1px solid rgba(230,81,0,0.2)" }}>
                 <WarningIcon sx={{ fontSize: 14, color: "#e65100", flexShrink: 0 }} />
-                <Box>
-                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#bf360c", fontFamily: T.poppins }}>{pendingByEmployee.length} pending balance{pendingByEmployee.length !== 1 ? "s" : ""}</Typography>
-                  <Typography sx={{ fontSize: "0.62rem", color: "#e65100", fontFamily: T.poppins }}>Resolve existing balances first</Typography>
-                </Box>
+                <Box><Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#bf360c", fontFamily: T.poppins }}>{pendingByEmployee.length} pending balance{pendingByEmployee.length !== 1 ? "s" : ""}</Typography><Typography sx={{ fontSize: "0.62rem", color: "#e65100", fontFamily: T.poppins }}>Resolve existing balances first</Typography></Box>
               </Box>
             ) : (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, py: 1, borderRadius: "7px", bgcolor: "rgba(46,125,50,0.07)", border: "1px solid rgba(46,125,50,0.2)" }}>
@@ -1194,30 +784,19 @@ const BulkAutoAssignDialog = ({
             )}
           </Box>
         </Box>
-
         {/* Column 2: Employees */}
         <Box sx={{ width: 300, flexShrink: 0, borderRight: `1px solid ${T.divider}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: "#f3f3f3" }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-              <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins }}>
-                Employees <span style={{ color: T.muted, fontWeight: 600, textTransform: "none", letterSpacing: 0, marginLeft: 4 }}>({filteredEmployees.length})</span>
-              </Typography>
+              <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins }}>Employees <span style={{ color: T.muted, fontWeight: 600, textTransform: "none", letterSpacing: 0, marginLeft: 4 }}>({filteredEmployees.length})</span></Typography>
               <Box sx={{ display: "flex", gap: 0.5 }}>
                 {[{ val: "all", label: "All" }, { val: "pending", label: "⚠ Pending" }, { val: "ready", label: "✓ Ready" }].map(({ val, label }) => (
                   <Box key={val} onClick={() => setEmpFilterStatus(val)}
-                    sx={{
-                      px: 0.75, py: 0.2, borderRadius: "5px", cursor: "pointer",
-                      fontSize: "0.6rem", fontWeight: 700, fontFamily: T.poppins,
-                      bgcolor: empFilterStatus === val ? (val === "pending" ? "rgba(230,81,0,0.15)" : val === "ready" ? "rgba(46,125,50,0.12)" : T.accentFaint) : "transparent",
-                      color: empFilterStatus === val ? (val === "pending" ? "#bf360c" : val === "ready" ? "#2e7d32" : T.accent) : T.faint,
-                      border: `1px solid ${empFilterStatus === val ? (val === "pending" ? "rgba(230,81,0,0.3)" : val === "ready" ? "rgba(46,125,50,0.25)" : T.accentBorder) : "transparent"}`,
-                      "&:hover": { bgcolor: "rgba(0,0,0,0.04)" },
-                    }}>{label}</Box>
+                    sx={{ px: 0.75, py: 0.2, borderRadius: "5px", cursor: "pointer", fontSize: "0.6rem", fontWeight: 700, fontFamily: T.poppins, bgcolor: empFilterStatus === val ? (val === "pending" ? "rgba(230,81,0,0.15)" : val === "ready" ? "rgba(46,125,50,0.12)" : T.accentFaint) : "transparent", color: empFilterStatus === val ? (val === "pending" ? "#bf360c" : val === "ready" ? "#2e7d32" : T.accent) : T.faint, border: `1px solid ${empFilterStatus === val ? (val === "pending" ? "rgba(230,81,0,0.3)" : val === "ready" ? "rgba(46,125,50,0.25)" : T.accentBorder) : "transparent"}`, "&:hover": { bgcolor: "rgba(0,0,0,0.04)" } }}>{label}</Box>
                 ))}
               </Box>
             </Box>
-            <FieldInput size="small" placeholder="Search employees…" value={empSearch} onChange={(e) => setEmpSearch(e.target.value)} fullWidth
-              InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 13, color: T.faint, mr: 0.5 }} /> }} />
+            <FieldInput size="small" placeholder="Search employees…" value={empSearch} onChange={(e) => setEmpSearch(e.target.value)} fullWidth InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 13, color: T.faint, mr: 0.5 }} /> }} />
           </Box>
           <Box sx={{ flex: 1, overflowY: "auto", "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
             {filteredEmployees.length === 0 ? (
@@ -1228,52 +807,31 @@ const BulkAutoAssignDialog = ({
                 <Box key={emp.employeeNumber} sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 1.1, borderBottom: `1px solid ${T.divider}`, bgcolor: emp.hasPending ? "rgba(255,243,224,0.5)" : "#fff", "&:hover": { bgcolor: emp.hasPending ? "rgba(255,235,200,0.7)" : T.rowHover } }}>
                   <Avatar sx={{ width: 28, height: 28, fontSize: "0.62rem", fontWeight: 800, bgcolor: emp.hasPending ? "rgba(230,81,0,0.12)" : T.accentFaint, color: emp.hasPending ? "#bf360c" : T.accent, borderRadius: "6px", flexShrink: 0 }}>{initials}</Avatar>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: emp.hasPending ? "#bf360c" : T.text, fontFamily: T.poppins }} noWrap>{emp.fullName}</Typography>
-                      {emp.sex && <GenderBadge gender={emp.sex} />}
-                    </Box>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: emp.hasPending ? "#bf360c" : T.text, fontFamily: T.poppins }} noWrap>{emp.fullName}</Typography>{emp.sex && <GenderBadge gender={emp.sex} />}</Box>
                     <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins }}>#{emp.employeeNumber}</Typography>
-                    {emp.hasPending && emp.pendingInfo && (
-                      <Typography sx={{ fontSize: "0.62rem", color: "#e65100", fontFamily: T.poppins, fontWeight: 700 }}>
-                        {emp.pendingInfo.totalRemainingHours.toFixed(1)} hrs pending
-                      </Typography>
-                    )}
+                    {emp.hasPending && emp.pendingInfo && <Typography sx={{ fontSize: "0.62rem", color: "#e65100", fontFamily: T.poppins, fontWeight: 700 }}>{emp.pendingInfo.totalRemainingHours.toFixed(1)} hrs pending</Typography>}
                   </Box>
                   <Box sx={{ flexShrink: 0 }}>
-                    {emp.hasPending ? (
-                      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#ed6c02", mx: "auto" }} />
-                    ) : selectedLeaveCodes.length > 0 && emp.eligibleCount > 0 ? (
-                      <Typography sx={{ fontSize: "0.6rem", color: emp.alreadyDoneCount === emp.eligibleCount ? "#9e9e9e" : "#2e7d32", fontFamily: T.poppins, fontWeight: 700 }}>
-                        {emp.alreadyDoneCount === emp.eligibleCount ? "done" : `+${emp.eligibleCount - emp.alreadyDoneCount}`}
-                      </Typography>
-                    ) : (
-                      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#ccc", mx: "auto" }} />
-                    )}
+                    {emp.hasPending ? <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#ed6c02", mx: "auto" }} />
+                      : selectedLeaveCodes.length > 0 && emp.eligibleCount > 0 ? <Typography sx={{ fontSize: "0.6rem", color: emp.alreadyDoneCount === emp.eligibleCount ? "#9e9e9e" : "#2e7d32", fontFamily: T.poppins, fontWeight: 700 }}>{emp.alreadyDoneCount === emp.eligibleCount ? "done" : `+${emp.eligibleCount - emp.alreadyDoneCount}`}</Typography>
+                      : <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#ccc", mx: "auto" }} />}
                   </Box>
                 </Box>
               );
             })}
           </Box>
         </Box>
-
         {/* Column 3: Leave Types */}
         <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
           <Box sx={{ px: 2.5, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: "#f3f3f3", flexShrink: 0 }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-              <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins }}>
-                Leave Types <span style={{ color: T.muted, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>({selectedLeaveCodes.length} selected)</span>
-              </Typography>
+              <Typography sx={{ fontSize: "0.63rem", fontWeight: 800, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins }}>Leave Types <span style={{ color: T.muted, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>({selectedLeaveCodes.length} selected)</span></Typography>
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-                <Typography onClick={() => !running && handleToggleAll()} sx={{ fontSize: "0.7rem", color: T.accent, fontWeight: 700, cursor: running ? "default" : "pointer", fontFamily: T.poppins, "&:hover": { textDecoration: "underline" } }}>
-                  {allVisibleSelected ? "Deselect All" : "Select All"}
-                </Typography>
-                {selectedLeaveCodes.length > 0 && (
-                  <Typography onClick={() => !running && setSelectedLeaveCodes([])} sx={{ fontSize: "0.7rem", color: T.muted, fontWeight: 700, cursor: running ? "default" : "pointer", fontFamily: T.poppins, "&:hover": { textDecoration: "underline" } }}>Clear</Typography>
-                )}
+                <Typography onClick={() => !running && handleToggleAll()} sx={{ fontSize: "0.7rem", color: T.accent, fontWeight: 700, cursor: running ? "default" : "pointer", fontFamily: T.poppins, "&:hover": { textDecoration: "underline" } }}>{allVisibleSelected ? "Deselect All" : "Select All"}</Typography>
+                {selectedLeaveCodes.length > 0 && <Typography onClick={() => !running && setSelectedLeaveCodes([])} sx={{ fontSize: "0.7rem", color: T.muted, fontWeight: 700, cursor: running ? "default" : "pointer", fontFamily: T.poppins, "&:hover": { textDecoration: "underline" } }}>Clear</Typography>}
               </Box>
             </Box>
-            <FieldInput size="small" fullWidth placeholder="Search leave types…" value={ltSearch} onChange={(e) => setLtSearch(e.target.value)}
-              InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 13, color: T.faint, mr: 0.5 }} /> }} />
+            <FieldInput size="small" fullWidth placeholder="Search leave types…" value={ltSearch} onChange={(e) => setLtSearch(e.target.value)} InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 13, color: T.faint, mr: 0.5 }} /> }} />
           </Box>
           <Box sx={{ flex: 1, overflowY: "auto", px: 2, py: 1.5, display: "flex", flexDirection: "column", gap: 0.5, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
             {searchedLeaveTypes.map((lt) => {
@@ -1281,13 +839,7 @@ const BulkAutoAssignDialog = ({
               const restriction = getLeaveGenderRestriction(lt);
               const ltDesc      = lt.leave_description || lt.leave_name || "";
               const eligibleEmps  = employeesWithAssignments.filter((emp) => isLeaveAllowedForGender(lt, emp.sex));
-              const alreadyExists = eligibleEmps.filter((emp) =>
-                assignments.some((a) =>
-                  a.employeeNumber?.toString() === emp.employeeNumber &&
-                  a.leave_code === lt.leave_code &&
-                  a.period_year?.toString() === targetYear.toString()
-                )
-              ).length;
+              const alreadyExists = eligibleEmps.filter((emp) => assignments.some((a) => a.employeeNumber?.toString() === emp.employeeNumber && a.leave_code === lt.leave_code && a.period_year?.toString() === targetYear.toString())).length;
               const toCreateCount = eligibleEmps.length - alreadyExists;
               return (
                 <Box key={lt.leave_code} onClick={() => !running && handleToggleOne(lt.leave_code)}
@@ -1304,9 +856,7 @@ const BulkAutoAssignDialog = ({
                     </Box>
                   </Box>
                   <Box sx={{ textAlign: "right", flexShrink: 0, minWidth: 52 }}>
-                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: toCreateCount > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>
-                      {toCreateCount > 0 ? `+${toCreateCount}` : "—"}
-                    </Typography>
+                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: toCreateCount > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>{toCreateCount > 0 ? `+${toCreateCount}` : "—"}</Typography>
                     {alreadyExists > 0 && <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>{alreadyExists} exist</Typography>}
                   </Box>
                 </Box>
@@ -1324,13 +874,12 @@ const BulkAutoAssignDialog = ({
           )}
         </Box>
       </Box>
-
       <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>
           {blocked ? `⚠ Resolve ${pendingByEmployee.length} pending balance${pendingByEmployee.length !== 1 ? "s" : ""} first`
-          : !selectedLeaveCodes.length ? "Select at least one leave type to continue"
-          : preview.toCreate === 0 ? "All assignments already exist for this period"
-          : `Ready to create ${preview.toCreate} assignment${preview.toCreate !== 1 ? "s" : ""} across ${filteredEmployees.length} employees`}
+            : !selectedLeaveCodes.length ? "Select at least one leave type to continue"
+            : preview.toCreate === 0 ? "All assignments already exist for this period"
+            : `Ready to create ${preview.toCreate} assignment${preview.toCreate !== 1 ? "s" : ""} across ${filteredEmployees.length} employees`}
         </Typography>
         <Box sx={{ display: "flex", gap: 1 }}>
           <AccentButton onClick={handleClose} disabled={running} variant="outlined" sx={{ fontSize: "0.82rem", fontFamily: T.poppins, borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Cancel</AccentButton>
@@ -1360,52 +909,21 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
     return hoursToDaysInputStr(hrs) || "";
   }, [unit]);
 
-  useEffect(() => {
-    if (!isFocused.current) {
-      setInputVal(toDisplayStr(allocatedHours));
-    }
-  }, [allocatedHours, toDisplayStr]);
+  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(allocatedHours)); }, [allocatedHours, toDisplayStr]);
+  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(allocatedHours)); }, [unit]); // eslint-disable-line
 
-  useEffect(() => {
-    if (!isFocused.current) {
-      setInputVal(toDisplayStr(allocatedHours));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unit]);
-
-  const handleFocus = () => {
-    isFocused.current = true;
-    if (!inputVal || parseFloat(inputVal) === 0) setInputVal("");
-  };
-
-  const handleChange = (e) => {
-    setInputVal(e.target.value);
-  };
-
+  const handleFocus = () => { isFocused.current = true; if (!inputVal || parseFloat(inputVal) === 0) setInputVal(""); };
+  const handleChange = (e) => { setInputVal(e.target.value); };
   const handleBlur = () => {
     isFocused.current = false;
     const num = parseFloat(inputVal);
-    if (isNaN(num) || inputVal.trim() === "") {
-      onChangeAllocated(0);
-      setInputVal("");
-    } else {
-      const hrs = unit === "hours" ? num : parseFloat((num * 8).toFixed(6));
-      onChangeAllocated(hrs);
-      setInputVal(toDisplayStr(hrs));
-    }
+    if (isNaN(num) || inputVal.trim() === "") { onChangeAllocated(0); setInputVal(""); }
+    else { const hrs = unit === "hours" ? num : parseFloat((num * 8).toFixed(6)); onChangeAllocated(hrs); setInputVal(toDisplayStr(hrs)); }
   };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") e.currentTarget.blur();
-  };
+  const handleKeyDown = (e) => { if (e.key === "Enter") e.currentTarget.blur(); };
 
   const numericVal = parseFloat(inputVal) || 0;
-  const equivalentAdornment = inputVal === ""
-    ? (unit === "hours" ? "hrs" : "days")
-    : unit === "hours"
-      ? `= ${(numericVal / 8).toFixed(3)} days`
-      : `= ${(numericVal * 8).toFixed(3)} hrs`;
-
+  const equivalentAdornment = inputVal === "" ? (unit === "hours" ? "hrs" : "days") : unit === "hours" ? `= ${(numericVal / 8).toFixed(3)} days` : `= ${(numericVal * 8).toFixed(3)} hrs`;
   const total    = allocatedHours + carriedHours;
   const restriction = getLeaveGenderRestriction(lt);
   const hasValue = allocatedHours > 0;
@@ -1416,12 +934,7 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
   const sumStr = unit === "hours" ? `${total.toFixed(3)}h` : `${(total / 8).toFixed(3)}d`;
 
   return (
-    <Box sx={{
-      display: "grid", gridTemplateColumns: "140px 1fr 90px", gap: 1, alignItems: "center",
-      px: 1.5, py: 1, borderRadius: 1.5,
-      border: isDuplicate ? "1px solid rgba(237,108,2,0.35)" : hasValue ? `1px solid rgba(46,125,50,0.25)` : `1px solid ${T.accentBorder}`,
-      bgcolor: isDuplicate ? "rgba(237,108,2,0.04)" : hasValue ? "rgba(46,125,50,0.03)" : T.rowEven,
-    }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: "140px 1fr 90px", gap: 1, alignItems: "center", px: 1.5, py: 1, borderRadius: 1.5, border: isDuplicate ? "1px solid rgba(237,108,2,0.35)" : hasValue ? `1px solid rgba(46,125,50,0.25)` : `1px solid ${T.accentBorder}`, bgcolor: isDuplicate ? "rgba(237,108,2,0.04)" : hasValue ? "rgba(46,125,50,0.03)" : T.rowEven }}>
       <Box>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           {restriction === "male"   && <MaleIcon   sx={{ fontSize: 12, color: "#1565C0" }} />}
@@ -1429,53 +942,25 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
           <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: isDuplicate ? "#ed6c02" : T.accent, fontFamily: T.poppins }}>{lt.leave_code}</Typography>
         </Box>
         <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1.3 }} noWrap>{lt.leave_description || lt.leave_name || ""}</Typography>
-        {carriedHours > 0 && (
-          <Typography sx={{ fontSize: "0.6rem", color: "#2e7d32", fontWeight: 700, fontFamily: T.poppins, lineHeight: 1.25 }} noWrap>
-            Carry-over: {unit === "hours" ? `${carriedHours.toFixed(3)}h` : `${(carriedHours / 8).toFixed(3)}d`}
-          </Typography>
-        )}
+        {carriedHours > 0 && <Typography sx={{ fontSize: "0.6rem", color: "#2e7d32", fontWeight: 700, fontFamily: T.poppins, lineHeight: 1.25 }} noWrap>Carry-over: {unit === "hours" ? `${carriedHours.toFixed(3)}h` : `${(carriedHours / 8).toFixed(3)}d`}</Typography>}
         {isDuplicate && <Typography sx={{ fontSize: "0.6rem", color: "#ed6c02", fontWeight: 700, fontFamily: T.poppins }}>already exists</Typography>}
       </Box>
       <Box>
-        <FieldInput
-          type="text"
-          inputMode="decimal"
-          size="small"
-          fullWidth
-          disabled={isDuplicate}
-          value={inputVal}
-          placeholder={isDuplicate ? "skip" : unit === "hours" ? "0 hrs" : "0 days"}
-          onChange={handleChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
+        <FieldInput type="text" inputMode="decimal" size="small" fullWidth disabled={isDuplicate} value={inputVal} placeholder={isDuplicate ? "skip" : unit === "hours" ? "0 hrs" : "0 days"}
+          onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur} onKeyDown={handleKeyDown}
           sx={{ "& .MuiInputBase-input": { fontWeight: 700, color: isDuplicate ? T.faint : "#1976d2", fontSize: "0.82rem" } }}
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins, whiteSpace: "nowrap" }}>
-                  {equivalentAdornment}
-                </Typography>
-              </InputAdornment>
-            ),
-          }}
+          InputProps={{ endAdornment: (<InputAdornment position="end"><Typography sx={{ fontSize: "0.6rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins, whiteSpace: "nowrap" }}>{equivalentAdornment}</Typography></InputAdornment>) }}
         />
       </Box>
       <Box sx={{ textAlign: "center", minWidth: 0, px: 0.25 }}>
         <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>{resultColLabel}</Typography>
         {hasCarry && hasValue ? (
           <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "center", gap: 0.35, mt: 0.2 }}>
-            <Typography component="span" sx={{ fontSize: "0.58rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>
-              {addStr} + {remStr} =
-            </Typography>
-            <Typography component="span" sx={{ fontSize: "0.8rem", fontWeight: 800, color: "#1976d2", fontFamily: T.poppins }}>
-              {sumStr}
-            </Typography>
+            <Typography component="span" sx={{ fontSize: "0.58rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>{addStr} + {remStr} =</Typography>
+            <Typography component="span" sx={{ fontSize: "0.8rem", fontWeight: 800, color: "#1976d2", fontFamily: T.poppins }}>{sumStr}</Typography>
           </Box>
         ) : (
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: hasValue ? "#1976d2" : T.faint, fontFamily: T.poppins, lineHeight: 1.25, mt: 0.15 }}>
-            {sumStr}
-          </Typography>
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: hasValue ? "#1976d2" : T.faint, fontFamily: T.poppins, lineHeight: 1.25, mt: 0.15 }}>{sumStr}</Typography>
         )}
       </Box>
     </Box>
@@ -1484,11 +969,7 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
 
 // ─── ResultPill ───────────────────────────────────────────────────────────────
 const ResultPill = ({ label, value, primary = false }) => (
-  <Box sx={{
-    flex: 1, py: 1, px: 0.75, borderRadius: "8px", textAlign: "center",
-    bgcolor: primary ? T.accent : T.accentFaint,
-    border: `1px solid ${primary ? T.accent : T.accentBorder}`,
-  }}>
+  <Box sx={{ flex: 1, py: 1, px: 0.75, borderRadius: "8px", textAlign: "center", bgcolor: primary ? T.accent : T.accentFaint, border: `1px solid ${primary ? T.accent : T.accentBorder}` }}>
     <Typography sx={{ fontSize: "0.56rem", fontWeight: 700, color: primary ? "rgba(255,255,255,0.6)" : alpha(T.accent, 0.5), textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>{label}</Typography>
     <Typography sx={{ fontWeight: 900, fontSize: primary ? "1.05rem" : "0.95rem", color: primary ? "#fff" : T.accent, lineHeight: 1, fontFamily: T.poppins }}>{value}</Typography>
   </Box>
@@ -1497,33 +978,14 @@ const ResultPill = ({ label, value, primary = false }) => (
 const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, widgetInputSx, inputLabelSx }) => {
   const [draft, setDraft] = useState(null);
   const [focused, setFocused] = useState(false);
-  const displayVal = focused && draft !== null
-    ? draft
-    : (value === 0 ? "" : String(value));
+  const displayVal = focused && draft !== null ? draft : (value === 0 ? "" : String(value));
   return (
     <Box>
       {label && <Typography sx={inputLabelSx}>{label}</Typography>}
-      <TextField
-        size="small" type="text" inputMode="numeric" fullWidth
-        placeholder={placeholder ?? String(min)}
-        value={displayVal}
-        onChange={(e) => {
-          const raw = e.target.value.replace(/[^\d]/g, "");
-          setDraft(raw);
-        }}
-        onFocus={() => {
-          setFocused(true);
-          setDraft(value === 0 ? "" : String(value));
-        }}
-        onBlur={() => {
-          setFocused(false);
-          let num = parseInt(draft ?? "", 10);
-          if (isNaN(num)) num = min;
-          if (max !== undefined) num = Math.min(num, max);
-          num = Math.max(num, min);
-          onChange(num);
-          setDraft(null);
-        }}
+      <TextField size="small" type="text" inputMode="numeric" fullWidth placeholder={placeholder ?? String(min)} value={displayVal}
+        onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setDraft(raw); }}
+        onFocus={() => { setFocused(true); setDraft(value === 0 ? "" : String(value)); }}
+        onBlur={() => { setFocused(false); let num = parseInt(draft ?? "", 10); if (isNaN(num)) num = min; if (max !== undefined) num = Math.min(num, max); num = Math.max(num, min); onChange(num); setDraft(null); }}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
         sx={widgetInputSx}
       />
@@ -1534,37 +996,14 @@ const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, 
 const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, step = 0.5, label, snapToStep = false, widgetInputSx, inputLabelSx }) => {
   const [draft, setDraft] = useState(null);
   const [focused, setFocused] = useState(false);
-  const displayVal = focused && draft !== null
-    ? draft
-    : (value === 0 ? "" : String(value));
+  const displayVal = focused && draft !== null ? draft : (value === 0 ? "" : String(value));
   return (
     <Box>
       {label && <Typography sx={inputLabelSx}>{label}</Typography>}
-      <TextField
-        size="small" type="text" inputMode="decimal" fullWidth
-        placeholder={placeholder ?? "0"}
-        value={displayVal}
-        onChange={(e) => {
-          let raw = e.target.value.replace(",", ".");
-          raw = raw.replace(/[^\d.]/g, "");
-          const dot = raw.indexOf(".");
-          if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, "");
-          setDraft(raw);
-        }}
-        onFocus={() => {
-          setFocused(true);
-          setDraft(value === 0 ? "" : String(value));
-        }}
-        onBlur={() => {
-          setFocused(false);
-          let num = parseFloat((draft ?? "").replace(",", "."));
-          if (!Number.isFinite(num)) num = 0;
-          if (snapToStep && step) num = Math.round(num / step) * step;
-          if (max !== undefined) num = Math.min(num, max);
-          num = Math.max(num, min);
-          onChange(num);
-          setDraft(null);
-        }}
+      <TextField size="small" type="text" inputMode="decimal" fullWidth placeholder={placeholder ?? "0"} value={displayVal}
+        onChange={(e) => { let raw = e.target.value.replace(",", "."); raw = raw.replace(/[^\d.]/g, ""); const dot = raw.indexOf("."); if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, ""); setDraft(raw); }}
+        onFocus={() => { setFocused(true); setDraft(value === 0 ? "" : String(value)); }}
+        onBlur={() => { setFocused(false); let num = parseFloat((draft ?? "").replace(",", ".")); if (!Number.isFinite(num)) num = 0; if (snapToStep && step) num = Math.round(num / step) * step; if (max !== undefined) num = Math.min(num, max); num = Math.max(num, min); onChange(num); setDraft(null); }}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
         sx={widgetInputSx}
       />
@@ -1576,7 +1015,6 @@ const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, ste
 function FloatingConversionWidget({ onNavigateToModule }) {
   const [open, setOpen]           = useState(false);
   const [activeTab, setActiveTab] = useState(0);
-
   const [hours8Table,  setHours8Table]  = useState(DEFAULT_HOURS_8);
   const [hours6Table,  setHours6Table]  = useState(DEFAULT_HOURS_6);
   const [minutesTable, setMinutesTable] = useState(DEFAULT_MINUTES);
@@ -1599,9 +1037,7 @@ function FloatingConversionWidget({ onNavigateToModule }) {
             return Array.from({ length: 8 }, (_, i) => {
               const h = i + 1;
               const found = byHour.get(h);
-              return found
-                ? { ...found, rate_type: "hour", day_type: dayType, rate_value: h, decimal_equivalent: sanitizeDecimal(found.decimal_equivalent) }
-                : { rate_type: "hour", day_type: dayType, rate_value: h, decimal_equivalent: sanitizeDecimal(h * baseRate) };
+              return found ? { ...found, rate_type: "hour", day_type: dayType, rate_value: h, decimal_equivalent: sanitizeDecimal(found.decimal_equivalent) } : { rate_type: "hour", day_type: dayType, rate_value: h, decimal_equivalent: sanitizeDecimal(h * baseRate) };
             });
           };
           if (Array.isArray(d.hours8)  && d.hours8.length  > 0)   setHours8Table(ensureHours(d.hours8,  "8hr", 0.125));
@@ -1624,28 +1060,14 @@ function FloatingConversionWidget({ onNavigateToModule }) {
   const [lcDays,    setLcDays]    = useState(1);
   const [lcAbs,     setLcAbs]     = useState(0);
 
-  const inputLabelSx = useMemo(() => ({
-    fontSize: "0.62rem", fontWeight: 700, color: alpha(T.accent, 0.45),
-    textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.5, fontFamily: T.poppins,
-  }), []);
-
-  const widgetInputSx = useMemo(() => ({
-    "& .MuiOutlinedInput-root": {
-      borderRadius: "7px", height: 34, fontSize: "0.82rem", bgcolor: "#fff",
-      "& fieldset": { borderColor: T.accentBorder },
-      "&:hover fieldset": { borderColor: T.accent },
-      "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
-    },
-    "& .MuiInputBase-input": { fontWeight: 700, color: T.text, p: "6px 10px", fontFamily: T.poppins },
-  }), []);
+  const inputLabelSx = useMemo(() => ({ fontSize: "0.62rem", fontWeight: 700, color: alpha(T.accent, 0.45), textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.5, fontFamily: T.poppins }), []);
+  const widgetInputSx = useMemo(() => ({ "& .MuiOutlinedInput-root": { borderRadius: "7px", height: 34, fontSize: "0.82rem", bgcolor: "#fff", "& fieldset": { borderColor: T.accentBorder }, "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 } }, "& .MuiInputBase-input": { fontWeight: 700, color: T.text, p: "6px 10px", fontFamily: T.poppins } }), []);
 
   const activeHoursTable = whDayType === "6hr" ? hours6Table : hours8Table;
 
   const whResult = useMemo(() => {
     const defaultHourlyRate = whDayType === "6hr" ? 0.167 : 0.125;
-    const hourlyRate = Number(
-      activeHoursTable.find((h) => h.rate_value === 1)?.decimal_equivalent ?? defaultHourlyRate,
-    );
+    const hourlyRate = Number(activeHoursTable.find((h) => h.rate_value === 1)?.decimal_equivalent ?? defaultHourlyRate);
     const hEntry = activeHoursTable.find((h) => h.rate_value === whHours);
     const mEntry = minutesTable.find((m) => m.rate_value === whMinutes);
     const hDec   = whHours   === 0 ? 0 : Number((hEntry?.decimal_equivalent ?? whHours * hourlyRate).toFixed(3));
@@ -1664,53 +1086,30 @@ function FloatingConversionWidget({ onNavigateToModule }) {
   return (
     <>
       <Tooltip title="Quick Conversion Tool" placement="left">
-        <Box
-          onClick={() => setOpen((v) => !v)}
-          sx={{
-            position: "fixed", bottom: 128, right: 32, zIndex: 1200,
-            width: 48, height: 48, borderRadius: "50%",
-            bgcolor: open ? T.accentDark : T.accent, color: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer",
-            boxShadow: `0 4px 16px ${alpha(T.accent, 0.45)}`,
-            transition: "all 0.2s ease",
-            "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" },
-          }}
-        >
+        <Box onClick={() => setOpen((v) => !v)}
+          sx={{ position: "fixed", bottom: 128, right: 32, zIndex: 1200, width: 48, height: 48, borderRadius: "50%", bgcolor: open ? T.accentDark : T.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 16px ${alpha(T.accent, 0.45)}`, transition: "all 0.2s ease", "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" } }}>
           {open ? <Close sx={{ fontSize: 20 }} /> : <CalculateIcon sx={{ fontSize: 22 }} />}
         </Box>
       </Tooltip>
-
       <Collapse in={open} timeout={200}>
-        <Paper elevation={0} sx={{
-          position: "fixed", bottom: 186, right: 32, zIndex: 1199, width: 310,
-          borderRadius: "12px", border: `1px solid ${T.accentBorder}`,
-          boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`,
-          overflow: "hidden", fontFamily: T.poppins,
-        }}>
+        <Paper elevation={0} sx={{ position: "fixed", bottom: 186, right: 32, zIndex: 1199, width: 310, borderRadius: "12px", border: `1px solid ${T.accentBorder}`, boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`, overflow: "hidden", fontFamily: T.poppins }}>
           <Box sx={{ px: 2, py: 1.25, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <ConvertIcon sx={{ fontSize: 15, color: "rgba(255,255,255,0.85)" }} />
               <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: "#fff", fontFamily: T.poppins }}>Quick Converter</Typography>
               {!ratesLoaded && <CircularProgress size={10} sx={{ color: "rgba(255,255,255,0.6)" }} />}
             </Box>
-            <Button
-              onClick={onNavigateToModule} size="small"
-              endIcon={<OpenInNewIcon sx={{ fontSize: "12px !important" }} />}
-              sx={{ fontSize: "0.62rem", fontWeight: 700, color: "rgba(255,255,255,0.75)", textTransform: "none", fontFamily: T.poppins, px: 1, py: 0.25, borderRadius: "5px", minWidth: 0, border: "1px solid rgba(255,255,255,0.25)", "&:hover": { bgcolor: "rgba(255,255,255,0.12)", color: "#fff" } }}
-            >
+            <Button onClick={onNavigateToModule} size="small" endIcon={<OpenInNewIcon sx={{ fontSize: "12px !important" }} />}
+              sx={{ fontSize: "0.62rem", fontWeight: 700, color: "rgba(255,255,255,0.75)", textTransform: "none", fontFamily: T.poppins, px: 1, py: 0.25, borderRadius: "5px", minWidth: 0, border: "1px solid rgba(255,255,255,0.25)", "&:hover": { bgcolor: "rgba(255,255,255,0.12)", color: "#fff" } }}>
               View Tables
             </Button>
           </Box>
-
           <Box sx={{ borderBottom: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
             <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="fullWidth"
               sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: T.muted, py: 0, "&.Mui-selected": { color: T.accent } }, "& .MuiTabs-indicator": { bgcolor: T.accent, height: 2 } }}>
-              <Tab label="Working Hours" />
-              <Tab label="Leave Credits" />
+              <Tab label="Working Hours" /><Tab label="Leave Credits" />
             </Tabs>
           </Box>
-
           <Box sx={{ display: activeTab === 0 ? "flex" : "none", p: 1.75, flexDirection: "column", gap: 1.25 }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Typography sx={inputLabelSx}>Day type</Typography>
@@ -1735,7 +1134,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
               <Chip label={whDayType} size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: T.accent, color: "#fff", fontFamily: T.poppins }} />
             </Box>
           </Box>
-
           <Box sx={{ display: activeTab === 1 ? "flex" : "none", p: 1.75, flexDirection: "column", gap: 1.25 }}>
             <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
               <ClearableIntField label="LWP Days (1–30)" value={lcDays} onChange={(v) => setLcDays(Math.min(30, Math.max(1, v || 1)))} placeholder="1" min={1} max={30} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
@@ -1746,13 +1144,9 @@ function FloatingConversionWidget({ onNavigateToModule }) {
               <ResultPill label="Abs w/o Pay Earned" value={lcResult.absEarned.toFixed(3)} />
             </Box>
             <Box sx={{ p: "6px 10px", borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-              <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, fontFamily: T.poppins, textAlign: "center" }}>
-                Earned at <strong style={{ color: T.accent }}>1.250/mo</strong> · Absents w/o pay reduce credits
-              </Typography>
+              <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, fontFamily: T.poppins, textAlign: "center" }}>Earned at <strong style={{ color: T.accent }}>1.250/mo</strong> · Absents w/o pay reduce credits</Typography>
             </Box>
-            <Typography sx={{ fontSize: "0.62rem", color: T.faint, textAlign: "center", fontFamily: T.poppins }}>
-              For the full absence deduction table, click <strong style={{ color: T.accent }}>View Tables</strong> above.
-            </Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.faint, textAlign: "center", fontFamily: T.poppins }}>For the full absence deduction table, click <strong style={{ color: T.accent }}>View Tables</strong> above.</Typography>
           </Box>
         </Paper>
       </Collapse>
@@ -1760,318 +1154,185 @@ function FloatingConversionWidget({ onNavigateToModule }) {
   );
 }
 
-
+// ─── CommutationWarningModal ───────────────────────────────────────────────────
+/**
+ * isCurrent: whether the period being commuted is the latest (current) one.
+ * previousPeriods: sibling periods for this employee+leaveCode (all of them, for breakdown display).
+ * previousPeriodsToCommute: ONLY the non-locked periods with remaining > 0 that will ALSO be commuted
+ *   (only populated when isCurrent=true, i.e. cascade scenario).
+ */
 const CommutationWarningModal = ({
-  open,
-  onClose,
-  onConfirm,
-  period,        // the assignment row being commuted
-  unit = "days", // current display unit from parent
+  open, onClose, onConfirm,
+  period,
+  unit = "days",
   leaveTypes = [],
-  allPeriods = [], // ALL period rows for this employee+leaveCode (for history breakdown)
+  allPeriods = [],
+  isCurrent = false,
+  previousPeriodsToCommute = [],
   loading = false,
 }) => {
   if (!period) return null;
- 
-  const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-  const fmt = (h) =>
-    unit === "hours"
-      ? `${toNum(h).toFixed(3)} hrs`
-      : `${(toNum(h) / 8).toFixed(3)} days`;
- 
+
+  const fmt = (h) => unit === "hours" ? `${toNum(h).toFixed(3)} hrs` : `${(toNum(h) / 8).toFixed(3)} days`;
+
   const remHrs     = toNum(period.remaining_hours);
   const carriedHrs = toNum(period.carried_forward_hours);
   const allocHrs   = toNum(period.allocated_hours) || Math.max(0, toNum(period.total_hours) - carriedHrs);
   const usedHrs    = toNum(period.used_hours);
   const totalHrs   = toNum(period.total_hours);
- 
-  // Previous periods that contributed their balance to this one
-  const previousPeriods = allPeriods.filter(
-    (p) =>
-      p.id !== period.id &&
-      toNum(p.remaining_hours) === 0 &&
-      toNum(p.total_hours) > 0
-  );
+
+  // Total remaining that will be commuted across all affected periods
+  const cascadeRemHrs = previousPeriodsToCommute.reduce((s, p) => s + toNum(p.remaining_hours), 0);
+  const grandTotalCommuted = remHrs + (isCurrent ? cascadeRemHrs : 0);
+
   const hasCarryOver = carriedHrs > 0;
   const ltObj = leaveTypes.find((lt) => lt.leave_code === period.leave_code);
   const leaveDesc = ltObj?.leave_description || ltObj?.leave_name || "";
- 
+
   return (
-    <Modal
-      open={open}
-      onClose={!loading ? onClose : undefined}
-      sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}
-    >
+    <Modal open={open} onClose={!loading ? onClose : undefined} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}>
       <Fade in={open}>
-        <Box
-          sx={{
-            width: "100%",
-            maxWidth: 520,
-            borderRadius: "14px",
-            overflow: "hidden",
-            boxShadow: "0 32px 80px rgba(0,0,0,0.28)",
-            bgcolor: "#fff",
-            display: "flex",
-            flexDirection: "column",
-            fontFamily: T.poppins,
-          }}
-        >
-          {/* ── Header ── */}
-          <Box
-            sx={{
-              px: 3.5,
-              py: 2.5,
-              background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 50%, #b91c1c 100%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              position: "relative",
-              overflow: "hidden",
-              flexShrink: 0,
-            }}
-          >
-            {/* decorative blobs */}
+        <Box sx={{ width: "100%", maxWidth: isCurrent && previousPeriodsToCommute.length > 0 ? 580 : 520, borderRadius: "14px", overflow: "hidden", boxShadow: "0 32px 80px rgba(0,0,0,0.28)", bgcolor: "#fff", display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
+          {/* Header */}
+          <Box sx={{ px: 3.5, py: 2.5, background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 50%, #b91c1c 100%)", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden", flexShrink: 0 }}>
             <Box sx={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.05)" }} />
             <Box sx={{ position: "absolute", bottom: -20, left: "40%", width: 100, height: 100, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
- 
             <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
-              <Box
-                sx={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: "10px",
-                  bgcolor: "rgba(255,255,255,0.15)",
-                  border: "1px solid rgba(255,255,255,0.25)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
+              <Box sx={{ width: 42, height: 42, borderRadius: "10px", bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <WarningIcon sx={{ fontSize: 20, color: "#fbbf24" }} />
               </Box>
               <Box>
                 <Typography sx={{ fontWeight: 800, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, fontFamily: T.poppins }}>
-                  Transfer to Commutation
+                  {isCurrent && previousPeriodsToCommute.length > 0 ? "Cascade Transfer to Commutation" : "Transfer to Commutation"}
                 </Typography>
-                <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.6)", fontFamily: T.poppins }}>
-                  This action cannot be undone — please review carefully
-                </Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.6)", fontFamily: T.poppins }}>This action cannot be undone — please review carefully</Typography>
               </Box>
             </Box>
-            <IconButton
-              onClick={onClose}
-              disabled={loading}
-              size="small"
-              sx={{ color: "rgba(255,255,255,0.7)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}
-            >
-              <Close sx={{ fontSize: 16 }} />
-            </IconButton>
+            <IconButton onClick={onClose} disabled={loading} size="small" sx={{ color: "rgba(255,255,255,0.7)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}><Close sx={{ fontSize: 16 }} /></IconButton>
           </Box>
- 
-          {/* ── Body ── */}
+
+          {/* Body */}
           <Box sx={{ px: 3.5, py: 2.5, overflowY: "auto", flex: 1 }}>
- 
+
+            {/* Cascade notice */}
+            {isCurrent && previousPeriodsToCommute.length > 0 && (
+              <Box sx={{ mb: 2.5, px: 2, py: 1.5, borderRadius: "10px", bgcolor: "rgba(230,81,0,0.07)", border: "1.5px solid rgba(230,81,0,0.28)", display: "flex", gap: 1.25 }}>
+                <InfoIcon sx={{ fontSize: 18, color: "#e65100", flexShrink: 0, mt: 0.1 }} />
+                <Box>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#bf360c", fontFamily: T.poppins, mb: 0.4 }}>
+                    Commuting the current period will also commute {previousPeriodsToCommute.length} previous period{previousPeriodsToCommute.length !== 1 ? "s" : ""}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.7rem", color: "#78350f", fontFamily: T.poppins, lineHeight: 1.6 }}>
+                    Since you are commuting the current period, all older periods with remaining balances will be commuted first to keep records consistent.
+                  </Typography>
+                  {/* List previous periods */}
+                  <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 0.4 }}>
+                    {previousPeriodsToCommute.map((pp) => (
+                      <Box key={pp.id} sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 1.25, py: 0.5, borderRadius: "7px", bgcolor: "rgba(230,81,0,0.06)", border: "1px solid rgba(230,81,0,0.18)" }}>
+                        <Typography sx={{ fontSize: "0.68rem", color: "#bf360c", fontFamily: T.poppins, fontWeight: 700 }}>{periodLabel(pp.period_year, pp.period_semester)}</Typography>
+                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: "#e65100", fontFamily: T.poppins }}>{fmt(pp.remaining_hours)} → commuted</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              </Box>
+            )}
+
             {/* Big commutation amount */}
-            <Box
-              sx={{
-                mb: 2.5,
-                p: 2.5,
-                borderRadius: "10px",
-                background: "linear-gradient(135deg, rgba(109,35,35,0.06) 0%, rgba(109,35,35,0.02) 100%)",
-                border: `1.5px solid rgba(109,35,35,0.18)`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
+            <Box sx={{ mb: 2.5, p: 2.5, borderRadius: "10px", background: "linear-gradient(135deg, rgba(109,35,35,0.06) 0%, rgba(109,35,35,0.02) 100%)", border: `1.5px solid rgba(109,35,35,0.18)`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Box>
                 <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: alpha(T.accent, 0.55), textTransform: "uppercase", letterSpacing: "0.09em", mb: 0.4, fontFamily: T.poppins }}>
-                  Amount to be commuted
+                  {isCurrent && previousPeriodsToCommute.length > 0 ? "Total amount to be commuted (all periods)" : "Amount to be commuted"}
                 </Typography>
                 <Typography sx={{ fontWeight: 900, color: T.accent, fontSize: "2.1rem", lineHeight: 1, fontFamily: T.poppins }}>
-                  {unit === "hours" ? `${remHrs.toFixed(3)}` : `${(remHrs / 8).toFixed(3)}`}
-                  <Box component="span" sx={{ fontSize: "1rem", fontWeight: 700, ml: 0.75, color: T.accentMid }}>
-                    {unit === "hours" ? "hrs" : "days"}
-                  </Box>
+                  {unit === "hours" ? `${grandTotalCommuted.toFixed(3)}` : `${(grandTotalCommuted / 8).toFixed(3)}`}
+                  <Box component="span" sx={{ fontSize: "1rem", fontWeight: 700, ml: 0.75, color: T.accentMid }}>{unit === "hours" ? "hrs" : "days"}</Box>
                 </Typography>
                 <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins, mt: 0.35 }}>
-                  {unit === "hours" ? `(${(remHrs / 8).toFixed(3)} days)` : `(${remHrs.toFixed(3)} hrs)`}
+                  {unit === "hours" ? `(${(grandTotalCommuted / 8).toFixed(3)} days)` : `(${grandTotalCommuted.toFixed(3)} hrs)`}
                 </Typography>
+                {isCurrent && previousPeriodsToCommute.length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins }}>Current period: <strong style={{ color: T.accent }}>{fmt(remHrs)}</strong></Typography>
+                    <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins }}>Previous periods: <strong style={{ color: "#e65100" }}>{fmt(cascadeRemHrs)}</strong></Typography>
+                  </Box>
+                )}
               </Box>
               <Box sx={{ textAlign: "right" }}>
                 <Box sx={{ px: 1.5, py: 0.5, borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, mb: 0.75, display: "inline-block" }}>
                   <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{period.leave_code}</Typography>
                 </Box>
-                {leaveDesc && (
-                  <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, maxWidth: 140, textAlign: "right" }} noWrap>{leaveDesc}</Typography>
-                )}
+                {leaveDesc && <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, maxWidth: 140, textAlign: "right" }} noWrap>{leaveDesc}</Typography>}
                 <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, mt: 0.5 }}>
                   {period.period_year}{period.period_semester ? ` · Month ${period.period_semester}` : ""}
                 </Typography>
               </Box>
             </Box>
- 
-            {/* Balance breakdown */}
-            <Box sx={{ mb: 2, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1 }}>
-              {[
-                ["Carried Over", carriedHrs, hasCarryOver ? "#2e7d32" : T.faint],
-                ["Allocated",    allocHrs,   "#1565c0"],
-                ["Used",         usedHrs,    "#e65100"],
-                ["Remaining",    remHrs,     T.accent],
-              ].map(([label, val, color]) => (
-                <Box key={label} sx={{ p: 1.25, borderRadius: "8px", textAlign: "center", bgcolor: `${color}0d`, border: `1px solid ${color}22` }}>
-                  <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>{label}</Typography>
-                  <Typography sx={{ fontWeight: 800, color, fontSize: "0.82rem", lineHeight: 1, fontFamily: T.poppins }}>
-                    {unit === "hours" ? `${toNum(val).toFixed(3)}h` : `${(toNum(val) / 8).toFixed(3)}d`}
-                  </Typography>
-                </Box>
-              ))}
+
+            {/* Current period balance breakdown */}
+            <Box sx={{ mb: 1.25 }}>
+              <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.75 }}>Current period breakdown</Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1 }}>
+                {[["Carried Over", carriedHrs, hasCarryOver ? "#2e7d32" : T.faint], ["Allocated", allocHrs, "#1565c0"], ["Used", usedHrs, "#e65100"], ["Remaining", remHrs, T.accent]].map(([label, val, color]) => (
+                  <Box key={label} sx={{ p: 1.25, borderRadius: "8px", textAlign: "center", bgcolor: `${color}0d`, border: `1px solid ${color}22` }}>
+                    <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>{label}</Typography>
+                    <Typography sx={{ fontWeight: 800, color, fontSize: "0.82rem", lineHeight: 1, fontFamily: T.poppins }}>{unit === "hours" ? `${toNum(val).toFixed(3)}h` : `${(toNum(val) / 8).toFixed(3)}d`}</Typography>
+                  </Box>
+                ))}
+              </Box>
             </Box>
- 
-            {/* Carry-over warning — the most important one */}
+
+            {/* Carry-over warning */}
             {hasCarryOver && (
-              <Box
-                sx={{
-                  mb: 2,
-                  px: 2,
-                  py: 1.5,
-                  borderRadius: "10px",
-                  bgcolor: "rgba(234,179,8,0.07)",
-                  border: "1.5px solid rgba(234,179,8,0.35)",
-                  display: "flex",
-                  gap: 1.25,
-                }}
-              >
+              <Box sx={{ mb: 2, px: 2, py: 1.5, borderRadius: "10px", bgcolor: "rgba(234,179,8,0.07)", border: "1.5px solid rgba(234,179,8,0.35)", display: "flex", gap: 1.25 }}>
                 <WarningIcon sx={{ fontSize: 18, color: "#b45309", flexShrink: 0, mt: 0.15 }} />
                 <Box>
-                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#92400e", fontFamily: T.poppins, mb: 0.25 }}>
-                    This period includes carry-over from previous periods
-                  </Typography>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#92400e", fontFamily: T.poppins, mb: 0.25 }}>This period includes carry-over from previous periods</Typography>
                   <Typography sx={{ fontSize: "0.7rem", color: "#78350f", fontFamily: T.poppins, lineHeight: 1.6 }}>
-                    The <strong>{fmt(carriedHrs)}</strong> carried-over balance embedded in this assignment
-                    is the rolled-up remaining balance from <strong>all prior periods</strong>.
-                    Commuting this record will transfer the <strong>entire remaining {fmt(remHrs)}</strong> —
-                    including those carried-forward credits — to Commutation in one action.
+                    The <strong>{fmt(carriedHrs)}</strong> carried-over balance embedded in this assignment is the rolled-up remaining balance from <strong>all prior periods</strong>. Commuting this record will transfer the <strong>entire remaining {fmt(remHrs)}</strong> — including those carried-forward credits — to Commutation.
                   </Typography>
                 </Box>
               </Box>
             )}
- 
-            {/* Previous zero-balance periods note */}
-            {previousPeriods.length > 0 && (
-              <Box
-                sx={{
-                  mb: 2,
-                  px: 2,
-                  py: 1.25,
-                  borderRadius: "8px",
-                  bgcolor: "rgba(25,118,210,0.05)",
-                  border: "1px solid rgba(25,118,210,0.18)",
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.75 }}>
+
+            {/* What happens after cascade note */}
+            {isCurrent && previousPeriodsToCommute.length > 0 && (
+              <Box sx={{ mb: 2, px: 2, py: 1.25, borderRadius: "8px", bgcolor: "rgba(25,118,210,0.05)", border: "1px solid rgba(25,118,210,0.18)" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
                   <InfoIcon sx={{ fontSize: 13, color: "#1565c0" }} />
-                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#1565c0", fontFamily: T.poppins }}>
-                    {previousPeriods.length} previous period{previousPeriods.length !== 1 ? "s" : ""} already fully consumed
-                  </Typography>
+                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#1565c0", fontFamily: T.poppins }}>After commutation, the current period's carry-over will be zeroed</Typography>
                 </Box>
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
-                  {previousPeriods.map((pp) => (
-                    <Box key={pp.id} sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins }}>
-                        {pp.period_year}{pp.period_semester ? ` · Month ${pp.period_semester}` : ""}
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#2e7d32", fontFamily: T.poppins }}>
-                        {fmt(pp.total_hours)} total · {fmt(pp.remaining_hours)} remaining
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-                <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, mt: 0.75, fontStyle: "italic" }}>
-                  Their balances were already rolled into the current period's carry-over above.
+                <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.6 }}>
+                  Since the previous periods' balances are being commuted separately, the current period's <strong>carried_forward_hours</strong> will be updated to <strong>{fmt(0)}</strong> — preventing double-counting those already-commuted credits.
                 </Typography>
               </Box>
             )}
- 
+
             {/* Irreversible warning */}
-            <Box
-              sx={{
-                px: 2,
-                py: 1.5,
-                borderRadius: "10px",
-                bgcolor: "rgba(220,38,38,0.06)",
-                border: "1.5px solid rgba(220,38,38,0.22)",
-                display: "flex",
-                gap: 1.25,
-              }}
-            >
+            <Box sx={{ px: 2, py: 1.5, borderRadius: "10px", bgcolor: "rgba(220,38,38,0.06)", border: "1.5px solid rgba(220,38,38,0.22)", display: "flex", gap: 1.25 }}>
               <CommutationIcon sx={{ fontSize: 18, color: "#dc2626", flexShrink: 0, mt: 0.1 }} />
               <Box>
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: "#991b1b", fontFamily: T.poppins, mb: 0.2 }}>
-                  Irreversible action
-                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: "#991b1b", fontFamily: T.poppins, mb: 0.2 }}>Irreversible action</Typography>
                 <Typography sx={{ fontSize: "0.68rem", color: "#7f1d1d", fontFamily: T.poppins, lineHeight: 1.65 }}>
-                  Once confirmed, this assignment's remaining balance will be <strong>zeroed out</strong> and a
-                  Commutation record will be created. The assignment will be <strong>locked</strong> and
-                  cannot be edited or re-used. This cannot be undone without manual database intervention.
+                  Once confirmed, {isCurrent && previousPeriodsToCommute.length > 0 ? "all affected assignments'" : "this assignment's"} remaining balance{isCurrent && previousPeriodsToCommute.length > 0 ? "s" : ""} will be <strong>zeroed out</strong> and Commutation records will be created. The assignments will be <strong>locked</strong> and cannot be edited or re-used.
                 </Typography>
               </Box>
             </Box>
           </Box>
- 
-          {/* ── Footer ── */}
-          <Box
-            sx={{
-              px: 3.5,
-              py: 2,
-              borderTop: `1px solid ${T.divider}`,
-              bgcolor: "#fafafa",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic", maxWidth: 220 }}>
-              Transferring {fmt(remHrs)} of {period.leave_code} for {period.period_year}
-              {period.period_semester ? ` · Month ${period.period_semester}` : ""}
+
+          {/* Footer */}
+          <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic", maxWidth: 240 }}>
+              {isCurrent && previousPeriodsToCommute.length > 0
+                ? `Transferring ${fmt(grandTotalCommuted)} total across ${previousPeriodsToCommute.length + 1} period(s)`
+                : `Transferring ${fmt(remHrs)} of ${period.leave_code} for ${period.period_year}${period.period_semester ? ` · Month ${period.period_semester}` : ""}`}
             </Typography>
             <Box sx={{ display: "flex", gap: 1 }}>
-              <AccentButton
-                onClick={onClose}
-                disabled={loading}
-                variant="outlined"
-                sx={{
-                  fontSize: "0.8rem",
-                  fontFamily: T.poppins,
-                  borderColor: T.accentBorder,
-                  color: T.muted,
-                  "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent },
-                }}
-              >
-                Cancel
-              </AccentButton>
-              <AccentButton
-                onClick={onConfirm}
-                disabled={loading}
-                variant="contained"
-                startIcon={
-                  loading
-                    ? <CircularProgress size={12} sx={{ color: "#fff" }} />
-                    : <CommutationIcon sx={{ fontSize: "14px !important" }} />
-                }
-                sx={{
-                  fontSize: "0.8rem",
-                  fontFamily: T.poppins,
-                  bgcolor: "#dc2626",
-                  color: "#fff",
-                  boxShadow: "0 2px 12px rgba(220,38,38,0.38)",
-                  "&:hover": { bgcolor: "#b91c1c" },
-                  "&:disabled": { bgcolor: "#e0e0e0 !important", color: "#aaa !important" },
-                }}
-              >
-                {loading ? "Transferring…" : "Yes, Transfer to Commutation"}
+              <AccentButton onClick={onClose} disabled={loading} variant="outlined" sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Cancel</AccentButton>
+              <AccentButton onClick={onConfirm} disabled={loading} variant="contained"
+                startIcon={loading ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "14px !important" }} />}
+                sx={{ fontSize: "0.8rem", fontFamily: T.poppins, bgcolor: "#dc2626", color: "#fff", boxShadow: "0 2px 12px rgba(220,38,38,0.38)", "&:hover": { bgcolor: "#b91c1c" }, "&:disabled": { bgcolor: "#e0e0e0 !important", color: "#aaa !important" } }}>
+                {loading ? "Transferring…" : isCurrent && previousPeriodsToCommute.length > 0 ? `Yes, Cascade Transfer (${previousPeriodsToCommute.length + 1} periods)` : "Yes, Transfer to Commutation"}
               </AccentButton>
             </Box>
           </Box>
@@ -2080,7 +1341,6 @@ const CommutationWarningModal = ({
     </Modal>
   );
 };
-
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 const LeaveAssignment = () => {
@@ -2124,39 +1384,31 @@ const LeaveAssignment = () => {
   const [selectedEmployeeLeaves,     setSelectedEmployeeLeaves]     = useState(null);
   const [selectedLeaveTypeInModal,   setSelectedLeaveTypeInModal]   = useState(null);
 
+  // commutationWarning now includes extra metadata
+  // shape: { period, isCurrent, previousPeriodsToCommute }
   const [commutationWarning, setCommutationWarning] = useState(null);
-
-  // Commutation actions removed
 
   const [recordsPage,         setRecordsPage]         = useState(0);
   const [recordsRowsPerPage,  setRecordsRowsPerPage]  = useState(24);
   const [bulkAssignOpen,      setBulkAssignOpen]      = useState(false);
   const [viewMode,            setViewMode]            = useState("grid");
 
-  const handleNavigateToConversionModule = useCallback(() => {
-    window.location.href = "/working-hours";
-  }, []);
+  const handleNavigateToConversionModule = useCallback(() => { window.location.href = "/working-hours"; }, []);
 
   useEffect(() => {
     const init = async () => {
-      await Promise.all([
-        fetchAssignments(), fetchLeaveTypes(), fetchEmployees(),
-        fetchDeptMap(), fetchEmpCatMap(),
-      ]);
+      await Promise.all([fetchAssignments(), fetchLeaveTypes(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
       setPageLoading(false);
     };
     init();
   }, []);
 
-  // ── Realtime refresh (Socket.IO) ─────────────────────────────────────────
   useEffect(() => {
     if (!socket || !connected) return;
     let debounceTimer = null;
     const handler = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        fetchAssignments();
-      }, 200);
+      debounceTimer = setTimeout(() => { fetchAssignments(); }, 200);
     };
     socket.on("leaveAssignmentChanged", handler);
     socket.on("leaveRequestChanged", handler);
@@ -2165,7 +1417,7 @@ const LeaveAssignment = () => {
       socket.off("leaveAssignmentChanged", handler);
       socket.off("leaveRequestChanged", handler);
     };
-  }, [socket, connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [socket, connected]); // eslint-disable-line
 
   useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter]);
 
@@ -2174,9 +1426,7 @@ const LeaveAssignment = () => {
       const token = localStorage.getItem("token");
       const r = await axios.get(`${API_BASE_URL}/api/department-assignment`, { headers: { Authorization: `Bearer ${token}` } });
       const map = {};
-      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
-        if (item.employeeNumber && item.code) map[item.employeeNumber.toString()] = item.code;
-      });
+      (Array.isArray(r.data) ? r.data : []).forEach((item) => { if (item.employeeNumber && item.code) map[item.employeeNumber.toString()] = item.code; });
       setDeptMap(map);
     } catch { /* non-fatal */ }
   };
@@ -2195,16 +1445,13 @@ const LeaveAssignment = () => {
     } catch { /* non-fatal */ }
   };
 
-  const allDeptCodes = useMemo(() => {
-    const codes = [...new Set(Object.values(deptMap).filter(Boolean))].sort();
-    return codes;
-  }, [deptMap]);
+  const allDeptCodes = useMemo(() => [...new Set(Object.values(deptMap).filter(Boolean))].sort(), [deptMap]);
 
   const buildDisplayName = useCallback((e) => {
-    const last = (e?.lastName       || "").trim();
-    const first = (e?.firstName      || "").trim();
-    const mid   = (e?.middleName     || "").trim();
-    const ext   = (e?.nameExtension  || e?.suffix || "").trim();
+    const last = (e?.lastName      || "").trim();
+    const first = (e?.firstName    || "").trim();
+    const mid   = (e?.middleName   || "").trim();
+    const ext   = (e?.nameExtension || e?.suffix || "").trim();
     if (!last && !first) return (e?.fullName || "").trim() || `#${e?.employeeNumber}`;
     const givenParts = [first, mid].filter(Boolean).join(" ");
     const extSuffix  = ext ? ` ${ext}` : "";
@@ -2213,20 +1460,15 @@ const LeaveAssignment = () => {
 
   const employeeOptions = useMemo(() => {
     const list = Array.isArray(employees) ? employees : [];
-    const withMeta = list.map((e) => {
+    return list.map((e) => {
       const displayName = buildDisplayName(e);
-      const empNo       = (e?.employeeNumber || "").toString().trim();
-      const sortLast    = (e?.lastName || "").trim().toLowerCase();
-      return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase(), _sortLast: sortLast };
-    });
-    return withMeta.sort((a, b) => a._sortLast.localeCompare(b._sortLast));
+      const empNo = (e?.employeeNumber || "").toString().trim();
+      return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase(), _sortLast: (e?.lastName || "").trim().toLowerCase() };
+    }).sort((a, b) => a._sortLast.localeCompare(b._sortLast));
   }, [employees, buildDisplayName]);
 
   const selectedEmployeeGender = useMemo(() => selectedEmployee?.sex || selectedEmployee?.gender || null, [selectedEmployee]);
-  const filteredLeaveTypesForNew = useMemo(
-    () => leaveTypes.filter((lt) => isLeaveAllowedForGender(lt, selectedEmployeeGender)),
-    [leaveTypes, selectedEmployeeGender],
-  );
+  const filteredLeaveTypesForNew = useMemo(() => leaveTypes.filter((lt) => isLeaveAllowedForGender(lt, selectedEmployeeGender)), [leaveTypes, selectedEmployeeGender]);
 
   const carryOverMap = useMemo(() => {
     if (!selectedEmployee?.employeeNumber) return {};
@@ -2242,14 +1484,12 @@ const LeaveAssignment = () => {
   const duplicateSet = useMemo(() => {
     if (!selectedEmployee?.employeeNumber) return new Set();
     const empNum = selectedEmployee.employeeNumber.toString();
-    return new Set(
-      assignments.filter((a) => {
-        if (a.employeeNumber?.toString() !== empNum) return false;
-        if (a.period_year?.toString() !== periodYear) return false;
-        if (periodMonth) return sameMonth(a.period_month, periodMonth) || sameMonth(a.period_semester, periodMonth);
-        return true;
-      }).map((a) => a.leave_code),
-    );
+    return new Set(assignments.filter((a) => {
+      if (a.employeeNumber?.toString() !== empNum) return false;
+      if (a.period_year?.toString() !== periodYear) return false;
+      if (periodMonth) return sameMonth(a.period_month, periodMonth) || sameMonth(a.period_semester, periodMonth);
+      return true;
+    }).map((a) => a.leave_code));
   }, [selectedEmployee, assignments, periodYear, periodMonth]);
 
   useEffect(() => {
@@ -2257,29 +1497,19 @@ const LeaveAssignment = () => {
     setEmployeeAssignments(assignments.filter((a) => a.employeeNumber?.toString() === selectedEmployee.employeeNumber?.toString()));
   }, [selectedEmployee, assignments]);
 
-  useEffect(() => {
-    setBulkCredits({}); setBulkResults(null); setError("");
-  }, [selectedEmployee, periodYear, periodMonth]);
+  useEffect(() => { setBulkCredits({}); setBulkResults(null); setError(""); }, [selectedEmployee, periodYear, periodMonth]);
 
   useEffect(() => {
     const aid = editAssignment?.id;
-    if (!aid) {
-      setCreditUsageLog([]);
-      return;
-    }
+    if (!aid) { setCreditUsageLog([]); return; }
     let cancelled = false;
     (async () => {
       setCreditUsageLoading(true);
       try {
-        const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_credit_usage`, {
-          params: { leave_assignment_id: aid },
-        });
+        const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_credit_usage`, { params: { leave_assignment_id: aid } });
         if (!cancelled) setCreditUsageLog(Array.isArray(r.data) ? r.data : []);
-      } catch {
-        if (!cancelled) setCreditUsageLog([]);
-      } finally {
-        if (!cancelled) setCreditUsageLoading(false);
-      }
+      } catch { if (!cancelled) setCreditUsageLog([]); }
+      finally { if (!cancelled) setCreditUsageLoading(false); }
     })();
     return () => { cancelled = true; };
   }, [editAssignment?.id]);
@@ -2316,6 +1546,7 @@ const LeaveAssignment = () => {
       setEmployees(usersData.map((u) => { const num = u.employeeNumber?.toString(); return { ...u, sex: (num ? sexMap[num] : null) || u.sex || u.gender || null }; }));
     } catch { setEmployees([]); }
   };
+
   const isDuplicateAssignment = (empNum, leaveCode, year, excludeId = null, month = null) => {
     if (!empNum || !leaveCode) return false;
     const py = (year !== undefined && year !== null) ? year.toString() : new Date().getFullYear().toString();
@@ -2345,10 +1576,9 @@ const LeaveAssignment = () => {
       const carryHrs = toNum(carryOverMap[lt.leave_code]);
       const periodMonthInt = normalizeMonth(periodMonth);
       try {
-        await axios.post(
-          `${API_BASE_URL}/leaveRoute/leave_assignment`,
+        await axios.post(`${API_BASE_URL}/leaveRoute/leave_assignment`,
           { leave_code: lt.leave_code, employeeNumber: empNum, total_hours: allocHrs, carried_forward_hours: carryHrs, allocated_hours: allocHrs, period_year: parseInt(periodYear, 10) || new Date().getFullYear(), period_semester: periodMonthInt ?? null, period_month: periodMonthInt ?? null },
-          { headers: { Authorization: `Bearer ${token}` } },
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         created++;
       } catch { errors++; }
@@ -2368,19 +1598,8 @@ const LeaveAssignment = () => {
     if (!id || !empNum || !lc) { setError("Please fill in all required fields"); return; }
     if (isDuplicateAssignment(empNum, lc, editAssignment.period_year, editAssignment.id)) { setError("This employee already has an assignment for this leave type and period"); return; }
     try {
-      await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_assignment/${id}`,
-        {
-          leave_code: lc,
-          employeeNumber: empNum,
-          total_hours: editAllocatedHours,
-          remaining_hours: remHrs,
-          carried_forward_hours: editCarriedHours,
-          allocated_hours: editAllocatedHours,
-          period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(),
-          period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null,
-          period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null,
-        },
+      await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`,
+        { leave_code: lc, employeeNumber: empNum, total_hours: editAllocatedHours, remaining_hours: remHrs, carried_forward_hours: editCarriedHours, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null },
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");
@@ -2394,7 +1613,6 @@ const LeaveAssignment = () => {
           acc[a.leave_code].periods.push(a);
           return acc;
         }, {});
-        // Deduplicate snapshot rows so the modal/cards don't double-count the same period.
         Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
         setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
         if (selectedLeaveTypeInModal) { const r = grouped[selectedLeaveTypeInModal.leave_code]; if (r) setSelectedLeaveTypeInModal(r); }
@@ -2414,47 +1632,142 @@ const LeaveAssignment = () => {
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
- const handleTransferToCommutation = async (assignmentRow) => {
-  if (!assignmentRow?.id) return;
-  const rem = toNum(assignmentRow.remaining_hours);
-  if (rem <= 0) return;
-  setCommutationWarning(null); // close the warning modal
-  setCommuteLoadingId(assignmentRow.id);
-  setError("");
-  try {
-    await axios.post(
-      `${API_BASE_URL}/commutationRoute/leave_commutation/commute/${assignmentRow.id}`,
-      {},
-      { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
-    );
+  // ─── refreshModalState ────────────────────────────────────────────────────────
+  // Re-fetches assignments and syncs the modal's selectedEmployeeLeaves/selectedLeaveTypeInModal state.
+  const refreshModalState = useCallback(async (empNum, leaveCode) => {
     await fetchAssignments();
- 
-    if (selectedEmployeeLeaves?.employeeNumber && assignments?.length) {
-      const empData = assignments.filter(
-        (a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString()
-      );
-      const grouped = empData.reduce((acc, a) => {
-        if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
-        acc[a.leave_code].periods.push(a);
-        return acc;
-      }, {});
-      Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
-      setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
-      if (selectedLeaveTypeInModal) {
-        const r = grouped[selectedLeaveTypeInModal.leave_code];
-        if (r) setSelectedLeaveTypeInModal(r);
-      }
+    const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`);
+    const all = Array.isArray(updated.data) ? updated.data : [];
+    const empData = all.filter((a) => a.employeeNumber?.toString() === empNum?.toString());
+    const grouped = empData.reduce((acc, a) => {
+      if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
+      acc[a.leave_code].periods.push(a);
+      return acc;
+    }, {});
+    Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
+    setSelectedEmployeeLeaves((prev) => {
+      if (!prev) return prev;
+      return { ...prev, leaveTypes: Object.values(grouped) };
+    });
+    if (leaveCode) {
+      const r = grouped[leaveCode];
+      if (r) setSelectedLeaveTypeInModal(r);
     }
- 
-    setSuccessAction("edit");
-    setSuccessOpen(true);
-    setTimeout(() => setSuccessOpen(false), 800);
-  } catch (err) {
-    setError("Transfer failed: " + (err.response?.data?.error || err.message));
-  } finally {
-    setCommuteLoadingId(null);
-  }
-};
+    return grouped;
+  }, []); // eslint-disable-line
+
+  // ─── handleOpenCommutationWarning ─────────────────────────────────────────────
+  // Determines whether this is the current (latest) period for the employee+leaveCode,
+  // and if so, gathers all previous non-locked periods with remaining > 0.
+  const handleOpenCommutationWarning = useCallback((period) => {
+    if (!period?.id) return;
+    const rem = toNum(period.remaining_hours);
+    if (rem <= 0) return;
+
+    // Get all sibling periods for same employee + leaveCode
+    const siblings = assignments.filter(
+      (a) => a.employeeNumber?.toString() === period.employeeNumber?.toString() && a.leave_code === period.leave_code
+    );
+
+    // Sort descending to find the current (latest) period
+    const sorted = sortPeriodsDesc(siblings);
+    const latestId = sorted[0]?.id;
+    const isCurrent = String(period.id) === String(latestId);
+
+    // Previous periods to cascade-commute: only if commuting the current one
+    // These are all sibling periods that are NOT the current, NOT already locked, and have remaining > 0
+    const previousPeriodsToCommute = isCurrent
+      ? sorted.slice(1).filter((p) => !isCommutedLocked(p) && toNum(p.remaining_hours) > 0)
+      : [];
+
+    setCommutationWarning({ period, isCurrent, previousPeriodsToCommute });
+  }, [assignments]);
+
+  // ─── handleTransferToCommutation ──────────────────────────────────────────────
+  // Main commutation handler. When isCurrent=true and there are previous periods,
+  // cascade-commute all of them first, then commute the current one,
+  // then update the current period's carried_forward_hours to 0.
+  const handleTransferToCommutation = useCallback(async () => {
+    if (!commutationWarning) return;
+    const { period, isCurrent, previousPeriodsToCommute } = commutationWarning;
+    if (!period?.id) return;
+
+    const rem = toNum(period.remaining_hours);
+    if (rem <= 0) { setCommutationWarning(null); return; }
+
+    setCommuteLoadingId(period.id);
+    setError("");
+
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
+
+    try {
+      // Step 1: Cascade-commute all previous periods (oldest first for clean ordering)
+      if (isCurrent && previousPeriodsToCommute.length > 0) {
+        const oldestFirst = [...previousPeriodsToCommute].reverse();
+        for (const prev of oldestFirst) {
+          await axios.post(`${API_BASE_URL}/commutationRoute/leave_commutation/commute/${prev.id}`, {}, { headers });
+        }
+      }
+
+      // Step 2: Commute the current period itself
+      await axios.post(`${API_BASE_URL}/commutationRoute/leave_commutation/commute/${period.id}`, {}, { headers });
+
+      // Step 3: If cascade happened, the current period's total included carry-over from those
+      // now-commuted previous periods. We need to zero out the carried_forward_hours so the
+      // current period's total no longer double-counts them. Also zero remaining.
+      // NOTE: The backend /commute/:id should already set remaining_hours=0 and lock the record.
+      // What we additionally do here is patch carried_forward_hours=0 on the CURRENT period
+      // so the total_hours is recalculated correctly if re-displayed.
+      if (isCurrent && previousPeriodsToCommute.length > 0) {
+        const cascadeCarriedHrs = previousPeriodsToCommute.reduce((s, p) => s + toNum(p.remaining_hours), 0);
+        // Only patch if the current period actually carried those forward
+        const currentCarried = toNum(period.carried_forward_hours);
+        if (currentCarried > 0) {
+          const newCarried  = Math.max(0, currentCarried - cascadeCarriedHrs);
+          const newTotal    = Math.max(0, toNum(period.total_hours) - cascadeCarriedHrs);
+          // remaining is 0 (just commuted)
+          try {
+            await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${period.id}`,
+              {
+                carried_forward_hours: newCarried,
+                total_hours: newTotal,
+                remaining_hours: 0,
+                allocated_hours: toNum(period.allocated_hours),
+                leave_code: period.leave_code,
+                employeeNumber: period.employeeNumber,
+                period_year: period.period_year,
+                period_semester: normalizeMonth(period.period_semester ?? period.period_month) ?? null,
+                period_month: normalizeMonth(period.period_month ?? period.period_semester) ?? null,
+              },
+              { headers }
+            );
+          } catch {
+            // Non-fatal: the commutation already happened, just the carry-over patch failed.
+            // Log silently.
+          }
+        }
+      }
+
+      // Refresh state
+      setCommutationWarning(null);
+      const empNum = period.employeeNumber?.toString();
+      const leaveCode = period.leave_code;
+      if (selectedEmployeeLeaves?.employeeNumber) {
+        await refreshModalState(empNum, leaveCode);
+      } else {
+        await fetchAssignments();
+      }
+
+      setSuccessAction("edit");
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 800);
+    } catch (err) {
+      setError("Transfer failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setCommuteLoadingId(null);
+    }
+  }, [commutationWarning, selectedEmployeeLeaves, refreshModalState]);
 
   const handleOpenModal = (assignment) => {
     setEditAssignment({ ...assignment }); setOriginalAssignment({ ...assignment });
@@ -2476,10 +1789,7 @@ const LeaveAssignment = () => {
   const filteredAssignments = useMemo(() => {
     const s = searchTerm.toLowerCase();
     return assignments.filter((a) => {
-      const matchSearch =
-        (a.fullName?.toLowerCase() || "").includes(s) ||
-        (a.employeeNumber?.toString().toLowerCase() || "").includes(s) ||
-        (a.leave_code?.toString().toLowerCase() || "").includes(s);
+      const matchSearch = (a.fullName?.toLowerCase() || "").includes(s) || (a.employeeNumber?.toString().toLowerCase() || "").includes(s) || (a.leave_code?.toString().toLowerCase() || "").includes(s);
       const matchDept = deptFilter === "all" || (deptMap[a.employeeNumber?.toString()] || "") === deptFilter;
       return matchSearch && matchDept;
     });
@@ -2499,10 +1809,7 @@ const LeaveAssignment = () => {
   const employeeGroups  = Object.values(groupedByEmployee).map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) })).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
   const paginatedGroups = useMemo(() => { const s = recordsPage * recordsRowsPerPage; return employeeGroups.slice(s, s + recordsRowsPerPage); }, [employeeGroups, recordsPage, recordsRowsPerPage]);
 
-  const pendingCount = useMemo(
-    () => filteredLeaveTypesForNew.filter((lt) => !duplicateSet.has(lt.leave_code) && toNum(bulkCredits[lt.leave_code]) > 0).length,
-    [filteredLeaveTypesForNew, duplicateSet, bulkCredits],
-  );
+  const pendingCount = useMemo(() => filteredLeaveTypesForNew.filter((lt) => !duplicateSet.has(lt.leave_code) && toNum(bulkCredits[lt.leave_code]) > 0).length, [filteredLeaveTypesForNew, duplicateSet, bulkCredits]);
 
   const openEmployeeLeavesModal = (grp) => {
     const sortedLeaveTypes = [...grp.leaveTypes].sort((a, b) => a.leave_code.localeCompare(b.leave_code));
@@ -2511,9 +1818,7 @@ const LeaveAssignment = () => {
     setEmployeeLeavesModalOpen(true);
   };
 
-if (accessLoading || pageLoading) {
-  return <LeaveAssignmentWireframe />;
-}
+  if (accessLoading || pageLoading) return <LeaveAssignmentWireframe />;
   if (!hasAccess) return <AccessDenied />;
 
   const StatCard = ({ label, sublabel, value, valueHours, color, bg, borderC, dashed = false, unit: u }) => {
@@ -2525,7 +1830,7 @@ if (accessLoading || pageLoading) {
         <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: alpha(color, 0.75), textTransform: "uppercase", letterSpacing: 0.4, mb: 0.5, lineHeight: 1.3, fontFamily: T.poppins, textAlign: "center" }}>{label}</Typography>
         <Typography sx={{ fontWeight: 900, color, fontSize: "1rem", lineHeight: 1, fontFamily: T.poppins }}>{primary}</Typography>
         <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, mt: 0.25 }}>({secondary})</Typography>
-        {sublabel && (<Typography sx={{ fontSize: "0.58rem", color: alpha(color, 0.6), fontFamily: T.poppins, mt: 0.5, lineHeight: 1.3, fontStyle: "italic" }}>{sublabel}</Typography>)}
+        {sublabel && <Typography sx={{ fontSize: "0.58rem", color: alpha(color, 0.6), fontFamily: T.poppins, mt: 0.5, lineHeight: 1.3, fontStyle: "italic" }}>{sublabel}</Typography>}
       </Box>
     );
   };
@@ -2555,9 +1860,7 @@ if (accessLoading || pageLoading) {
               </Box>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
                 <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
-                  <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>
-                    {assignments.length} {assignments.length === 1 ? "assignment" : "assignments"}
-                  </Typography>
+                  <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>{assignments.length} {assignments.length === 1 ? "assignment" : "assignments"}</Typography>
                 </Box>
                 <Tooltip title="Refresh">
                   <IconButton onClick={() => { fetchAssignments(); fetchDeptMap(); fetchEmpCatMap(); }} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, "&:hover": { bgcolor: alpha(T.accent, 0.15) } }}>
@@ -2592,9 +1895,7 @@ if (accessLoading || pageLoading) {
                     <Box sx={{ mb: 1.5 }}>
                       <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
                         Select Employee <span style={{ color: "#c62828" }}>*</span>
-                        <Box component="span" sx={{ ml: 1, fontSize: "0.65rem", fontWeight: 400, color: T.faint }}>
-                          — sorted by last name A → Z
-                        </Box>
+                        <Box component="span" sx={{ ml: 1, fontSize: "0.65rem", fontWeight: 400, color: T.faint }}>— sorted by last name A → Z</Box>
                       </Typography>
                       <Autocomplete
                         value={selectedEmployee}
@@ -2633,9 +1934,7 @@ if (accessLoading || pageLoading) {
                             InputProps={{ ...params.InputProps, startAdornment: <><SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} />{params.InputProps.startAdornment}</> }}
                           />
                         )}
-                        slotProps={{
-                          paper: { sx: { borderRadius: 2, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid ${T.accentBorder}` } },
-                        }}
+                        slotProps={{ paper: { sx: { borderRadius: 2, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid ${T.accentBorder}` } } }}
                         sx={{ width: "100%" }}
                       />
                       {selectedEmployee && (
@@ -2687,15 +1986,9 @@ if (accessLoading || pageLoading) {
                         <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins }}>Assigning for:</Typography>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.3, borderRadius: "5px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
                           <CalendarIcon sx={{ fontSize: 11, color: T.accent }} />
-                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>
-                            {periodYear}{selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}
-                          </Typography>
+                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>{periodYear}{selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}</Typography>
                         </Box>
-                        {duplicateSet.size > 0 && (
-                          <Typography sx={{ fontSize: "0.68rem", color: "#e65100", fontFamily: T.poppins, fontWeight: 600 }}>
-                            · {duplicateSet.size} type{duplicateSet.size !== 1 ? "s" : ""} already assigned
-                          </Typography>
-                        )}
+                        {duplicateSet.size > 0 && <Typography sx={{ fontSize: "0.68rem", color: "#e65100", fontFamily: T.poppins, fontWeight: 600 }}>· {duplicateSet.size} type{duplicateSet.size !== 1 ? "s" : ""} already assigned</Typography>}
                       </Box>
                     )}
                   </Box>
@@ -2714,37 +2007,22 @@ if (accessLoading || pageLoading) {
                         </Box>
                         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
                           {filteredLeaveTypesForNew.map((lt) => (
-                            <BulkLeaveRow
-                              key={lt.leave_code} lt={lt} unit={unit}
-                              allocatedHours={toNum(bulkCredits[lt.leave_code])}
-                              onChangeAllocated={(hrs) => setBulkCredits((p) => ({ ...p, [lt.leave_code]: hrs }))}
-                              carriedHours={toNum(carryOverMap[lt.leave_code])}
-                              isDuplicate={duplicateSet.has(lt.leave_code)}
-                            />
+                            <BulkLeaveRow key={lt.leave_code} lt={lt} unit={unit} allocatedHours={toNum(bulkCredits[lt.leave_code])} onChangeAllocated={(hrs) => setBulkCredits((p) => ({ ...p, [lt.leave_code]: hrs }))} carriedHours={toNum(carryOverMap[lt.leave_code])} isDuplicate={duplicateSet.has(lt.leave_code)} />
                           ))}
                         </Box>
                         {bulkResults && (
                           <Alert severity={bulkResults.errors > 0 ? "warning" : "success"} sx={{ mt: 2, borderRadius: 2 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>
-                              {bulkResults.created} assigned · {bulkResults.skipped} skipped (duplicates) · {bulkResults.errors} error{bulkResults.errors !== 1 ? "s" : ""}
-                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>{bulkResults.created} assigned · {bulkResults.skipped} skipped (duplicates) · {bulkResults.errors} error{bulkResults.errors !== 1 ? "s" : ""}</Typography>
                           </Alert>
                         )}
                         <Box sx={{ mt: 2 }}>
-                          <AccentButton
-                            onClick={handleBulkAdd} variant="contained"
+                          <AccentButton onClick={handleBulkAdd} variant="contained"
                             startIcon={bulkSubmitting ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
                             disabled={bulkSubmitting || pendingCount === 0} fullWidth
                             sx={{ height: 40, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, fontFamily: T.poppins, "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none" } }}>
-                            {bulkSubmitting ? "Assigning…" : pendingCount > 0
-                              ? `Assign ${pendingCount} Leave Type${pendingCount !== 1 ? "s" : ""}${selectedMonthLabel ? ` for ${selectedMonthLabel} ${periodYear}` : ` for ${periodYear}`}`
-                              : "Enter credits to assign"}
+                            {bulkSubmitting ? "Assigning…" : pendingCount > 0 ? `Assign ${pendingCount} Leave Type${pendingCount !== 1 ? "s" : ""}${selectedMonthLabel ? ` for ${selectedMonthLabel} ${periodYear}` : ` for ${periodYear}`}` : "Enter credits to assign"}
                           </AccentButton>
-                          {duplicateSet.size > 0 && (
-                            <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.75, textAlign: "center", fontFamily: T.poppins }}>
-                              {duplicateSet.size} type{duplicateSet.size !== 1 ? "s" : ""} already assigned for {periodYear}{selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""} — shown but skipped
-                            </Typography>
-                          )}
+                          {duplicateSet.size > 0 && <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.75, textAlign: "center", fontFamily: T.poppins }}>{duplicateSet.size} type{duplicateSet.size !== 1 ? "s" : ""} already assigned for {periodYear}{selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""} — shown but skipped</Typography>}
                         </Box>
                       </>
                     )
@@ -2770,9 +2048,7 @@ if (accessLoading || pageLoading) {
                     </Box>
                     <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                       <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
-                        <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>
-                          {employeeGroups.length} employees · {filteredAssignments.length} records
-                        </Typography>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>{employeeGroups.length} employees · {filteredAssignments.length} records</Typography>
                       </Box>
                       <ToggleButtonGroup value={viewMode} exclusive onChange={(_, v) => v && setViewMode(v)} size="small"
                         sx={{ "& .MuiToggleButton-root": { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, "&.Mui-selected": { bgcolor: T.accentFaint, color: T.accent } } }}>
@@ -2782,19 +2058,13 @@ if (accessLoading || pageLoading) {
                     </Box>
                   </Box>
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                    <FieldInput size="small" placeholder="Search by name or employee number…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} sx={{ flex: 1 }}
-                      InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }} />
+                    <FieldInput size="small" placeholder="Search by name or employee number…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} sx={{ flex: 1 }} InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }} />
                     {allDeptCodes.length > 0 && (
                       <FormControl size="small" sx={{ minWidth: 130, flexShrink: 0 }}>
-                        <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} displayEmpty
-                          startAdornment={<DomainIcon sx={{ fontSize: 14, color: T.accent, mr: 0.5, ml: 0.25 }} />}
+                        <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} displayEmpty startAdornment={<DomainIcon sx={{ fontSize: 14, color: T.accent, mr: 0.5, ml: 0.25 }} />}
                           sx={{ ...selectSx, "& .MuiSelect-select": { py: "7px", fontSize: "0.8rem", fontWeight: deptFilter !== "all" ? 700 : 400, color: deptFilter !== "all" ? T.accent : T.muted, display: "flex", alignItems: "center" } }}>
                           <MenuItem value="all" sx={{ fontFamily: T.poppins, fontSize: "0.82rem", color: T.muted }}>All depts</MenuItem>
-                          {allDeptCodes.map((c) => (
-                            <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>{c}</Typography></Box>
-                            </MenuItem>
-                          ))}
+                          {allDeptCodes.map((c) => <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>{c}</Typography></Box></MenuItem>)}
                         </Select>
                       </FormControl>
                     )}
@@ -2803,9 +2073,7 @@ if (accessLoading || pageLoading) {
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1 }}>
                       <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins }}>Filtered by:</Typography>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.25, borderRadius: "5px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, cursor: "pointer" }} onClick={() => setDeptFilter("all")}>
-                        <DomainIcon sx={{ fontSize: 10, color: T.accent }} />
-                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>{deptFilter}</Typography>
-                        <Close sx={{ fontSize: 10, color: T.accent }} />
+                        <DomainIcon sx={{ fontSize: 10, color: T.accent }} /><Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>{deptFilter}</Typography><Close sx={{ fontSize: 10, color: T.accent }} />
                       </Box>
                     </Box>
                   )}
@@ -2814,29 +2082,21 @@ if (accessLoading || pageLoading) {
                 <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
                   {paginatedGroups.length === 0 ? (
                     <Box sx={{ py: 10, textAlign: "center" }}>
-                      <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
-                        <EventNote sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
-                      </Box>
+                      <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}><EventNote sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} /></Box>
                       <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: T.muted, mb: 0.5, fontFamily: T.poppins }}>{assignments.length === 0 ? "No Leave Assignments Found" : "No Matching Records"}</Typography>
                       <Typography sx={{ fontSize: "0.78rem", color: T.faint, fontFamily: T.poppins }}>{assignments.length === 0 ? "Assign leave credits using the form on the left." : "Try adjusting your search or department filter."}</Typography>
                     </Box>
                   ) : viewMode === "grid" ? (
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
-                        const remH = grp.leaveTypes.reduce((s, lt) => {
-                          const latest = getLatestPeriodSnapshot(lt.periods);
-                          return s + toNum(latest?.remaining_hours);
-                        }, 0);
-                        const totalH = grp.leaveTypes.reduce((s, lt) => {
-                          const latest = getLatestPeriodSnapshot(lt.periods);
-                          return s + toNum(latest?.total_hours);
-                        }, 0);
+                        const remH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours); }, 0);
+                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.total_hours); }, 0);
                         const overallColor = getStatusColor(remH, totalH);
-                        const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
-                        const info         = getEmployeeInfo(grp.employeeNumber);
-                        const empGender    = info?.sex || info?.gender;
-                        const deptCode     = deptMap[grp.employeeNumber] || null;
-                        const empCat       = empCatMap[grp.employeeNumber] || null;
+                        const initials = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
+                        const info = getEmployeeInfo(grp.employeeNumber);
+                        const empGender = info?.sex || info?.gender;
+                        const deptCode = deptMap[grp.employeeNumber] || null;
+                        const empCat   = empCatMap[grp.employeeNumber] || null;
                         return (
                           <Grid item xs={12} sm={6} md={3} key={grp.employeeNumber} sx={{ display: "flex" }}>
                             <Box onClick={() => openEmployeeLeavesModal(grp)}
@@ -2855,28 +2115,20 @@ if (accessLoading || pageLoading) {
                               </Box>
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
                                 {grp.leaveTypes.slice(0, 3).map((lt) => {
-                                  const latest   = getLatestPeriodSnapshot(lt.periods);
+                                  const latest = getLatestPeriodSnapshot(lt.periods);
                                   const displayH = toNum(latest?.remaining_hours);
-                                  const sc       = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
+                                  const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
                                   return (
                                     <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
-                                      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, whiteSpace: "nowrap", fontFamily: T.poppins }}>
-                                        {lt.leave_code} {unit === "hours" ? `${displayH.toFixed(3)}h` : `${(displayH / 8).toFixed(3)}d`}
-                                      </Typography>
+                                      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, whiteSpace: "nowrap", fontFamily: T.poppins }}>{lt.leave_code} {unit === "hours" ? `${displayH.toFixed(3)}h` : `${(displayH / 8).toFixed(3)}d`}</Typography>
                                     </Box>
                                   );
                                 })}
-                                {grp.leaveTypes.length > 3 && (
-                                  <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.leaveTypes.length - 3}</Typography>
-                                  </Box>
-                                )}
+                                {grp.leaveTypes.length > 3 && <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.leaveTypes.length - 3}</Typography></Box>}
                               </Box>
                               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pt: 0.75, borderTop: `1px solid ${T.divider}` }}>
                                 <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>{grp.leaveTypes.length} leave type{grp.leaveTypes.length !== 1 ? "s" : ""}</Typography>
-                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
-                                  {unit === "hours" ? `${remH.toFixed(3)}h left` : `${(remH / 8).toFixed(3)}d left`}
-                                </Typography>
+                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>{unit === "hours" ? `${remH.toFixed(3)}h left` : `${(remH / 8).toFixed(3)}d left`}</Typography>
                               </Box>
                             </Box>
                           </Grid>
@@ -2891,20 +2143,14 @@ if (accessLoading || pageLoading) {
                         ))}
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
-                        const remH = grp.leaveTypes.reduce((s, lt) => {
-                          const latest = getLatestPeriodSnapshot(lt.periods);
-                          return s + toNum(latest?.remaining_hours);
-                        }, 0);
-                        const totalH = grp.leaveTypes.reduce((s, lt) => {
-                          const latest = getLatestPeriodSnapshot(lt.periods);
-                          return s + toNum(latest?.total_hours);
-                        }, 0);
+                        const remH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours); }, 0);
+                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.total_hours); }, 0);
                         const overallColor = getStatusColor(remH, totalH);
-                        const initials     = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
-                        const info         = getEmployeeInfo(grp.employeeNumber);
-                        const empGender    = info?.sex || info?.gender;
-                        const deptCode     = deptMap[grp.employeeNumber] || null;
-                        const empCat       = empCatMap[grp.employeeNumber] || null;
+                        const initials = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
+                        const info = getEmployeeInfo(grp.employeeNumber);
+                        const empGender = info?.sex || info?.gender;
+                        const deptCode = deptMap[grp.employeeNumber] || null;
+                        const empCat   = empCatMap[grp.employeeNumber] || null;
                         return (
                           <Box key={grp.employeeNumber} onClick={() => openEmployeeLeavesModal(grp)}
                             sx={{ px: 1.5, py: 1.25, display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.5fr", gap: 1, alignItems: "center", borderRadius: 1.5, cursor: "pointer", bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd, border: "1px solid transparent", transition: "background 0.13s ease", "&:hover": { bgcolor: T.rowHover } }}>
@@ -2912,10 +2158,7 @@ if (accessLoading || pageLoading) {
                               <Avatar sx={{ width: 28, height: 28, fontSize: "0.68rem", fontWeight: 800, bgcolor: T.accent, color: "#fff", borderRadius: "6px", flexShrink: 0 }}>{initials}</Avatar>
                               <Box sx={{ minWidth: 0 }}>
                                 <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }} noWrap>{grp.fullName}</Typography>
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                  <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>#{grp.employeeNumber}</Typography>
-                                  {empGender && <GenderBadge gender={empGender} />}
-                                </Box>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>#{grp.employeeNumber}</Typography>{empGender && <GenderBadge gender={empGender} />}</Box>
                               </Box>
                             </Box>
                             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
@@ -2925,18 +2168,12 @@ if (accessLoading || pageLoading) {
                             <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: "inline-block", width: "fit-content" }}>
                               <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{grp.leaveTypes.length}</Typography>
                             </Box>
-                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
-                              {unit === "hours" ? `${remH.toFixed(3)}h` : `${(remH / 8).toFixed(3)}d`}
-                            </Typography>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>{unit === "hours" ? `${remH.toFixed(3)}h` : `${(remH / 8).toFixed(3)}d`}</Typography>
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                               {grp.leaveTypes.slice(0, 3).map((lt) => {
                                 const latest = getLatestPeriodSnapshot(lt.periods);
                                 const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
-                                return (
-                                  <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
-                                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{lt.leave_code}</Typography>
-                                  </Box>
-                                );
+                                return <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{lt.leave_code}</Typography></Box>;
                               })}
                               {grp.leaveTypes.length > 3 && <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.leaveTypes.length - 3}</Typography></Box>}
                             </Box>
@@ -2950,8 +2187,7 @@ if (accessLoading || pageLoading) {
                 {employeeGroups.length > 0 && (
                   <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}`, flexShrink: 0 }}>
                     <TablePagination component="div" count={employeeGroups.length} page={recordsPage}
-                      onPageChange={(e, p) => setRecordsPage(p)}
-                      rowsPerPage={recordsRowsPerPage}
+                      onPageChange={(e, p) => setRecordsPage(p)} rowsPerPage={recordsRowsPerPage}
                       onRowsPerPageChange={(e) => { setRecordsRowsPerPage(parseInt(e.target.value, 10)); setRecordsPage(0); }}
                       rowsPerPageOptions={[12, 24, 48, 96]} labelRowsPerPage="Rows:"
                       sx={{ "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": { fontSize: "0.78rem", fontWeight: 600, color: T.accent, fontFamily: T.poppins } }}
@@ -2984,35 +2220,29 @@ if (accessLoading || pageLoading) {
                             {empDept && <DeptBadge code={empDept} light />}
                             {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} light />}
                           </Box>
-                          <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>
-                            #{selectedEmployeeLeaves.employeeNumber} · {selectedEmployeeLeaves.leaveTypes.length} leave type{selectedEmployeeLeaves.leaveTypes.length !== 1 ? "s" : ""}
-                          </Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>#{selectedEmployeeLeaves.employeeNumber} · {selectedEmployeeLeaves.leaveTypes.length} leave type{selectedEmployeeLeaves.leaveTypes.length !== 1 ? "s" : ""}</Typography>
                         </Box>
                         <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"
                           sx={{ "& .MuiToggleButton-root": { px: 1.5, py: 0.3, border: "1px solid rgba(255,255,255,0.22)", fontSize: "0.72rem", fontWeight: 700, color: "rgba(255,255,255,0.55)", fontFamily: T.poppins, "&.Mui-selected": { bgcolor: "rgba(255,255,255,0.18)", color: "#fff", borderColor: "rgba(255,255,255,0.4)" } } }}>
                           <ToggleButton value="hours">Hours</ToggleButton>
                           <ToggleButton value="days">Days</ToggleButton>
                         </ToggleButtonGroup>
-                        <IconButton onClick={() => { setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null); }} size="small" sx={{ color: "rgba(255,255,255,0.65)", "&:hover": { bgcolor: "rgba(255,255,255,0.1)" } }}>
-                          <Close sx={{ fontSize: 16 }} />
-                        </IconButton>
+                        <IconButton onClick={() => { setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null); }} size="small" sx={{ color: "rgba(255,255,255,0.65)", "&:hover": { bgcolor: "rgba(255,255,255,0.1)" } }}><Close sx={{ fontSize: 16 }} /></IconButton>
                       </Box>
                       <Box sx={{ flex: 1, display: "flex", overflow: "hidden" }}>
                         {/* Sidebar */}
                         <Box sx={{ width: 210, flexShrink: 0, borderRight: `1px solid ${T.divider}`, display: "flex", flexDirection: "column", bgcolor: "#fafafa" }}>
-                          <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}` }}>
-                            <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: T.poppins }}>Leave Type</Typography>
-                          </Box>
+                          <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}` }}><Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: T.poppins }}>Leave Type</Typography></Box>
                           <Box sx={{ flex: 1, overflowY: "auto" }}>
                             {selectedEmployeeLeaves.leaveTypes.map((lt) => {
-                              const latest   = getLatestPeriodSnapshot(lt.periods);
-                              const remH     = toNum(latest?.remaining_hours);
-                              const totalH   = toNum(latest?.total_hours);
-                              const sc       = getStatusColor(remH, totalH);
+                              const latest = getLatestPeriodSnapshot(lt.periods);
+                              const remH   = toNum(latest?.remaining_hours);
+                              const totalH = toNum(latest?.total_hours);
+                              const sc     = getStatusColor(remH, totalH);
                               const isActive = selectedLeaveTypeInModal?.leave_code === lt.leave_code;
-                              const ltObj    = leaveTypes.find((x) => x.leave_code === lt.leave_code);
+                              const ltObj  = leaveTypes.find((x) => x.leave_code === lt.leave_code);
                               const restriction = ltObj ? getLeaveGenderRestriction(ltObj) : null;
-                              const ltDesc   = ltObj?.leave_description || ltObj?.leave_name || "";
+                              const ltDesc = ltObj?.leave_description || ltObj?.leave_name || "";
                               return (
                                 <Box key={lt.leave_code} onClick={() => setSelectedLeaveTypeInModal(lt)}
                                   sx={{ px: 2, py: 1.1, cursor: "pointer", borderLeft: `3px solid ${isActive ? T.accent : "transparent"}`, bgcolor: isActive ? T.accentFaint : "transparent", transition: "all 0.1s", "&:hover": { bgcolor: T.accentFaint } }}>
@@ -3022,9 +2252,7 @@ if (accessLoading || pageLoading) {
                                       {restriction === "female" && <FemaleIcon sx={{ fontSize: 11, color: "#C2185B" }} />}
                                       <Typography sx={{ fontSize: "0.82rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.text, fontFamily: T.poppins }}>{lt.leave_code}</Typography>
                                     </Box>
-                                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: sc, fontFamily: T.poppins }}>
-                                      {unit === "hours" ? `${remH.toFixed(1)}h` : `${(remH / 8).toFixed(2)}d`}
-                                    </Typography>
+                                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: sc, fontFamily: T.poppins }}>{unit === "hours" ? `${remH.toFixed(1)}h` : `${(remH / 8).toFixed(2)}d`}</Typography>
                                   </Box>
                                   {ltDesc && <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, mt: 0.1 }} noWrap>{ltDesc}</Typography>}
                                   <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins }}>{lt.periods.length} period{lt.periods.length !== 1 ? "s" : ""}</Typography>
@@ -3037,123 +2265,82 @@ if (accessLoading || pageLoading) {
                         <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
                           {!selectedLeaveTypeInModal ? (
                             <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <Box sx={{ textAlign: "center" }}>
-                                <EventNote sx={{ fontSize: 38, color: alpha(T.accent, 0.12), mb: 1.5 }} />
-                                <Typography sx={{ fontWeight: 600, color: T.muted, fontSize: "0.88rem", fontFamily: T.poppins }}>Select a leave type</Typography>
-                              </Box>
+                              <Box sx={{ textAlign: "center" }}><EventNote sx={{ fontSize: 38, color: alpha(T.accent, 0.12), mb: 1.5 }} /><Typography sx={{ fontWeight: 600, color: T.muted, fontSize: "0.88rem", fontFamily: T.poppins }}>Select a leave type</Typography></Box>
                             </Box>
                           ) : (
                             <Box sx={{ flex: 1, overflowY: "auto", p: 3 }}>
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                {[...selectedLeaveTypeInModal.periods]
-                                  .sort((a, b) => {
-                                    if (b.period_year !== a.period_year) return b.period_year - a.period_year;
-                                    const aM = parseInt(a.period_semester, 10) || 0;
-                                    const bM = parseInt(b.period_semester, 10) || 0;
-                                    if (aM !== bM) return bM - aM;
-                                    const semDiff = semOrder(b.period_semester) - semOrder(a.period_semester);
-                                    if (semDiff !== 0) return semDiff;
-                                    return toNum(b.id) - toNum(a.id);
-                                  })
-                                  .map((period, index) => {
-                                    const sc         = getStatusColor(period.remaining_hours, period.total_hours);
-                                    const isLatest   = index === 0;
-                                    const isLocked   = isCommutedLocked(period);
-                                    const remHrs     = toNum(period.remaining_hours);
-                                    const totalHrs   = toNum(period.total_hours);
-                                    const usedHrs    = toNum(period.used_hours);
-                                    const carriedHrs = toNum(period.carried_forward_hours);
-                                    const allocRawHrs = toNum(period.allocated_hours);
-                                    const allocHrs   = allocRawHrs > 0
-                                      ? allocRawHrs
-                                      : Math.max(0, totalHrs - carriedHrs);
-                                    const pctUsed    = isLocked ? 0 : (totalHrs > 0 ? Math.min((usedHrs / totalHrs) * 100, 100) : 0);
-                                    const fmt = (h) => unit === "hours" ? `${toNum(h).toFixed(3)} h` : `${(toNum(h) / 8).toFixed(3)} d`;
-                                    return (
-                                      <Box key={period.id} sx={{ borderRadius: "10px", border: `1px solid ${isLatest ? "#2E7D32" : T.divider}`, overflow: "hidden", bgcolor: "#fff" }}>
-                                        <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", gap: 1.5, bgcolor: isLatest ? "rgba(46,125,50,0.04)" : "#fafafa", borderBottom: `1px solid ${T.divider}` }}>
-                                          <Typography sx={{ fontWeight: 700, color: isLatest ? "#2e7d32" : T.text, fontSize: "0.88rem", fontFamily: T.poppins }}>{periodLabel(period.period_year, period.period_semester)}</Typography>
-                                          {isLatest && <Chip label="Current" size="small" sx={{ height: 20, fontSize: "0.65rem", bgcolor: "#2E7D32", color: "#fff", fontWeight: 700, fontFamily: T.poppins }} />}
-                                          <Box sx={{ flex: 1 }} />
-                                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 130 }}>
-                                            <Box sx={{ flex: 1, height: 5, bgcolor: "rgba(0,0,0,0.07)", borderRadius: 3, overflow: "hidden" }}>
-                                              <Box sx={{ height: "100%", width: `${pctUsed}%`, bgcolor: isLocked ? "#bdbdbd" : sc, borderRadius: 3, transition: "width 0.3s" }} />
-                                            </Box>
-                                            {!isLocked && <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, whiteSpace: "nowrap" }}>{pctUsed.toFixed(0)}% used</Typography>}
+                                {sortPeriodsDesc(selectedLeaveTypeInModal.periods).map((period, index) => {
+                                  const sc         = getStatusColor(period.remaining_hours, period.total_hours);
+                                  const isLatest   = index === 0;
+                                  const isLocked   = isCommutedLocked(period);
+                                  const remHrs     = toNum(period.remaining_hours);
+                                  const totalHrs   = toNum(period.total_hours);
+                                  const usedHrs    = toNum(period.used_hours);
+                                  const carriedHrs = toNum(period.carried_forward_hours);
+                                  const allocRawHrs = toNum(period.allocated_hours);
+                                  const allocHrs   = allocRawHrs > 0 ? allocRawHrs : Math.max(0, totalHrs - carriedHrs);
+                                  const pctUsed    = isLocked ? 0 : (totalHrs > 0 ? Math.min((usedHrs / totalHrs) * 100, 100) : 0);
+                                  const fmt        = (h) => unit === "hours" ? `${toNum(h).toFixed(3)} h` : `${(toNum(h) / 8).toFixed(3)} d`;
+                                  return (
+                                    <Box key={period.id} sx={{ borderRadius: "10px", border: `1px solid ${isLatest ? "#2E7D32" : T.divider}`, overflow: "hidden", bgcolor: "#fff" }}>
+                                      <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", gap: 1.5, bgcolor: isLatest ? "rgba(46,125,50,0.04)" : "#fafafa", borderBottom: `1px solid ${T.divider}` }}>
+                                        <Typography sx={{ fontWeight: 700, color: isLatest ? "#2e7d32" : T.text, fontSize: "0.88rem", fontFamily: T.poppins }}>{periodLabel(period.period_year, period.period_semester)}</Typography>
+                                        {isLatest && <Chip label="Current" size="small" sx={{ height: 20, fontSize: "0.65rem", bgcolor: "#2E7D32", color: "#fff", fontWeight: 700, fontFamily: T.poppins }} />}
+                                        <Box sx={{ flex: 1 }} />
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 130 }}>
+                                          <Box sx={{ flex: 1, height: 5, bgcolor: "rgba(0,0,0,0.07)", borderRadius: 3, overflow: "hidden" }}>
+                                            <Box sx={{ height: "100%", width: `${pctUsed}%`, bgcolor: isLocked ? "#bdbdbd" : sc, borderRadius: 3, transition: "width 0.3s" }} />
                                           </Box>
-                                        </Box>
-
-                                        {/* ─── Stats grid ─── */}
-                                        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
-                                          {[
-                                            ["Carried Over",   carriedHrs, carriedHrs > 0 ? "#2e7d32" : T.faint],
-                                            ["Balance Given",  allocHrs,   "#1565c0"],
-                                            ["Used",           usedHrs,    "#e65100"],
-                                            ["Remaining",      remHrs,     sc],
-                                            ["Total",          totalHrs,   "#2e7d32"],
-                                          ].map(([label, val, color], i) => (
-                                            <Box key={label} sx={{ px: 1.75, py: 1.5, borderRight: i < 4 ? `1px solid ${T.divider}` : "none", borderBottom: `1px solid ${T.divider}`, textAlign: "center" }}>
-                                              <Typography sx={{ fontSize: "0.59rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.5 }}>{label}</Typography>
-                                              <Typography sx={{ fontWeight: 800, color, fontSize: "0.9rem", lineHeight: 1, fontFamily: T.poppins }}>{fmt(val)}</Typography>
-                                              <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, mt: 0.25 }}>
-                                                {unit === "hours" ? `${(toNum(val) / 8).toFixed(3)} d` : `${toNum(val).toFixed(3)} h`}
-                                              </Typography>
-                                            </Box>
-                                          ))}
-                                        </Box>
-
-                                        {/* ─── NEW: Earnings Banner ─── */}
-                                        {!isLocked && (
-                                          <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}` }}>
-                                            <EarningsBanner
-                                              employeeNumber={selectedEmployeeLeaves.employeeNumber}
-                                              leaveCode={selectedLeaveTypeInModal.leave_code}
-                                              periodYear={period.period_year}
-                                              periodSemester={period.period_semester}
-                                              unit={unit}
-                                              baseRemainingHours={period.remaining_hours}
-                                              baseTotalHours={period.total_hours}
-                                            />
-                                          </Box>
-                                        )}
-
-                                        <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
-                                          <Typography sx={{ fontSize: "0.72rem", color: isLocked ? T.faint : remHrs > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>
-                                            {isLocked ? "Transferred to Commutation." : remHrs > 0 ? `${fmt(remHrs)} remaining · Can be transferred to Commutation.` : "All leave credits for this period have been used."}
-                                          </Typography>
-                                          <Box sx={{ display: "flex", gap: 0.75, flexShrink: 0 }}>
-                                            {!isLocked && (
-                                              <AccentButton onClick={(e) => { e.stopPropagation(); handleOpenModal(period); setIsEditing(true); }} variant="outlined" size="small"
-                                                startIcon={<EditIcon sx={{ fontSize: "12px !important" }} />}
-                                                sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, borderColor: T.accentBorder, color: T.accent, "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint, transform: "none" } }}>
-                                                Edit
-                                              </AccentButton>
-                                            )}
-                                          {!isLocked && remHrs > 0 && (
-   <AccentButton
-     onClick={(e) => { e.stopPropagation(); setCommutationWarning(period); }}
-     variant="contained"
-     size="small"
-     startIcon={<CommutationIcon sx={{ fontSize: "12px !important" }} />}
-     sx={{
-       fontSize: "0.72rem",
-       fontFamily: T.poppins,
-       px: 1.5,
-       height: 28,
-       bgcolor: T.accent,
-       color: "#fff",
-       boxShadow: "none",
-       "&:hover": { bgcolor: T.accentDark, transform: "none" },
-     }}
-   >
-     Transfer to Commutation
-   </AccentButton>
- )}
-                                          </Box>
+                                          {!isLocked && <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, whiteSpace: "nowrap" }}>{pctUsed.toFixed(0)}% used</Typography>}
                                         </Box>
                                       </Box>
-                                    );
-                                  })}
+
+                                      {/* Stats grid */}
+                                      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
+                                        {[["Carried Over", carriedHrs, carriedHrs > 0 ? "#2e7d32" : T.faint], ["Balance Given", allocHrs, "#1565c0"], ["Used", usedHrs, "#e65100"], ["Remaining", remHrs, sc], ["Total", totalHrs, "#2e7d32"]].map(([label, val, color], i) => (
+                                          <Box key={label} sx={{ px: 1.75, py: 1.5, borderRight: i < 4 ? `1px solid ${T.divider}` : "none", borderBottom: `1px solid ${T.divider}`, textAlign: "center" }}>
+                                            <Typography sx={{ fontSize: "0.59rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.5 }}>{label}</Typography>
+                                            <Typography sx={{ fontWeight: 800, color, fontSize: "0.9rem", lineHeight: 1, fontFamily: T.poppins }}>{fmt(val)}</Typography>
+                                            <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, mt: 0.25 }}>{unit === "hours" ? `${(toNum(val) / 8).toFixed(3)} d` : `${toNum(val).toFixed(3)} h`}</Typography>
+                                          </Box>
+                                        ))}
+                                      </Box>
+
+                                      {/* Earnings Banner */}
+                                      {!isLocked && (
+                                        <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}` }}>
+                                          <EarningsBanner employeeNumber={selectedEmployeeLeaves.employeeNumber} leaveCode={selectedLeaveTypeInModal.leave_code} periodYear={period.period_year} periodSemester={period.period_semester} unit={unit} baseRemainingHours={period.remaining_hours} baseTotalHours={period.total_hours} />
+                                        </Box>
+                                      )}
+
+                                      <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+                                        <Typography sx={{ fontSize: "0.72rem", color: isLocked ? T.faint : remHrs > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>
+                                          {isLocked ? "Transferred to Commutation." : remHrs > 0 ? `${fmt(remHrs)} remaining · Can be transferred to Commutation.` : "All leave credits for this period have been used."}
+                                        </Typography>
+                                        <Box sx={{ display: "flex", gap: 0.75, flexShrink: 0 }}>
+                                          {!isLocked && (
+                                            <AccentButton onClick={(e) => { e.stopPropagation(); handleOpenModal(period); setIsEditing(true); }} variant="outlined" size="small"
+                                              startIcon={<EditIcon sx={{ fontSize: "12px !important" }} />}
+                                              sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, borderColor: T.accentBorder, color: T.accent, "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint, transform: "none" } }}>
+                                              Edit
+                                            </AccentButton>
+                                          )}
+                                          {!isLocked && remHrs > 0 && (
+                                            <AccentButton
+                                              onClick={(e) => { e.stopPropagation(); handleOpenCommutationWarning(period); }}
+                                              variant="contained" size="small"
+                                              startIcon={commuteLoadingId === period.id ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "12px !important" }} />}
+                                              disabled={!!commuteLoadingId}
+                                              sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, bgcolor: T.accent, color: "#fff", boxShadow: "none", "&:hover": { bgcolor: T.accentDark, transform: "none" }, "&:disabled": { bgcolor: "#e0e0e0 !important", color: "#aaa !important" } }}>
+                                              {commuteLoadingId === period.id ? "Transferring…" : isLatest ? "Transfer (cascade)" : "Transfer to Commutation"}
+                                            </AccentButton>
+                                          )}
+                                        </Box>
+                                      </Box>
+                                    </Box>
+                                  );
+                                })}
                               </Box>
                             </Box>
                           )}
@@ -3179,9 +2366,7 @@ if (accessLoading || pageLoading) {
                       <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative", overflow: "hidden" }}>
                         <Box sx={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
                         <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
-                          <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <EditIcon sx={{ fontSize: 18, color: "#fff" }} />
-                          </Box>
+                          <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}><EditIcon sx={{ fontSize: 18, color: "#fff" }} /></Box>
                           <Box>
                             <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, fontFamily: T.poppins }}>Edit Leave Assignment</Typography>
                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
@@ -3197,9 +2382,7 @@ if (accessLoading || pageLoading) {
                             <ToggleButton value="hours">hrs</ToggleButton>
                             <ToggleButton value="days">days</ToggleButton>
                           </ToggleButtonGroup>
-                          <IconButton onClick={handleCloseModal} size="small" sx={{ color: "rgba(255,255,255,0.75)", "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
-                            <Close sx={{ fontSize: 17 }} />
-                          </IconButton>
+                          <IconButton onClick={handleCloseModal} size="small" sx={{ color: "rgba(255,255,255,0.75)", "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}><Close sx={{ fontSize: 17 }} /></IconButton>
                         </Box>
                       </Box>
                       <Box sx={{ px: 3.5, py: 3, overflowY: "auto", flexGrow: 1 }}>
@@ -3234,49 +2417,27 @@ if (accessLoading || pageLoading) {
                             </Box>
                           ))}
                         </Box>
-                        {/* Earnings banner in edit modal too */}
                         {!isEditLocked && (
                           <Box sx={{ mb: 2 }}>
-                            <EarningsBanner
-                              employeeNumber={editAssignment.employeeNumber}
-                              leaveCode={editAssignment.leave_code}
-                              periodYear={editAssignment.period_year}
-                              periodSemester={editAssignment.period_semester}
-                              unit={unit}
-                              baseRemainingHours={editAssignment.remaining_hours}
-                              baseTotalHours={editAssignment.total_hours}
-                            />
+                            <EarningsBanner employeeNumber={editAssignment.employeeNumber} leaveCode={editAssignment.leave_code} periodYear={editAssignment.period_year} periodSemester={editAssignment.period_semester} unit={unit} baseRemainingHours={editAssignment.remaining_hours} baseTotalHours={editAssignment.total_hours} />
                           </Box>
                         )}
                         <Box sx={{ mb: 2.5 }}>
-                          <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: T.accent, mb: 1, fontFamily: T.poppins }}>
-                            Credit usage log (this assignment)
-                          </Typography>
+                          <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: T.accent, mb: 1, fontFamily: T.poppins }}>Credit usage log (this assignment)</Typography>
                           {creditUsageLoading ? (
                             <LinearProgress sx={{ borderRadius: 1 }} />
                           ) : creditUsageLog.length === 0 ? (
-                            <Typography variant="body2" sx={{ color: T.muted, fontFamily: T.poppins }}>
-                              No ledger lines yet. Usage from HR-approved leave and approved earnings deductions will appear here after you run the DB migration for{" "}
-                              <Box component="span" sx={{ fontFamily: "monospace", fontSize: "0.75rem" }}>leave_credit_usage</Box>.
-                            </Typography>
+                            <Typography variant="body2" sx={{ color: T.muted, fontFamily: T.poppins }}>No ledger lines yet. Usage from HR-approved leave and approved earnings deductions will appear here after you run the DB migration for <Box component="span" sx={{ fontFamily: "monospace", fontSize: "0.75rem" }}>leave_credit_usage</Box>.</Typography>
                           ) : (
                             <Table size="small" sx={{ border: `1px solid ${T.divider}`, borderRadius: 1, "& .MuiTableCell-root": { fontFamily: T.poppins, fontSize: "0.72rem" } }}>
                               <TableHead sx={{ bgcolor: T.accentFaint }}>
-                                <TableRow>
-                                  <TableCell>When</TableCell>
-                                  <TableCell>Source</TableCell>
-                                  <TableCell align="right">Δ hrs</TableCell>
-                                  <TableCell align="right">Ref</TableCell>
-                                </TableRow>
+                                <TableRow><TableCell>When</TableCell><TableCell>Source</TableCell><TableCell align="right">Δ hrs</TableCell><TableCell align="right">Ref</TableCell></TableRow>
                               </TableHead>
                               <TableBody>
                                 {creditUsageLog.map((row) => (
                                   <TableRow key={row.id} sx={{ opacity: row.voided_at ? 0.45 : 1 }}>
                                     <TableCell>{row.created_at ? String(row.created_at).replace("T", " ").slice(0, 19) : "—"}</TableCell>
-                                    <TableCell>
-                                      {row.source_type || "—"}
-                                      {row.voided_at ? " (voided)" : ""}
-                                    </TableCell>
+                                    <TableCell>{row.source_type || "—"}{row.voided_at ? " (voided)" : ""}</TableCell>
                                     <TableCell align="right">{Number(row.hours_delta).toFixed(4)}</TableCell>
                                     <TableCell align="right">{row.source_id != null ? row.source_id : "—"}</TableCell>
                                   </TableRow>
@@ -3318,13 +2479,9 @@ if (accessLoading || pageLoading) {
                         </Grid>
                       </Box>
                       <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1, flexShrink: 0 }}>
-                        {!isEditLocked && (
-                          <AccentButton onClick={() => handleDelete(editAssignment.id)} variant="outlined" startIcon={<DeleteIcon sx={{ fontSize: "13px !important" }} />} sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: "#ffcdd2", color: "#c62828", mr: "auto", "&:hover": { bgcolor: "rgba(198,40,40,0.04)", borderColor: "#c62828", transform: "none" } }}>Delete</AccentButton>
-                        )}
+                        {!isEditLocked && <AccentButton onClick={() => handleDelete(editAssignment.id)} variant="outlined" startIcon={<DeleteIcon sx={{ fontSize: "13px !important" }} />} sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: "#ffcdd2", color: "#c62828", mr: "auto", "&:hover": { bgcolor: "rgba(198,40,40,0.04)", borderColor: "#c62828", transform: "none" } }}>Delete</AccentButton>}
                         <AccentButton onClick={handleCloseModal} variant="outlined" sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>{isEditLocked ? "Close" : "Cancel"}</AccentButton>
-                        {!isEditLocked && (
-                          <AccentButton onClick={handleUpdate} variant="contained" startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />} sx={{ fontSize: "0.8rem", fontFamily: T.poppins, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}>Save Changes</AccentButton>
-                        )}
+                        {!isEditLocked && <AccentButton onClick={handleUpdate} variant="contained" startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />} sx={{ fontSize: "0.8rem", fontFamily: T.poppins, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}>Save Changes</AccentButton>}
                       </Box>
                     </>
                   );
@@ -3333,33 +2490,31 @@ if (accessLoading || pageLoading) {
             </Fade>
           </Modal>
 
-           <CommutationWarningModal
-   open={!!commutationWarning}
-   onClose={() => !commuteLoadingId && setCommutationWarning(null)}
-   onConfirm={() => handleTransferToCommutation(commutationWarning)}
-   period={commutationWarning}
-   unit={unit}
-   leaveTypes={leaveTypes}
-   allPeriods={
-     commutationWarning && selectedLeaveTypeInModal
-       ? selectedLeaveTypeInModal.periods
-       : commutationWarning && selectedEmployeeLeaves
-         ? (selectedEmployeeLeaves.leaveTypes.find(
-             lt => lt.leave_code === commutationWarning.leave_code
-           )?.periods || [])
-         : []
-   }
-   loading={commuteLoadingId === commutationWarning?.id}
- />
+          {/* Commutation Warning Modal */}
+          <CommutationWarningModal
+            open={!!commutationWarning}
+            onClose={() => !commuteLoadingId && setCommutationWarning(null)}
+            onConfirm={handleTransferToCommutation}
+            period={commutationWarning?.period ?? null}
+            unit={unit}
+            leaveTypes={leaveTypes}
+            allPeriods={
+              commutationWarning?.period && selectedLeaveTypeInModal
+                ? selectedLeaveTypeInModal.periods
+                : commutationWarning?.period && selectedEmployeeLeaves
+                  ? (selectedEmployeeLeaves.leaveTypes.find((lt) => lt.leave_code === commutationWarning.period.leave_code)?.periods || [])
+                  : []
+            }
+            isCurrent={commutationWarning?.isCurrent ?? false}
+            previousPeriodsToCommute={commutationWarning?.previousPeriodsToCommute ?? []}
+            loading={!!commuteLoadingId}
+          />
         </Box>
       </Fade>
 
       {/* Floating Reset to Default button */}
       <Tooltip title={`Auto-assign leave types to all ${[...new Set(assignments.map((a) => a.employeeNumber))].length} employees with existing records`} placement="left">
-        <Button
-          onClick={() => setBulkAssignOpen(true)}
-          variant="contained"
-          startIcon={<AutoAssignIcon />}
+        <Button onClick={() => setBulkAssignOpen(true)} variant="contained" startIcon={<AutoAssignIcon />}
           sx={{ position: "fixed", bottom: 70, right: 32, zIndex: 1200, bgcolor: T.accent, color: "#fff", borderRadius: 3, fontWeight: 700, fontFamily: T.poppins, px: 3, py: 1.5, fontSize: "0.875rem", boxShadow: `0 6px 20px ${alpha(T.accent, 0.45)}`, whiteSpace: "nowrap", "&:hover": { bgcolor: T.accentDark, boxShadow: `0 8px 28px ${alpha(T.accent, 0.55)}`, transform: "translateY(-2px)" }, transition: "all 0.2s ease" }}>
           Reset to Default
         </Button>
