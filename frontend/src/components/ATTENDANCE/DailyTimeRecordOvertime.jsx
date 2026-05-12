@@ -45,6 +45,40 @@ const generateHash = (data) => {
   return Math.abs(hash).toString(16).toUpperCase();
 };
 
+/** YYYY-MM-DD as a Philippines calendar day (fixes holiday/leave off-by-one from UTC-midnight ISO strings). */
+const toPhCalendarYmd = (value) => {
+  if (value == null || value === '') return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+  }
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const mo = parts.find((p) => p.type === 'month')?.value;
+    const da = parts.find((p) => p.type === 'day')?.value;
+    if (y && mo && da) return `${y}-${mo}-${da}`;
+  } catch {
+    /* ignore */
+  }
+  return s.split('T')[0];
+};
+
+const recordMatchesDay = (record, dayPadded) => {
+  const ymd = toPhCalendarYmd(record?.date);
+  if (!ymd || dayPadded.length !== 2) return false;
+  return ymd.endsWith(`-${dayPadded}`);
+};
+
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
 
 const T = {
@@ -294,8 +328,7 @@ const DailyTimeRecordOvertime = () => {
         const dayText = dayCell.textContent.trim();
         if (!/^\d{2}$/.test(dayText)) return;
         const record = original.find((r) => {
-          const d = (r.date || '').split('T')[0].split('-')[2];
-          return d === dayText;
+          return recordMatchesDay(r, dayText);
         });
         const cells = row.querySelectorAll('td');
         if (cells.length < 5) return;
@@ -595,9 +628,9 @@ const DailyTimeRecordOvertime = () => {
   // ── Date indicator helpers ─────────────────────────────────────────────────
   const isDateInRange = (date, s, e) => {
     if (!date) return false;
-    const d  = String(date).split('T')[0];
-    const st = s ? String(s).split('T')[0] : null;
-    const en = e ? String(e).split('T')[0] : null;
+    const d  = toPhCalendarYmd(date);
+    const st = s ? toPhCalendarYmd(s) : null;
+    const en = e ? toPhCalendarYmd(e) : null;
     if (st && en) return d >= st && d <= en;
     if (st) return d >= st;
     if (en) return d <= en;
@@ -606,16 +639,16 @@ const DailyTimeRecordOvertime = () => {
 
   const isApprovedLeaveDate = (dateString) => {
     if (!dateString || approvedLeaves.length === 0) return false;
-    const check = String(dateString).split('T')[0];
+    const check = toPhCalendarYmd(dateString);
     return approvedLeaves.some((req) => {
       const dates = Array.isArray(req.leave_date) ? req.leave_date : String(req.leave_date).split(',').map((d) => d.trim());
-      return dates.some((d) => d.split('T')[0] === check);
+      return dates.some((d) => toPhCalendarYmd(d) === check);
     });
   };
 
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
-    const date = String(dateString).split('T')[0];
+    const date = toPhCalendarYmd(dateString);
     if (isApprovedLeaveDate(date))
       return { type: 'leave',      label: 'ON LEAVE',   bgColor: 'rgba(46,125,50,0.2)',  textColor: '#000', borderColor: '#2e7d32' };
     const susp = suspensions.find((s) => isDateInRange(date, s.date_start || s.date, s.date_end || s.date));
@@ -802,9 +835,9 @@ const DailyTimeRecordOvertime = () => {
   const renderTableBody = () =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day    = (i + 1).toString().padStart(2, '0');
-      const record = records.find((r) => r.date && r.date.endsWith(`-${day}`));
+      const record = records.find((r) => r.date && recordMatchesDay(r, day));
       let fullDate = null;
-      if (record?.date) { fullDate = record.date; }
+      if (record?.date) fullDate = toPhCalendarYmd(record.date);
       else if (startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
       else if (selectedMonth !== null) { const mn = String(selectedMonth + 1).padStart(2, '0'); fullDate = `${selectedYear}-${mn}-${day}`; }
       const indicator = getDateIndicator(fullDate);

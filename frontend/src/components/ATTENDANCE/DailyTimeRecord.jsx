@@ -12,9 +12,11 @@ import {
   Box,
   Button,
   Card,
+  Checkbox,
   Container,
   Dialog,
   Fade,
+  FormControlLabel,
   IconButton,
   Paper,
   styled,
@@ -58,6 +60,115 @@ const generateHash = (data) => {
   return Math.abs(hash).toString(16).toUpperCase();
 };
 
+/** YYYY-MM-DD as a Philippines calendar day (fixes holiday/leave off-by-one from UTC-midnight ISO strings). */
+const toPhCalendarYmd = (value) => {
+  if (value == null || value === '') return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+  }
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const mo = parts.find((p) => p.type === 'month')?.value;
+    const da = parts.find((p) => p.type === 'day')?.value;
+    if (y && mo && da) return `${y}-${mo}-${da}`;
+  } catch {
+    /* ignore */
+  }
+  return s.split('T')[0];
+};
+
+const recordMatchesDay = (record, dayPadded) => {
+  const ymd = toPhCalendarYmd(record?.date);
+  if (!ymd || dayPadded.length !== 2) return false;
+  return ymd.endsWith(`-${dayPadded}`);
+};
+
+const REGULAR_WEEKDAY_KEYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const REGULAR_DAY_ABBREV = { Monday: 'M', Tuesday: 'T', Wednesday: 'W', Thursday: 'Th', Friday: 'F' };
+
+/** HH:MM AM/PM for DTR official-time lines (uses same parsing rules as formatTime). */
+const formatOfficialClock = (timeString, formatTimeFn) => {
+  const s = formatTimeFn(timeString || '');
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+  if (m) {
+    const h = String(parseInt(m[1], 10)).padStart(2, '0');
+    return `${h}:${m[2]} ${m[3].toUpperCase()}`;
+  }
+  return s;
+};
+
+/** e.g. "07:00 AM to 12:00 PM : 01:00 PM to 06:00 PM" (AM block / PM block). */
+const buildOfficialTwoSegment = (sched, formatTimeFn) => {
+  if (!sched) return '';
+  const tIn = formatOfficialClock(sched.officialTimeIN, formatTimeFn);
+  const brOut = formatOfficialClock(sched.officialBreaktimeOUT, formatTimeFn);
+  const brIn = formatOfficialClock(sched.officialBreaktimeIN, formatTimeFn);
+  const tOut = formatOfficialClock(sched.officialTimeOUT, formatTimeFn);
+  if (tIn && brOut && brIn && tOut) return `${tIn} to ${brOut} : ${brIn} to ${tOut}`;
+  if (tIn && tOut) return `${tIn} to ${tOut}`;
+  return '';
+};
+
+const formatRegularDayRangeLabel = (startDay, endDay) => {
+  const a = REGULAR_DAY_ABBREV[startDay];
+  const b = REGULAR_DAY_ABBREV[endDay];
+  if (!a || !b) return '';
+  if (startDay === endDay) return a;
+  return `${a} - ${b}`;
+};
+
+/** Group Mon–Fri by consecutive days sharing the same two-segment string. */
+const buildRegularDaysOfficialLines = (officialTimes, formatTimeFn) => {
+  const lines = [];
+  let runStart = -1;
+  let runEnd = -1;
+  let runSeg = '';
+
+  const flush = () => {
+    if (runStart < 0) return;
+    const sDay = REGULAR_WEEKDAY_KEYS[runStart];
+    const eDay = REGULAR_WEEKDAY_KEYS[runEnd];
+    const label = formatRegularDayRangeLabel(sDay, eDay);
+    if (label && runSeg) lines.push(`${label} ${runSeg}`);
+    runStart = -1;
+  };
+
+  for (let i = 0; i < REGULAR_WEEKDAY_KEYS.length; i += 1) {
+    const day = REGULAR_WEEKDAY_KEYS[i];
+    const seg = buildOfficialTwoSegment(officialTimes[day], formatTimeFn);
+    if (!seg) {
+      flush();
+      continue;
+    }
+    if (runStart < 0) {
+      runStart = i;
+      runEnd = i;
+      runSeg = seg;
+    } else if (seg === runSeg && runEnd === i - 1) {
+      runEnd = i;
+    } else {
+      flush();
+      runStart = i;
+      runEnd = i;
+      runSeg = seg;
+    }
+  }
+  flush();
+  return lines;
+};
+
 // ─── DESIGN TOKENS (unified with Payslip) ─────────────────────────────────────
 const T = {
   accent: '#6d2323',
@@ -71,6 +182,16 @@ const T = {
   faint: '#a0a0a0',
   surface: '#ffffff',
   divider: 'rgba(0,0,0,0.08)',
+};
+
+/** Scrollable body inside DTR Period / DTR Preview — same flex rules so panels align when zoomed. */
+const dtrPanelScrollBodySx = {
+  flexGrow: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  position: 'relative',
+  '&::-webkit-scrollbar': { width: 4 },
+  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
 };
 
 // ─── STYLED COMPONENTS ────────────────────────────────────────────────────────
@@ -216,6 +337,7 @@ const DailyTimeRecord = () => {
   const [records, setRecords]           = useState([]);
   const [employeeName, setEmployeeName] = useState('');
   const [officialTimes, setOfficialTimes] = useState({});
+  const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
   const dtrRef = useRef(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [holidays, setHolidays]         = useState([]);
@@ -250,6 +372,7 @@ const DailyTimeRecord = () => {
   const [pageLoading, setPageLoading] = useState(true);
 
   const DTR_WIDTH_IN = '8.7in';
+  const DTR_PANEL_HEIGHT = 'calc(100vh - 280px)';
 
   // ── Theme colours ──────────────────────────────────────────────────────────
   const primaryColor      = settings.accentColor      || '#FEF9E1';
@@ -330,7 +453,8 @@ const DailyTimeRecord = () => {
         const dayText = dayCell.textContent.trim();
         if (!/^\d{2}$/.test(dayText)) return;
         const record = original.find((r) => {
-          const d = (r.date || '').split('T')[0].split('-')[2];
+          const ymd = toPhCalendarYmd(r.date);
+          const d = ymd.split('-')[2];
           return d === dayText;
         });
         const cells = row.querySelectorAll('td');
@@ -342,11 +466,10 @@ const DailyTimeRecord = () => {
           fmt(record?.timeOUT    || ''),
         ];
         [1, 2, 3, 4].forEach((cellIdx, spanIdx) => {
-          // Target ONLY the direct-child time span — never the nested watermark span
-          // inside .dtr-cell-watermark (so HOLIDAY/SUSPENSION/ON LEAVE labels survive).
+          // Target ONLY .dtr-actual-time — not watermark (HOLIDAY / SUSPENSION / ON LEAVE).
           const td = cells[cellIdx];
           if (!td) return;
-          const span = td.querySelector(':scope > span');
+          const span = td.querySelector(':scope > span.dtr-actual-time');
           if (span && span.textContent.trim() !== timeValues[spanIdx]) {
             span.textContent = timeValues[spanIdx];
           }
@@ -610,9 +733,10 @@ const DailyTimeRecord = () => {
   // ── Date indicator helpers ─────────────────────────────────────────────────
   const isDateInRange = (date, s, e) => {
     if (!date) return false;
-    const d  = String(date).split('T')[0];
-    const st = s ? String(s).split('T')[0] : null;
-    const en = e ? String(e).split('T')[0] : null;
+    const d = toPhCalendarYmd(date);
+    if (!d) return false;
+    const st = s != null && s !== '' ? toPhCalendarYmd(s) : null;
+    const en = e != null && e !== '' ? toPhCalendarYmd(e) : null;
     if (st && en) return d >= st && d <= en;
     if (st) return d >= st;
     if (en) return d <= en;
@@ -621,16 +745,18 @@ const DailyTimeRecord = () => {
 
   const isApprovedLeaveDate = (dateString) => {
     if (!dateString || approvedLeaves.length === 0) return false;
-    const check = String(dateString).split('T')[0];
+    const check = toPhCalendarYmd(dateString);
+    if (!check) return false;
     return approvedLeaves.some((req) => {
       const dates = Array.isArray(req.leave_date) ? req.leave_date : String(req.leave_date).split(',').map((d) => d.trim());
-      return dates.some((d) => d.split('T')[0] === check);
+      return dates.some((d) => toPhCalendarYmd(d) === check);
     });
   };
 
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
-    const date = String(dateString).split('T')[0];
+    const date = toPhCalendarYmd(dateString);
+    if (!date) return null;
     if (isApprovedLeaveDate(date)) return { type: 'leave', label: 'ON LEAVE', bgColor: 'rgba(46,125,50,0.2)', textColor: '#000', borderColor: '#2e7d32' };
     const susp = suspensions.find((s) => isDateInRange(date, s.date_start || s.date, s.date_end || s.date));
     if (susp) return { type: 'suspension', label: 'SUSPENSION', bgColor: 'rgba(211,47,47,0.2)', textColor: '#000', borderColor: '#d32f2f' };
@@ -649,6 +775,13 @@ const DailyTimeRecord = () => {
   // ── DTR table header ───────────────────────────────────────────────────────
   const renderHeader = () => {
     const fs = '10px';
+    const regularDaysLines = showOfficialTimeOnDtr ? buildRegularDaysOfficialLines(officialTimes, formatTime) : [];
+    const saturdayOfficialText = showOfficialTimeOnDtr
+      ? buildOfficialTwoSegment(officialTimes.Saturday, formatTime)
+      : '';
+    const regularBlockMinH = showOfficialTimeOnDtr && regularDaysLines.length > 0
+      ? 14 + Math.max(0, regularDaysLines.length - 1) * 16
+      : 14;
     return (
       <thead style={{ textAlign: 'center' }}>
         <tr>
@@ -683,9 +816,74 @@ const DailyTimeRecord = () => {
         </td></tr>
         <tr><td colSpan="7" style={{ padding: '2px 5px', lineHeight: '1.2', textAlign: 'left' }}><p style={{ fontSize: '11px', margin: '0', paddingLeft: '5px', fontFamily: 'Times New Roman,serif' }}>For the month of: <b>{startDate ? formatMonth(startDate) : ''}</b></p></td></tr>
         <tr><td colSpan="7" style={{ padding: '8px 5px 2px 5px', textAlign: 'left', fontSize: '10px', fontFamily: 'Arial,serif', lineHeight: '1.2' }}>Official hours for arrival (regular day) and departure</td></tr>
-        <tr><td colSpan="7" style={{ padding: '2px 5px' }}><div style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: '5%', height: '14px', fontFamily: 'Arial,serif', fontSize: '10px' }}><span style={{ marginRight: '5px' }}>Regular Days:</span><span style={{ display: 'inline-block', borderBottom: '1.5px solid black', flexGrow: 1, minWidth: '300px', marginBottom: '2px' }}></span></div></td></tr>
+        <tr>
+          <td colSpan="7" style={{ padding: '2px 5px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-end',
+              paddingLeft: '5%',
+              minHeight: regularBlockMinH,
+              fontFamily: 'Arial,serif',
+              fontSize: '10px',
+            }}
+            >
+              <span style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}>Regular Days:</span>
+              <span style={{
+                display: 'inline-block',
+                borderBottom: '1.5px solid black',
+                flexGrow: 1,
+                minWidth: '300px',
+                marginBottom: '2px',
+                paddingLeft: '4px',
+                paddingBottom: '1px',
+                fontSize: regularDaysLines.length > 0 ? '9px' : '10px',
+                lineHeight: 1.35,
+                textAlign: 'left',
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
+              }}
+              >
+                {regularDaysLines.map((line, idx) => (
+                  <React.Fragment key={idx}>
+                    {idx > 0 ? <br /> : null}
+                    {line}
+                  </React.Fragment>
+                ))}
+              </span>
+            </div>
+          </td>
+        </tr>
         {Array.from({ length: 2 }, (_, i) => <tr key={`e2${i}`}><td colSpan="7"></td></tr>)}
-        <tr><td colSpan="7" style={{ padding: '2px 5px' }}><div style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: '5%', height: '20px', fontFamily: 'Arial,serif', fontSize: '10px', whiteSpace: 'nowrap' }}><span style={{ marginRight: '5px' }}>Saturdays:</span><span style={{ display: 'inline-block', borderBottom: '1.5px solid black', flexGrow: 1, minWidth: '318px', marginBottom: '2px' }}></span></div></td></tr>
+        <tr>
+          <td colSpan="7" style={{ padding: '2px 5px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-end',
+              paddingLeft: '5%',
+              minHeight: showOfficialTimeOnDtr && saturdayOfficialText ? 26 : 20,
+              fontFamily: 'Arial,serif',
+              fontSize: '10px',
+            }}
+            >
+              <span style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}>Saturdays:</span>
+              <span style={{
+                display: 'inline-block',
+                borderBottom: '1.5px solid black',
+                flexGrow: 1,
+                minWidth: '318px',
+                marginBottom: '2px',
+                paddingLeft: '4px',
+                paddingBottom: '1px',
+                fontSize: saturdayOfficialText ? '9px' : '10px',
+                lineHeight: 1.25,
+                textAlign: 'left',
+                whiteSpace: 'nowrap',
+                wordBreak: 'break-word',
+              }}
+              >{saturdayOfficialText}</span>
+            </div>
+          </td>
+        </tr>
         {Array.from({ length: 2 }, (_, i) => <tr key={`e3${i}`}><td colSpan="7"></td></tr>)}
         <tr>
           <th rowSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>DAY</th>
@@ -764,7 +962,7 @@ const DailyTimeRecord = () => {
             <span style={dtrWmSpanStyle}>{indicator.label}</span>
           </div>
         )}
-        <span style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
+        <span className="dtr-actual-time" style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
       </td>
     );
   };
@@ -772,11 +970,11 @@ const DailyTimeRecord = () => {
   const renderTableRows = () =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day    = (i + 1).toString().padStart(2, '0');
-      const record = records.find((r) => r.date && r.date.endsWith(`-${day}`));
+      const record = records.find((r) => r.date && recordMatchesDay(r, day));
       let fullDate = null;
-      if (record?.date) { fullDate = record.date; }
-      else if (startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
-      else if (selectedMonth !== null) { fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`; }
+      if (record?.date) fullDate = toPhCalendarYmd(record.date);
+      if (!fullDate && startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
+      else if (!fullDate && selectedMonth !== null) { fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`; }
       const indicator = getDateIndicator(fullDate);
       const rowTint   = indicator ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)') : 'transparent';
       return (
@@ -908,17 +1106,17 @@ const DailyTimeRecord = () => {
           </SectionCard>
 
           {/* ── Two-column layout (matches Payslip) ── */}
-          <Grid container spacing={2}>
+          <Grid container spacing={2} sx={{ alignItems: 'stretch' }}>
 
-            {/* LEFT: Filter / Period selector panel */}
-            <Grid item xs={12} lg={3} className="no-print">
-              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
-                <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint }}>
+            {/* LEFT: Filter / Period selector panel (same height as DTR Preview; scrolls when zoom overflows) */}
+            <Grid item xs={12} lg={3} className="no-print" sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <SectionCard sx={{ width: '100%', height: DTR_PANEL_HEIGHT, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
                   <CalendarToday sx={{ fontSize: 15, color: T.accent }} />
                   <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>DTR Period</Typography>
                 </Box>
 
-                <Box sx={{ px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                <Box sx={{ px: 3.5, py: 3, display: 'flex', flexDirection: 'column', gap: 0, ...dtrPanelScrollBodySx }}>
 
                   {/* Employee (read-only) */}
                   <FormSectionLabel icon={AccessTime}>Employee</FormSectionLabel>
@@ -1000,7 +1198,24 @@ const DailyTimeRecord = () => {
                     })}
                   </Box>
 
-                  <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                  <FormControlLabel
+                    className="no-print"
+                    control={(
+                      <Checkbox
+                        size="small"
+                        checked={showOfficialTimeOnDtr}
+                        onChange={(e) => setShowOfficialTimeOnDtr(e.target.checked)}
+                        sx={{ py: 0, color: T.accent, '&.Mui-checked': { color: T.accent } }}
+                      />
+                    )}
+                    label={(
+                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text, lineHeight: 1.3 }}>
+                        Show official time on DTR
+                      </Typography>
+                    )}
+                    sx={{ mt: 2, mb: 0.5, ml: -0.5, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { pt: '2px' } }}
+                  />
+                  <Box sx={{ mt: 0, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
                     <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(T.accent, 0.6), mb: 0.5 }}>
                       Total Records
                     </Typography>
@@ -1016,11 +1231,11 @@ const DailyTimeRecord = () => {
             </Grid>
 
             {/* RIGHT: DTR preview panel */}
-            <Grid item xs={12} lg={9}>
-              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <Grid item xs={12} lg={9} sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <SectionCard sx={{ width: '100%', height: DTR_PANEL_HEIGHT, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
                 {/* Toolbar */}
-                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }} className="no-print">
+                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }} className="no-print">
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <AccessTime sx={{ fontSize: 15, color: T.accent }} />
@@ -1068,7 +1283,7 @@ const DailyTimeRecord = () => {
                 </Box>
 
                 {/* Content */}
-                <Box sx={{ flexGrow: 1, overflowY: 'auto', position: 'relative', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                <Box sx={{ ...dtrPanelScrollBodySx }}>
                   {selectedMonth === null ? (
                     <Box sx={{ py: 10, textAlign: 'center' }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
@@ -1108,7 +1323,7 @@ const DailyTimeRecord = () => {
 
                 {/* Footer info bar */}
                 {selectedMonth !== null && (
-                  <Box className="no-print" sx={{ px: 3.5, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box className="no-print" sx={{ flexShrink: 0, px: 3.5, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <PictureAsPdfIcon sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }} />
                     <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>Download generates a PDF of your DTR for {monthsShort[selectedMonth]} {selectedYear}</Typography>
                   </Box>
