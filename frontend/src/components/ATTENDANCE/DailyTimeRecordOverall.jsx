@@ -372,6 +372,7 @@ const DailyTimeRecordFaculty = () => {
   const [records, setRecords]             = useState([]);
   const [employeeName, setEmployeeName]   = useState('');
   const [officialTimes, setOfficialTimes] = useState({});
+  const [batchOfficialTimesMap, setBatchOfficialTimesMap] = useState({}); // Map of employeeNumber -> officialTimes
   const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
   const dtrRef = useRef(null);
 
@@ -499,7 +500,7 @@ const DailyTimeRecordFaculty = () => {
     originalRecordsRef.current = []; setRecordsHash(''); setFetchedAt(null);
     setIntegrityStatus('none'); setEmployeeName(''); setOfficialTimes({});
     setApprovedLeaves([]); setMonthLoading(false);
-    setAllUsersDTR([]); setSelectedUsers(new Set()); setSearchQuery('');
+    setAllUsersDTR([]); setBatchOfficialTimesMap({}); setSelectedUsers(new Set()); setSearchQuery('');
     setRecordFilter('all'); setPrintStatusFilter('all'); setDepartmentFilter('');
     setEmploymentCategoryFilter(''); setRegistrationStatusFilter(''); setCurrentPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -601,14 +602,54 @@ const DailyTimeRecordFaculty = () => {
   };
 
   // ─── Secondary data helpers ────────────────────────────────────────────
-  const fetchOfficialTimes = useCallback(async (employeeID) => {
+  const fetchOfficialTimes = useCallback(async (employeeID, periodStart, periodEnd) => {
     try {
-      const r = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, getAuthHeaders());
-      setOfficialTimes(r.data.reduce((acc, rec) => {
-        acc[rec.day] = { officialTimeIN: rec.officialTimeIN, officialTimeOUT: rec.officialTimeOUT, officialBreaktimeIN: rec.officialBreaktimeIN, officialBreaktimeOUT: rec.officialBreaktimeOUT };
+      const response = await axios.get(
+        `${API_BASE_URL}/officialtimetable/${employeeID}`,
+        getAuthHeaders(),
+      );
+
+      const allRows = response.data || [];
+
+      // Filter to only schedules whose date range overlaps the selected period.
+      // If no period is provided (initial load), skip filtering.
+      const filtered = (periodStart && periodEnd)
+        ? allRows.filter((r) => {
+            const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
+            const schedEnd   = r.endDate   ? String(r.endDate).split('T')[0]   : null;
+            if (!schedStart || !schedEnd) return false;
+            // Overlap condition: sched starts before period ends AND sched ends after period starts
+            return schedStart <= periodEnd && schedEnd >= periodStart;
+          })
+        : allRows;
+
+      const map = filtered.reduce((acc, r) => {
+        // Last-write-wins per day — higher id = more recent row takes precedence
+        if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
+          acc[r.day] = {
+            _id: r.id,
+            officialTimeIN:       r.officialTimeIN,
+            officialTimeOUT:      r.officialTimeOUT,
+            officialBreaktimeIN:  r.officialBreaktimeIN,
+            officialBreaktimeOUT: r.officialBreaktimeOUT,
+          };
+        }
         return acc;
-      }, {}));
-    } catch { setOfficialTimes({}); }
+      }, {});
+
+      // Strip internal _id before storing
+      const cleanMap = Object.fromEntries(
+        Object.entries(map).map(([day, val]) => {
+          const { _id, ...rest } = val;
+          return [day, rest];
+        })
+      );
+
+      setOfficialTimes(cleanMap);
+    } catch (err) {
+      console.error('Error fetching official times:', err);
+      setOfficialTimes({});
+    }
   }, []);
 
   const fetchApprovedLeaves = useCallback(async (empID) => {
@@ -618,11 +659,64 @@ const DailyTimeRecordFaculty = () => {
     } catch { setApprovedLeaves([]); }
   }, []);
 
+  // ─── Fetch official times for batch users ──────────────────────────────
+  const fetchBatchOfficialTimes = useCallback(async (employeeNumbers, periodStart, periodEnd) => {
+    if (!employeeNumbers || employeeNumbers.length === 0) return;
+    try {
+      const timesMap = {};
+      await Promise.all(
+        employeeNumbers.map(async (empID) => {
+          try {
+            const response = await axios.get(
+              `${API_BASE_URL}/officialtimetable/${empID}`,
+              getAuthHeaders(),
+            );
+            const allRows = response.data || [];
+            const filtered = (periodStart && periodEnd)
+              ? allRows.filter((r) => {
+                  const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
+                  const schedEnd   = r.endDate   ? String(r.endDate).split('T')[0]   : null;
+                  if (!schedStart || !schedEnd) return false;
+                  return schedStart <= periodEnd && schedEnd >= periodStart;
+                })
+              : allRows;
+            const map = filtered.reduce((acc, r) => {
+              if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
+                acc[r.day] = {
+                  _id: r.id,
+                  officialTimeIN:       r.officialTimeIN,
+                  officialTimeOUT:      r.officialTimeOUT,
+                  officialBreaktimeIN:  r.officialBreaktimeIN,
+                  officialBreaktimeOUT: r.officialBreaktimeOUT,
+                };
+              }
+              return acc;
+            }, {});
+            const cleanMap = Object.fromEntries(
+              Object.entries(map).map(([day, val]) => {
+                const { _id, ...rest } = val;
+                return [day, rest];
+              })
+            );
+            timesMap[empID] = cleanMap;
+          } catch (err) {
+            console.error(`Error fetching official times for employee ${empID}:`, err);
+            timesMap[empID] = {};
+          }
+        }),
+      );
+      setBatchOfficialTimesMap(timesMap);
+    } catch (error) {
+      console.error('Error in fetchBatchOfficialTimes:', error);
+      setBatchOfficialTimesMap({});
+    }
+  }, []);
+
   useEffect(() => {
     if (personID) {
-      Promise.all([fetchOfficialTimes(personID), fetchApprovedLeaves(personID)]).catch(() => {});
+      Promise.all([fetchOfficialTimes(personID, startDate, endDate), fetchApprovedLeaves(personID)]).catch(() => {});
     }
-  }, [personID, fetchOfficialTimes, fetchApprovedLeaves]);
+  }, [personID, startDate, endDate, fetchOfficialTimes, fetchApprovedLeaves]);
 
   // ─── Static data on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -669,7 +763,7 @@ const DailyTimeRecordFaculty = () => {
       if (data.length > 0) {
         const { firstName, lastName, middleName } = data[0];
         setEmployeeName(formatFullName({ firstName, lastName, middleName }));
-        fetchOfficialTimes(personID);
+        fetchOfficialTimes(personID, startDate, endDate);
       } else { setEmployeeName('No records found'); setOfficialTimes({}); }
     } catch (err) { console.error('Error fetching records:', err); }
     finally { setMonthLoading(false); }
@@ -728,7 +822,7 @@ const DailyTimeRecordFaculty = () => {
     abortControllerRef.current = new AbortController();
     const { signal } = abortControllerRef.current;
     setLoadingAllUsers(true); setLoadPhase('Loading employee list…');
-    setAllUsersDTR([]); setSelectedUsers(new Set()); setCurrentPage(1);
+    setAllUsersDTR([]); setBatchOfficialTimesMap({}); setSelectedUsers(new Set()); setCurrentPage(1);
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
       const [empRes, deptRes, catRes] = await Promise.all([
@@ -739,7 +833,7 @@ const DailyTimeRecordFaculty = () => {
       if (signal.aborted) return;
       const empList = empRes.data || [];
       if (empList.length === 0) {
-        setAllUsersDTR([]); setLoadingAllUsers(false); setLoadPhase('');
+        setAllUsersDTR([]); setBatchOfficialTimesMap({}); setLoadingAllUsers(false); setLoadPhase('');
         showAlert('No Records Found', 'No attendance records found for the selected date range.');
         return;
       }
@@ -806,13 +900,16 @@ const DailyTimeRecordFaculty = () => {
       });
       setAllUsersDTR(mergedUsers.slice());
       setAllUsersDTR((prev) => prev.map((u) => (u._loading ? { ...u, _loading: false } : u)));
+      // Fetch official times for all batch users
+      const empNums = mergedUsers.map((u) => u.employeeNumber);
+      fetchBatchOfficialTimes(empNums, startDate, endDate).catch(() => {});
     } catch (error) {
       if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('fetchAllUsersDTR error:', error);
       showAlert('Fetch Error', error.response?.data?.error || 'Error fetching attendance records.');
-      setAllUsersDTR([]);
+      setAllUsersDTR([]); setBatchOfficialTimesMap({});
     } finally { if (!signal?.aborted) { setLoadingAllUsers(false); setLoadPhase(''); } }
-  }, [startDate, endDate, dtrType]);
+  }, [startDate, endDate, dtrType, fetchBatchOfficialTimes]);
 
   useEffect(() => {
     if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
@@ -1445,9 +1542,8 @@ const DailyTimeRecordFaculty = () => {
         {renderDTRTablePair(
           user.records,
           user.fullName,
-          // Use the already-fetched official times when this user matches the currently loaded single employee;
-          // for other batch users official times are not pre-fetched so the lines stay blank.
-          String(user.employeeNumber) === String(personID) ? officialTimes : {},
+          // Use fetched official times from batch map, or single-loaded official times if user matches personID
+          String(user.employeeNumber) === String(personID) ? officialTimes : (batchOfficialTimesMap[user.employeeNumber] || {}),
         )}
       </div>
     </div>
@@ -1513,7 +1609,7 @@ const DailyTimeRecordFaculty = () => {
           <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>Month</Typography>
         </Box>
         {selectedMonth !== null && (
-          <Box onClick={() => { setSelectedMonth(null); setHasSearchedSingle(false); setRecords([]); setEmployeeName(''); setStartDate(''); setEndDate(''); setAllUsersDTR([]); }}
+          <Box onClick={() => { setSelectedMonth(null); setHasSearchedSingle(false); setRecords([]); setEmployeeName(''); setStartDate(''); setEndDate(''); setAllUsersDTR([]); setBatchOfficialTimesMap({}); }}
             sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}>Clear</Box>
         )}
       </Box>
