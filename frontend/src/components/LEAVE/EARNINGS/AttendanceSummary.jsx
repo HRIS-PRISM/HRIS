@@ -1,36 +1,30 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Typography,
   Card,
   CircularProgress,
-  ToggleButton,
-  ToggleButtonGroup,
   Chip,
   Button,
   Tooltip,
-  Select,
-  MenuItem,
-  FormControl,
-  Avatar,
-  Autocomplete,
-  TextField,
   Alert,
-  Fade,
   IconButton,
-  Collapse,
-  Paper,
-  Tabs,
-  Tab,
+  Dialog,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
   EventNote as LeaveIcon,
   WorkHistory as SCIcon,
   AccessTime as CTOIcon,
-  Close,
+  Close as CloseIcon,
   Person as PersonIcon,
   Search as SearchIcon,
   Add as AddIcon,
@@ -58,6 +52,10 @@ import {
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
   Receipt as ReceiptIcon,
+  ArrowForward as ArrowForwardIcon,
+  People as PeopleIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowRight as KeyboardArrowRightIcon,
 } from "@mui/icons-material";
 import {
   useOfficialAttendanceMetrics,
@@ -96,6 +94,8 @@ const T = {
   muted: "#555555",
   faint: "#888888",
   poppins: "'Poppins', sans-serif",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
   statusPending: {
     bg: "rgba(0,0,0,0.04)",
     color: "#7a4a00",
@@ -128,27 +128,11 @@ const MONTHS = [
   { value: "12", label: "December", short: "Dec" },
 ];
 
-const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
-const DEFAULT_PAGE_SIZE = 10;
-
 const getCalendarDays = (year, month) => new Date(year, month, 0).getDate();
-
-const EARN_STATUS = {
-  pending: { label: "Pending", ...T.statusPending, icon: PendingIcon },
-  approved: { label: "Approved", ...T.statusApproved, icon: CheckIcon },
-  rejected: { label: "Rejected", ...T.statusRejected, icon: WarnIcon },
-};
-
-const STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "All", color: "#555" },
-  { value: "pending", label: "Pending", color: "#7a4a00" },
-  { value: "approved", label: "Approved", color: "#1e4d20" },
-  { value: "rejected", label: "Rejected", color: "#6b1a1a" },
-];
 
 const monthName = (m) =>
   MONTHS.find((x) => x.value === String(m))?.label || `Month ${m}`;
-/** ISO date string (YYYY-MM-DD) → "January 01, 2026" (local calendar, no UTC shift). */
+
 const formatPeriodDate = (iso) => {
   const s = String(iso ?? "")
     .trim()
@@ -165,15 +149,11 @@ const formatPeriodDate = (iso) => {
     year: "numeric",
   });
 };
+
 const toNum = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
-const toHours = (val, unit) => (unit === "days" ? val * 8 : val);
-const fmtHrs = (h, unit) =>
-  unit === "hours"
-    ? `${toNum(h).toFixed(3)} hrs`
-    : `${(toNum(h) / 8).toFixed(3)} days`;
 
 const parseHHMM = (val) => {
   if (!val) return 0;
@@ -211,95 +191,123 @@ const EARNINGS_OVERALL_COMPARE_FIELDS = [
 ];
 const EARNINGS_COMPARE_KEYS = EARNINGS_OVERALL_COMPARE_FIELDS.map((f) => f.key);
 
-const globalCss = `
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
-@keyframes emFadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-@keyframes attPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-`;
+// ─── All editable columns — mirrors OverallAttendance COLUMN_GROUPS ──────────
+const EDIT_COLUMN_GROUPS = [
+  {
+    key: "overall",
+    label: "Overall",
+    headerBg: "#0f4a26",
+    columns: [
+      { label: "Overall Rendered",  key: "overallRenderedOfficialTime",          group: "overall" },
+      { label: "Overall Tardiness", key: "overallRenderedOfficialTimeTardiness", group: "overallTard" },
+      { label: "Late Total",        key: "lateTotalTime",                        group: "tardiness" },
+    ],
+  },
+  {
+    key: "morning",
+    label: "Morning",
+    headerBg: "#166534",
+    columns: [
+      { label: "Morning Hours",     key: "totalRenderedTimeMorning",          group: "rendered" },
+      { label: "Morning Tardiness", key: "totalRenderedTimeMorningTardiness", group: "tardiness" },
+    ],
+  },
+  {
+    key: "afternoon",
+    label: "Afternoon",
+    headerBg: "#166534",
+    columns: [
+      { label: "Afternoon Hours",     key: "totalRenderedTimeAfternoon",          group: "rendered" },
+      { label: "Afternoon Tardiness", key: "totalRenderedTimeAfternoonTardiness", group: "tardiness" },
+    ],
+  },
+  {
+    key: "honorarium",
+    label: "Honorarium",
+    headerBg: "#0369a1",
+    columns: [
+      { label: "Honorarium",   key: "totalRenderedHonorarium",          group: "rendered" },
+      { label: "HN Tardiness", key: "totalRenderedHonorariumTardiness", group: "tardiness" },
+    ],
+  },
+  {
+    key: "serviceCredit",
+    label: "Service Credit",
+    headerBg: "#6b21a8",
+    columns: [
+      { label: "Service Credit", key: "totalRenderedServiceCredit",          group: "rendered" },
+      { label: "SC Tardiness",   key: "totalRenderedServiceCreditTardiness", group: "tardiness" },
+    ],
+  },
+  {
+    key: "overtime",
+    label: "Overtime",
+    headerBg: "#92400e",
+    columns: [
+      { label: "Overtime",     key: "totalRenderedOvertime",          group: "rendered" },
+      { label: "OT Tardiness", key: "totalRenderedOvertimeTardiness", group: "tardiness" },
+    ],
+  },
+];
 
-const shimmerKf = `
-@keyframes shimmer {
-  0%   { background-position: -800px 0; }
-  100% { background-position:  800px 0; }
-}
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
-}`;
+const getCellColor = (group) => {
+  if (group === "rendered")    return "#166534";
+  if (group === "tardiness")   return "#991b1b";
+  if (group === "overall")     return "#166534";
+  if (group === "overallTard") return "#991b1b";
+  return T.text;
+};
 
-const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
-  <Box
-    sx={{
-      height: h,
-      borderRadius: r,
-      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
-      backgroundSize: '800px 100%',
-      animation: 'shimmer 1.6s infinite linear',
-      flexShrink: 0,
-      ...sx,
-    }}
-  />
-);
+const getColHeaderBg = (group) => {
+  if (group === "rendered")    return "#166534";
+  if (group === "tardiness")   return "#991b1b";
+  if (group === "overall")     return "#0f4a26";
+  if (group === "overallTard") return "#6b0f0f";
+  return T.accentDark;
+};
 
-// ─── Conversion defaults ──────────────────────────────────────────────────────
-const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "8hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.125).toFixed(3)),
-}));
-const DEFAULT_HOURS_6 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "6hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.167).toFixed(3)),
-}));
-const DEFAULT_MINUTES = Array.from({ length: 60 }, (_, i) => ({
-  rate_type: "minute",
-  day_type: "minute",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.002).toFixed(3)),
-}));
-const DEFAULT_LWP_TABLE = Array.from({ length: 30 }, (_, i) => ({
-  d: i + 1,
-  e: Number(((i + 1) * 0.04167).toFixed(3)),
-}));
+// ─── Attendance module navigation shortcuts (used only inside EditAttendanceSummaryModal) ──
+const ATTENDANCE_MODULES = [
+  {
+    key: "non-teaching",
+    label: "Non-Teaching",
+    sublabel: "8hrs staff",
+    path: "/attendance_module",
+    lsPrefix: "attendanceNonTeaching",
+    color: "#185FA5",
+    bg: "#E6F1FB",
+    border: "#B5D4F4",
+  },
+  {
+    key: "faculty-30",
+    label: "Faculty 30hrs",
+    sublabel: "JO faculty",
+    path: "/attendance_module_faculty",
+    lsPrefix: "attendanceFaculty30",
+    color: "#3B6D11",
+    bg: "#EAF3DE",
+    border: "#C0DD97",
+  },
+  {
+    key: "faculty-40",
+    label: "Faculty 40hrs",
+    sublabel: "Designated",
+    path: "/attendance_module_faculty_40hrs",
+    lsPrefix: "attendanceDesignated",
+    color: "#534AB7",
+    bg: "#EEEDFE",
+    border: "#AFA9EC",
+  },
+];
 
-function sanitizeDecimal(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Number(n.toFixed(3));
-}
+const GROUP_ROW_H = 28;
 
-// ─── Styled components ────────────────────────────────────────────────────────
 const SectionCard = styled(Card)({
   borderRadius: 12,
   overflow: "hidden",
   background: T.surface,
   boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
   border: "0.5px solid rgba(0,0,0,0.09)",
-});
-
-const FieldInput = styled(TextField)({
-  "& .MuiOutlinedInput-root": {
-    borderRadius: 8,
-    fontSize: "0.875rem",
-    backgroundColor: "#fff",
-    "& fieldset": { borderColor: T.accentBorder },
-    "&:hover fieldset": { borderColor: T.accent },
-    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
-  },
-  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
-});
-
-const AccentButton = styled(Button)({
-  borderRadius: 8,
-  textTransform: "none",
-  fontWeight: 600,
-  fontSize: "0.875rem",
-  transition: "all 0.18s ease",
-  "&:hover": { transform: "translateY(-1px)" },
-  "&:active": { transform: "translateY(0)" },
 });
 
 const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
@@ -313,6 +321,7 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
       flexWrap: "nowrap",
       borderBottom: `1px solid ${T.divider}`,
       flexShrink: 0,
+      bgcolor: alpha(T.accent, 0.03),
     }}
   >
     <Icon sx={{ fontSize: 13, color }} />
@@ -347,190 +356,518 @@ const ColHeader = ({ icon: Icon, label, color = T.accent, children }) => (
 
 import { DeductionReceiptSwitcher } from './CTODeductionReceipt';
 
-const AttendanceFieldCell = ({ f, valueHrs, onChange }) => {
-  const days = valueHrs / 8;
-  const [local, setLocal] = useState("");
+// ─── Inline editable HH:MM:SS cell ───────────────────────────────────────────
+const EditableTimeCell = ({ fieldKey, value, onChange, group }) => {
   const [focused, setFocused] = useState(false);
-  const hms = valueHrs > 0 ? hrsToHMS(valueHrs) : null;
-  const isActive = valueHrs > 0;
+  const [localVal, setLocalVal] = useState("");
+  const displayVal = value || "";
+  const color = getCellColor(group);
+  const isActive = !!displayVal && displayVal !== "00:00:00";
+
   return (
-    <Box
+    <TableCell
       sx={{
-        borderRadius: 1.5,
-        border: `1px solid ${isActive ? "rgba(0,0,0,0.13)" : "rgba(0,0,0,0.07)"}`,
-        bgcolor: isActive ? "#fff" : "#fafafa",
-        overflow: "hidden",
-        mb: 0.5,
-        transition: "border-color 0.15s, background 0.15s",
+        minWidth: 130,
+        px: 1,
+        py: 0.75,
+        textAlign: "center",
+        bgcolor: isActive
+          ? group === "rendered" || group === "overall"
+            ? "rgba(21,128,61,0.07)"
+            : group === "tardiness" || group === "overallTard"
+            ? "rgba(153,27,27,0.07)"
+            : "rgba(0,0,0,0.03)"
+          : "rgba(0,0,0,0.015)",
+        transition: "background 0.1s",
       }}
     >
-      {/* Label bar */}
-      <Box
-        sx={{
-          px: 0.85,
-          py: 0.25,
-          bgcolor: isActive ? "rgba(0,0,0,0.03)" : "rgba(0,0,0,0.02)",
-          borderBottom: `1px solid ${isActive ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.05)"}`,
-        }}
-      >
-        <Typography
-          sx={{
-            fontSize: "0.58rem",
+      <Box sx={{ position: "relative", display: "inline-block" }}>
+        <input
+          type="text"
+          placeholder="HH:MM:SS"
+          value={focused ? localVal : displayVal}
+          onFocus={() => {
+            setFocused(true);
+            setLocalVal(displayVal);
+          }}
+          onChange={(e) => {
+            setLocalVal(e.target.value);
+            onChange(fieldKey, e.target.value);
+          }}
+          onBlur={() => setFocused(false)}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          style={{
+            width: 110,
+            padding: "5px 8px",
+            borderRadius: 6,
+            border: `1.5px solid ${focused ? color : isActive ? `${color}55` : "rgba(0,0,0,0.13)"}`,
+            fontSize: "0.78rem",
             fontWeight: 700,
-            color: isActive ? "#333" : T.faint,
-            fontFamily: T.poppins,
-            textTransform: "uppercase",
-            letterSpacing: "0.07em",
+            fontFamily: "monospace",
+            textAlign: "center",
+            background: "#fff",
+            color: isActive ? color : T.faint,
+            outline: "none",
+            transition: "border-color 0.14s",
+            boxSizing: "border-box",
           }}
-        >
-          {f.label}
-        </Typography>
+        />
       </Box>
-      {/* Input + hints */}
-      <Box
-        sx={{
-          px: 0.85,
-          py: 0.4,
-          display: "flex",
-          alignItems: "center",
-          gap: 0.75,
-        }}
-      >
-        <Box sx={{ position: "relative", flex: 1 }}>
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="0.000"
-            value={focused ? local : isActive ? days.toFixed(3) : ""}
-            onFocus={() => {
-              setFocused(true);
-              setLocal(isActive ? days.toFixed(3) : "");
-            }}
-            onChange={(e) => {
-              setLocal(e.target.value);
-              const n = parseFloat(e.target.value);
-              onChange(f.key, isNaN(n) ? 0 : n * 8);
-            }}
-            onBlur={() => setFocused(false)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-            }}
-            style={{
-              width: "100%",
-              padding: "4px 24px 4px 8px",
-              borderRadius: 6,
-              border: `1.5px solid ${focused ? T.accent : isActive ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.1)"}`,
-              fontSize: "0.78rem",
-              fontWeight: 700,
-              fontFamily: T.poppins,
-              boxSizing: "border-box",
-              background: "#fff",
-              color: "#1a1a1a",
-              transition: "border-color 0.15s",
-            }}
-          />
-          <span
-            style={{
-              position: "absolute",
-              right: 8,
-              top: "50%",
-              transform: "translateY(-50%)",
-              fontSize: "0.58rem",
-              color: T.faint,
-              pointerEvents: "none",
-              fontFamily: T.poppins,
-              fontWeight: 600,
-            }}
-          >
-            d
-          </span>
-        </Box>
-        {/* Converted hints */}
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            flexShrink: 0,
-            minWidth: 58,
-          }}
-        >
-          <Typography
-            sx={{
-              fontSize: "0.58rem",
-              color: isActive ? T.muted : T.faint,
-              fontFamily: T.poppins,
-              fontWeight: 500,
-              lineHeight: 1.3,
-            }}
-          >
-            {isActive ? `${valueHrs.toFixed(3)} hrs` : "—"}
-          </Typography>
-          {hms && (
-            <Typography
-              sx={{
-                fontSize: "0.58rem",
-                color: "#1565c0",
-                fontFamily: T.poppins,
-                fontWeight: 700,
-                lineHeight: 1.3,
-                letterSpacing: "0.02em",
-              }}
-            >
-              {hms}
-            </Typography>
-          )}
-        </Box>
-      </Box>
-    </Box>
+    </TableCell>
   );
 };
 
+// ─── Full-table Edit Attendance Summary Modal ────────────────────────────────
+const EditAttendanceSummaryModal = ({
+  open,
+  onClose,
+  raw,
+  month,
+  year,
+  fields,
+  onChange,
+  onSave,
+  saving,
+  error,
+  onNavigateToModule,
+}) => {
+  const [collapsedGroups, setCollapsedGroups] = useState(
+    new Set(["honorarium", "serviceCredit", "overtime"])
+  );
 
+  const toggleGroup = (key) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  if (!raw) return null;
+
+  const btnBase = {
+    textTransform: "none",
+    fontFamily: T.poppins,
+    fontSize: "0.78rem",
+    fontWeight: 600,
+    py: 0.6,
+    px: 1.5,
+    borderRadius: 1.5,
+    minWidth: 0,
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: "14px",
+          overflow: "hidden",
+          border: "0.5px solid rgba(0,0,0,0.09)",
+          bgcolor: "#fff",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
+          maxHeight: "90vh",
+        },
+      }}
+    >
+      {/* ── Modal Header ── */}
+      <Box
+        sx={{
+          px: 3,
+          py: 2,
+          background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+          position: "relative",
+          overflow: "hidden",
+          flexShrink: 0,
+        }}
+      >
+        <Box
+          sx={{
+            position: "absolute", top: -40, right: -40,
+            width: 160, height: 160, borderRadius: "50%",
+            background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`,
+            pointerEvents: "none",
+          }}
+        />
+        <IconButton
+          size="small"
+          onClick={onClose}
+          sx={{
+            position: "absolute", top: 10, right: 10,
+            color: T.accent, opacity: 0.45,
+            "&:hover": { opacity: 1, bgcolor: alpha(T.accent, 0.08) },
+          }}
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+          <Box
+            sx={{
+              width: 42, height: 42, borderRadius: "11px",
+              bgcolor: alpha(T.accent, 0.1),
+              border: `1px solid ${alpha(T.accent, 0.2)}`,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}
+          >
+            <EditIcon sx={{ fontSize: 19, color: T.accent }} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
+              <Typography sx={{ fontWeight: 800, fontSize: "0.98rem", color: T.accent, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                Edit Attendance Summary
+              </Typography>
+              <Chip
+                label="All Fields"
+                size="small"
+                sx={{
+                  bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 700,
+                  fontSize: "0.56rem", letterSpacing: "0.07em", textTransform: "uppercase",
+                  height: 16, borderRadius: "5px", border: `1px solid ${alpha(T.accent, 0.22)}`,
+                  fontFamily: T.poppins,
+                }}
+              />
+            </Box>
+            <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontWeight: 500, fontFamily: T.poppins }}>
+              {monthName(month)} {year} · {formatPeriodDate(raw.startDate)} → {formatPeriodDate(raw.endDate)}
+            </Typography>
+          </Box>
+
+          {/* ── Module navigation buttons ── */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
+            <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: T.faint, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.08em", mr: 0.25 }}>
+              Go to
+            </Typography>
+            {ATTENDANCE_MODULES.map((mod) => (
+              <Tooltip key={mod.key} title={`Open ${mod.label} attendance module`} placement="bottom" arrow enterDelay={400}>
+                <Box
+                  onClick={() => onNavigateToModule(mod)}
+                  sx={{
+                    display: "flex", alignItems: "center", gap: 0.4,
+                    px: 1, py: 0.5, borderRadius: 1.5,
+                    border: `1px solid ${mod.border}`, bgcolor: mod.bg,
+                    cursor: "pointer", userSelect: "none",
+                    transition: "all 0.14s ease",
+                    "&:hover": {
+                      transform: "translateY(-1px)",
+                      boxShadow: `0 3px 10px ${alpha(mod.color, 0.22)}`,
+                      filter: "brightness(0.97)",
+                    },
+                    "&:active": { transform: "translateY(0)" },
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: mod.color, fontFamily: T.poppins, whiteSpace: "nowrap", lineHeight: 1 }}>
+                    {mod.label}
+                  </Typography>
+                  <ArrowForwardIcon sx={{ fontSize: 9, color: alpha(mod.color, 0.6) }} />
+                </Box>
+              </Tooltip>
+            ))}
+          </Box>
+        </Box>
+      </Box>
+
+      {/* ── Modal Body — scrollable table ── */}
+      <Box
+        sx={{
+          overflowY: "auto",
+          overflowX: "auto",
+          flex: 1,
+          borderTop: `1px solid ${T.divider}`,
+          "&::-webkit-scrollbar": { width: 5, height: 5 },
+          "&::-webkit-scrollbar-thumb": { bgcolor: "rgba(0,0,0,0.14)", borderRadius: 3 },
+        }}
+      >
+        {/* Info hint */}
+        <Box
+          sx={{
+            display: "flex", alignItems: "center", gap: 0.75,
+            mx: 2.5, mt: 1.5, mb: 1,
+            px: 1.25, py: 0.75, borderRadius: 1.5,
+            bgcolor: "rgba(0,0,0,0.025)", border: "1px solid rgba(0,0,0,0.07)",
+          }}
+        >
+          <CalculateIcon sx={{ fontSize: 12, color: T.muted }} />
+          <Typography sx={{ fontSize: "0.67rem", color: T.muted, fontFamily: T.poppins, fontWeight: 500 }}>
+            Edit values directly in the cells below — input in <strong>HH:MM:SS</strong> format. Click column group headers to expand / collapse sections.
+          </Typography>
+        </Box>
+
+        {/* ── Full attendance table — matches OverallAttendance style ── */}
+        <Box sx={{ px: 2.5, pb: 2 }}>
+          <Box
+            sx={{
+              borderRadius: "8px",
+              border: `1px solid ${T.accentBorder}`,
+              overflow: "hidden",
+            }}
+          >
+            <Box sx={{ overflowX: "auto" }}>
+              <Table
+                sx={{
+                  minWidth: EDIT_COLUMN_GROUPS.reduce((sum, grp) => {
+                    const isCollapsed = collapsedGroups.has(grp.key);
+                    return sum + (isCollapsed ? 0 : grp.columns.length * 140);
+                  }, 0),
+                  borderCollapse: "collapse",
+                }}
+              >
+                <TableHead>
+                  {/* ── Row 1: Group toggle headers ── */}
+                  <TableRow>
+                    {EDIT_COLUMN_GROUPS.map((grp) => {
+                      const isCollapsed = collapsedGroups.has(grp.key);
+                      const colSpan = isCollapsed ? 1 : grp.columns.length;
+                      return (
+                        <TableCell
+                          key={grp.key}
+                          colSpan={colSpan}
+                          onClick={() => toggleGroup(grp.key)}
+                          sx={{
+                            position: "sticky", top: 0, zIndex: 3,
+                            background: grp.headerBg,
+                            color: "#fff",
+                            textAlign: "center",
+                            fontSize: "0.6rem",
+                            fontWeight: 700,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            py: 0.6, px: 1,
+                            height: `${GROUP_ROW_H}px`,
+                            cursor: "pointer",
+                            borderBottom: "1px solid rgba(255,255,255,0.12)",
+                            borderRight: "2px solid rgba(255,255,255,0.22)",
+                            whiteSpace: "nowrap",
+                            userSelect: "none",
+                            transition: "opacity 0.15s",
+                            "&:hover": { opacity: 0.84 },
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5 }}>
+                            {isCollapsed
+                              ? <KeyboardArrowRightIcon sx={{ fontSize: 12, opacity: 0.9 }} />
+                              : <KeyboardArrowDownIcon  sx={{ fontSize: 12, opacity: 0.9 }} />
+                            }
+                            <span>{grp.label}</span>
+                            <Box component="span" sx={{ fontSize: "0.5rem", bgcolor: "rgba(255,255,255,0.18)", borderRadius: "3px", px: 0.5, py: 0.1, ml: 0.25 }}>
+                              {isCollapsed ? "show" : "hide"}
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+
+                  {/* ── Row 2: Column labels ── */}
+                  <TableRow>
+                    {EDIT_COLUMN_GROUPS.map((grp) => {
+                      const isCollapsed = collapsedGroups.has(grp.key);
+                      if (isCollapsed) {
+                        return (
+                          <TableCell
+                            key={grp.key + "_lbl_ph"}
+                            sx={{
+                              padding: 0, width: 0, minWidth: 0, maxWidth: 0,
+                              overflow: "hidden",
+                              position: "sticky", top: GROUP_ROW_H, zIndex: 2,
+                              background: grp.headerBg,
+                              borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
+                            }}
+                          />
+                        );
+                      }
+                      return grp.columns.map(({ label, key, group }) => (
+                        <TableCell
+                          key={key}
+                          sx={{
+                            minWidth: 130, textAlign: "center",
+                            position: "sticky", top: GROUP_ROW_H, zIndex: 2,
+                            fontSize: "0.61rem", fontWeight: 700,
+                            py: 0.85, px: 1.5, whiteSpace: "nowrap",
+                            letterSpacing: "0.06em", textTransform: "uppercase",
+                            borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
+                            color: "#fff",
+                            background: getColHeaderBg(group),
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          {label}
+                        </TableCell>
+                      ));
+                    })}
+                  </TableRow>
+                </TableHead>
+
+                <TableBody>
+                  <TableRow
+                    sx={{
+                      "&:hover td": { bgcolor: `${T.rowHover} !important` },
+                    }}
+                  >
+                    {EDIT_COLUMN_GROUPS.flatMap((grp) => {
+                      const isCollapsed = collapsedGroups.has(grp.key);
+                      if (isCollapsed) {
+                        return (
+                          <TableCell
+                            key={grp.key + "_data_ph"}
+                            sx={{
+                              padding: 0, width: 0, minWidth: 0, maxWidth: 0,
+                              overflow: "hidden",
+                              borderBottom: `1px solid ${T.divider}`,
+                            }}
+                          />
+                        );
+                      }
+                      return grp.columns.map(({ key, group }) => (
+                        <EditableTimeCell
+                          key={key}
+                          fieldKey={key}
+                          value={fields[key] ?? ""}
+                          onChange={onChange}
+                          group={group}
+                        />
+                      ));
+                    })}
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </Box>
+          </Box>
+
+          {/* Footer legend */}
+          <Box sx={{ pt: 1.25, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+            {[
+              { bg: "rgba(21,128,61,0.1)",   border: "rgba(21,128,61,0.3)",   label: "Rendered time" },
+              { bg: "rgba(153,27,27,0.08)",  border: "rgba(153,27,27,0.3)",   label: "Tardiness" },
+              { bg: "rgba(21,128,61,0.14)",  border: "rgba(21,128,61,0.4)",   label: "Overall rendered" },
+              { bg: "rgba(153,27,27,0.14)",  border: "rgba(153,27,27,0.4)",   label: "Overall tardiness" },
+            ].map((item, i) => (
+              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: item.bg, border: `1px solid ${item.border}` }} />
+                <Typography sx={{ fontSize: "0.67rem", color: T.faint, fontFamily: T.poppins }}>{item.label}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mx: 2.5, mb: 1.5, fontSize: "0.67rem", py: 0.25, borderRadius: 1.5 }}>
+            {error}
+          </Alert>
+        )}
+      </Box>
+
+      {/* ── Modal Footer ── */}
+      <Box
+        sx={{
+          px: 3, py: 1.75,
+          display: "flex", justifyContent: "flex-end", gap: 1,
+          bgcolor: "rgba(0,0,0,0.015)",
+          borderTop: `1px solid ${T.divider}`,
+          flexShrink: 0,
+        }}
+      >
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={onClose}
+          disabled={saving}
+          sx={{
+            textTransform: "none",
+            fontFamily: T.poppins,
+            fontSize: "0.78rem",
+            fontWeight: 600,
+            py: 0.6,
+            px: 1.5,
+            borderRadius: 1.5,
+            minWidth: 0,
+            borderColor: "rgba(0,0,0,0.18)", color: T.muted,
+            "&:hover": { borderColor: "rgba(0,0,0,0.35)", bgcolor: "rgba(0,0,0,0.03)" },
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          size="small"
+          onClick={onSave}
+          disabled={saving}
+          startIcon={
+            saving
+              ? <CircularProgress size={12} color="inherit" />
+              : <SaveIcon sx={{ fontSize: "14px !important" }} />
+          }
+          sx={{
+            textTransform: "none",
+            fontFamily: T.poppins,
+            fontSize: "0.78rem",
+            fontWeight: 600,
+            py: 0.6,
+            px: 1.5,
+            borderRadius: 1.5,
+            minWidth: 0,
+            bgcolor: T.accent, color: "#fff",
+            boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+            "&:hover": { bgcolor: T.accentDark, boxShadow: `0 4px 12px ${alpha(T.accent, 0.4)}` },
+          }}
+        >
+          {saving ? "Saving…" : "Save Changes"}
+        </Button>
+      </Box>
+    </Dialog>
+  );
+};
+
+// ─── AttendanceSummary Main Component ─────────────────────────────────────────
 const AttendanceSummary = ({
   employee, year, month, attendanceData, attendanceLoading,
   onRefresh, onRecordsRefresh, empCat, vlReceiptRefreshKey, balanceRefreshKey = 0,
-  /** Bump parent balance refresh (e.g. balanceKey) after SC/CTO/VL deductions so VL·SC·CTO chips refetch. */
   onBalancesInvalidate,
   deductedVlHalfDates = [],
   onDeductHalfDayVLRequested,
 }) => {
-  const [editing, setEditing] = useState(false);
+  const navigate = useNavigate();
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [fields, setFields] = useState({});
-
   const [liveBalances, setLiveBalances] = useState({ vl: null, sc: null, cto: null });
-
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareFormProposal, setCompareFormProposal] = useState(null);
   const [compareTertiary, setCompareTertiary] = useState(null);
   const [summaryUpdateNote, setSummaryUpdateNote] = useState("");
 
-const fetchLiveBalances = useCallback(async () => {
-  if (!employee) return;
-  // In-place balance updates (no loading swap) to avoid flicker on refreshKey / websocket sync.
-  const token = localStorage.getItem("token");
-  try {
-    const snaps = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
-    const vlHours = toNum(snaps?.assignmentMap?.VL?.remaining_hours);
-    setLiveBalances({
-      vl: (vlHours / 8).toFixed(3),
-      sc: (toNum(snaps?.scRemainingHours) / 8).toFixed(3),
-      cto: (toNum(snaps?.ctoRemainingHours) / 8).toFixed(3),
-    });
-  } catch {
-    setLiveBalances({ vl: "—", sc: "—", cto: "—" });
-  }
-}, [employee]);
+  const ALL_EDIT_KEYS = EDIT_COLUMN_GROUPS.flatMap((g) => g.columns.map((c) => c.key));
 
-useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]);
+  const fetchLiveBalances = useCallback(async () => {
+    if (!employee) return;
+    const token = localStorage.getItem("token");
+    try {
+      const snaps = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
+      const vlHours = toNum(snaps?.assignmentMap?.VL?.remaining_hours);
+      setLiveBalances({
+        vl: (vlHours / 8).toFixed(3),
+        sc: (toNum(snaps?.scRemainingHours) / 8).toFixed(3),
+        cto: (toNum(snaps?.ctoRemainingHours) / 8).toFixed(3),
+      });
+    } catch {
+      setLiveBalances({ vl: "—", sc: "—", cto: "—" });
+    }
+  }, [employee]);
+
+  useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]);
 
   const raw = attendanceData?.summary;
   const calDays = getCalendarDays(year, month);
   const officialStart = raw?.startDate;
   const officialEnd = raw?.endDate;
+
   const {
     absentDays: absentDaysOfficial,
     halfDayDatesOfficial,
@@ -545,18 +882,9 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     endDate: officialEnd,
   });
 
-  /** Same daily-derived metrics as Overall Attendance (ATTENDANCE/AttendanceSummary.jsx). */
   const canTrustOfficialMetrics =
     !officialMetricsLoading &&
     Boolean(officialStart && officialEnd && employee?.employeeNumber);
-
-  // In Earnings Management, the "tardiness" value should reflect Late Total (late-only),
-  // not overall tardiness (overall includes absent + half-day shortfall).
-
-  const ATTEND_FIELDS = [
-    { key: "overallRenderedOfficialTime", label: "Overall Rendered" },
-    { key: "overallRenderedOfficialTimeTardiness", label: "Late Total" },
-  ];
 
   const tardHrs = useMemo(() => {
     if (!raw) return 0;
@@ -570,35 +898,47 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
         ? parseHHMM(raw._lateTotal)
         : null;
     if (fromInjected != null) return fromInjected;
-
     const savedOverall = parseHHMM(raw.overallRenderedOfficialTimeTardiness);
     if (!canTrustOfficialMetrics) return savedOverall;
     const absentH = toNum(absentTimeHrsOfficial);
     const halfH = toNum(halfDayShortfallHrsOfficial);
     return Math.max(0, savedOverall - absentH - halfH);
-  }, [
-    raw,
-    canTrustOfficialMetrics,
-    absentTimeHrsOfficial,
-    halfDayShortfallHrsOfficial,
-  ]);
+  }, [raw, canTrustOfficialMetrics, absentTimeHrsOfficial, halfDayShortfallHrsOfficial]);
+
+  const buildFieldsFromRaw = useCallback(() => {
+    if (!raw) return {};
+    const init = {};
+    ALL_EDIT_KEYS.forEach((key) => {
+      if (key === "lateTotalTime") {
+        init[key] = raw.lateTotalTime || hoursToHHMM(tardHrs);
+      } else {
+        init[key] = raw[key] || "";
+      }
+    });
+    return init;
+  }, [raw, tardHrs]);
 
   useEffect(() => {
     if (!raw) {
       setFields({});
+      setEditModalOpen(false);
       return;
     }
-    const init = {};
-    ATTEND_FIELDS.forEach(({ key }) => {
-      if (key === "overallRenderedOfficialTimeTardiness") init[key] = tardHrs;
-      else init[key] = parseHHMM(raw[key]);
-    });
-    setFields(init);
-    setEditing(false);
+    setFields(buildFieldsFromRaw());
+    setEditModalOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raw, tardHrs]);
 
+  useEffect(() => {
+    if (editModalOpen && raw) {
+      setError("");
+      setFields(buildFieldsFromRaw());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editModalOpen]);
+
   const handleChange = (key, val) =>
-    setFields((p) => ({ ...p, [key]: toNum(val) }));
+    setFields((p) => ({ ...p, [key]: val }));
 
   const putSummaryPayload = async (payload) => {
     const token = localStorage.getItem("token");
@@ -608,7 +948,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
       { headers: { Authorization: `Bearer ${token}` } },
     );
     setSuccess("Saved!");
-    setEditing(false);
+    setEditModalOpen(false);
     setSummaryUpdateNote(`Summary updated · ${new Date().toLocaleString()}`);
     if (onRefresh) onRefresh();
     setTimeout(() => setSuccess(""), 3000);
@@ -621,12 +961,10 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
     setSaving(true);
     setError("");
+
     const formProposal = {
-      overallRenderedOfficialTime: hoursToHHMM(
-        toNum(fields.overallRenderedOfficialTime),
-      ),
-      // Do NOT overwrite overall tardiness on the record; this field is late-only in Earnings UI.
-      overallRenderedOfficialTimeTardiness: raw?.overallRenderedOfficialTimeTardiness,
+      overallRenderedOfficialTime: fields.overallRenderedOfficialTime || raw.overallRenderedOfficialTime || "",
+      overallRenderedOfficialTimeTardiness: fields.overallRenderedOfficialTimeTardiness || raw.overallRenderedOfficialTimeTardiness || "",
     };
     const tertiaryProposal = canTrustOfficialMetrics
       ? {
@@ -634,11 +972,7 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
           overallRenderedOfficialTimeTardiness: raw.overallRenderedOfficialTimeTardiness,
         }
       : null;
-    const diffSavedForm = overallRecordsDiffer(
-      raw,
-      formProposal,
-      EARNINGS_COMPARE_KEYS,
-    );
+    const diffSavedForm = overallRecordsDiffer(raw, formProposal, EARNINGS_COMPARE_KEYS);
     const diffSavedTert =
       tertiaryProposal &&
       overallRecordsDiffer(raw, tertiaryProposal, EARNINGS_COMPARE_KEYS);
@@ -647,14 +981,17 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
       if (diffSavedForm || diffSavedTert) {
         setCompareFormProposal(formProposal);
         setCompareTertiary(tertiaryProposal);
+        setEditModalOpen(false);
         setCompareOpen(true);
         return;
       }
       const payload = buildOverallPutPayloadFromRow(raw, formProposal);
-      // Persist late-only value into the dedicated field.
-      payload.lateTotalTime = hoursToHHMM(
-        toNum(fields.overallRenderedOfficialTimeTardiness),
-      );
+      ALL_EDIT_KEYS.forEach((key) => {
+        if (fields[key] != null && fields[key] !== "") {
+          payload[key] = fields[key];
+        }
+      });
+      payload.lateTotalTime = fields.lateTotalTime || hoursToHHMM(tardHrs);
       await putSummaryPayload(payload);
     } catch (err) {
       setError("Save failed: " + (err.response?.data?.message || err.message));
@@ -685,6 +1022,12 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
         compareTertiary || {},
         choices,
       );
+      ALL_EDIT_KEYS.forEach((key) => {
+        if (fields[key] != null && fields[key] !== "") {
+          payload[key] = fields[key];
+        }
+      });
+      payload.lateTotalTime = fields.lateTotalTime || hoursToHHMM(tardHrs);
       await putSummaryPayload(payload);
     } catch (err) {
       setError("Save failed: " + (err.response?.data?.message || err.message));
@@ -695,24 +1038,37 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
   };
 
-  const showEmployeePlaceholder = !employee;
-
-    
-
-  const showAttendanceLoading = attendanceLoading;
+  const handleNavigateToModule = useCallback(
+    (module) => {
+      const en = String(employee?.employeeNumber || "");
+      const sd = raw?.startDate ? String(raw.startDate).split("T")[0] : "";
+      const ed = raw?.endDate ? String(raw.endDate).split("T")[0] : "";
+      if (en) {
+        localStorage.setItem(`${module.lsPrefix}EmployeeNumber`, en);
+        if (sd) localStorage.setItem(`${module.lsPrefix}StartDate`, sd);
+        if (ed) localStorage.setItem(`${module.lsPrefix}EndDate`, ed);
+      }
+      navigate(module.path, { state: { employeeNumber: en, startDate: sd, endDate: ed } });
+    },
+    [employee, raw, navigate],
+  );
 
   const overallHrs = raw ? parseHHMM(raw.overallRenderedOfficialTime) : 0;
-
   const stats = attendanceData?.stats || {};
+
   const lateDays = toNum(stats.late_days);
-  /** When official metrics load, match ATTENDANCE/AttendanceSummary: half-days exclude approved leave / holiday / suspension. */
+  const absentDays = canTrustOfficialMetrics ? absentDaysOfficial : toNum(stats.absent_days);
+  const totalAbsentDays = absentDays;
+  const totalAbsentHrs = totalAbsentDays * 8;
+  const presentDays = toNum(stats.present_days);
+
   const halfDays = canTrustOfficialMetrics
     ? (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0)
     : toNum(stats.half_days ?? stats.halfDays);
-  /** Match ATTENDANCE/AttendanceSummary half-day column: official sched shortfall sum, not fixed 4h × count. */
   const halfDayHrs = canTrustOfficialMetrics
     ? toNum(halfDayShortfallHrsOfficial)
     : halfDays * 4;
+
   const halfDayDates = useMemo(() => {
     if (canTrustOfficialMetrics) {
       return Array.isArray(halfDayDatesOfficial) ? [...halfDayDatesOfficial] : [];
@@ -732,67 +1088,31 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     }
     return [...new Set(dates)].sort();
   }, [
-    canTrustOfficialMetrics,
-    halfDayDatesOfficial,
-    officialRows,
-    attendanceData?.dailyRecords,
-    attendanceData?.stats,
-    officialStart,
-    year,
-    month,
+    canTrustOfficialMetrics, halfDayDatesOfficial, officialRows,
+    attendanceData?.dailyRecords, attendanceData?.stats, officialStart, year, month,
   ]);
 
   const deductedNormSet = useMemo(
-    () =>
-      new Set(
-        (deductedVlHalfDates || []).map(normalizeHalfDayDateKey).filter(Boolean),
-      ),
+    () => new Set((deductedVlHalfDates || []).map(normalizeHalfDayDateKey).filter(Boolean)),
     [deductedVlHalfDates],
   );
   const nextUndeductedVlHalfDate =
-    halfDayDates.find((d) => !deductedNormSet.has(normalizeHalfDayDateKey(d))) ||
-    null;
-  const absentDays = canTrustOfficialMetrics
-    ? absentDaysOfficial
-    : toNum(stats.absent_days);
-  const presentDays = toNum(stats.present_days);
-  const totalAbsentDays = absentDays;
-  const totalAbsentHrs = totalAbsentDays * 8;
+    halfDayDates.find((d) => !deductedNormSet.has(normalizeHalfDayDateKey(d))) || null;
 
-  const editOverallHrs = toNum(
-    fields.overallRenderedOfficialTime ?? overallHrs,
-  );
-  const editTardHrs = toNum(
-    fields.overallRenderedOfficialTimeTardiness ?? tardHrs,
-  );
-
-  // While editing, show the edited values in the summary cards immediately.
-  const renderedHrsDisplay = editing ? editOverallHrs : overallHrs;
-  const tardHrsDisplay = editing ? editTardHrs : tardHrs;
-  const half = Math.ceil(ATTEND_FIELDS.length / 2);
-  const col1 = ATTEND_FIELDS.slice(0, half);
-  const col2 = ATTEND_FIELDS.slice(half);
-
-  // Safe early returns AFTER all hooks are declared (prevents hook order mismatch).
-  if (showEmployeePlaceholder) {
+  // ── Early returns ──────────────────────────────────────────────────────────
+  if (!employee) {
     return (
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
       </Box>
     );
   }
-  if (showAttendanceLoading) {
+
+  if (attendanceLoading) {
     return (
       <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
-        <Box
-          sx={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <CircularProgress size={20} sx={{ color: T.accent }} />
         </Box>
       </Box>
@@ -813,371 +1133,176 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
   };
 
   return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-      }}
-    >
-      {/* ── Scrollable content area ── */}
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {/* ── Scrollable content ── */}
       <Box
         sx={{
-          flex: 1,
-          overflowY: "auto",
-          px: 1,
-          pt: 0.5,
-          pb: 1,
-          display: "flex",
-          flexDirection: "column",
+          flex: 1, overflowY: "auto", px: 1, pt: 0.5, pb: 1,
+          display: "flex", flexDirection: "column",
           "&::-webkit-scrollbar": { width: 3 },
-          "&::-webkit-scrollbar-thumb": {
-            bgcolor: "rgba(0,0,0,0.12)",
-            borderRadius: 2,
-          },
+          "&::-webkit-scrollbar-thumb": { bgcolor: "rgba(0,0,0,0.12)", borderRadius: 2 },
         }}
       >
         {success && (
           <Alert
             severity="success"
-            sx={{
-              py: 0,
-              px: 1,
-              mb: 1,
-              fontSize: "0.65rem",
-              borderRadius: 1.25,
-              "& .MuiAlert-icon": { mr: 0.75 },
-            }}
+            sx={{ py: 0, px: 1, mb: 1, fontSize: "0.65rem", borderRadius: 1.25, "& .MuiAlert-icon": { mr: 0.75 } }}
           >
             {success}
           </Alert>
         )}
+
         {!raw ? (
+          /* ── Empty state — no attendance record ── */
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
             <Box
               sx={{
-                px: 1.5,
-                py: 2,
-                borderRadius: 2,
-                bgcolor: "rgba(0,0,0,0.03)",
+                px: 1.5, py: 2, borderRadius: 2, bgcolor: "rgba(0,0,0,0.03)",
                 border: "1px dashed rgba(0,0,0,0.15)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 0.5,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5,
               }}
             >
-            <DateRangeIcon
-              sx={{ fontSize: 20, color: T.faint, opacity: 0.5 }}
-            />
-            <Typography
-              sx={{
-                fontSize: "0.73rem",
-                fontWeight: 700,
-                color: "#333",
-                fontFamily: T.poppins,
-              }}
-            >
-              {monthName(month)} {year}
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "0.62rem",
-                color: T.faint,
-                fontFamily: T.poppins,
-                textAlign: "center",
-              }}
-            >
-              {calDays} cal. days · No attendance record found
-            </Typography>
+              <DateRangeIcon sx={{ fontSize: 20, color: T.faint, opacity: 0.5 }} />
+              <Typography sx={{ fontSize: "0.73rem", fontWeight: 700, color: "#333", fontFamily: T.poppins }}>
+                {monthName(month)} {year}
+              </Typography>
+              <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, textAlign: "center" }}>
+                {calDays} cal. days · No attendance record found
+              </Typography>
             </Box>
           </Box>
         ) : (
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 1.25,
-            }}
-          >
+          /* ── Main content ── */
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+            {/* ── Col Header with Edit + Refresh ── */}
             <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent}>
               <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0 }}>
-                {!editing ? (
-                  <Button variant="outlined" size="small" onClick={() => setEditing(true)} sx={btnOutlineSx}>
-                    Edit
-                  </Button>
-                ) : (
-                  <>
-                    <Button variant="outlined" size="small" onClick={() => setEditing(false)} sx={btnOutlineSx}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={handleSave}
-                      disabled={saving}
-                      startIcon={saving ? <CircularProgress size={12} color="inherit" /> : <SaveIcon sx={{ fontSize: "14px !important" }} />}
-                      sx={{
-                        ...btnOutlineSx,
-                        bgcolor: T.accent,
-                        color: "#fff",
-                        border: "none",
-                        "&:hover": { bgcolor: T.accentDark, border: "none" },
-                      }}
-                    >
-                      {saving ? "…" : "Save"}
-                    </Button>
-                  </>
-                )}
-                <IconButton size="small" onClick={onRefresh} sx={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 1, p: 0.35 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<EditIcon sx={{ fontSize: "12px !important" }} />}
+                  onClick={() => setEditModalOpen(true)}
+                  sx={{
+                    ...btnOutlineSx,
+                    borderColor: alpha(T.accent, 0.3),
+                    color: T.accent,
+                    "&:hover": { bgcolor: alpha(T.accent, 0.05), borderColor: T.accent },
+                  }}
+                >
+                  Edit
+                </Button>
+                <IconButton
+                  size="small"
+                  onClick={onRefresh}
+                  sx={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 1, p: 0.35 }}
+                >
                   <RefreshIcon sx={{ fontSize: 16, color: T.muted }} />
                 </IconButton>
               </Box>
             </ColHeader>
+
             <Box sx={{ px: 0.5, display: "flex", flexDirection: "column", gap: 1.25 }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 1.5,
-                  flexWrap: "wrap",
-                  rowGap: 0.5,
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.6875rem",
-                    color: T.muted,
-                    fontFamily: T.poppins,
-                    flex: "1 1 auto",
-                    minWidth: 0,
-                  }}
-                >
-                  {monthName(month)} {year} | {formatPeriodDate(raw.startDate)} -&gt;{" "}
-                  {formatPeriodDate(raw.endDate)}
+              {/* Period info */}
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5, flexWrap: "wrap", rowGap: 0.5 }}>
+                <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, flex: "1 1 auto", minWidth: 0 }}>
+                  {monthName(month)} {year} | {formatPeriodDate(raw.startDate)} → {formatPeriodDate(raw.endDate)}
                 </Typography>
-                <Typography
-                  sx={{
-                    fontSize: "0.6875rem",
-                    color: T.muted,
-                    fontFamily: T.poppins,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                  }}
-                >
+                <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600, whiteSpace: "nowrap" }}>
                   {calDays} Calendar Days
                 </Typography>
               </Box>
 
-            <Box
-              sx={{
-                bgcolor: "#fff",
-                border: "1px solid rgba(0,0,0,0.09)",
+              {/* ── Metrics card — unified LeaveInputColumn style ── */}
+              <Box sx={{
+                bgcolor: "rgba(0,0,0,0.01)",
+                border: "1px solid rgba(0,0,0,0.08)",
                 borderRadius: 1.5,
                 overflow: "hidden",
-              }}
-            >
-              <Box
-                sx={{
-                  px: 1.6,
-                  py: 1,
-                  bgcolor: "rgba(0,0,0,0.03)",
-                  borderBottom: "1px solid rgba(0,0,0,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1,
-                }}
-              >
-                <CalIcon sx={{ fontSize: 16, color: T.muted }} />
-                <Typography sx={{ fontSize: "0.75rem", fontWeight: 500, color: T.text, fontFamily: T.poppins }}>
-                  Metrics
-                </Typography>
-              </Box>
-              <Box sx={{ p: 1.6, display: "flex", flexDirection: "column", gap: 1.25 }}>
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                    gap: 0.75,
-                  }}
-                >
-                  {[
-                    {
-                      label: "Days rendered",
-                      primary: `${(renderedHrsDisplay / 8).toFixed(3)} d`,
-                      hint: hrsToHMS(renderedHrsDisplay),
-                      bad: false,
-                      good: false,
-                    },
-                    {
-                      label: "Tardiness",
-                      primary: `${(tardHrsDisplay / 8).toFixed(3)} d`,
-                      hint: tardHrsDisplay > 0 ? hrsToHMS(tardHrsDisplay) : "—",
-                      bad: tardHrsDisplay > 0,
-                      good: false,
-                    },
-                    {
-                      label: "Absences",
-                      primary: `${totalAbsentDays.toFixed(3)} d`,
-                      hint: totalAbsentDays > 0 ? `${totalAbsentHrs.toFixed(3)} hrs` : "—",
-                      bad: totalAbsentDays > 0,
-                      good: false,
-                    },
-                    {
-                      label: "Half days",
-                      primary: `${halfDays.toFixed(3)} d`,
-                      hint: halfDays > 0 ? hrsToHMS(halfDayHrs) : "—",
-                      bad: false,
-                      good: false,
-                    },
-                    {
-                      label: "Days present",
-                      primary: `${presentDays.toFixed(0)} d`,
-                      hint: presentDays > 0 ? hrsToHMS(presentDays * 8) : "—",
-                      bad: false,
-                      good: presentDays > 0,
-                    },
-                  ].map(({ label, primary, hint, bad, good }) => (
-                    <Box
-                      key={label}
-                      sx={{
-                        bgcolor: "rgba(0,0,0,0.03)",
-                        borderRadius: 1,
-                        p: "8px 9px",
-                        minWidth: 0,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontSize: "0.6875rem",
-                          color: T.muted,
-                          fontFamily: T.poppins,
-                          mb: "3px",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {label}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.875rem",
-                          fontWeight: 500,
-                          color: bad ? "#A32D2D" : good ? "#3B6D11" : T.text,
-                          fontFamily: T.poppins,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        {primary}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.6875rem",
-                          color: T.muted,
-                          fontFamily: T.poppins,
-                          mt: "1px",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {hint}
-                      </Typography>
-                    </Box>
-                  ))}
+              }}>
+                {/* Card header — matches ColHeader style */}
+                <Box sx={{
+                  px: 1.5, py: 0.85,
+                  bgcolor: alpha(T.accent, 0.03),
+                  borderBottom: `1px solid ${T.divider}`,
+                  display: "flex", alignItems: "center", gap: 0.75,
+                }}>
+                  <CalIcon sx={{ fontSize: 13, color: T.accent }} />
+                  <Typography sx={{
+                    fontSize: "0.65rem", fontWeight: 800, color: T.accent,
+                    fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em",
+                  }}>
+                    Metrics
+                  </Typography>
                 </Box>
 
-                {editing && (
-                  <>
-                    <Box sx={{ height: "0.5px", bgcolor: T.divider, my: 0.25 }} />
-                    <Typography sx={{ fontSize: "0.69rem", color: T.muted, fontFamily: T.poppins, mb: 0.5 }}>
-                      Edit raw values — input in days
-                    </Typography>
-                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
-                      <Box>
-                        {col1.map((f) => (
-                          <AttendanceFieldCell key={f.key} f={f} valueHrs={toNum(fields[f.key])} onChange={handleChange} />
-                        ))}
-                      </Box>
-                      <Box>
-                        {col2.map((f) => (
-                          <AttendanceFieldCell key={f.key} f={f} valueHrs={toNum(fields[f.key])} onChange={handleChange} />
-                        ))}
-                      </Box>
-                    </Box>
-                    {error && (
-                      <Alert severity="error" sx={{ mt: 0.5, fontSize: "0.65rem", py: 0, borderRadius: 1 }}>
-                        {error}
-                      </Alert>
-                    )}
-                    <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 0.75, mt: 0.5 }}>
-                      <Button variant="outlined" size="small" onClick={() => setEditing(false)} sx={btnOutlineSx}>
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={handleSave}
-                        disabled={saving}
+                <Box sx={{ p: 1.25, display: "flex", flexDirection: "column", gap: 1 }}>
+                  {/* 5-column stat grid */}
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 0.625 }}>
+                    {[
+                      { label: "Days rendered", primary: `${(overallHrs / 8).toFixed(3)} d`,    hint: hrsToHMS(overallHrs),                                          bad: false, good: false },
+                      { label: "Tardiness",     primary: `${(tardHrs / 8).toFixed(3)} d`,       hint: tardHrs > 0 ? hrsToHMS(tardHrs) : "—",                         bad: tardHrs > 0, good: false },
+                      { label: "Absences",      primary: `${totalAbsentDays.toFixed(3)} d`,     hint: totalAbsentDays > 0 ? `${totalAbsentHrs.toFixed(3)} hrs` : "—", bad: totalAbsentDays > 0, good: false },
+                      { label: "Half days",     primary: `${halfDays.toFixed(3)} d`,            hint: halfDays > 0 ? hrsToHMS(halfDayHrs) : "—",                     bad: false, good: false },
+                      { label: "Days present",  primary: `${presentDays.toFixed(0)} d`,         hint: presentDays > 0 ? hrsToHMS(presentDays * 8) : "—",             bad: false, good: presentDays > 0 },
+                    ].map(({ label, primary, hint, bad, good }) => (
+                      <Box
+                        key={label}
                         sx={{
-                          textTransform: "none",
-                          fontFamily: T.poppins,
-                          fontWeight: 600,
-                          fontSize: "0.75rem",
-                          bgcolor: T.accent,
-                          borderRadius: 1,
-                          "&:hover": { bgcolor: T.accentDark },
+                          bgcolor: "rgba(0,0,0,0.025)",
+                          borderRadius: 1.5,
+                          p: "7px 9px",
+                          border: `1.5px solid ${bad ? "rgba(107,26,26,0.2)" : "rgba(0,0,0,0.08)"}`,
+                          transition: "all 0.15s",
                         }}
                       >
-                        {saving ? "…" : "Save"}
-                      </Button>
-                    </Box>
-                  </>
-                )}
+                        <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, mb: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {label}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: bad ? "#A32D2D" : good ? "#3B6D11" : T.text, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                          {primary}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontFamily: T.poppins, mt: "1px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {hint}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
 
-                {!editing && (
+                  {/* ── Leave balances — unified style ── */}
                   <Box>
-                    <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, mb: "6px" }}>
+                    <Typography sx={{
+                      fontSize: "0.6rem", fontWeight: 800, color: T.faint,
+                      fontFamily: T.poppins, textTransform: "uppercase",
+                      letterSpacing: "0.07em", mb: "5px",
+                    }}>
                       Leave balances
                     </Typography>
-                    <Box
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                        gap: 0.875,
-                      }}
-                    >
+                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 0.625 }}>
                       {[
                         {
                           title: "Vacation leave (VL)",
                           val: liveBalances.vl,
                           nameColor: "#185FA5",
                           valColor: "#0C447C",
-                          subColor: "#185FA5",
-                          bg: "#E6F1FB",
-                          border: "#B5D4F4",
+                          bg: "rgba(21,95,165,0.06)",
+                          border: "rgba(21,95,165,0.22)",
                         },
                         {
                           title: "Service credit (SC)",
                           val: liveBalances.sc,
                           nameColor: "#3B6D11",
                           valColor: "#27500A",
-                          subColor: "#3B6D11",
-                          bg: "#EAF3DE",
-                          border: "#C0DD97",
+                          bg: "rgba(59,109,17,0.06)",
+                          border: "rgba(59,109,17,0.22)",
                         },
                         {
                           title: "Comp. time off (CTO)",
                           val: liveBalances.cto,
                           nameColor: "#534AB7",
                           valColor: "#3C3489",
-                          subColor: "#534AB7",
-                          bg: "#EEEDFE",
-                          border: "#AFA9EC",
+                          bg: "rgba(83,74,183,0.06)",
+                          border: "rgba(83,74,183,0.22)",
                         },
                       ].map((b) => {
                         const num = parseFloat(b.val);
@@ -1188,19 +1313,29 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                             key={b.title}
                             sx={{
                               textAlign: "center",
-                              p: "9px 10px",
-                              borderRadius: 1,
-                              border: `0.5px solid ${b.border}`,
-                              bgcolor: b.bg,
+                              p: "7px 8px",
+                              borderRadius: 1.5,
+                              border: `1.5px solid ${isNeg ? "rgba(198,40,40,0.25)" : b.border}`,
+                              bgcolor: isNeg ? "rgba(198,40,40,0.04)" : b.bg,
+                              transition: "all 0.15s",
                             }}
                           >
-                            <Typography sx={{ fontSize: "0.6875rem", color: b.nameColor, fontFamily: T.poppins, mb: "3px" }}>
+                            <Typography sx={{
+                              fontSize: "0.58rem", color: b.nameColor, fontFamily: T.poppins,
+                              mb: "2px", fontWeight: 700, lineHeight: 1.2,
+                            }}>
                               {b.title}
                             </Typography>
-                            <Typography sx={{ fontSize: "1.1875rem", fontWeight: 500, color: displayColor, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                            <Typography sx={{
+                              fontSize: "1rem", fontWeight: 700,
+                              color: displayColor, fontFamily: T.poppins, lineHeight: 1.2,
+                            }}>
                               {b.val ?? "—"}
                             </Typography>
-                            <Typography sx={{ fontSize: "0.6875rem", color: b.subColor, fontFamily: T.poppins, mt: "2px" }}>
+                            <Typography sx={{
+                              fontSize: "0.58rem", color: b.nameColor, fontFamily: T.poppins,
+                              mt: "1px", opacity: 0.7,
+                            }}>
                               days remaining
                             </Typography>
                           </Box>
@@ -1208,50 +1343,55 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
                       })}
                     </Box>
                   </Box>
-                )}
+                </Box>
               </Box>
-            </Box>
 
-            {/* Step 1–2 balances: combine keys so SC/CTO refetch when balanceKey bumps (chips), not only vlReceiptRefreshKey */}
-            <DeductionReceiptSwitcher
-              employee={employee}
-              attendanceData={attendanceData}
-              year={year}
-              month={month}
-              onDeductSuccess={() => {
-                if (onRefresh) onRefresh();
-                if (onRecordsRefresh) onRecordsRefresh();
-                if (onBalancesInvalidate) onBalancesInvalidate();
-              }}
-              refreshKey={
-                (vlReceiptRefreshKey ?? 0) + (balanceRefreshKey ?? 0)
-              }
-              empCat={empCat}
-              onDeductHalfDayVLRequested={onDeductHalfDayVLRequested}
-              halfDayDeductDate={nextUndeductedVlHalfDate || null}
-              halfDayPendingDates={halfDayDates}
-              deductedVlHalfDates={deductedVlHalfDates}
-              metricsTardinessHrs={tardHrsDisplay}
-            />
-            {summaryUpdateNote ? (
-              <Typography
-                sx={{
-                  fontSize: "0.58rem",
-                  color: T.muted,
-                  fontFamily: T.poppins,
-                  textAlign: "center",
-                  pt: 0.75,
-                  pb: 0.25,
+              {/* ── Deduction receipt switcher ── */}
+              <DeductionReceiptSwitcher
+                employee={employee}
+                attendanceData={attendanceData}
+                year={year}
+                month={month}
+                onDeductSuccess={() => {
+                  if (onRefresh) onRefresh();
+                  if (onRecordsRefresh) onRecordsRefresh();
+                  if (onBalancesInvalidate) onBalancesInvalidate();
                 }}
-              >
-                {summaryUpdateNote}
-              </Typography>
-            ) : null}
+                refreshKey={(vlReceiptRefreshKey ?? 0) + (balanceRefreshKey ?? 0)}
+                empCat={empCat}
+                onDeductHalfDayVLRequested={onDeductHalfDayVLRequested}
+                halfDayDeductDate={nextUndeductedVlHalfDate || null}
+                halfDayPendingDates={halfDayDates}
+                deductedVlHalfDates={deductedVlHalfDates}
+                metricsTardinessHrs={tardHrs}
+              />
+
+              {summaryUpdateNote ? (
+                <Typography sx={{ fontSize: "0.58rem", color: T.muted, fontFamily: T.poppins, textAlign: "center", pt: 0.75, pb: 0.25 }}>
+                  {summaryUpdateNote}
+                </Typography>
+              ) : null}
             </Box>
           </Box>
         )}
       </Box>
 
+      {/* ── Full-table Edit Attendance Summary Modal ── */}
+      <EditAttendanceSummaryModal
+        open={editModalOpen}
+        onClose={() => { setEditModalOpen(false); setError(""); }}
+        raw={raw}
+        month={month}
+        year={year}
+        fields={fields}
+        onChange={handleChange}
+        onSave={handleSave}
+        saving={saving}
+        error={error}
+        onNavigateToModule={handleNavigateToModule}
+      />
+
+      {/* ── Overall attendance compare modal ── */}
       <OverallAttendanceCompareModal
         open={compareOpen}
         onClose={handleCompareClose}
@@ -1265,6 +1405,5 @@ useEffect(() => { fetchLiveBalances(); }, [fetchLiveBalances, balanceRefreshKey]
     </Box>
   );
 };
-
 
 export { AttendanceSummary };

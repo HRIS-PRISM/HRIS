@@ -543,7 +543,8 @@ const DailyTimeRecord = () => {
         const { firstName, lastName, middleName } = data[0];
         const full = `${firstName || ''} ${middleName ? middleName + ' ' : ''}${lastName || ''}`.trim();
         setEmployeeName(full || 'Unknown');
-        await fetchOfficialTimes(personID);
+        // ── FIX: pass the selected period so only overlapping schedules are shown ──
+        await fetchOfficialTimes(personID, startDate, endDate);
       } else {
         stopObserver();
         setRecords([]);
@@ -552,6 +553,7 @@ const DailyTimeRecord = () => {
         setRecordsHash('');
         setFetchedAt(null);
         setEmployeeName('No records found');
+        // ── FIX: clear official times when no records for the period ──
         setOfficialTimes({});
       }
     } catch (err) { console.error(err); }
@@ -562,15 +564,55 @@ const DailyTimeRecord = () => {
     }
   };
 
-  const fetchOfficialTimes = async (employeeID) => {
+  // ── FIX: Accept periodStart / periodEnd and filter schedules to that window ──
+  const fetchOfficialTimes = async (employeeID, periodStart, periodEnd) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, getAuthHeaders());
-      const map = response.data.reduce((acc, r) => {
-        acc[r.day] = { officialTimeIN: r.officialTimeIN, officialTimeOUT: r.officialTimeOUT, officialBreaktimeIN: r.officialBreaktimeIN, officialBreaktimeOUT: r.officialBreaktimeOUT };
+      const response = await axios.get(
+        `${API_BASE_URL}/officialtimetable/${employeeID}`,
+        getAuthHeaders(),
+      );
+
+      const allRows = response.data || [];
+
+      // Filter to only schedules whose date range overlaps the selected period.
+      // If no period is provided (initial load), skip filtering.
+      const filtered = (periodStart && periodEnd)
+        ? allRows.filter((r) => {
+            const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
+            const schedEnd   = r.endDate   ? String(r.endDate).split('T')[0]   : null;
+            if (!schedStart || !schedEnd) return false;
+            // Overlap condition: sched starts before period ends AND sched ends after period starts
+            return schedStart <= periodEnd && schedEnd >= periodStart;
+          })
+        : allRows;
+
+      const map = filtered.reduce((acc, r) => {
+        // Last-write-wins per day — higher id = more recent row takes precedence
+        if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
+          acc[r.day] = {
+            _id: r.id,
+            officialTimeIN:       r.officialTimeIN,
+            officialTimeOUT:      r.officialTimeOUT,
+            officialBreaktimeIN:  r.officialBreaktimeIN,
+            officialBreaktimeOUT: r.officialBreaktimeOUT,
+          };
+        }
         return acc;
       }, {});
-      setOfficialTimes(map);
-    } catch (err) { console.error('Error fetching official times:', err); setOfficialTimes({}); }
+
+      // Strip internal _id before storing
+      const cleanMap = Object.fromEntries(
+        Object.entries(map).map(([day, val]) => {
+          const { _id, ...rest } = val;
+          return [day, rest];
+        })
+      );
+
+      setOfficialTimes(cleanMap);
+    } catch (err) {
+      console.error('Error fetching official times:', err);
+      setOfficialTimes({});
+    }
   };
 
   const fetchApprovedLeaves = async (empID) => {
@@ -588,7 +630,8 @@ const DailyTimeRecord = () => {
     initialLoadDone.current = true;
     const init = async () => {
       await Promise.allSettled([
-        fetchOfficialTimes(personID),
+        // Initial load: no period yet — fetchOfficialTimes will not filter
+        fetchOfficialTimes(personID, null, null),
         fetchApprovedLeaves(personID),
         axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()).then((r) => {
           setHolidays(Array.isArray(r.data) ? r.data : []);
@@ -1151,7 +1194,7 @@ const DailyTimeRecord = () => {
                       <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>Month</Typography>
                     </Box>
                     {selectedMonth !== null && (
-                      <Box onClick={() => { setSelectedMonth(null); setRecords([]); setStartDate(''); setEndDate(''); }} sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}>Clear</Box>
+                      <Box onClick={() => { setSelectedMonth(null); setRecords([]); setStartDate(''); setEndDate(''); setOfficialTimes({}); }} sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}>Clear</Box>
                     )}
                   </Box>
 

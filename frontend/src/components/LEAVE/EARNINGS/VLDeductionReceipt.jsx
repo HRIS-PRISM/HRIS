@@ -1,76 +1,32 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
 import {
   Box,
   Typography,
-  Card,
   CircularProgress,
-  ToggleButton,
-  ToggleButtonGroup,
   Chip,
   Button,
-  Tooltip,
-  Select,
-  MenuItem,
-  FormControl,
   Avatar,
-  Autocomplete,
-  TextField,
   Alert,
-  Fade,
   IconButton,
   Dialog,
-  DialogTitle,
   DialogContent,
   DialogActions,
-  Collapse,
-  Paper,
-  Tabs,
-  Tab,
   Checkbox,
+  FormControlLabel,
 } from "@mui/material";
-import { alpha, styled } from "@mui/material/styles";
+import { alpha } from "@mui/material/styles";
 import {
   EventNote as LeaveIcon,
-  WorkHistory as SCIcon,
-  AccessTime as CTOIcon,
   Close,
-  Person as PersonIcon,
-  Search as SearchIcon,
-  Add as AddIcon,
   CheckCircle as CheckIcon,
-  Warning as WarnIcon,
-  CalendarToday as CalIcon,
-  MonetizationOn as EarnIcon,
   Pending as PendingIcon,
-  Domain as DeptIcon,
-  Work as WorkIcon,
-  Today as DayIcon,
-  Schedule as HourIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  History as HistoryIcon,
-  Refresh as RefreshIcon,
-  CheckCircleOutline as ApproveIcon,
-  CancelOutlined as RejectIcon,
-  AccessTimeFilled as LateIcon,
-  NavigateBefore as PrevIcon,
-  NavigateNext as NextIcon,
-  PersonOff as AbsentIcon,
-  FilterList as FilterIcon,
-  Edit as EditIcon,
-  Save as SaveIcon,
-  DateRange as DateRangeIcon,
-  EventAvailable as PresentIcon,
-  Calculate as CalculateIcon,
-  SwapHoriz as ConvertIcon,
-  OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
-  Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 
+// ─── Theme tokens (matches CTODeductionReceipt) ───────────────────────────────
 const T = {
   accent: "#6d2323",
   accentDark: "#5a1d1d",
@@ -84,90 +40,30 @@ const T = {
   muted: "#555555",
   faint: "#888888",
   poppins: "'Poppins', sans-serif",
-  statusPending: {
-    bg: "rgba(0,0,0,0.04)",
-    color: "#7a4a00",
-    border: "rgba(0,0,0,0.12)",
-  },
-  statusApproved: {
-    bg: "rgba(0,0,0,0.04)",
-    color: "#1e4d20",
-    border: "rgba(0,0,0,0.12)",
-  },
-  statusRejected: {
-    bg: "rgba(0,0,0,0.04)",
-    color: "#6b1a1a",
-    border: "rgba(0,0,0,0.12)",
-  },
 };
 
-const MONTHS = [
-  { value: "1", label: "January", short: "Jan" },
-  { value: "2", label: "February", short: "Feb" },
-  { value: "3", label: "March", short: "Mar" },
-  { value: "4", label: "April", short: "Apr" },
-  { value: "5", label: "May", short: "May" },
-  { value: "6", label: "June", short: "Jun" },
-  { value: "7", label: "July", short: "Jul" },
-  { value: "8", label: "August", short: "Aug" },
-  { value: "9", label: "September", short: "Sep" },
-  { value: "10", label: "October", short: "Oct" },
-  { value: "11", label: "November", short: "Nov" },
-  { value: "12", label: "December", short: "Dec" },
-];
-
-const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
-const DEFAULT_PAGE_SIZE = 10;
-
-const getCalendarDays = (year, month) => new Date(year, month, 0).getDate();
-
-const EARN_STATUS = {
-  pending: { label: "Pending", ...T.statusPending, icon: PendingIcon },
-  approved: { label: "Approved", ...T.statusApproved, icon: CheckIcon },
-  rejected: { label: "Rejected", ...T.statusRejected, icon: WarnIcon },
+const monthName = (m) => {
+  const MONTHS = [
+    { value: "1", label: "January" }, { value: "2", label: "February" },
+    { value: "3", label: "March" }, { value: "4", label: "April" },
+    { value: "5", label: "May" }, { value: "6", label: "June" },
+    { value: "7", label: "July" }, { value: "8", label: "August" },
+    { value: "9", label: "September" }, { value: "10", label: "October" },
+    { value: "11", label: "November" }, { value: "12", label: "December" },
+  ];
+  return MONTHS.find((x) => x.value === String(m))?.label || `Month ${m}`;
 };
 
-const STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "All", color: "#555" },
-  { value: "pending", label: "Pending", color: "#7a4a00" },
-  { value: "approved", label: "Approved", color: "#1e4d20" },
-  { value: "rejected", label: "Rejected", color: "#6b1a1a" },
-];
-
-const monthName = (m) =>
-  MONTHS.find((x) => x.value === String(m))?.label || `Month ${m}`;
-const monthShort = (m) =>
-  MONTHS.find((x) => x.value === String(m))?.short || `M${m}`;
-const toNum = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
-const toHours = (val, unit) => (unit === "days" ? val * 8 : val);
-const fmtHrs = (h, unit) =>
-  unit === "hours"
-    ? `${toNum(h).toFixed(3)} hrs`
-    : `${(toNum(h) / 8).toFixed(3)} days`;
+const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 const parseHHMM = (val) => {
   if (!val) return 0;
   const str = String(val).trim();
   if (str.includes(":")) {
     const parts = str.split(":");
-    return (
-      Number(parts[0]) +
-      Number(parts[1] || 0) / 60 +
-      Number(parts[2] || 0) / 3600
-    );
+    return Number(parts[0]) + Number(parts[1] || 0) / 60 + Number(parts[2] || 0) / 3600;
   }
   return parseFloat(str) || 0;
-};
-
-const hoursToHHMM = (h) => {
-  const total = Math.round(h * 3600);
-  const hh = Math.floor(total / 3600);
-  const mm = Math.floor((total % 3600) / 60);
-  const ss = total % 60;
-  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 };
 
 const hrsToHMS = (h) => {
@@ -178,158 +74,82 @@ const hrsToHMS = (h) => {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 };
 
-const globalCss = `
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
-@keyframes emFadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-@keyframes attPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-`;
-
-const shimmerKf = `
-@keyframes shimmer {
-  0%   { background-position: -800px 0; }
-  100% { background-position:  800px 0; }
-}
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
-}`;
-
-const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
-  <Box
-    sx={{
-      height: h,
-      borderRadius: r,
-      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
-      backgroundSize: '800px 100%',
-      animation: 'shimmer 1.6s infinite linear',
-      flexShrink: 0,
-      ...sx,
-    }}
-  />
+// ─── StepNum (matches CTODeductionReceipt) ────────────────────────────────────
+const StepNum = ({ done = false }) => (
+  <Box sx={{
+    width: 20, height: 20, borderRadius: "50%",
+    bgcolor: done ? "#2e7d32" : T.accent,
+    color: "#fff",
+    fontSize: "0.68rem", fontWeight: 700,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    flexShrink: 0, fontFamily: T.poppins,
+    boxShadow: `0 1px 4px ${done ? "rgba(46,125,50,0.35)" : "rgba(109,35,35,0.35)"}`,
+  }}>
+    {done
+      ? <CheckIcon sx={{ fontSize: 11 }} />
+      : <LeaveIcon sx={{ fontSize: 11 }} />
+    }
+  </Box>
 );
 
-// ─── Conversion defaults ──────────────────────────────────────────────────────
-const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "8hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.125).toFixed(3)),
-}));
-const DEFAULT_HOURS_6 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour",
-  day_type: "6hr",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.167).toFixed(3)),
-}));
-const DEFAULT_MINUTES = Array.from({ length: 60 }, (_, i) => ({
-  rate_type: "minute",
-  day_type: "minute",
-  rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.002).toFixed(3)),
-}));
-const DEFAULT_LWP_TABLE = Array.from({ length: 30 }, (_, i) => ({
-  d: i + 1,
-  e: Number(((i + 1) * 0.04167).toFixed(3)),
-}));
-const DEFAULT_ABS_TABLE = [
-  { a: 0.5, e: 1.229 },
-  { a: 1.0, e: 1.208 },
-  { a: 1.5, e: 1.188 },
-  { a: 2.0, e: 1.167 },
-  { a: 2.5, e: 1.146 },
-  { a: 3.0, e: 1.125 },
-  { a: 3.5, e: 1.104 },
-  { a: 4.0, e: 1.083 },
-  { a: 4.5, e: 1.063 },
-  { a: 5.0, e: 1.042 },
-  { a: 5.5, e: 1.021 },
-  { a: 6.0, e: 1.0 },
-  { a: 6.5, e: 0.979 },
-  { a: 7.0, e: 0.958 },
-  { a: 7.5, e: 0.938 },
-  { a: 8.0, e: 0.917 },
-  { a: 8.5, e: 0.854 },
-  { a: 9.0, e: 0.833 },
-  { a: 9.5, e: 0.875 },
-  { a: 10.0, e: 0.833 },
-  { a: 10.5, e: 0.813 },
-  { a: 11.0, e: 0.792 },
-  { a: 11.5, e: 0.771 },
-  { a: 12.0, e: 0.75 },
-  { a: 12.5, e: 0.729 },
-  { a: 13.0, e: 0.708 },
-  { a: 13.5, e: 0.687 },
-  { a: 14.0, e: 0.667 },
-  { a: 14.5, e: 0.646 },
-  { a: 15.0, e: 0.625 },
-  { a: 15.5, e: 0.604 },
-  { a: 16.0, e: 0.583 },
-  { a: 16.5, e: 0.562 },
-  { a: 17.0, e: 0.542 },
-  { a: 17.5, e: 0.521 },
-  { a: 18.0, e: 0.5 },
-  { a: 18.5, e: 0.479 },
-  { a: 19.0, e: 0.458 },
-  { a: 19.5, e: 0.437 },
-  { a: 20.0, e: 0.417 },
-  { a: 20.5, e: 0.396 },
-  { a: 21.0, e: 0.375 },
-  { a: 21.5, e: 0.354 },
-  { a: 22.0, e: 0.333 },
-  { a: 22.5, e: 0.312 },
-  { a: 23.0, e: 0.292 },
-  { a: 23.5, e: 0.271 },
-  { a: 24.0, e: 0.25 },
-  { a: 24.5, e: 0.229 },
-  { a: 25.0, e: 0.208 },
-  { a: 25.5, e: 0.187 },
-  { a: 26.0, e: 0.167 },
-  { a: 26.5, e: 0.146 },
-  { a: 27.0, e: 0.125 },
-  { a: 27.5, e: 0.104 },
-  { a: 28.0, e: 0.083 },
-  { a: 28.5, e: 0.062 },
-  { a: 29.0, e: 0.042 },
-  { a: 29.5, e: 0.021 },
-];
+// ─── Receipt row helper ───────────────────────────────────────────────────────
+const R = ({ label, sub, value, valueColor, bold, faded }) => (
+  <Box sx={{
+    display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+    opacity: faded ? 0.55 : 1, mb: 0.4,
+  }}>
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography sx={{
+        fontSize: bold ? "0.67rem" : "0.65rem", fontWeight: bold ? 700 : 500,
+        color: "#2a2a2a", fontFamily: T.poppins, lineHeight: 1.4,
+      }}>
+        {label}
+      </Typography>
+      {sub && (
+        <Typography sx={{ fontSize: "0.57rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1.3, mt: 0.1 }}>
+          {sub}
+        </Typography>
+      )}
+    </Box>
+    {value !== undefined && (
+      <Typography sx={{
+        fontSize: bold ? "0.82rem" : "0.7rem", fontWeight: bold ? 900 : 600,
+        color: valueColor || "#1a1a1a", fontFamily: T.poppins, ml: 1, flexShrink: 0, lineHeight: 1.4,
+      }}>
+        {value}
+      </Typography>
+    )}
+  </Box>
+);
 
-function sanitizeDecimal(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Number(n.toFixed(3));
-}
+// ─── BalanceFooter (matches CTODeductionReceipt) ──────────────────────────────
+const BalanceFooter = ({ bal, label }) => {
+  const color = bal < 0 ? "#c62828" : bal === 0 ? "#7a4a00" : "#1e4d20";
+  return (
+    <Box sx={{
+      px: 1.25, py: 0.85,
+      borderTop: "1.5px solid rgba(109,35,35,0.14)",
+      bgcolor: bal < 0
+        ? "rgba(198,40,40,0.05)"
+        : bal === 0 ? "rgba(122,74,0,0.05)" : "rgba(30,77,32,0.05)",
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+    }}>
+      {label && (
+        <Typography sx={{
+          fontSize: "0.62rem", fontWeight: 700, color: "#555",
+          fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.05em",
+        }}>
+          {label}
+        </Typography>
+      )}
+      <Typography sx={{ fontSize: "0.8rem", fontWeight: 900, color, fontFamily: T.poppins, ml: "auto" }}>
+        {bal.toFixed(3)} d
+      </Typography>
+    </Box>
+  );
+};
 
-// ─── Styled components ────────────────────────────────────────────────────────
-const SectionCard = styled(Card)({
-  borderRadius: 12,
-  overflow: "hidden",
-  background: T.surface,
-  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
-  border: "0.5px solid rgba(0,0,0,0.09)",
-});
-
-const FieldInput = styled(TextField)({
-  "& .MuiOutlinedInput-root": {
-    borderRadius: 8,
-    fontSize: "0.875rem",
-    backgroundColor: "#fff",
-    "& fieldset": { borderColor: T.accentBorder },
-    "&:hover fieldset": { borderColor: T.accent },
-    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
-  },
-  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
-});
-
-const AccentButton = styled(Button)({
-  borderRadius: 8,
-  textTransform: "none",
-  fontWeight: 600,
-  fontSize: "0.875rem",
-  transition: "all 0.18s ease",
-  "&:hover": { transform: "translateY(-1px)" },
-  "&:active": { transform: "translateY(0)" },
-});
-
+// ─── VLDeductionReceipt ───────────────────────────────────────────────────────
 const VLDeductionReceipt = ({
   employee,
   attendanceData,
@@ -348,12 +168,10 @@ const VLDeductionReceipt = ({
   const [existingDeductions, setExistingDeductions] = useState([]);
   const [deductionsLoading, setDeductionsLoading] = useState(false);
 
+  // ── Fetch VL balance ────────────────────────────────────────────────────────
   const fetchBalance = useCallback(async (opts) => {
     const silent = opts?.silent === true;
-    if (!employee) {
-      setVlBalance(null);
-      return;
-    }
+    if (!employee) { setVlBalance(null); return; }
     if (!silent) setBalLoading(true);
     const token = localStorage.getItem("token");
     try {
@@ -370,12 +188,10 @@ const VLDeductionReceipt = ({
     }
   }, [employee]);
 
+  // ── Fetch existing deductions ───────────────────────────────────────────────
   const fetchExistingDeductions = useCallback(async (opts) => {
     const silent = opts?.silent === true;
-    if (!employee) {
-      setExistingDeductions([]);
-      return;
-    }
+    if (!employee) { setExistingDeductions([]); return; }
     if (!silent) setDeductionsLoading(true);
     const token = localStorage.getItem("token");
     const headers = { Authorization: `Bearer ${token}` };
@@ -395,9 +211,11 @@ const VLDeductionReceipt = ({
           { headers },
         ),
       ]);
+
       const postedHours =
         postedRes.status === "fulfilled" ? toNum(postedRes.value.data?.posted_hours) : 0;
-      const all = leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings || [] : [];
+      const all =
+        leaveRes.status === "fulfilled" ? leaveRes.value.data?.earnings || [] : [];
       const pendingLegacy = all.filter(
         (e) =>
           e.entry_type === "TARDINESS_DEDUCTION" &&
@@ -406,20 +224,18 @@ const VLDeductionReceipt = ({
       );
       const syntheticApproved =
         postedHours > 1e-9
-          ? [
-              {
-                id: `lcu-tard-vl-${year}-${month}`,
-                employee_number: employee.employeeNumber,
-                leave_code: "VL",
-                earned_hours: -postedHours,
-                period_year: parseInt(year, 10),
-                period_month: parseInt(month, 10),
-                entry_type: "TARDINESS_DEDUCTION",
-                earn_status: "approved",
-                remarks: "Tardiness offset (leave credit ledger)",
-                _ledgerTardinessSynthetic: true,
-              },
-            ]
+          ? [{
+              id: `lcu-tard-vl-${year}-${month}`,
+              employee_number: employee.employeeNumber,
+              leave_code: "VL",
+              earned_hours: -postedHours,
+              period_year: parseInt(year, 10),
+              period_month: parseInt(month, 10),
+              entry_type: "TARDINESS_DEDUCTION",
+              earn_status: "approved",
+              remarks: "Tardiness offset (leave credit ledger)",
+              _ledgerTardinessSynthetic: true,
+            }]
           : [];
       setExistingDeductions([...pendingLegacy, ...syntheticApproved]);
     } catch {
@@ -432,7 +248,7 @@ const VLDeductionReceipt = ({
   useEffect(() => {
     fetchBalance({ silent: false });
     fetchExistingDeductions({ silent: false });
-  }, [fetchBalance, fetchExistingDeductions, employee, year, month]);
+  }, [fetchBalance, fetchExistingDeductions]);
 
   useEffect(() => {
     if (refreshKey === 0 || !employee) return;
@@ -440,6 +256,7 @@ const VLDeductionReceipt = ({
     fetchExistingDeductions({ silent: true });
   }, [refreshKey, employee, fetchBalance, fetchExistingDeductions]);
 
+  // ── Derived metrics ─────────────────────────────────────────────────────────
   const officialStart = attendanceData?.summary?.startDate || attendanceData?.period?.start;
   const officialEnd = attendanceData?.summary?.endDate || attendanceData?.period?.end;
   const { absentDays: absentDaysOfficial, lateHrs: lateHrsOfficial } =
@@ -450,41 +267,41 @@ const VLDeductionReceipt = ({
     });
 
   const absentDays = absentDaysOfficial || toNum(attendanceData?.stats?.absent_days);
-  const tardHrs = lateHrsOfficial > 0 ? lateHrsOfficial : (() => {
-    const tardHrsRaw = attendanceData?.summary
-      ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
-      : 0;
-    return Math.max(0, tardHrsRaw - absentDays * 8);
-  })();
+  const tardHrs = lateHrsOfficial > 0
+    ? lateHrsOfficial
+    : (() => {
+        const raw = attendanceData?.summary
+          ? parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness)
+          : 0;
+        return Math.max(0, raw - absentDays * 8);
+      })();
+
   const tardDays = tardHrs / 8;
   const tardDec = Number(tardDays.toFixed(3));
+
   const alreadyDeductedDays = existingDeductions.reduce(
     (sum, e) => sum + Math.abs(toNum(e.earned_hours)) / 8,
     0,
   );
   const alreadyDeductedDec = Number(alreadyDeductedDays.toFixed(3));
-  const remainingToDeductDec = Number(
-    Math.max(0, tardDec - alreadyDeductedDec).toFixed(3),
-  );
+  const remainingToDeductDec = Number(Math.max(0, tardDec - alreadyDeductedDec).toFixed(3));
+
   const vlBal = vlBalance !== null ? vlBalance : 0;
   const newBalance = Number((vlBal - remainingToDeductDec).toFixed(3));
-  const isNegative = newBalance < 0;
 
   const hasFullyDeducted = tardDec > 0 && alreadyDeductedDec >= tardDec;
-  const hasPendingDeduction = existingDeductions.some(
-    (e) => e.earn_status === "pending",
-  );
-  const hasApprovedDeduction = existingDeductions.some(
-    (e) => e.earn_status === "approved",
-  );
+  const hasPendingDeduction = existingDeductions.some((e) => e.earn_status === "pending");
+  const hasApprovedDeduction = existingDeductions.some((e) => e.earn_status === "approved");
 
+  const isLoading = balLoading || deductionsLoading;
+
+  // ── Deduct handler ──────────────────────────────────────────────────────────
   const handleDeduct = async () => {
     if (!employee || remainingToDeductDec <= 0) return;
     setDeducting(true);
     setDeductError("");
     const token = localStorage.getItem("token");
     try {
-      const headers = { Authorization: `Bearer ${token}` };
       await axios.post(
         `${API_BASE_URL}/api/earnings/leave`,
         {
@@ -496,12 +313,12 @@ const VLDeductionReceipt = ({
           entry_type: "TARDINESS_DEDUCTION",
           remarks: `Auto-deduction: tardiness ${remainingToDeductDec.toFixed(3)}d (${(remainingToDeductDec * 8).toFixed(3)}h / ${hrsToHMS(remainingToDeductDec * 8)}) for ${monthName(month)} ${year}`,
         },
-        { headers },
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       const newVL = Number((vlBal - remainingToDeductDec).toFixed(3));
       setDeductSuccess(
         newVL < 0
-          ? `Applied ${remainingToDeductDec.toFixed(3)}d tardiness to VL. Balance is ${newVL.toFixed(3)}d — salary shortfall was recorded for the overdraw.`
+          ? `Applied ${remainingToDeductDec.toFixed(3)}d tardiness to VL. Balance is ${newVL.toFixed(3)}d — salary shortfall recorded for overdraw.`
           : `Deducted ${remainingToDeductDec.toFixed(3)}d from VL. New balance ≈ ${newVL.toFixed(3)}d.`,
       );
       setConfirmOpen(false);
@@ -510,818 +327,513 @@ const VLDeductionReceipt = ({
       if (onDeductSuccess) onDeductSuccess();
       setTimeout(() => setDeductSuccess(""), 5000);
     } catch (err) {
-      setDeductError(
-        "Deduction failed: " + (err.response?.data?.error || err.message),
-      );
+      setDeductError("Deduction failed: " + (err.response?.data?.error || err.message));
     } finally {
       setDeducting(false);
     }
   };
 
   if (!attendanceData?.summary) return null;
-  const isLoading = balLoading || deductionsLoading;
 
-  // ── Receipt row helper ───────────────────────────────────────────────────────
-  const RRow = ({ label, sublabel, value, valueColor, bold, dimmed }) => (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "space-between",
-        mb: 0.4,
-        opacity: dimmed ? 0.55 : 1,
-      }}
-    >
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          sx={{
-            fontSize: "0.67rem",
-            fontWeight: bold ? 700 : 500,
-            color: dimmed ? T.faint : "#2a2a2a",
-            fontFamily: T.poppins,
-            lineHeight: 1.4,
-          }}
-        >
-          {label}
-        </Typography>
-        {sublabel && (
-          <Typography
-            sx={{
-              fontSize: "0.56rem",
-              color: T.faint,
-              fontFamily: T.poppins,
-              lineHeight: 1.3,
-              mt: 0.1,
-            }}
-          >
-            {sublabel}
-          </Typography>
-        )}
-      </Box>
-      {value !== undefined && (
-        <Typography
-          sx={{
-            fontSize: bold ? "0.82rem" : "0.72rem",
-            fontWeight: bold ? 900 : 600,
-            color: valueColor || "#1a1a1a",
-            fontFamily: T.poppins,
-            ml: 1,
-            flexShrink: 0,
-            lineHeight: 1.4,
-          }}
-        >
-          {value}
-        </Typography>
-      )}
-    </Box>
-  );
-
+  // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
     <>
-      <Box
-        sx={{
-          mt: 1,
+      <Box sx={{ mt: 0, display: "flex", flexDirection: "column", gap: 1.25 }}>
+        {deductSuccess && (
+          <Alert severity="success" sx={{ py: 0.5, fontSize: "0.65rem", borderRadius: 1.25 }}>
+            {deductSuccess}
+          </Alert>
+        )}
+
+        {/* ═══ Main Card ═══════════════════════════════════════════════════════ */}
+        <Box sx={{
           borderRadius: 1.5,
-          border: `1px solid ${hasFullyDeducted ? "rgba(46,125,50,0.25)" : "rgba(109,35,35,0.18)"}`,
-          bgcolor: hasFullyDeducted
-            ? "rgba(46,125,50,0.025)"
-            : "rgba(109,35,35,0.025)",
+          border: `1px solid ${hasFullyDeducted ? "rgba(46,125,50,0.22)" : T.accentBorder}`,
+          bgcolor: "#fff",
           overflow: "hidden",
-        }}
-      >
-        {/* Header */}
-        <Box
-          sx={{
-            px: 1.25,
-            py: 0.65,
-            bgcolor: hasFullyDeducted
-              ? "rgba(46,125,50,0.09)"
-              : "rgba(109,35,35,0.07)",
-            borderBottom: `1px solid ${hasFullyDeducted ? "rgba(46,125,50,0.16)" : "rgba(109,35,35,0.13)"}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 0.6,
-          }}
-        >
-          <ReceiptIcon
-            sx={{
-              fontSize: 11,
-              color: hasFullyDeducted ? "#2e7d32" : T.accent,
-            }}
-          />
-          <Typography
-            sx={{
-              fontSize: "0.6rem",
-              fontWeight: 800,
-              color: hasFullyDeducted ? "#2e7d32" : T.accent,
-              fontFamily: T.poppins,
-              textTransform: "uppercase",
-              letterSpacing: "0.07em",
-              flex: 1,
-            }}
-          >
-            VL Tardiness Deduction
-          </Typography>
-          {isLoading && <CircularProgress size={10} sx={{ color: T.accent }} />}
-          {hasFullyDeducted && (
-            <Chip
-              size="small"
-              icon={<CheckIcon style={{ fontSize: 9 }} />}
-              label={hasApprovedDeduction ? "Applied" : "Pending"}
-              sx={{
-                height: 16,
-                fontSize: "0.56rem",
-                fontWeight: 700,
-                bgcolor: hasApprovedDeduction
-                  ? "rgba(46,125,50,0.14)"
-                  : "rgba(255,160,0,0.14)",
-                color: hasApprovedDeduction ? "#1b5e20" : "#7a4a00",
-                border: `1px solid ${hasApprovedDeduction ? "rgba(46,125,50,0.28)" : "rgba(255,160,0,0.28)"}`,
-              }}
-            />
-          )}
-        </Box>
-
-        <Box sx={{ px: 1.5, pt: 1, pb: 1.25 }}>
-          {/* Fully deducted banner */}
-          {hasFullyDeducted && (
-            <Box
-              sx={{
-                mb: 1,
-                px: 1,
-                py: 0.75,
-                borderRadius: 1.25,
-                bgcolor: hasApprovedDeduction
-                  ? "rgba(46,125,50,0.07)"
-                  : "rgba(255,160,0,0.07)",
-                border: `1px solid ${hasApprovedDeduction ? "rgba(46,125,50,0.2)" : "rgba(255,160,0,0.22)"}`,
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 0.75,
-              }}
-            >
-              {hasApprovedDeduction ? (
-                <CheckIcon
-                  sx={{
-                    fontSize: 13,
-                    color: "#2e7d32",
-                    flexShrink: 0,
-                    mt: "1px",
-                  }}
-                />
-              ) : (
-                <PendingIcon
-                  sx={{
-                    fontSize: 13,
-                    color: "#e65100",
-                    flexShrink: 0,
-                    mt: "1px",
-                  }}
-                />
-              )}
-              <Typography
-                sx={{
-                  fontSize: "0.65rem",
-                  fontWeight: 700,
-                  color: hasApprovedDeduction ? "#1b5e20" : "#7a4a00",
-                  fontFamily: T.poppins,
-                  lineHeight: 1.4,
-                }}
-              >
-                {hasApprovedDeduction
-                  ? "Tardiness fully deducted & applied to VL balance."
-                  : "Deduction submitted — pending approval."}
-              </Typography>
-            </Box>
-          )}
-          {/* Partial notice */}
-          {!hasFullyDeducted && alreadyDeductedDec > 0 && (
-            <Box
-              sx={{
-                mb: 0.75,
-                px: 1,
-                py: 0.5,
-                borderRadius: 1.25,
-                bgcolor: "rgba(255,160,0,0.07)",
-                border: "1px solid rgba(255,160,0,0.22)",
-              }}
-            >
-              <Typography
-                sx={{
-                  fontSize: "0.63rem",
-                  fontWeight: 700,
-                  color: "#7a4a00",
-                  fontFamily: T.poppins,
-                }}
-              >
-                Partial: {alreadyDeductedDec.toFixed(3)}d already deducted —{" "}
-                {remainingToDeductDec.toFixed(3)}d remaining
-              </Typography>
-            </Box>
-          )}
-
-{/* ── INNER RECEIPT CARD (tardiness) ── */}
-<Box
-  sx={{
-    borderRadius: 1.25,
-    border: "1px solid rgba(109,35,35,0.13)",
-    bgcolor: "#fff",
-    overflow: "hidden",
-  }}
->
-  {/* Deduct with */}
-  <Box
-    sx={{
-      px: 1.25,
-      py: 0.45,
-      bgcolor: "rgba(109,35,35,0.04)",
-      borderBottom: "1px solid rgba(109,35,35,0.1)",
-    }}
-  >
-    <Typography
-      sx={{
-        fontSize: "0.55rem",
-        fontWeight: 800,
-        color: alpha(T.accent, 0.5),
-        fontFamily: T.poppins,
-        textTransform: "uppercase",
-        letterSpacing: "0.08em",
-      }}
-    >
-      Deduct with
-    </Typography>
-  </Box>
-  <Box sx={{ px: 1.25, py: 0.75 }}>
-    <RRow
-      label="Vacation Leave (VL)"
-      sublabel={balLoading ? "Loading…" : "Current balance"}
-      value={balLoading ? "…" : `${vlBal.toFixed(3)} d`}
-      valueColor={vlBal > 0 ? "#1e4d20" : T.faint}
-      bold
-    />
-  </Box>
-
-  
-        <Box sx={{ flex: 1 }} />
-
-  <Box sx={{ mx: 1.25, borderTop: "1px dashed rgba(109,35,35,0.15)" }} />
-
-  {/* You're about to deduct */}
-  <Box
-    sx={{
-      px: 1.25,
-      py: 0.45,
-      bgcolor: "rgba(109,35,35,0.04)",
-      borderTop: "1px solid rgba(109,35,35,0.1)",
-      borderBottom: "1px solid rgba(109,35,35,0.1)",
-    }}
-  >
-    <Typography
-      sx={{
-        fontSize: "0.55rem",
-        fontWeight: 800,
-        color: alpha(T.accent, 0.5),
-        fontFamily: T.poppins,
-        textTransform: "uppercase",
-        letterSpacing: "0.08em",
-      }}
-    >
-      You're about to deduct
-    </Typography>
-  </Box>
-  <Box sx={{ px: 1.25, py: 0.75, display: "flex", flexDirection: "column", gap: 0.1 }}>
-    <RRow
-      label="Tardiness (ABS)"
-      sublabel={
-        tardHrs > 0
-          ? `${tardHrs.toFixed(3)} hrs · ${hrsToHMS(tardHrs)}`
-          : "No tardiness"
-      }
-      value={tardDays > 0 ? `− ${tardDays.toFixed(3)} d` : "0.000 d"}
-      valueColor={tardDays > 0 ? "#c62828" : T.faint}
-      dimmed={tardDays === 0}
-    />
-    {alreadyVlDeducted > 0 && (
-      <RRow
-        label={`Already deducted (${existingVlDeductions[0]?.earn_status || "pending"})`}
-        value={`− ${alreadyVlDeducted.toFixed(3)} d`}
-        valueColor="#2e7d32"
-        dimmed
-      />
-    )}
-    {!tardinessFullyDeducted && remainingTardVl > 0 && (
-      <RRow
-        label="Remaining to deduct now"
-        value={`− ${remainingTardVl.toFixed(3)} d`}
-        valueColor="#c62828"
-      />
-    )}
-  </Box>
-
-  {/* Total / New Balance */}
-  <Box
-    sx={{
-      px: 1.25,
-      py: 0.85,
-      borderTop: "1.5px solid rgba(109,35,35,0.14)",
-      bgcolor: (() => {
-        const bal = tardinessFullyDeducted
-          ? vlBal - alreadyVlDeducted
-          : newVlBalance;
-        return bal < 0
-          ? "rgba(198,40,40,0.05)"
-          : bal === 0
-            ? "rgba(122,74,0,0.05)"
-            : "rgba(30,77,32,0.05)";
-      })(),
-      display: "flex",
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-    }}
-  >
-    <Box>
-      <Typography
-        sx={{
-          fontSize: "0.67rem",
-          fontWeight: 800,
-          color: "#1a1a1a",
-          fontFamily: T.poppins,
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-        }}
-      >
-        Total (New Balance)
-      </Typography>
-      {(tardinessFullyDeducted
-        ? vlBal - alreadyVlDeducted < 0
-        : newVlBalance < 0) && (
-        <Typography
-          sx={{
-            fontSize: "0.57rem",
-            color: "#c62828",
-            fontFamily: T.poppins,
-            fontWeight: 600,
-            mt: 0.2,
-          }}
-        >
-          Negative balance — excess will be deducted from salary
-        </Typography>
-      )}
-    </Box>
-    <Typography
-      sx={{
-        fontSize: "1rem",
-        fontWeight: 900,
-        fontFamily: T.poppins,
-        ml: 1,
-        flexShrink: 0,
-        color: (() => {
-          const bal = tardinessFullyDeducted
-            ? vlBal - alreadyVlDeducted
-            : newVlBalance;
-          return bal < 0 ? "#c62828" : bal === 0 ? "#7a4a00" : "#1e4d20";
-        })(),
-      }}
-    >
-      {tardinessFullyDeducted
-        ? `${Number((vlBal - alreadyVlDeducted).toFixed(3)).toFixed(3)} d`
-        : `${newVlBalance.toFixed(3)} d`}
-    </Typography>
-  </Box>
-</Box>
-
-          {/* Note (only when about to deduct) */}
-          {!hasFullyDeducted && tardDec > 0 && (
-            <Box
-              sx={{
-                mt: 0.75,
-                px: 1,
-                py: 0.6,
-                borderRadius: 1,
-                bgcolor: "rgba(0,0,0,0.03)",
-                border: "1px solid rgba(0,0,0,0.09)",
-              }}
-            >
-              <Typography
-                sx={{
-                  fontSize: "0.6rem",
-                  color: T.faint,
-                  fontFamily: T.poppins,
-                  lineHeight: 1.55,
-                }}
-              >
-                <strong style={{ color: "#c62828" }}>Note:</strong> 
-                Negative balance (e.g. <em>−0.xxx d</em>) will be directly
-                deducted from salary.
-              </Typography>
-            </Box>
-          )}
-
-          {/* Action area */}
-          {!hasFullyDeducted && tardDec > 0 && (
-            <Box sx={{ mt: 1 }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 0.5,
-                  mb: 0.6,
-                }}
-              >
-                <Checkbox
-                  checked={checked}
-                  onChange={(e) => setChecked(e.target.checked)}
-                  disabled={remainingToDeductDec <= 0}
-                  size="small"
-                  sx={{
-                    p: 0,
-                    mt: "1px",
-                    flexShrink: 0,
-                    color: T.accent,
-                    "&.Mui-checked": { color: T.accent },
-                  }}
-                />
-                <Typography
-                  sx={{
-                    fontSize: "0.63rem",
-                    color: remainingToDeductDec > 0 ? "#333" : T.faint,
-                    fontFamily: T.poppins,
-                    lineHeight: 1.55,
-                    mt: "3px",
-                  }}
-                >
-                  Confirm deduction of{" "}
-                  <strong style={{ color: T.accent }}>
-                    {remainingToDeductDec.toFixed(3)}d
-                  </strong>{" "}
-                  tardiness from VL balance
+        }}>
+          {/* Header — matches CTO Step headers */}
+          <Box sx={{
+            px: 1.6, py: 0.9,
+            bgcolor: hasFullyDeducted ? "rgba(46,125,50,0.06)" : "rgba(0,0,0,0.03)",
+            borderBottom: "1px solid rgba(0,0,0,0.08)",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 1, flexWrap: "wrap",
+          }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+              <StepNum done={hasFullyDeducted} />
+              <Box>
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: T.text, fontFamily: T.poppins }}>
+                  VL Tardiness Deduction
+                </Typography>
+                <Typography sx={{ fontSize: "0.63rem", color: T.muted, fontFamily: T.poppins, mt: 0.1 }}>
+                  {hasFullyDeducted
+                    ? "All tardiness applied for this period"
+                    : tardDec > 0
+                      ? `${remainingToDeductDec.toFixed(3)} d remaining to deduct`
+                      : "No tardiness recorded this period"}
                 </Typography>
               </Box>
-              <Button
-                fullWidth
-                variant="contained"
-                size="small"
-                disabled={!checked || remainingToDeductDec <= 0 || isLoading}
-                onClick={() => setConfirmOpen(true)}
-                startIcon={<DeductIcon sx={{ fontSize: "13px !important" }} />}
-                sx={{
-                  height: 30,
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
-                  textTransform: "none",
-                  fontFamily: T.poppins,
-                  borderRadius: 1.5,
-                  bgcolor:
-                    checked && remainingToDeductDec > 0 ? T.accent : "#c0c0c0",
-                  color: "#fff",
-                  "&:hover": {
-                    bgcolor:
-                      checked && remainingToDeductDec > 0
-                        ? T.accentDark
-                        : "#c0c0c0",
-                  },
-                  "&:disabled": {
-                    bgcolor: "#c0c0c0 !important",
-                    color: "#888 !important",
-                  },
-                }}
-              >
-                Deduct to VL
-              </Button>
-
-              {deductError && (
-                <Alert
-                  severity="error"
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              {isLoading && <CircularProgress size={11} sx={{ color: T.accent }} />}
+              {hasFullyDeducted && (
+                <Chip size="small"
+                  label={hasApprovedDeduction ? "Applied" : "Pending"}
                   sx={{
-                    mt: 0.5,
-                    mb: 0.5,
-                    py: 0,
-                    fontSize: "0.65rem",
-                    borderRadius: 1,
+                    height: 18, fontSize: "0.6rem", fontWeight: 700,
+                    bgcolor: hasApprovedDeduction ? "rgba(46,125,50,0.14)" : "rgba(255,160,0,0.14)",
+                    color: hasApprovedDeduction ? "#1b5e20" : "#7a4a00",
+                    border: `1px solid ${hasApprovedDeduction ? "rgba(46,125,50,0.28)" : "rgba(255,160,0,0.28)"}`,
                   }}
-                >
-                  {deductError}
-                </Alert>
+                />
               )}
-              {deductSuccess && (
-                <Alert
-                  severity="success"
+              {hasPendingDeduction && !hasFullyDeducted && (
+                <Chip size="small" label="Partial"
                   sx={{
-                    mt: 0.5,
-                    mb: 0.5,
-                    py: 0,
-                    fontSize: "0.65rem",
-                    borderRadius: 1,
+                    height: 18, fontSize: "0.6rem", fontWeight: 700,
+                    bgcolor: "rgba(255,160,0,0.14)", color: "#7a4a00",
+                    border: "1px solid rgba(255,160,0,0.28)",
                   }}
-                >
-                  {deductSuccess}
-                </Alert>
+                />
               )}
             </Box>
-          )}
-          {deductSuccess && hasFullyDeducted && (
-            <Alert
-              severity="success"
-              sx={{ mt: 0.75, py: 0, fontSize: "0.65rem", borderRadius: 1 }}
-            >
-              {deductSuccess}
-            </Alert>
-          )}
+          </Box>
+
+          {/* Body */}
+          <Box sx={{ px: 1.6, py: 1.1 }}>
+            {/* Partial notice */}
+            {!hasFullyDeducted && alreadyDeductedDec > 0 && (
+              <Box sx={{
+                mb: 1, px: 1, py: 0.6, borderRadius: 1.25,
+                bgcolor: "rgba(255,160,0,0.07)", border: "1px solid rgba(255,160,0,0.22)",
+              }}>
+                <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: "#7a4a00", fontFamily: T.poppins }}>
+                  Partial: {alreadyDeductedDec.toFixed(3)}d already deducted — {remainingToDeductDec.toFixed(3)}d remaining
+                </Typography>
+              </Box>
+            )}
+
+            {/* Ledger card — matches CTO CollapsibleLedger inner style */}
+            <Box sx={{
+              border: `1px solid ${hasFullyDeducted ? "rgba(46,125,50,0.3)" : T.accentBorder}`,
+              borderRadius: 1.5, overflow: "hidden", bgcolor: "#fff",
+            }}>
+              {/* VL Balance row */}
+              <Box sx={{ px: "11px", py: "8px", borderBottom: `1px solid ${T.divider}` }}>
+                <R
+                  label="Vacation Leave (VL)"
+                  sub={balLoading ? "Loading…" : "Current balance"}
+                  value={balLoading ? "…" : `${vlBal.toFixed(3)} d`}
+                  valueColor={vlBal > 0 ? "#1e4d20" : T.faint}
+                  bold
+                />
+              </Box>
+
+              {/* Tardiness rows */}
+              <Box sx={{ px: "11px", py: "8px" }}>
+                <R
+                  label="Tardiness to offset"
+                  sub={tardHrs > 0 ? `${tardHrs.toFixed(3)} hrs · ${hrsToHMS(tardHrs)}` : "No tardiness"}
+                  value={tardDays > 0 ? `− ${tardDays.toFixed(3)} d` : "0.000 d"}
+                  valueColor={tardDays > 0 ? "#c62828" : T.faint}
+                  faded={tardDays === 0}
+                />
+                {alreadyDeductedDec > 0 && (
+                  <R
+                    label={`Already deducted (${existingDeductions[0]?.earn_status || "pending"})`}
+                    value={`− ${alreadyDeductedDec.toFixed(3)} d`}
+                    valueColor="#2e7d32"
+                    faded
+                  />
+                )}
+                {!hasFullyDeducted && remainingToDeductDec > 0 && (
+                  <R
+                    label="Remaining to deduct"
+                    value={`− ${remainingToDeductDec.toFixed(3)} d`}
+                    valueColor="#c62828"
+                  />
+                )}
+              </Box>
+
+              {/* Footer balance — matches BalanceFooter */}
+              <BalanceFooter
+                bal={hasFullyDeducted
+                  ? Number((vlBal - alreadyDeductedDec).toFixed(3))
+                  : newBalance}
+                label={hasFullyDeducted ? "New VL balance" : "Balance after deduction"}
+              />
+            </Box>
+
+            {/* Fully deducted success state */}
+            {hasFullyDeducted && (
+              <Box sx={{
+                mt: 1, px: 1, py: 0.65, borderRadius: 1.25,
+                bgcolor: hasApprovedDeduction ? "rgba(46,125,50,0.07)" : "rgba(255,160,0,0.07)",
+                border: `1px solid ${hasApprovedDeduction ? "rgba(46,125,50,0.2)" : "rgba(255,160,0,0.22)"}`,
+                display: "flex", alignItems: "center", gap: 0.6,
+              }}>
+                <CheckIcon sx={{ fontSize: 13, color: hasApprovedDeduction ? "#2e7d32" : "#e65100", flexShrink: 0 }} />
+                <Typography sx={{
+                  fontSize: "0.65rem", fontWeight: 700,
+                  color: hasApprovedDeduction ? "#1b5e20" : "#7a4a00",
+                  fontFamily: T.poppins,
+                }}>
+                  {hasApprovedDeduction
+                    ? "Tardiness fully deducted & applied to VL balance."
+                    : "Deduction submitted — pending approval."}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Negative balance note */}
+            {newBalance < 0 && !hasFullyDeducted && (
+              <Box sx={{
+                mt: 1, px: 1, py: 0.65, borderRadius: 1.25,
+                bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
+              }}>
+                <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.45 }}>
+                  <strong style={{ color: T.accent }}>Note:</strong> Negative balance will be directly deducted from salary.
+                </Typography>
+              </Box>
+            )}
+
+            {/* Action area */}
+            {!hasFullyDeducted && tardDec > 0 && (
+              <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 0.75 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={checked}
+                      onChange={(e) => setChecked(e.target.checked)}
+                      disabled={remainingToDeductDec <= 0}
+                      sx={{ py: 0, color: T.accent, "&.Mui-checked": { color: T.accent } }}
+                    />
+                  }
+                  label={
+                    <Typography sx={{
+                      fontSize: "0.63rem",
+                      color: remainingToDeductDec > 0 ? "#333" : T.faint,
+                      fontFamily: T.poppins, lineHeight: 1.55,
+                    }}>
+                      Confirm deduction of{" "}
+                      <strong style={{ color: T.accent }}>{remainingToDeductDec.toFixed(3)}d</strong>{" "}
+                      tardiness from VL balance
+                    </Typography>
+                  }
+                  sx={{ alignItems: "flex-start", ml: 0, mr: 0 }}
+                />
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="medium"
+                  disabled={!checked || remainingToDeductDec <= 0 || isLoading}
+                  onClick={() => setConfirmOpen(true)}
+                  startIcon={<DeductIcon sx={{ fontSize: "16px !important" }} />}
+                  sx={{
+                    py: 1, fontSize: "0.82rem", fontWeight: 700,
+                    textTransform: "none", fontFamily: T.poppins,
+                    borderRadius: 1.25, bgcolor: T.accent, color: "#fff", boxShadow: "none",
+                    "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+                    "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.3) !important", color: "#fff !important" },
+                  }}
+                >
+                  Apply VL deduction
+                </Button>
+                {deductError && (
+                  <Alert severity="error" sx={{ py: 0.5, fontSize: "0.65rem", borderRadius: 1 }}>
+                    {deductError}
+                  </Alert>
+                )}
+              </Box>
+            )}
+          </Box>
         </Box>
       </Box>
 
-      {/* Confirm Dialog */}
+      {/* ══════════ CONFIRM MODAL (matches CTO confirm modal style) ══════════ */}
       <Dialog
         open={confirmOpen}
         onClose={() => !deducting && setConfirmOpen(false)}
-        maxWidth="xs"
-        fullWidth
-        PaperProps={{ sx: { borderRadius: 3 } }}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: "100%", maxWidth: 400, borderRadius: "16px",
+            overflow: "hidden", border: "0.5px solid rgba(0,0,0,0.09)",
+            boxShadow: "0 12px 48px rgba(0,0,0,0.2)",
+          },
+        }}
       >
-        <DialogTitle
-          sx={{
-            fontFamily: T.poppins,
-            fontWeight: 700,
-            fontSize: "0.95rem",
-            color: T.accent,
-            pb: 0.5,
-          }}
-        >
-          Confirm deduct {remainingToDeductDec.toFixed(3)}d tardiness from VL
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ py: 0.5 }}>
-            <Typography
-              sx={{
-                fontSize: "0.8rem",
-                color: "#333",
-                fontFamily: T.poppins,
-                mb: 1,
-              }}
-            >
-              You are about to deduct{" "}
-              <strong>{remainingToDeductDec.toFixed(3)}d</strong> tardiness
-              from the employee&apos;s <strong>VL</strong> balance for{" "}
-              <strong>
-                {monthName(month)} {year}
-              </strong>
-              . This will be <strong>immediately applied</strong> to the
-              balance.
-            </Typography>
-            <Box
-              sx={{
-                borderRadius: 2,
-                border: "1px solid rgba(109,35,35,0.2)",
-                bgcolor: "rgba(109,35,35,0.025)",
-                overflow: "hidden",
-                mb: 1,
-              }}
-            >
-              <Box
-                sx={{
-                  px: 1.5,
-                  py: 0.45,
-                  bgcolor: "rgba(109,35,35,0.06)",
-                  borderBottom: "1px solid rgba(109,35,35,0.12)",
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.6rem",
-                    fontWeight: 800,
-                    color: alpha(T.accent, 0.6),
-                    fontFamily: T.poppins,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
-                  }}
-                >
-                  Deduct with
+        {/* Modal header — maroon gradient */}
+        <Box sx={{
+          px: 2.5, pt: 2.5, pb: 2,
+          background: T.accent,
+          position: "relative", overflow: "hidden",
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1.5,
+        }}>
+          <Box sx={{
+            position: "absolute", top: -30, right: -30,
+            width: 100, height: 100, borderRadius: "50%",
+            bgcolor: "rgba(255,255,255,0.06)", pointerEvents: "none",
+          }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0, position: "relative", zIndex: 1 }}>
+            <Box sx={{
+              width: 36, height: 36, borderRadius: "50%",
+              bgcolor: "rgba(255,255,255,0.15)",
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <LeaveIcon sx={{ fontSize: 18, color: "#fff" }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{
+                fontSize: "0.65rem", color: "rgba(255,255,255,0.6)", fontWeight: 400,
+                letterSpacing: "0.08em", textTransform: "uppercase",
+                fontFamily: T.poppins, mb: 0.25,
+              }}>
+                VL deduction
+              </Typography>
+              <Typography sx={{
+                fontFamily: T.poppins, fontWeight: 500,
+                fontSize: "1.0625rem", color: "#fff", lineHeight: 1.2,
+              }}>
+                Confirm transaction
+              </Typography>
+            </Box>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => setConfirmOpen(false)}
+            disabled={deducting}
+            sx={{
+              color: "#fff", bgcolor: "rgba(255,255,255,0.12)",
+              borderRadius: 1, p: 0.5, position: "relative", zIndex: 1,
+              "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
+            }}
+          >
+            <Close sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ px: 2.5, pt: 2, pb: 2, display: "flex", flexDirection: "column", gap: 1.75 }}>
+
+            {/* Employee card */}
+            <Box sx={{
+              display: "flex", alignItems: "center", gap: 1.25,
+              bgcolor: "rgba(0,0,0,0.04)", borderRadius: "10px", px: 1.5, py: 1.25,
+            }}>
+              <Avatar sx={{
+                width: 38, height: 38, bgcolor: T.accent,
+                fontSize: "0.8125rem", fontWeight: 500, fontFamily: T.poppins, flexShrink: 0,
+              }}>
+                {(employee?.fullName || employee?.employeeNumber || "E")
+                  .split(" ").filter(Boolean).slice(0, 2)
+                  .map((n) => n[0]?.toUpperCase()).join("")}
+              </Avatar>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{
+                  fontSize: "0.875rem", fontWeight: 500, color: T.text,
+                  fontFamily: T.poppins, lineHeight: 1.2,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>
+                  {employee?.fullName || employee?.employeeNumber || "Employee"}
+                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", color: T.faint, fontFamily: T.poppins }}>
+                  #{employee?.employeeNumber || "—"}
                 </Typography>
               </Box>
-              <Box
-                sx={{
-                  px: 1.5,
-                  py: 0.75,
-                  display: "flex",
-                  justifyContent: "space-between",
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.72rem",
-                    color: T.muted,
-                    fontFamily: T.poppins,
-                  }}
-                >
-                  Vacation Leave (VL)
+              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
+                <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins, mb: 0.25 }}>
+                  Period
                 </Typography>
-                <Typography
-                  sx={{
-                    fontSize: "0.72rem",
-                    fontWeight: 700,
-                    color: "#1e4d20",
-                    fontFamily: T.poppins,
-                  }}
-                >
+                <Typography sx={{
+                  fontSize: "0.8125rem", fontWeight: 500, color: T.text,
+                  fontFamily: T.poppins, lineHeight: 1.1,
+                }}>
+                  {monthName(month)} {year}
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Transaction summary */}
+            <Box sx={{ bgcolor: "rgba(0,0,0,0.04)", borderRadius: "10px", overflow: "hidden" }}>
+              <Box sx={{ px: 1.5, py: 1, borderBottom: "0.5px solid rgba(0,0,0,0.08)" }}>
+                <Typography sx={{
+                  fontSize: "0.69rem", fontWeight: 500, color: T.faint,
+                  fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em",
+                }}>
+                  Transaction summary
+                </Typography>
+              </Box>
+              <Box sx={{
+                px: 1.5, py: 1.25,
+                display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1,
+              }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500, color: T.text, fontFamily: T.poppins }}>
+                    Tardiness deduction
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins, mt: 0.125 }}>
+                    Charged to VL · {(remainingToDeductDec * 8).toFixed(3)} hrs · {hrsToHMS(remainingToDeductDec * 8)}
+                  </Typography>
+                </Box>
+                <Typography sx={{
+                  fontSize: "0.875rem", fontWeight: 500,
+                  color: "#c62828", fontFamily: T.poppins, flexShrink: 0,
+                }}>
+                  −{remainingToDeductDec.toFixed(3)} d
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Total deduction block — maroon */}
+            <Box sx={{
+              bgcolor: T.accent, borderRadius: "10px", px: 1.75, py: 1.5,
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1,
+            }}>
+              <Box>
+                <Typography sx={{
+                  fontSize: "0.69rem", color: "rgba(255,255,255,0.65)",
+                  fontFamily: T.poppins, textTransform: "uppercase",
+                  letterSpacing: "0.07em", mb: 0.375,
+                }}>
+                  Total deduction
+                </Typography>
+                <Typography sx={{ fontSize: "0.69rem", color: "rgba(255,255,255,0.55)", fontFamily: T.poppins }}>
+                  {remainingToDeductDec.toFixed(3)} days · {(remainingToDeductDec * 8).toFixed(3)} hrs
+                </Typography>
+              </Box>
+              <Typography sx={{ fontSize: "1.375rem", fontWeight: 500, color: "#fff", fontFamily: T.poppins }}>
+                {remainingToDeductDec.toFixed(3)} d
+              </Typography>
+            </Box>
+
+            {/* Balance preview */}
+            <Box sx={{ bgcolor: "rgba(0,0,0,0.04)", borderRadius: "10px", overflow: "hidden" }}>
+              <Box sx={{ px: 1.5, py: 1, borderBottom: "0.5px solid rgba(0,0,0,0.08)" }}>
+                <Typography sx={{
+                  fontSize: "0.69rem", fontWeight: 500, color: T.faint,
+                  fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em",
+                }}>
+                  Balance preview
+                </Typography>
+              </Box>
+              <Box sx={{ p: 1.25 }}>
+                <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins, mb: 0.5 }}>
+                  VL before
+                </Typography>
+                <Typography sx={{ fontSize: "0.9375rem", fontWeight: 500, color: T.text, fontFamily: T.poppins }}>
                   {vlBal.toFixed(3)} d
                 </Typography>
-              </Box>
-              <Box
-                sx={{ mx: 1.5, borderTop: "1px dashed rgba(109,35,35,0.15)" }}
-              />
-              <Box
-                sx={{
-                  px: 1.5,
-                  py: 0.45,
-                  bgcolor: "rgba(109,35,35,0.06)",
-                  borderTop: "1px solid rgba(109,35,35,0.12)",
-                  borderBottom: "1px solid rgba(109,35,35,0.12)",
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.6rem",
-                    fontWeight: 800,
-                    color: alpha(T.accent, 0.6),
-                    fontFamily: T.poppins,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
-                  }}
-                >
-                  You're about to deduct
+                <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins, mt: 0.125 }}>
+                  −{remainingToDeductDec.toFixed(3)} d
                 </Typography>
-              </Box>
-              <Box sx={{ px: 1.5, py: 0.75 }}>
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    mb: 0.3,
-                  }}
-                >
-                  <Box>
-                    <Typography
-                      sx={{
-                        fontSize: "0.72rem",
-                        color: "#c62828",
-                        fontFamily: T.poppins,
-                      }}
-                    >
-                      Tardiness (ABS)
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.6rem",
-                        color: T.faint,
-                        fontFamily: T.poppins,
-                      }}
-                    >
-                      {(remainingToDeductDec * 8).toFixed(3)}h ·{" "}
-                      {hrsToHMS(remainingToDeductDec * 8)}
-                    </Typography>
-                  </Box>
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      fontWeight: 700,
-                      color: "#c62828",
-                      fontFamily: T.poppins,
-                    }}
-                  >
-                    − {remainingToDeductDec.toFixed(3)} d
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.65 }}>
+                  <Box sx={{
+                    width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                    bgcolor: newBalance < 0 ? "#c62828" : newBalance === 0 ? "#f59e0b" : "#2e7d32",
+                  }} />
+                  <Typography sx={{
+                    fontSize: "0.75rem", fontWeight: 500, fontFamily: T.poppins,
+                    color: newBalance < 0 ? "#c62828" : newBalance === 0 ? "#92400e" : "#2e7d32",
+                  }}>
+                    {newBalance.toFixed(3)} d after
                   </Typography>
                 </Box>
-              </Box>
-              <Box
-                sx={{
-                  px: 1.5,
-                  py: 0.85,
-                  bgcolor:
-                    newBalance < 0
-                      ? "rgba(198,40,40,0.05)"
-                      : newBalance === 0
-                        ? "rgba(122,74,0,0.05)"
-                        : "rgba(30,77,32,0.05)",
-                  borderTop: "1.5px solid rgba(109,35,35,0.14)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                }}
-              >
-                <Box>
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      fontWeight: 800,
-                      color: "#1a1a1a",
-                      fontFamily: T.poppins,
-                    }}
-                  >
-                    Total (New Balance)
+                {newBalance < 0 && (
+                  <Typography sx={{
+                    fontSize: "0.65rem", color: "#c62828",
+                    fontFamily: T.poppins, fontWeight: 600, mt: 0.5,
+                  }}>
+                    Shortfall → salary deduction
                   </Typography>
-                  {newBalance < 0 && (
-                    <Typography
-                      sx={{
-                        fontSize: "0.6rem",
-                        color: "#c62828",
-                        fontFamily: T.poppins,
-                        fontWeight: 600,
-                        mt: 0.15,
-                      }}
-                    >
-                      Shortfall deducted from salary
-                    </Typography>
-                  )}
-                </Box>
-                <Typography
-                  sx={{
-                    fontSize: "0.9rem",
-                    fontWeight: 900,
-                    color:
-                      newBalance < 0
-                        ? "#c62828"
-                        : newBalance === 0
-                          ? "#7a4a00"
-                          : "#1e4d20",
-                    fontFamily: T.poppins,
-                  }}
-                >
-                  {newBalance.toFixed(3)} d
-                </Typography>
+                )}
               </Box>
             </Box>
-            <Typography
-              sx={{
-                fontSize: "0.7rem",
-                color: "#1b5e20",
-                fontFamily: T.poppins,
-                bgcolor: "rgba(46,125,50,0.07)",
-                border: "1px solid rgba(46,125,50,0.2)",
-                borderRadius: 1.5,
-                p: 1,
-              }}
-            >
-              This deduction is <strong>auto-approved</strong> — the balance
-              will update immediately.
-            </Typography>
 
-            {/* Certify checkbox + confirm action (same UX as "Deduct to VL") */}
-            <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Checkbox checked={checked} disabled size="small" />
-                <Typography sx={{ fontSize: "0.78rem", color: T.muted }}>
-                  I certify this is correct
-                </Typography>
-              </Box>
-              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-                <AccentButton
-                  variant="contained"
-                  onClick={handleDeduct}
-                  disabled={deducting}
-                  sx={{
-                    bgcolor: T.accent,
-                    "&:hover": { bgcolor: T.accentDark },
-                  }}
-                >
-                  {deducting ? (
-                    <CircularProgress
-                      size={14}
-                      sx={{ color: "#fff" }}
-                    />
-                  ) : (
-                    "Confirm Deduction"
-                  )}
-                </AccentButton>
-              </Box>
+            {/* Info note — amber */}
+            <Box sx={{
+              bgcolor: "#FAEEDA", borderRadius: "8px", px: 1.5, py: 1.25,
+              border: "0.5px solid #FAC775", display: "flex", gap: 1, alignItems: "flex-start",
+            }}>
+              <LeaveIcon sx={{ fontSize: 16, color: "#633806", flexShrink: 0, mt: "2px" }} />
+              <Typography sx={{ fontSize: "0.75rem", color: "#633806", fontFamily: T.poppins, lineHeight: 1.5 }}>
+                Posts to VL earnings. Requires approval before balance finalizes.
+              </Typography>
             </Box>
+
+            {/* Confirm checkbox */}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={checked}
+                  onChange={(e) => setChecked(e.target.checked)}
+                  disabled={deducting}
+                  sx={{ py: 0, color: T.accent, "&.Mui-checked": { color: T.accent } }}
+                />
+              }
+              label={
+                <Typography sx={{ fontSize: "0.75rem", fontFamily: T.poppins, color: T.faint, lineHeight: 1.5 }}>
+                  I confirm the deduction source, amounts, and balances are correct.
+                </Typography>
+              }
+              sx={{ alignItems: "flex-start", ml: 0, mr: 0, mb: 0 }}
+            />
 
             {deductError && (
-              <Alert
-                severity="error"
-                sx={{ mt: 1, py: 0, fontSize: "0.7rem", borderRadius: 1 }}
-              >
+              <Alert severity="error" sx={{ py: 0.25, fontSize: "0.68rem", borderRadius: 1.5 }}>
                 {deductError}
               </Alert>
             )}
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
+
+        {/* Modal actions — matches CTO style */}
+        <DialogActions sx={{
+          display: "flex", justifyContent: "stretch", gap: 1,
+          px: 2.5, pt: 0, pb: 2.5, bgcolor: "transparent",
+        }}>
           <Button
+            size="medium"
             onClick={() => setConfirmOpen(false)}
             disabled={deducting}
             sx={{
-              textTransform: "none",
-              color: T.muted,
-              fontFamily: T.poppins,
+              flex: 1, fontSize: "0.8125rem", fontWeight: 500,
+              textTransform: "none", fontFamily: T.poppins,
+              color: T.text, borderRadius: "8px", py: 1.25,
+              border: "0.5px solid rgba(0,0,0,0.12)", bgcolor: "transparent",
             }}
           >
             Cancel
+          </Button>
+          <Button
+            size="medium"
+            variant="contained"
+            onClick={handleDeduct}
+            disabled={deducting || !checked}
+            disableElevation
+            startIcon={
+              deducting
+                ? <CircularProgress size={11} sx={{ color: "#fff" }} />
+                : <DeductIcon sx={{ fontSize: "13px !important" }} />
+            }
+            sx={{
+              flex: 2, fontSize: "0.8125rem", fontWeight: 500,
+              textTransform: "none", fontFamily: T.poppins,
+              bgcolor: T.accent, borderRadius: "8px", py: 1.25,
+              boxShadow: "none",
+              "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
+              "&.Mui-disabled": { bgcolor: "rgba(109,35,35,0.4)", color: "#fff" },
+            }}
+          >
+            {deducting ? "Processing…" : "Confirm deduction"}
           </Button>
         </DialogActions>
       </Dialog>
     </>
   );
 };
-
 
 export { VLDeductionReceipt };

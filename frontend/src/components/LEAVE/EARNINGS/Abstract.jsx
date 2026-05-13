@@ -20,11 +20,13 @@ import {
   Checkbox,
   IconButton,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import {
   Refresh as RefreshIcon,
   InfoOutlined as InfoOutlinedIcon,
   Payment as PaymentIcon,
   ExpandMore as ExpandMoreIcon,
+  ViewStream as AbstractTabIcon,
 } from "@mui/icons-material";
 import {
   payrollAuthHeaders,
@@ -42,30 +44,39 @@ import usePayrollRealtimeRefresh from "../../../hooks/usePayrollRealtimeRefresh"
 const WH = 8;
 
 const T = {
-  accent: "#a32d2d",
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.05)",
+  accentBorder: "rgba(109,35,35,0.12)",
+  headerGrad: "linear-gradient(135deg,#6d2323 0%,#7e2c2c 100%)",
+  divider: "rgba(0,0,0,0.08)",
+  surface: "#ffffff",
+  text: "#1a1a1a",
   muted: "#555555",
   faint: "#888888",
-  divider: "rgba(0,0,0,0.08)",
   poppins: "'Poppins', sans-serif",
-  salaryBg: "rgba(250,174,122,0.06)",
-  salaryText: "#a32d2d",
-  salaryBorder: "rgba(163,45,45,0.12)",
-  salaryChipBg: "#faeeda",
-  salaryChipColor: "#854f0b",
-  salaryChipBorder: "#ef9f27",
-  coveredBg: "rgba(97,168,68,0.05)",
-  coveredText: "#3b6d11",
-  coveredBorder: "rgba(59,109,17,0.12)",
-  coveredChipBg: "#eaf3de",
-  coveredChipColor: "#3b6d11",
-  coveredChipBorder: "#97c459",
-  sentChipBg: "#e6f1fb",
-  sentChipColor: "#185fa5",
-  sentChipBorder: "#85b7eb",
-  payrollDoneChipBg: "rgba(46,125,50,0.12)",
-  payrollDoneChipColor: "#1b5e20",
-  payrollDoneChipBorder: "rgba(27,94,32,0.35)",
+  salaryBg: "rgba(109,35,35,0.035)",
+  salaryText: "#6d2323",
+  salaryBorder: "rgba(109,35,35,0.10)",
+  salaryChipBg: "rgba(109,35,35,0.08)",
+  salaryChipColor: "#6d2323",
+  salaryChipBorder: "rgba(109,35,35,0.22)",
+  coveredBg: "rgba(46,125,50,0.04)",
+  coveredText: "#1e4d20",
+  coveredBorder: "rgba(46,125,50,0.10)",
+  coveredChipBg: "rgba(46,125,50,0.08)",
+  coveredChipColor: "#1e4d20",
+  coveredChipBorder: "rgba(46,125,50,0.28)",
+  sentChipBg: "rgba(21,101,192,0.08)",
+  sentChipColor: "#1565c0",
+  sentChipBorder: "rgba(21,101,192,0.22)",
+  payrollDoneBg: "rgba(46,125,50,0.08)",
+  payrollDoneColor: "#1b5e20",
+  payrollDoneBorder: "rgba(27,94,32,0.25)",
 };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function toNum(v) {
   const n = Number(v);
@@ -92,7 +103,6 @@ function displayDaysRawAttendanceRow(r) {
   return `${(h / WH).toFixed(3)}d`;
 }
 
-/** Normalize YYYY-M-D to YYYY-MM-DD so API vs UI keys match. */
 function normalizePayrollDate(d) {
   if (d == null || d === "") return "";
   const s = String(d).slice(0, 10);
@@ -102,9 +112,6 @@ function normalizePayrollDate(d) {
   return `${y}-${String(parseInt(mo, 10)).padStart(2, "0")}-${String(parseInt(day, 10)).padStart(2, "0")}`;
 }
 
-/**
- * Match payroll rows to Abstract rows even when one side uses "12345" vs 12345 or leading zeros.
- */
 function employeeNumberKeyVariants(emp) {
   const t = String(emp ?? "").trim();
   if (!t) return [];
@@ -117,10 +124,6 @@ function employeeNumberKeyVariants(emp) {
   return [...out];
 }
 
-/**
- * Any row in Payroll Processing for this employee + pay period (Processed or not).
- * If the row is deleted, it disappears from GET payroll-with-remittance and Abstract unlocks.
- */
 function buildPayrollExistingPeriodKeySet(data) {
   const set = new Set();
   const list = Array.isArray(data) ? data : [];
@@ -148,22 +151,109 @@ function abstractRowHasPayrollForPeriod(row, filterYear, filterMonth, payrollKey
   return false;
 }
 
-/**
- * ABSTRACT — attendance_result only: review unpaid leave outcomes and send selected
- * salary-deduction lines to regular payroll processing (same flow as former registry toolbar).
- */
+// ─── Shared header cell style ─────────────────────────────────────────────────
+
+const thSx = {
+  fontWeight: 700,
+  fontSize: "0.63rem",
+  fontFamily: T.poppins,
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  py: 1.25,
+  px: 1.5,
+  bgcolor: "rgba(109,35,35,0.07)",
+  color: T.muted,
+  borderBottom: `1px solid rgba(109,35,35,0.14)`,
+  whiteSpace: "nowrap",
+  // CRITICAL: must be static so the nested table's th doesn't fight the outer stickyHeader
+  position: "sticky",
+  top: 0,
+  zIndex: 2,
+};
+
+// ─── Audit table header cell — NOT sticky ────────────────────────────────────
+const auditThSx = {
+  fontSize: "0.62rem",
+  fontWeight: 700,
+  fontFamily: T.poppins,
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  color: T.faint,
+  bgcolor: "#f4f4f4",
+  py: 0.75,
+  px: 1.5,
+  borderBottom: `1px solid ${T.divider}`,
+  whiteSpace: "nowrap",
+  // NO position sticky — nested sticky causes misalignment/clipping
+  position: "static",
+};
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+const ColHeader = ({ icon: Icon, label, children }) => (
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 0.75,
+      px: 2,
+      py: 1.1,
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: "rgba(0,0,0,0.02)",
+      flexShrink: 0,
+    }}
+  >
+    {Icon && <Icon sx={{ fontSize: 13, color: T.accent }} />}
+    <Typography
+      sx={{
+        fontSize: "0.65rem",
+        fontWeight: 800,
+        color: T.accent,
+        fontFamily: T.poppins,
+        textTransform: "uppercase",
+        letterSpacing: "0.07em",
+        flex: 1,
+      }}
+    >
+      {label}
+    </Typography>
+    {children}
+  </Box>
+);
+
+const StatPill = ({ label, value, accent = false }) => (
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 0.6,
+      px: 1.1,
+      py: 0.45,
+      borderRadius: "20px",
+      bgcolor: accent ? alpha(T.accent, 0.08) : "rgba(0,0,0,0.04)",
+      border: `1px solid ${accent ? T.accentBorder : "rgba(0,0,0,0.09)"}`,
+    }}
+  >
+    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: accent ? T.accent : T.faint, fontFamily: T.poppins, lineHeight: 1 }}>
+      {value}
+    </Typography>
+    <Typography sx={{ fontSize: "0.58rem", fontWeight: 500, color: T.faint, fontFamily: T.poppins, lineHeight: 1 }}>
+      {label}
+    </Typography>
+  </Box>
+);
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export function Abstract({ employee, year, month }) {
   const [attendanceResults, setAttendanceResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  /** Row keys already submitted this session — one summary row per employee per period (server merges `abs`). */
   const [sentToPayrollKeys, setSentToPayrollKeys] = useState(() => new Set());
   const [selectedPayrollKeys, setSelectedPayrollKeys] = useState(() => new Set());
   const [submittingPayroll, setSubmittingPayroll] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
-  /** Summary row keys with attendance_result audit trail expanded */
   const [auditExpandedKeys, setAuditExpandedKeys] = useState(() => new Set());
-  /** Employee # + pay period keys present in Payroll Processing (any status). */
   const [payrollExistingPeriodKeys, setPayrollExistingPeriodKeys] = useState(() => new Set());
 
   useEffect(() => {
@@ -196,8 +286,9 @@ export function Abstract({ employee, year, month }) {
   }, []);
 
   const filterSummary = useMemo(() => {
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const m = Math.min(Math.max(parseInt(month, 10) || 1, 1), 12);
-    const mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m - 1] || "";
+    const mo = MONTHS[m - 1] || "";
     const y = year != null && year !== "" ? String(year) : "—";
     const empPart = employee?.employeeNumber
       ? `Employee #${employee.employeeNumber}`
@@ -240,21 +331,14 @@ export function Abstract({ employee, year, month }) {
     [attendanceResults, year, month],
   );
 
-  const deductionRows = useMemo(
-    () => mergedRows.filter((r) => r.isDeduction),
-    [mergedRows],
-  );
-  const coveredRows = useMemo(
-    () => mergedRows.filter((r) => !r.isDeduction),
-    [mergedRows],
-  );
+  const deductionRows = useMemo(() => mergedRows.filter((r) => r.isDeduction), [mergedRows]);
+  const coveredRows   = useMemo(() => mergedRows.filter((r) => !r.isDeduction), [mergedRows]);
   const isEmpty = !loading && !error && mergedRows.length === 0;
 
   const isRowAlreadySent = useCallback(
     (row) => sentToPayrollKeys.has(row.key),
     [sentToPayrollKeys],
   );
-
   const isRowAlreadyInPayrollProcessing = useCallback(
     (row) => abstractRowHasPayrollForPeriod(row, year, month, payrollExistingPeriodKeys),
     [payrollExistingPeriodKeys, year, month],
@@ -269,10 +353,8 @@ export function Abstract({ employee, year, month }) {
     });
   }, []);
 
-  /** Summary rows that can still be queued for payroll (not sent this session, no row in Payroll Processing for this period). */
   const eligiblePayrollRows = useMemo(
-    () =>
-      mergedRows.filter((r) => !isRowAlreadySent(r) && !isRowAlreadyInPayrollProcessing(r)),
+    () => mergedRows.filter((r) => !isRowAlreadySent(r) && !isRowAlreadyInPayrollProcessing(r)),
     [mergedRows, isRowAlreadySent, isRowAlreadyInPayrollProcessing],
   );
 
@@ -282,14 +364,8 @@ export function Abstract({ employee, year, month }) {
       let changed = false;
       for (const k of prev) {
         const row = mergedRows.find((r) => r.key === k);
-        if (!row) {
-          changed = true;
-          continue;
-        }
-        if (isRowAlreadyInPayrollProcessing(row)) {
-          changed = true;
-          continue;
-        }
+        if (!row) { changed = true; continue; }
+        if (isRowAlreadyInPayrollProcessing(row)) { changed = true; continue; }
         next.add(k);
       }
       return changed ? next : prev;
@@ -300,19 +376,13 @@ export function Abstract({ employee, year, month }) {
     const keys = eligiblePayrollRows.map((r) => r.key);
     const n = keys.length;
     const selected = keys.filter((k) => selectedPayrollKeys.has(k)).length;
-    return {
-      checked: n > 0 && selected === n,
-      indeterminate: selected > 0 && selected < n,
-    };
+    return { checked: n > 0 && selected === n, indeterminate: selected > 0 && selected < n };
   }, [eligiblePayrollRows, selectedPayrollKeys]);
 
   const toggleSelectAllEligible = useCallback(
     (checked) => {
-      if (checked) {
-        setSelectedPayrollKeys(new Set(eligiblePayrollRows.map((r) => r.key)));
-      } else {
-        setSelectedPayrollKeys(new Set());
-      }
+      if (checked) setSelectedPayrollKeys(new Set(eligiblePayrollRows.map((r) => r.key)));
+      else setSelectedPayrollKeys(new Set());
     },
     [eligiblePayrollRows],
   );
@@ -340,12 +410,7 @@ export function Abstract({ employee, year, month }) {
         !isRowAlreadyInPayrollProcessing(r),
     );
     if (picked.length === 0) {
-      setSnackbar({
-        open: true,
-        severity: "warning",
-        message:
-          "Select at least one row you have not already sent in this session (✓ sent rows are skipped).",
-      });
+      setSnackbar({ open: true, severity: "warning", message: "Select at least one row you have not already sent in this session." });
       return;
     }
     const byPeriod = new Map();
@@ -365,19 +430,12 @@ export function Abstract({ employee, year, month }) {
         for (const periodStr of periodSet) {
           const [startDate, endDate] = periodStr.split("|");
           const oar = await fetchOverallAttendanceRow(emp, startDate, endDate, startDate, endDate);
-          if (!oar) {
-            missing.push(`${emp} (${startDate} → ${endDate})`);
-            continue;
-          }
+          if (!oar) { missing.push(`${emp} (${startDate} → ${endDate})`); continue; }
           attendancePayloads.push(oar);
         }
       }
       if (missing.length > 0) {
-        setSnackbar({
-          open: true,
-          severity: "error",
-          message: `No overall attendance record for: ${missing.join("; ")}`,
-        });
+        setSnackbar({ open: true, severity: "error", message: `No overall attendance record for: ${missing.join("; ")}` });
         return;
       }
       const uniquePayload = [];
@@ -399,44 +457,26 @@ export function Abstract({ employee, year, month }) {
           sumAbs += registryContributionDays(r);
           if (!nameFromRegistry && r.name) nameFromRegistry = r.name;
         }
-        if (sumAbs > 0) {
-          p.abs = Number(sumAbs.toFixed(6));
-        }
-        if (nameFromRegistry) {
-          p.name = nameFromRegistry;
-        }
+        if (sumAbs > 0) p.abs = Number(sumAbs.toFixed(6));
+        if (nameFromRegistry) p.name = nameFromRegistry;
       }
-      const { filteredRecords, invalidRecords } = await filterRecordsForRegularPayroll(
-        uniquePayload,
-        payrollAuthHeaders,
-      );
+      const { filteredRecords, invalidRecords } = await filterRecordsForRegularPayroll(uniquePayload, payrollAuthHeaders);
       if (filteredRecords.length === 0) {
         setSnackbar({
           open: true,
           severity: "error",
-          message:
-            invalidRecords.length > 0
-              ? invalidRecords.map((x) => `${x.employeeNumber}: ${x.reason}`).join("\n")
-              : "No eligible employees for regular payroll (check employment category).",
+          message: invalidRecords.length > 0
+            ? invalidRecords.map((x) => `${x.employeeNumber}: ${x.reason}`).join("\n")
+            : "No eligible employees for regular payroll (check employment category).",
         });
         return;
       }
       if (invalidRecords.length > 0) {
-        setSnackbar({
-          open: true,
-          severity: "warning",
-          message: `Skipped ${invalidRecords.length} employee(s). Submitting ${filteredRecords.length} eligible record(s).`,
-        });
+        setSnackbar({ open: true, severity: "warning", message: `Skipped ${invalidRecords.length} employee(s). Submitting ${filteredRecords.length} eligible record(s).` });
       }
-      const result = await postRegularPayrollSubmission(filteredRecords, payrollAuthHeaders, {
-        mergeAbsIntoExisting: true,
-      });
+      const result = await postRegularPayrollSubmission(filteredRecords, payrollAuthHeaders, { mergeAbsIntoExisting: true });
       if (!result.ok) {
-        setSnackbar({
-          open: true,
-          severity: "error",
-          message: result.message || "Payroll submission failed.",
-        });
+        setSnackbar({ open: true, severity: "error", message: result.message || "Payroll submission failed." });
         return;
       }
       setSentToPayrollKeys((prev) => {
@@ -447,560 +487,675 @@ export function Abstract({ employee, year, month }) {
       setSnackbar({
         open: true,
         severity: "success",
-        message:
-          result.newCount != null
-            ? `Payroll updated (${result.newCount} change(s)).`
-            : "Submitted to payroll processing.",
+        message: result.newCount != null ? `Payroll updated (${result.newCount} change(s)).` : "Submitted to payroll processing.",
       });
       setSelectedPayrollKeys(new Set());
     } catch (e) {
-      setSnackbar({
-        open: true,
-        severity: "error",
-        message: e.response?.data?.error || e.message || "Request failed.",
-      });
+      setSnackbar({ open: true, severity: "error", message: e.response?.data?.error || e.message || "Request failed." });
     } finally {
       setSubmittingPayroll(false);
     }
   }, [mergedRows, selectedPayrollKeys, isRowAlreadySent, isRowAlreadyInPayrollProcessing, year, month]);
 
-  const TABLE_COL_SPAN = 14;
-
-  const cellWrapSx = {
-    whiteSpace: "normal",
-    wordBreak: "break-word",
-    overflow: "visible",
-    textOverflow: "clip",
-  };
+  // 15 cols: checkbox + audit + 13 data cols
+  const TABLE_COL_SPAN = 15;
 
   return (
-    <Box
-      sx={{
-        px: { xs: 1, sm: 1.5 },
-        py: 1.5,
-        flex: 1,
-        minHeight: 0,
-        display: "flex",
-        flexDirection: "column",
-        borderLeft: `4px solid ${T.accent}`,
-        bgcolor: "rgba(163,45,45,0.03)",
-        borderRadius: "0 8px 8px 0",
-      }}
-    >
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1, flexWrap: "wrap", gap: 1 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, color: T.accent, fontFamily: T.poppins }}>
-            Abstract
-          </Typography>
-          <Chip
-            label="attendance_result"
-            size="small"
-            sx={{
-              height: 22,
-              fontSize: "0.69rem",
-              fontWeight: 500,
-              fontFamily: T.poppins,
-              bgcolor: "#fcebeb",
-              color: T.accent,
-              border: `0.5px solid #f09595`,
-            }}
-          />
-          {!loading && (
-            <Typography sx={{ fontSize: "0.75rem", color: T.faint, fontFamily: T.poppins }}>
-              {mergedRows.length} records · {deductionRows.length} deduction{deductionRows.length === 1 ? "" : "s"} ·{" "}
-              {coveredRows.length} covered
-            </Typography>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", fontFamily: T.poppins }}>
+
+      {/* ── Column header ── */}
+      <ColHeader icon={AbstractTabIcon} label="Abstract · attendance_result">
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          {!loading && mergedRows.length > 0 && (
+            <>
+              <StatPill value={mergedRows.length} label="records" />
+              <StatPill value={deductionRows.length} label="deductions" accent />
+              <StatPill value={coveredRows.length} label="covered" />
+            </>
           )}
         </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+      </ColHeader>
+
+      {/* ── Toolbar ── */}
+      <Box
+        sx={{
+          px: 2,
+          py: 1.1,
+          borderBottom: `1px solid ${T.divider}`,
+          bgcolor: T.accentFaint,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 1,
+          flexWrap: "wrap",
+          flexShrink: 0,
+        }}
+      >
+        {/* Legend */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+          {[
+            { color: T.accent, label: "Salary deduction" },
+            { color: "#2e7d32", label: "Covered by leave" },
+          ].map(({ color, label }) => (
+            <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.55 }}>
+              <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
+              <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>
+                {label}
+              </Typography>
+            </Box>
+          ))}
+          <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>
+            {filterSummary}
+          </Typography>
+        </Box>
+
+        {/* Actions */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
           {mergedRows.length > 0 && !loading && (
             <>
               <Button
                 size="small"
                 variant="contained"
-                startIcon={submittingPayroll ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <PaymentIcon sx={{ fontSize: 16 }} />}
+                startIcon={
+                  submittingPayroll
+                    ? <CircularProgress size={11} sx={{ color: "#fff" }} />
+                    : <PaymentIcon sx={{ fontSize: 14 }} />
+                }
                 onClick={handleSendToPayroll}
                 disabled={submittingPayroll || selectedEligibleCount === 0}
                 sx={{
-                  fontSize: "0.75rem",
-                  fontWeight: 500,
-                  textTransform: "none",
-                  fontFamily: T.poppins,
-                  bgcolor: T.accent,
-                  border: `0.5px solid ${T.accent}`,
-                  "&:hover": { bgcolor: "#7a1f1f" },
-                  "&:disabled": { bgcolor: T.accent, opacity: 0.4 },
+                  fontSize: "0.72rem", fontWeight: 700, textTransform: "none",
+                  fontFamily: T.poppins, bgcolor: T.accent, borderRadius: "8px",
+                  px: 1.5, py: 0.5, boxShadow: "none", transition: "all 0.18s ease",
+                  "&:hover": { bgcolor: T.accentDark, boxShadow: "none", transform: "translateY(-1px)" },
+                  "&:active": { transform: "translateY(0)" },
+                  "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.35), color: "#fff" },
                 }}
               >
-                Send to payroll ({selectedEligibleCount})
+                {submittingPayroll ? "Submitting…" : `Send to payroll (${selectedEligibleCount})`}
               </Button>
+
               <Button
                 size="small"
                 onClick={selectAllEligiblePayroll}
                 disabled={eligiblePayrollRows.length === 0}
-                sx={{ fontSize: "0.75rem", fontWeight: 500, textTransform: "none", fontFamily: T.poppins, border: `0.5px solid ${T.divider}` }}
+                sx={{
+                  fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
+                  fontFamily: T.poppins, color: T.accent, borderRadius: "8px",
+                  px: 1.25, py: 0.5, border: `1px solid ${T.accentBorder}`, bgcolor: "#fff",
+                  "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                  "&.Mui-disabled": { color: T.faint, borderColor: T.divider },
+                }}
               >
                 Select all
               </Button>
+
               <Button
                 size="small"
                 onClick={clearPayrollSelection}
                 disabled={selectedPayrollKeys.size === 0}
-                sx={{ fontSize: "0.75rem", fontWeight: 500, textTransform: "none", fontFamily: T.poppins, border: `0.5px solid ${T.divider}` }}
+                sx={{
+                  fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
+                  fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
+                  px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
+                  "&:hover": { bgcolor: "rgba(0,0,0,0.03)", borderColor: "rgba(0,0,0,0.15)" },
+                  "&.Mui-disabled": { color: T.faint, borderColor: T.divider },
+                }}
               >
                 Clear
               </Button>
             </>
           )}
+
           <Button
             size="small"
-            startIcon={loading ? <CircularProgress size={11} /> : <RefreshIcon sx={{ fontSize: 16 }} />}
-            onClick={() => {
-              fetchRows();
-              fetchPayrollExistingPeriodKeys();
-            }}
+            startIcon={
+              loading
+                ? <CircularProgress size={11} sx={{ color: T.accent }} />
+                : <RefreshIcon sx={{ fontSize: 14 }} />
+            }
+            onClick={() => { fetchRows(); fetchPayrollExistingPeriodKeys(); }}
             disabled={loading}
-            sx={{ fontSize: "0.75rem", fontWeight: 500, textTransform: "none", fontFamily: T.poppins, border: `0.5px solid ${T.divider}` }}
+            sx={{
+              fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
+              fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
+              px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
+              "&:hover": { bgcolor: "rgba(0,0,0,0.03)", color: T.accent, borderColor: T.accentBorder },
+              "&.Mui-disabled": { color: T.faint },
+            }}
           >
             Refresh
           </Button>
         </Box>
       </Box>
 
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          mb: 0.75,
-          flexWrap: "wrap",
-          gap: 1,
-        }}
-      >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.75 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.65 }}>
-            <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#e24b4a", flexShrink: 0 }} />
-            <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins }}>
-              Salary deduction
-            </Typography>
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.65 }}>
-            <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "#639922", flexShrink: 0 }} />
-            <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins }}>
-              Covered by leave
-            </Typography>
-          </Box>
-        </Box>
-        <Typography sx={{ fontSize: "0.69rem", color: T.faint, fontFamily: T.poppins }}>
-          {filterSummary}
-        </Typography>
-      </Box>
-
+      {/* ── Alerts ── */}
       {error && (
-        <Alert severity="error" sx={{ mb: 1, fontSize: "0.72rem", py: 0.25 }}>
+        <Alert
+          severity="error"
+          sx={{ mx: 2, mt: 1.5, mb: 0, fontSize: "0.72rem", borderRadius: 1.5, py: 0.5, fontFamily: T.poppins }}
+        >
           {error}
         </Alert>
       )}
 
       {isEmpty && (
-        <Alert
-          severity="info"
-          icon={<InfoOutlinedIcon sx={{ fontSize: 22 }} />}
-          sx={{
-            mb: 1.25,
-            alignItems: "flex-start",
-            fontFamily: T.poppins,
-            border: `1px solid ${T.divider}`,
-            bgcolor: "rgba(255,255,255,0.85)",
-          }}
-        >
-          <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", color: T.accent, fontFamily: T.poppins }}>
-            No attendance_result rows for this filter
-          </Typography>
-          <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 0.5, lineHeight: 1.55 }}>
-            Nothing in <strong>attendance_result</strong> for <strong>{filterSummary}</strong>. Use the Salary Shortfall tab for the full merged registry.
-          </Typography>
-        </Alert>
+        <Box sx={{ px: 2, pt: 1.5, pb: 0 }}>
+          <Alert
+            severity="info"
+            icon={<InfoOutlinedIcon sx={{ fontSize: 20 }} />}
+            sx={{
+              alignItems: "flex-start", fontFamily: T.poppins,
+              borderRadius: 1.75, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint,
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", color: T.accent, fontFamily: T.poppins, mb: 0.3 }}>
+              No attendance_result rows for this filter
+            </Typography>
+            <Typography sx={{ fontSize: "0.72rem", color: T.muted, lineHeight: 1.55, fontFamily: T.poppins }}>
+              Nothing in <strong>attendance_result</strong> for <strong>{filterSummary}</strong>.
+              Use the Salary Shortfall tab for the full merged registry.
+            </Typography>
+          </Alert>
+        </Box>
       )}
 
-      <TableContainer
-        component={Paper}
-        elevation={0}
-        sx={{
-          border: `0.5px solid ${T.divider}`,
-          borderRadius: 2,
-          flex: 1,
-          maxHeight: { md: "calc(100vh - 380px)" },
-          overflow: "auto",
-        }}
-      >
-        <Table size="small" stickyHeader sx={{ tableLayout: "fixed", minWidth: 1580 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell
-                sx={{
-                  fontWeight: 500,
-                  fontSize: "0.69rem",
-                  fontFamily: T.poppins,
-                  bgcolor: T.accent,
-                  color: "#fff",
-                  width: 40,
-                  textAlign: "center",
-                  borderBottom: `0.5px solid ${T.divider}`,
-                  py: 1,
-                }}
-              >
-                <Tooltip title="Select all eligible: not sent this session and no Payroll Processing row for that employee number and pay period.">
-                  <Checkbox
-                    size="small"
-                    checked={headerCheckboxState.checked}
-                    indeterminate={headerCheckboxState.indeterminate}
-                    onChange={(e) => toggleSelectAllEligible(e.target.checked)}
-                    disabled={eligiblePayrollRows.length === 0}
-                    sx={{
-                      p: 0,
-                      color: "rgba(255,255,255,0.92)",
-                      "&.Mui-checked": { color: "#fff" },
-                      "&.MuiCheckbox-indeterminate": { color: "#fff" },
-                      "&.Mui-disabled": { color: "rgba(255,255,255,0.35)" },
-                    }}
-                  />
-                </Tooltip>
-              </TableCell>
-              <TableCell
-                sx={{
-                  fontWeight: 500,
-                  fontSize: "0.69rem",
-                  fontFamily: T.poppins,
-                  bgcolor: T.accent,
-                  color: "#fff",
-                  width: 36,
-                  textAlign: "center",
-                  borderBottom: `0.5px solid ${T.divider}`,
-                  py: 1,
-                }}
-              >
-                <Tooltip title="Each row: expand to see attendance_result audit trail.">
-                  <Typography sx={{ fontSize: "0.62rem", fontWeight: 600, fontFamily: T.poppins, lineHeight: 1.2 }}>
-                    Audit
-                  </Typography>
-                </Tooltip>
-              </TableCell>
-              {[
-                { h: "Emp #", w: "7%" },
-                { h: "Name", w: "14%" },
-                { h: "Type" },
-                { h: "Leave" },
-                { h: "Date" },
-                { h: "Status" },
-                { h: "Days" },
-                { h: "Orig. hrs" },
-                { h: "Leave hrs" },
-                { h: "Unpaid hrs" },
-                { h: "Paid hrs" },
-                { h: "Remarks", w: "18%" },
-                { h: "Created at" },
-              ].map(({ h, w }) => (
-                <TableCell
-                  key={h}
-                  sx={{
-                    fontWeight: 500,
-                    fontSize: "0.69rem",
-                    fontFamily: T.poppins,
-                    bgcolor: "rgba(0,0,0,0.04)",
-                    color: T.faint,
-                    borderBottom: `0.5px solid ${T.divider}`,
-                    py: 1,
-                    ...(w ? { width: w } : {}),
-                  }}
-                >
-                  {h}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
+      {/* ── Table ── */}
+      <Box sx={{ flex: 1, overflow: "hidden", px: 2, pt: 1.5, pb: 2, minHeight: 0 }}>
+        <TableContainer
+          component={Paper}
+          elevation={0}
+          sx={{
+            border: `0.5px solid ${T.accentBorder}`,
+            borderRadius: "10px",
+            height: "100%",
+            // Single scroll container — the outer wrapper scrolls, inner tables do NOT
+            overflow: "auto",
+          }}
+        >
+          <Table
+            size="small"
+            stickyHeader
+            sx={{
+              tableLayout: "fixed",
+              minWidth: 1560,
+              // Collapse so rows share borders cleanly
+              borderCollapse: "separate",
+              borderSpacing: 0,
+            }}
+          >
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={TABLE_COL_SPAN} align="center" sx={{ py: 4 }}>
-                  <CircularProgress size={22} sx={{ color: T.accent }} />
+                {/* Checkbox */}
+                <TableCell sx={{ ...thSx, width: 44, textAlign: "center", px: 1 }}>
+                  <Tooltip title="Select all eligible rows">
+                    <Checkbox
+                      size="small"
+                      checked={headerCheckboxState.checked}
+                      indeterminate={headerCheckboxState.indeterminate}
+                      onChange={(e) => toggleSelectAllEligible(e.target.checked)}
+                      disabled={eligiblePayrollRows.length === 0}
+                      sx={{
+                        p: 0,
+                        color: alpha(T.accent, 0.4),
+                        "&.Mui-checked": { color: T.accent },
+                        "&.MuiCheckbox-indeterminate": { color: T.accent },
+                        "&.Mui-disabled": { color: "rgba(0,0,0,0.2)" },
+                      }}
+                    />
+                  </Tooltip>
                 </TableCell>
-              </TableRow>
-            ) : mergedRows.length === 0 ? null : (
-              mergedRows.map((merged) => {
-                const rowKey = merged.key;
-                const isDed = merged.isDeduction;
-                const sent = sentToPayrollKeys.has(rowKey);
-                const payrollDone = isRowAlreadyInPayrollProcessing(merged);
-                const auditOpen = auditExpandedKeys.has(rowKey);
-                const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
-                const bg = isDed ? T.salaryBg : T.coveredBg;
-                const fg = isDed ? T.salaryText : T.coveredText;
-                const bord = isDed ? T.salaryBorder : T.coveredBorder;
-                const chipBg = isDed ? T.salaryChipBg : T.coveredChipBg;
-                const chipFg = isDed ? T.salaryChipColor : T.coveredChipColor;
-                const chipBd = isDed ? T.salaryChipBorder : T.coveredChipBorder;
-                const cellSx = {
-                  fontFamily: T.poppins,
-                  fontSize: "0.75rem",
-                  bgcolor: bg,
-                  color: fg,
-                  borderBottom: `0.5px solid ${bord}`,
-                  py: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                };
-                const remarksTip = merged.abstractRemarksTooltip || "—";
 
-                return (
-                  <Fragment key={rowKey}>
-                  <TableRow
+                {/* Audit expand */}
+                <TableCell sx={{ ...thSx, width: 44, textAlign: "center", px: 0.5 }}>
+                  Audit
+                </TableCell>
+
+                {/* Data cols */}
+                {[
+                  { h: "Emp #",      w: "5.5%" },
+                  { h: "Name",       w: "11%"  },
+                  { h: "Type",       w: "7.5%" },
+                  { h: "Leave",      w: "5%"   },
+                  { h: "Period",     w: "8.5%" },
+                  { h: "Status",     w: "9%"   },
+                  { h: "Days",       w: "5.5%" },
+                  { h: "Orig. hrs",  w: "5.5%" },
+                  { h: "Leave hrs",  w: "6%"   },
+                  { h: "Unpaid hrs", w: "6%",  highlight: true },
+                  { h: "Paid hrs",   w: "5.5%" },
+                  { h: "Remarks",    w: "13%"  },
+                  { h: "Created at", w: "8%"   },
+                ].map(({ h, w, highlight }) => (
+                  <TableCell
+                    key={h}
                     sx={{
-                      "&:last-child td": { borderBottom: "none" },
-                      "&:hover td": {
-                        bgcolor: isDed ? "rgba(163,45,45,0.07)" : "rgba(59,109,17,0.07)",
-                      },
+                      ...thSx,
+                      width: w,
+                      ...(highlight && {
+                        bgcolor: T.accent,
+                        color: "#fff",
+                        borderLeft: "none",
+                        borderRight: "none",
+                        letterSpacing: "0.08em",
+                      }),
                     }}
                   >
-                    <TableCell sx={{ ...cellSx, textAlign: "center", width: 40 }}>
-                      {sent ? (
-                        <Chip
-                          label="✓ sent"
-                          size="small"
-                          sx={{
-                            height: 20,
-                            fontSize: "0.625rem",
-                            fontWeight: 500,
-                            bgcolor: T.sentChipBg,
-                            color: T.sentChipColor,
-                            border: `0.5px solid ${T.sentChipBorder}`,
-                          }}
-                        />
-                      ) : payrollDone ? (
-                        <Tooltip title="This employee number already has a row in Payroll Processing for this pay period (by start/end dates). Remove it there to send again from Abstract.">
-                          <Chip
-                            label="In payroll"
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: "0.6rem",
-                              fontWeight: 600,
-                              bgcolor: T.payrollDoneChipBg,
-                              color: T.payrollDoneChipColor,
-                              border: `0.5px solid ${T.payrollDoneChipBorder}`,
-                              maxWidth: 96,
-                            }}
-                          />
-                        </Tooltip>
-                      ) : (
-                        <Checkbox
-                          size="small"
-                          checked={selectedPayrollKeys.has(rowKey)}
-                          onChange={() => togglePayrollSelect(rowKey)}
-                          sx={{
-                            p: 0,
-                            color: isDed ? T.accent : T.coveredText,
-                            "&.Mui-checked": { color: isDed ? T.accent : T.coveredText },
-                          }}
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, textAlign: "center", width: 36, px: 0.25 }}>
-                      <Tooltip title={auditOpen ? "Hide audit trail" : "Show attendance_result rows (audit trail)"}>
-                        <IconButton
-                          size="small"
-                          onClick={() => toggleAuditExpand(rowKey)}
-                          aria-expanded={auditOpen}
-                          aria-label={auditOpen ? "Collapse audit trail" : "Expand audit trail"}
-                          sx={{
-                            p: 0.25,
-                            color: fg,
-                            transform: auditOpen ? "rotate(180deg)" : "none",
-                            transition: "transform 0.2s",
-                          }}
-                        >
-                          <ExpandMoreIcon sx={{ fontSize: 22 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, ...cellWrapSx, fontWeight: 600 }}>
-                      <Tooltip title={String(merged.employeeNumber ?? "")}>
-                        <span>{merged.employeeNumber ?? "—"}</span>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, ...cellWrapSx, color: T.muted }}>
-                      <Tooltip title={merged.name ?? "—"}>
-                        <span>{merged.name ?? "—"}</span>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, whiteSpace: "nowrap" }}>
-                      <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.65 }}>
-                        <Box
-                          sx={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: "50%",
-                            bgcolor: isDed ? "#e24b4a" : "#639922",
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span>{merged.abstractSourceTypes ?? "—"}</span>
+                    {highlight ? (
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                        <PaymentIcon sx={{ fontSize: 11, color: "#fff", opacity: 0.85 }} />
+                        <span>{h}</span>
                       </Box>
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{merged.leaveCode ?? "—"}</TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{merged.period ?? "—"}</TableCell>
-                    <TableCell sx={cellSx}>
-                      <Chip
-                        label={String(merged.resultStatus ?? "—").replace(/_/g, " ")}
-                        size="small"
+                    ) : h}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={TABLE_COL_SPAN} align="center" sx={{ py: 5, border: "none" }}>
+                    <CircularProgress size={24} sx={{ color: T.accent }} />
+                    <Typography sx={{ mt: 1, fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>
+                      Loading attendance results…
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : mergedRows.length === 0 ? null : (
+                mergedRows.map((merged) => {
+                  const rowKey    = merged.key;
+                  const isDed     = merged.isDeduction;
+                  const sent      = sentToPayrollKeys.has(rowKey);
+                  const payrollDone = isRowAlreadyInPayrollProcessing(merged);
+                  const auditOpen = auditExpandedKeys.has(rowKey);
+                  const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
+
+                  const bg      = isDed ? T.salaryBg       : T.coveredBg;
+                  const fgColor = isDed ? T.salaryText      : T.coveredText;
+                  const bord    = isDed ? T.salaryBorder    : T.coveredBorder;
+                  const chipBg  = isDed ? T.salaryChipBg   : T.coveredChipBg;
+                  const chipFg  = isDed ? T.salaryChipColor : T.coveredChipColor;
+                  const chipBd  = isDed ? T.salaryChipBorder : T.coveredChipBorder;
+
+                  const cellSx = {
+                    fontFamily: T.poppins,
+                    fontSize: "0.78rem",
+                    bgcolor: bg,
+                    color: fgColor,
+                    borderBottom: `1px solid ${bord}`,
+                    py: 1.1,
+                    px: 1.5,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    // No position override — inherit table layout
+                  };
+
+                  const remarksTip = merged.abstractRemarksTooltip || "—";
+
+                  return (
+                    <Fragment key={rowKey}>
+                      {/* ── Summary row ── */}
+                      <TableRow
                         sx={{
-                          height: 22,
-                          fontSize: "0.625rem",
-                          fontWeight: 500,
-                          bgcolor: chipBg,
-                          color: chipFg,
-                          border: `0.5px solid ${chipBd}`,
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        ...cellSx,
-                        fontWeight: 600,
-                        color: isDed ? T.accent : T.coveredText,
-                      }}
-                    >
-                      {displayDaysFromMerged(merged)}
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.originalHours).toFixed(3)}</TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.leaveHoursUsed).toFixed(3)}</TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.unpaidHours).toFixed(3)}</TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.paidHoursTotal).toFixed(3)}</TableCell>
-                    <TableCell
-                      sx={{
-                        ...cellSx,
-                        color: T.muted,
-                        whiteSpace: "nowrap",
-                        maxWidth: 0,
-                      }}
-                    >
-                      <Tooltip title={remarksTip} placement="top-start">
-                        <span>{merged.abstractRemarksShort ?? "—"}</span>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell sx={{ ...cellSx, color: T.muted }}>{fmtCreatedAt(merged.createdAt)}</TableCell>
-                  </TableRow>
-                  {auditOpen && sourceRows.length > 0 && (
-                    <TableRow>
-                      <TableCell
-                        colSpan={TABLE_COL_SPAN}
-                        sx={{
-                          py: 0,
-                          px: 1,
-                          borderBottom: `0.5px solid ${T.divider}`,
-                          bgcolor: isDed ? "rgba(163,45,45,0.04)" : "rgba(59,109,17,0.04)",
-                          verticalAlign: "top",
+                          "&:hover td": { filter: "brightness(0.97)", transition: "filter 0.12s" },
                         }}
                       >
-                        <Box sx={{ py: 1.25, pl: 5 }}>
-                          <Typography
+                        {/* Checkbox / status indicator */}
+                        <TableCell sx={{ ...cellSx, textAlign: "center", px: 1 }}>
+                          {sent ? (
+                            <Tooltip title="Sent to payroll this session.">
+                              <Chip
+                                label="✓"
+                                size="small"
+                                sx={{
+                                  height: 18, minWidth: 18, fontSize: "0.62rem", fontWeight: 800,
+                                  bgcolor: T.sentChipBg, color: T.sentChipColor,
+                                  border: `1px solid ${T.sentChipBorder}`, fontFamily: T.poppins,
+                                  "& .MuiChip-label": { px: 0.5 },
+                                }}
+                              />
+                            </Tooltip>
+                          ) : payrollDone ? (
+                            <Tooltip title="Already in Payroll Processing for this period. Remove it there to re-send.">
+                              <Chip
+                                label="In payroll"
+                                size="small"
+                                sx={{
+                                  height: 18, fontSize: "0.58rem", fontWeight: 700,
+                                  bgcolor: T.payrollDoneBg, color: T.payrollDoneColor,
+                                  border: `1px solid ${T.payrollDoneBorder}`, fontFamily: T.poppins,
+                                  "& .MuiChip-label": { px: 0.5 },
+                                }}
+                              />
+                            </Tooltip>
+                          ) : (
+                            <Checkbox
+                              size="small"
+                              checked={selectedPayrollKeys.has(rowKey)}
+                              onChange={() => togglePayrollSelect(rowKey)}
+                              sx={{
+                                p: 0,
+                                color: alpha(T.accent, 0.3),
+                                "&.Mui-checked": { color: T.accent },
+                              }}
+                            />
+                          )}
+                        </TableCell>
+
+                        {/* Audit expand chevron */}
+                        <TableCell sx={{ ...cellSx, textAlign: "center", px: 0.5 }}>
+                          <Tooltip title={auditOpen ? "Collapse source rows" : "Expand source rows"}>
+                            <IconButton
+                              size="small"
+                              onClick={() => toggleAuditExpand(rowKey)}
+                              sx={{
+                                p: 0.25,
+                                color: T.faint,
+                                transform: auditOpen ? "rotate(180deg)" : "none",
+                                transition: "transform 0.18s ease",
+                                "&:hover": { color: T.accent, bgcolor: "transparent" },
+                              }}
+                            >
+                              <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+
+                        <TableCell sx={{ ...cellSx, fontWeight: 600, color: T.text }}>
+                          {merged.employeeNumber ?? "—"}
+                        </TableCell>
+
+                        <TableCell sx={{ ...cellSx, color: T.text }}>
+                          <Tooltip title={merged.name ?? "—"} placement="top-start">
+                            <span>{merged.name ?? "—"}</span>
+                          </Tooltip>
+                        </TableCell>
+
+                        {/* Type with dot indicator */}
+                        <TableCell sx={cellSx}>
+                          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
+                            <Box sx={{
+                              width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                              bgcolor: isDed ? T.accent : "#2e7d32",
+                            }} />
+                            <span style={{ color: T.muted }}>{merged.abstractSourceTypes ?? "—"}</span>
+                          </Box>
+                        </TableCell>
+
+                        <TableCell sx={{ ...cellSx, color: T.muted }}>{merged.leaveCode ?? "—"}</TableCell>
+                        <TableCell sx={{ ...cellSx, color: T.muted }}>{merged.period ?? "—"}</TableCell>
+
+                        {/* Status chip */}
+                        <TableCell sx={cellSx}>
+                          <Box
                             sx={{
-                              fontSize: "0.7rem",
-                              fontWeight: 700,
-                              fontFamily: T.poppins,
-                              color: T.muted,
-                              mb: 0.75,
+                              display: "inline-block",
+                              px: 0.9, py: 0.2,
+                              borderRadius: "5px",
+                              border: `1px solid ${chipBd}`,
+                              bgcolor: chipBg,
                             }}
                           >
-                            attendance_result audit · {sourceRows.length} line{sourceRows.length === 1 ? "" : "s"}
-                          </Typography>
-                          <TableContainer component={Paper} elevation={0} sx={{ border: `0.5px solid ${T.divider}`, maxHeight: 280 }}>
-                            <Table size="small" stickyHeader sx={{ minWidth: 720 }}>
-                              <TableHead>
-                                <TableRow>
-                                  {["ID", "Date", "Type", "Leave", "Status", "Days", "Unpaid", "Paid", "Remarks", "Processed"].map((h) => (
-                                    <TableCell
-                                      key={h}
-                                      sx={{
-                                        fontWeight: 600,
-                                        fontSize: "0.65rem",
-                                        fontFamily: T.poppins,
-                                        bgcolor: "rgba(0,0,0,0.06)",
-                                        py: 0.5,
-                                      }}
-                                    >
-                                      {h}
-                                    </TableCell>
-                                  ))}
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {sourceRows.map((ar, arIdx) => {
-                                  const arDed = toNum(ar.unpaid_hours) > 0;
-                                  const arBg = arDed ? "rgba(250,174,122,0.08)" : "rgba(97,168,68,0.08)";
-                                  const rmk = ar.remarks != null && String(ar.remarks).trim() !== "" ? String(ar.remarks) : "—";
-                                  const dt = ar.result_date ? String(ar.result_date).slice(0, 10) : "—";
-                                  return (
-                                    <TableRow key={`${rowKey}-ar-${ar.id ?? arIdx}-${arIdx}`}>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {ar.id ?? "—"}
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>{dt}</TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {ar.source_type ?? "—"}
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {ar.leave_used ?? "—"}
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {String(ar.status ?? "—").replace(/_/g, " ")}
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, fontWeight: 600, bgcolor: arBg, py: 0.5 }}>
-                                        {displayDaysRawAttendanceRow(ar)}
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {toNum(ar.unpaid_hours).toFixed(3)}
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {toNum(ar.paid_hours).toFixed(3)}
-                                      </TableCell>
-                                      <TableCell
+                            <Typography sx={{
+                              fontSize: "0.65rem", fontWeight: 700, color: chipFg,
+                              fontFamily: T.poppins, lineHeight: 1, letterSpacing: "0.03em",
+                            }}>
+                              {String(merged.resultStatus ?? "—").replace(/_/g, " ")}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+
+                        {/* Days — prominent */}
+                        <TableCell sx={{
+                          ...cellSx,
+                          fontWeight: 800,
+                          fontSize: "0.85rem",
+                          color: isDed ? T.accent : "#1e6b22",
+                        }}>
+                          {displayDaysFromMerged(merged)}
+                        </TableCell>
+
+                        <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.originalHours).toFixed(3)}</TableCell>
+                        <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.leaveHoursUsed).toFixed(3)}</TableCell>
+                        {/* ── Unpaid hrs — THE payroll submission field ── */}
+                        <TableCell sx={{
+                          ...cellSx,
+                          bgcolor: toNum(merged.unpaidHours) > 0
+                            ? "rgba(109,35,35,0.10)"
+                            : "rgba(0,0,0,0.025)",
+                          px: 1,
+                          textAlign: "center",
+                        }}>
+                          <Box sx={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            px: 1.2,
+                            py: 0.35,
+                            borderRadius: "6px",
+                            bgcolor: toNum(merged.unpaidHours) > 0 ? T.accent : "transparent",
+                            minWidth: 52,
+                          }}>
+                            <Typography sx={{
+                              fontSize: "0.82rem",
+                              fontWeight: 800,
+                              fontFamily: T.poppins,
+                              color: toNum(merged.unpaidHours) > 0 ? "#fff" : T.faint,
+                              lineHeight: 1,
+                              letterSpacing: "0.02em",
+                            }}>
+                              {toNum(merged.unpaidHours).toFixed(3)}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.paidHoursTotal).toFixed(3)}</TableCell>
+
+                        <TableCell sx={{ ...cellSx, color: T.muted, maxWidth: 0 }}>
+                          <Tooltip title={remarksTip} placement="top-start">
+                            <span>{merged.abstractRemarksShort ?? "—"}</span>
+                          </Tooltip>
+                        </TableCell>
+
+                        <TableCell sx={{ ...cellSx, color: T.faint }}>{fmtCreatedAt(merged.createdAt)}</TableCell>
+                      </TableRow>
+
+                      {/* ── Audit drawer ── */}
+                      {auditOpen && sourceRows.length > 0 && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={TABLE_COL_SPAN}
+                            sx={{
+                              // Zero padding so the inner box controls all spacing
+                              p: "0 !important",
+                              borderBottom: `1px solid ${T.divider}`,
+                              bgcolor: "#f8f8f8",
+                              // No overflow:hidden here — let the inner box breathe
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                // Left margin aligns content past checkbox (44) + audit (44) cols = 88px
+                                ml: "88px",
+                                mr: 2,
+                                my: 1.5,
+                                borderRadius: "8px",
+                                border: `0.5px solid ${T.divider}`,
+                                overflow: "hidden",
+                                bgcolor: "#fff",
+                              }}
+                            >
+                              {/* Drawer label */}
+                              <Box
+                                sx={{
+                                  px: 2, py: 0.85,
+                                  borderBottom: `0.5px solid ${T.divider}`,
+                                  bgcolor: "#f4f4f4",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 1,
+                                }}
+                              >
+                                <Typography sx={{
+                                  fontSize: "0.65rem", fontWeight: 700, color: T.muted,
+                                  fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em",
+                                }}>
+                                  Source rows
+                                </Typography>
+                                <Box sx={{
+                                  px: 0.75, py: 0.15, borderRadius: "4px",
+                                  bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}`,
+                                }}>
+                                  <Typography sx={{
+                                    fontSize: "0.6rem", fontWeight: 700, color: T.accent,
+                                    fontFamily: T.poppins, lineHeight: 1.4,
+                                  }}>
+                                    {sourceRows.length} attendance_result {sourceRows.length === 1 ? "row" : "rows"}
+                                  </Typography>
+                                </Box>
+                              </Box>
+
+                              {/*
+                                CRITICAL FIX:
+                                - No stickyHeader on the nested Table
+                                - auditThSx uses position: "static" (not sticky)
+                                - tableLayout: "auto" so columns size to content
+                                - No minWidth that would push past the container
+                              */}
+                              <Table
+                                size="small"
+                                sx={{
+                                  tableLayout: "auto",
+                                  width: "100%",
+                                  borderCollapse: "collapse",
+                                }}
+                              >
+                                <TableHead>
+                                  <TableRow>
+                                    {[
+                                      "ID", "Date", "Type", "Leave",
+                                      "Status", "Days", "Unpaid hrs",
+                                      "Paid hrs", "Remarks", "Processed at",
+                                    ].map((h) => (
+                                      <TableCell key={h} sx={auditThSx}>{h}</TableCell>
+                                    ))}
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {sourceRows.map((ar, arIdx) => {
+                                    const arDed = toNum(ar.unpaid_hours) > 0;
+                                    const rmk = ar.remarks != null && String(ar.remarks).trim() !== ""
+                                      ? String(ar.remarks) : "—";
+                                    const dt = ar.result_date ? String(ar.result_date).slice(0, 10) : "—";
+
+                                    const arCell = {
+                                      fontSize: "0.75rem",
+                                      fontFamily: T.poppins,
+                                      color: T.muted,
+                                      py: 1,
+                                      px: 1.5,
+                                      bgcolor: "#fff",
+                                      borderBottom: `0.5px solid ${T.divider}`,
+                                    };
+
+                                    return (
+                                      <TableRow
+                                        key={`${rowKey}-ar-${ar.id ?? arIdx}-${arIdx}`}
                                         sx={{
-                                          fontSize: "0.68rem",
-                                          fontFamily: T.poppins,
-                                          bgcolor: arBg,
-                                          py: 0.5,
-                                          maxWidth: 220,
-                                          whiteSpace: "normal",
-                                          wordBreak: "break-word",
+                                          "&:last-child td": { borderBottom: "none" },
+                                          "&:hover td": {
+                                            bgcolor: "rgba(0,0,0,0.018)",
+                                            transition: "background 0.1s",
+                                          },
                                         }}
                                       >
-                                        <Tooltip title={rmk} placement="top-start">
-                                          <span>{rmk.length > 120 ? `${rmk.slice(0, 117)}…` : rmk}</span>
-                                        </Tooltip>
-                                      </TableCell>
-                                      <TableCell sx={{ fontSize: "0.68rem", fontFamily: T.poppins, bgcolor: arBg, py: 0.5 }}>
-                                        {fmtCreatedAt(ar.processed_at)}
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </TableContainer>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  </Fragment>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                                        <TableCell sx={{ ...arCell, color: T.text, fontWeight: 600 }}>
+                                          {ar.id ?? "—"}
+                                        </TableCell>
+                                        <TableCell sx={arCell}>{dt}</TableCell>
+                                        <TableCell sx={arCell}>{ar.source_type ?? "—"}</TableCell>
+                                        <TableCell sx={arCell}>{ar.leave_used ?? "—"}</TableCell>
+                                        <TableCell sx={{
+                                          ...arCell,
+                                          color: arDed ? T.accent : "#1e6b22",
+                                          fontWeight: 600,
+                                        }}>
+                                          {String(ar.status ?? "—").replace(/_/g, " ")}
+                                        </TableCell>
+                                        <TableCell sx={{
+                                          ...arCell,
+                                          fontWeight: 700,
+                                          color: arDed ? T.accent : "#1e6b22",
+                                        }}>
+                                          {displayDaysRawAttendanceRow(ar)}
+                                        </TableCell>
+                                        {/* Unpaid hrs — highlighted to match summary column */}
+                                        <TableCell sx={{
+                                          ...arCell,
+                                          bgcolor: toNum(ar.unpaid_hours) > 0
+                                            ? "rgba(109,35,35,0.07)"
+                                            : "rgba(0,0,0,0.015)",
+                                          px: 1,
+                                          textAlign: "center",
+                                        }}>
+                                          <Box sx={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            px: 1,
+                                            py: 0.25,
+                                            borderRadius: "5px",
+                                            bgcolor: toNum(ar.unpaid_hours) > 0 ? T.accent : "transparent",
+                                            minWidth: 44,
+                                          }}>
+                                            <Typography sx={{
+                                              fontSize: "0.75rem",
+                                              fontWeight: 700,
+                                              fontFamily: T.poppins,
+                                              color: toNum(ar.unpaid_hours) > 0 ? "#fff" : T.faint,
+                                              lineHeight: 1,
+                                            }}>
+                                              {toNum(ar.unpaid_hours).toFixed(3)}
+                                            </Typography>
+                                          </Box>
+                                        </TableCell>
+                                        <TableCell sx={arCell}>
+                                          {toNum(ar.paid_hours).toFixed(3)}
+                                        </TableCell>
+                                        <TableCell sx={{
+                                          ...arCell,
+                                          // Allow wrapping in the remarks column
+                                          whiteSpace: "normal",
+                                          wordBreak: "break-word",
+                                          maxWidth: 280,
+                                        }}>
+                                          <Tooltip title={rmk} placement="top-start">
+                                            <span>{rmk.length > 120 ? `${rmk.slice(0, 117)}…` : rmk}</span>
+                                          </Tooltip>
+                                        </TableCell>
+                                        <TableCell sx={{ ...arCell, color: T.faint, whiteSpace: "nowrap" }}>
+                                          {fmtCreatedAt(ar.processed_at)}
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
 
+      {/* ── Snackbar ── */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
@@ -1010,7 +1165,7 @@ export function Abstract({ employee, year, month }) {
         <Alert
           onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
           severity={snackbar.severity}
-          sx={{ width: "100%", fontFamily: T.poppins, fontSize: "0.8rem" }}
+          sx={{ width: "100%", fontFamily: T.poppins, fontSize: "0.78rem", borderRadius: "10px" }}
         >
           {snackbar.message}
         </Alert>

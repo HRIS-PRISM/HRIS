@@ -45,6 +45,8 @@ import {
   Refresh,
   FilterList,
   Assignment,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowRight as KeyboardArrowRightIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -62,7 +64,7 @@ import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 
-// ─── Theme tokens (unified with AttendanceModuleNonTeachingStaff) ──────────
+// ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
   accent:       '#6d2323',
   accentDark:   '#5a1d1d',
@@ -79,7 +81,7 @@ const T = {
   divider:      'rgba(0,0,0,0.08)',
 };
 
-// ─── Shimmer keyframes ────────────────────────────────────────────────────
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
 const shimmerKf = `
 @keyframes shimmer {
   0%   { background-position: -800px 0; }
@@ -90,7 +92,7 @@ const shimmerKf = `
   50%       { opacity: 0.55; }
 }`;
 
-// ─── Shimmer bone ─────────────────────────────────────────────────────────
+// ─── Shimmer bone ─────────────────────────────────────────────────────────────
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box sx={{
     width: w, height: h, borderRadius: r,
@@ -101,7 +103,7 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   }} />
 );
 
-// ─── Wireframe skeleton ───────────────────────────────────────────────────
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
 const OverallAttendanceWireframe = () => (
   <>
     <style>{shimmerKf}</style>
@@ -111,14 +113,12 @@ const OverallAttendanceWireframe = () => (
       position: 'relative', left: '53%', transform: 'translateX(-51%)',
       px: { xs: 2, sm: 3, md: 6 },
     }}>
-      {/* Header */}
       <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', animation: 'blink 2s ease-in-out infinite' }}>
         <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
           <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
           <Box><Bone w={260} h={18} sx={{ mb: 1 }} /><Bone w={360} h={11} /></Box>
         </Box>
       </Box>
-      {/* Controls */}
       <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.1s infinite' }}>
         <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 42 }}>
           <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
@@ -135,7 +135,6 @@ const OverallAttendanceWireframe = () => (
           </Box>
         </Box>
       </Box>
-      {/* Table */}
       <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.2s infinite' }}>
         <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2 }}>
           {[100, 80, 80, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
@@ -150,7 +149,7 @@ const OverallAttendanceWireframe = () => (
   </>
 );
 
-// ─── Styled primitives ────────────────────────────────────────────────────
+// ─── Styled primitives ────────────────────────────────────────────────────────
 const SectionCard = styled(Card)({
   borderRadius: 12,
   boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
@@ -159,7 +158,6 @@ const SectionCard = styled(Card)({
   background: '#fff',
 });
 
-// ─── Panel header bar ─────────────────────────────────────────────────────
 const PanelHeader = ({ icon: Icon, title, rightContent }) => (
   <Box sx={{
     px: 2.5, py: 1.5,
@@ -175,7 +173,6 @@ const PanelHeader = ({ icon: Icon, title, rightContent }) => (
   </Box>
 );
 
-// ─── Native input ─────────────────────────────────────────────────────────
 const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
   <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
     {icon && (
@@ -209,7 +206,6 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
   </Box>
 );
 
-// ─── Row action button ────────────────────────────────────────────────────
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button
     onClick={onClick}
@@ -235,18 +231,7 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   </button>
 );
 
-// ─── Compact table cell ───────────────────────────────────────────────────
-const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
-  fontWeight: isHeader ? 700 : 500,
-  padding: '10px 14px',
-  borderBottom: `1px solid ${T.divider}`,
-  fontSize: isHeader ? '0.65rem' : '0.8rem',
-  letterSpacing: isHeader ? '0.08em' : '0.01em',
-  color: isHeader ? '#fff' : T.text,
-  whiteSpace: 'nowrap',
-}));
-
-// ─── Styled Modal ─────────────────────────────────────────────────────────
+// ─── Styled Modal ─────────────────────────────────────────────────────────────
 const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false }) => {
   const typeConfig = {
     success: { icon: <CheckCircleIcon sx={{ fontSize: 26, color: '#2e7d32' }} />, avatarBg: 'rgba(46,125,50,0.12)', label: 'Success', labelColor: '#2e7d32' },
@@ -261,7 +246,6 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: '12px', overflow: 'hidden', border: `0.5px solid rgba(0,0,0,0.09)`, bgcolor: '#fff' } }}>
-      {/* Header */}
       <Box sx={{ px: 3, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', position: 'relative', overflow: 'hidden' }}>
         <Box sx={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: `radial-gradient(circle,${alpha(T.accent,0.1)} 0%,transparent 70%)`, pointerEvents: 'none' }} />
         <IconButton size="small" onClick={onClose} sx={{ position: 'absolute', top: 12, right: 12, color: T.accent, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: T.accentFaint } }}>
@@ -282,8 +266,6 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
           </Box>
         </Box>
       </Box>
-
-      {/* Body */}
       <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}`, borderBottom: `1px solid ${T.divider}` }}>
         {lines.map((line, i) => {
           if (isListItem(line)) {
@@ -314,8 +296,6 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
           );
         })}
       </Box>
-
-      {/* Footer */}
       <Box sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
         {showCancel && (
           <RowBtn icon={null} label="Cancel" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={onClose} />
@@ -337,7 +317,7 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
   );
 };
 
-// ─── Payroll Confirmation Dialog ──────────────────────────────────────────
+// ─── Payroll Confirmation Dialog ──────────────────────────────────────────────
 const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recordCount, recordLabel, isSubmitting }) => {
   const [checked, setChecked] = useState(false);
   useEffect(() => { if (!open) setChecked(false); }, [open]);
@@ -345,7 +325,6 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth
       PaperProps={{ sx: { borderRadius: '12px', overflow: 'hidden', border: `0.5px solid rgba(0,0,0,0.09)`, bgcolor: '#fff' } }}>
-      {/* Header */}
       <Box sx={{ px: 3, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', position: 'relative', overflow: 'hidden' }}>
         <Box sx={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: `radial-gradient(circle,${alpha(T.accent,0.1)} 0%,transparent 70%)`, pointerEvents: 'none' }} />
         <IconButton size="small" onClick={onClose} sx={{ position: 'absolute', top: 12, right: 12, color: T.accent, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: T.accentFaint } }}>
@@ -366,14 +345,10 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
           </Box>
         </Box>
       </Box>
-
-      {/* Body */}
       <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}`, borderBottom: `1px solid ${T.divider}` }}>
         <Typography sx={{ fontSize: '0.88rem', color: T.muted, lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
           {subtitle || 'The following records are pending submission. Verify all entries are accurate before proceeding.'}
         </Typography>
-
-        {/* Record count card */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, px: 1.5, py: 1.25, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
           <Box sx={{ width: 32, height: 32, borderRadius: '6px', flexShrink: 0, bgcolor: alpha(T.accent, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Assignment sx={{ fontSize: 16, color: T.accent }} />
@@ -385,8 +360,6 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
             </Typography>
           </Box>
         </Box>
-
-        {/* Confirmation checkbox */}
         <Box
           onClick={() => setChecked(p => !p)}
           sx={{
@@ -414,8 +387,6 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
           </Box>
         </Box>
       </Box>
-
-      {/* Footer */}
       <Box sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
         <RowBtn icon={null} label="Cancel" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={onClose} />
         <button
@@ -440,7 +411,93 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
   );
 };
 
-// ─── Main Component ────────────────────────────────────────────────────────
+// ─── Column group definitions ─────────────────────────────────────────────────
+// ORDER MATTERS for UX: Core → Overall → Absence are placed first so the most
+// important columns are immediately visible without horizontal scrolling.
+// The detail groups (Morning, Afternoon, etc.) are collapsed by default and
+// sit to the right — users expand them only when needed.
+const COLUMN_GROUPS = [
+  {
+    key: 'core',
+    label: 'Core',
+    alwaysVisible: true,
+    headerBg: T.accentDark,
+    columns: [
+      { label: 'Department',   key: 'code' },
+      { label: 'Employee No.', key: 'personID' },
+      { label: 'Start Date',   key: 'startDate' },
+      { label: 'End Date',     key: 'endDate' },
+    ],
+  },
+  // ── Key summary columns — always visible, no scrolling needed ──────────────
+  {
+    key: 'overall',
+    label: 'Overall',
+    headerBg: '#0f4a26',
+    columns: [
+      { label: 'Overall Rendered',  key: 'overallRenderedOfficialTime',          group: 'overall' },
+      { label: 'Overall Tardiness', key: 'overallRenderedOfficialTimeTardiness', group: 'overallTard' },
+      { label: 'Late Total',        key: '_lateTotal',                           group: 'tardiness' },
+    ],
+  },
+  {
+    key: 'absence',
+    label: 'Absence',
+    headerBg: '#6a1b9a',
+    columns: [
+      { label: 'Half Day Total', key: '_halfTotalDays',   group: 'halfday' },
+      { label: 'Absent Total',   key: '_absentTotalDays', group: 'absent' },
+    ],
+  },
+  // ── Detail groups — collapsed by default, expand on demand ─────────────────
+  {
+    key: 'morning',
+    label: 'Morning',
+    headerBg: '#166534',
+    columns: [
+      { label: 'Morning Hours',     key: 'totalRenderedTimeMorning',          group: 'rendered' },
+      { label: 'Morning Tardiness', key: 'totalRenderedTimeMorningTardiness', group: 'tardiness' },
+    ],
+  },
+  {
+    key: 'afternoon',
+    label: 'Afternoon',
+    headerBg: '#166534',
+    columns: [
+      { label: 'Afternoon Hours',     key: 'totalRenderedTimeAfternoon',          group: 'rendered' },
+      { label: 'Afternoon Tardiness', key: 'totalRenderedTimeAfternoonTardiness', group: 'tardiness' },
+    ],
+  },
+  {
+    key: 'honorarium',
+    label: 'Honorarium',
+    headerBg: '#0369a1',
+    columns: [
+      { label: 'Honorarium',   key: 'totalRenderedHonorarium',          group: 'rendered' },
+      { label: 'HN Tardiness', key: 'totalRenderedHonorariumTardiness', group: 'tardiness' },
+    ],
+  },
+  {
+    key: 'serviceCredit',
+    label: 'Service Credit',
+    headerBg: '#6b21a8',
+    columns: [
+      { label: 'Service Credit', key: 'totalRenderedServiceCredit',          group: 'rendered' },
+      { label: 'SC Tardiness',   key: 'totalRenderedServiceCreditTardiness', group: 'tardiness' },
+    ],
+  },
+  {
+    key: 'overtime',
+    label: 'Overtime',
+    headerBg: '#92400e',
+    columns: [
+      { label: 'Overtime',     key: 'totalRenderedOvertime',          group: 'rendered' },
+      { label: 'OT Tardiness', key: 'totalRenderedOvertimeTardiness', group: 'tardiness' },
+    ],
+  },
+];
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 const OverallAttendance = () => {
   const { settings } = useSystemSettings();
   const saveButtonStyles = useCRUDButtonStyles('save');
@@ -477,6 +534,18 @@ const OverallAttendance = () => {
   const [successAction, setSuccessAction]         = useState('send');
   const resultsRef = useRef(null);
 
+  // ── Collapsible column groups ─────────────────────────────────────────────
+  const [collapsedGroups, setCollapsedGroups] = useState(
+    new Set(['morning', 'afternoon', 'honorarium', 'serviceCredit', 'overtime'])
+  );
+  const toggleGroup = (key) =>
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   // Month picker state
   const currentYear = new Date().getFullYear();
   const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
@@ -496,21 +565,15 @@ const OverallAttendance = () => {
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
   };
 
-  // Restore inputs: navigation state (from faculty / designated / non-teaching save) overrides generic localStorage
+  // Restore inputs from navigation state or localStorage
   useEffect(() => {
     const st = location.state;
     if (st?.employeeNumber != null && String(st.employeeNumber).trim() !== '') {
       const en = String(st.employeeNumber).trim();
       setEmployeeNumber(en);
       localStorage.setItem('employeeNumber', en);
-      if (st.startDate) {
-        setStartDate(st.startDate);
-        localStorage.setItem('startDate', st.startDate);
-      }
-      if (st.endDate) {
-        setEndDate(st.endDate);
-        localStorage.setItem('endDate', st.endDate);
-      }
+      if (st.startDate) { setStartDate(st.startDate); localStorage.setItem('startDate', st.startDate); }
+      if (st.endDate)   { setEndDate(st.endDate);     localStorage.setItem('endDate', st.endDate); }
       return;
     }
     const en = localStorage.getItem('employeeNumber');
@@ -521,7 +584,7 @@ const OverallAttendance = () => {
     if (ed) setEndDate(ed);
   }, [location.key]);
 
-  // ── Month picker handler ───────────────────────────────────────────────
+  // ── Month picker ──────────────────────────────────────────────────────────
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
     const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
@@ -530,7 +593,7 @@ const OverallAttendance = () => {
     setSelectedMonth(monthIndex);
   };
 
-  // ── Fetch ──────────────────────────────────────────────────────────────
+  // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchAttendanceData = async () => {
     if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
@@ -543,14 +606,11 @@ const OverallAttendance = () => {
       if (response.status === 200) {
         const overallRows = response.data.data;
 
-        // Absent / half-day strings come only from overall_attendance_record (saved by
-        // Non-Teaching, Faculty Designated, and Faculty 30hrs modules). No second fetch
-        // to daily attendance for recomputation here.
         const buildBucketStringsFromStored = (r) => {
-          const aDays = r?.absentDays;
-          const hDays = r?.halfDays;
-          const aTime = r?.absentTime;
-          const hTime = r?.halfDayShortfallTime;
+          const aDays  = r?.absentDays;
+          const hDays  = r?.halfDays;
+          const aTime  = r?.absentTime;
+          const hTime  = r?.halfDayShortfallTime;
           const aDates = r?.absentDates;
           const hDates = r?.halfDayDates;
 
@@ -592,8 +652,8 @@ const OverallAttendance = () => {
             return {
               ...r,
               _absentTotalDays: stored.absentDisplay ?? null,
-              _halfTotalDays: stored.halfDayStr ?? null,
-              _lateTotal: lateTotalResolved,
+              _halfTotalDays:   stored.halfDayStr    ?? null,
+              _lateTotal:       lateTotalResolved,
             };
           }),
         );
@@ -612,7 +672,6 @@ const OverallAttendance = () => {
     }
   };
 
-  /** Debounced realtime refetch when attendance data changes for this person and range. */
   useAttendanceRealtimeRefresh(fetchAttendanceData, {
     personId: employeeNumber,
     startDate,
@@ -622,7 +681,7 @@ const OverallAttendance = () => {
     debounceMs: 500,
   });
 
-  // ── CRUD ───────────────────────────────────────────────────────────────
+  // ── CRUD ──────────────────────────────────────────────────────────────────
   const updateRecord = async () => {
     if (!editRecord || !editRecord.totalRenderedTimeMorning) return;
     try {
@@ -656,9 +715,9 @@ const OverallAttendance = () => {
         console.error('Delete failed:', error);
         const status  = error.response?.status;
         const message = error.response?.data?.message || error.response?.data?.error || 'Error';
-        if (status === 404)            showModal('Not Found', 'Record not found or already deleted.', 'error');
+        if (status === 404)                       showModal('Not Found', 'Record not found or already deleted.', 'error');
         else if (status === 401 || status === 403) showModal('Session Expired', 'Please log in again.', 'error');
-        else                           showModal('Deletion Failed', `${message}`, 'error');
+        else                                       showModal('Deletion Failed', `${message}`, 'error');
       }
     }, true);
   };
@@ -685,7 +744,7 @@ const OverallAttendance = () => {
     });
   };
 
-  // ── Payroll JO ─────────────────────────────────────────────────────────
+  // ── Payroll JO ────────────────────────────────────────────────────────────
   const submitPayrollJO = async () => {
     if (isSubmittingJO) return;
     if (!attendanceData || attendanceData.length === 0) {
@@ -833,7 +892,7 @@ const OverallAttendance = () => {
     showModal('Submission Error', errorMessage, 'error');
   };
 
-  // ── Access guards / wireframe ──────────────────────────────────────────
+  // ── Access guards / wireframe ─────────────────────────────────────────────
   if (pageLoading || accessLoading) return <OverallAttendanceWireframe />;
   if (!accessLoading && hasAccess !== true)
     return (
@@ -845,50 +904,28 @@ const OverallAttendance = () => {
       />
     );
 
-  // Table column definitions
-  const TABLE_COLUMNS = [
-    { label: 'Department',           key: 'code' },
-    { label: 'Employee No.',         key: 'personID' },
-    { label: 'Start Date',           key: 'startDate' },
-    { label: 'End Date',             key: 'endDate' },
-    { label: 'Morning Hours',        key: 'totalRenderedTimeMorning',            group: 'rendered' },
-    { label: 'Morning Tardiness',    key: 'totalRenderedTimeMorningTardiness',   group: 'tardiness' },
-    { label: 'Afternoon Hours',      key: 'totalRenderedTimeAfternoon',          group: 'rendered' },
-    { label: 'Afternoon Tardiness',  key: 'totalRenderedTimeAfternoonTardiness', group: 'tardiness' },
-    { label: 'Honorarium',           key: 'totalRenderedHonorarium',             group: 'rendered' },
-    { label: 'HN Tardiness',         key: 'totalRenderedHonorariumTardiness',    group: 'tardiness' },
-    { label: 'Service Credit',       key: 'totalRenderedServiceCredit',          group: 'rendered' },
-    { label: 'SC Tardiness',         key: 'totalRenderedServiceCreditTardiness', group: 'tardiness' },
-    { label: 'Overtime',             key: 'totalRenderedOvertime',               group: 'rendered' },
-    { label: 'OT Tardiness',         key: 'totalRenderedOvertimeTardiness',      group: 'tardiness' },
-    { label: 'Overall Rendered',     key: 'overallRenderedOfficialTime',         group: 'overall' },
-    { label: 'Overall Tardiness',    key: 'overallRenderedOfficialTimeTardiness',group: 'overallTard' },
-    { label: 'Late Total',          key: '_lateTotal',                           group: 'tardiness' },
-    { label: 'Half Day Total',       key: '_halfTotalDays',                       group: 'halfday' },
-    { label: 'Absent Total',         key: '_absentTotalDays',                    group: 'absent' },
-  ];
-
+  // ── Cell color / bg helpers ───────────────────────────────────────────────
   const getCellColor = (group) => {
-    if (group === 'rendered')     return '#166534';
-    if (group === 'tardiness')    return '#991b1b';
-    if (group === 'halfday')      return '#8B5E00';
-    if (group === 'absent')       return '#6a1b9a';
-    if (group === 'overall')      return '#166534';
-    if (group === 'overallTard')  return '#991b1b';
+    if (group === 'rendered')    return '#166534';
+    if (group === 'tardiness')   return '#991b1b';
+    if (group === 'halfday')     return '#8B5E00';
+    if (group === 'absent')      return '#6a1b9a';
+    if (group === 'overall')     return '#166534';
+    if (group === 'overallTard') return '#991b1b';
     return T.text;
   };
 
   const getCellBg = (group, isEven) => {
-    if (group === 'rendered')    return isEven ? 'rgba(21,128,61,0.05)' : 'rgba(21,128,61,0.09)';
-    if (group === 'tardiness')   return isEven ? 'rgba(153,27,27,0.04)' : 'rgba(153,27,27,0.08)';
-    if (group === 'halfday')     return isEven ? 'rgba(139,94,0,0.05)' : 'rgba(139,94,0,0.09)';
+    if (group === 'rendered')    return isEven ? 'rgba(21,128,61,0.05)'  : 'rgba(21,128,61,0.09)';
+    if (group === 'tardiness')   return isEven ? 'rgba(153,27,27,0.04)'  : 'rgba(153,27,27,0.08)';
+    if (group === 'halfday')     return isEven ? 'rgba(139,94,0,0.05)'   : 'rgba(139,94,0,0.09)';
     if (group === 'absent')      return isEven ? 'rgba(106,27,154,0.05)' : 'rgba(106,27,154,0.09)';
-    if (group === 'overall')     return isEven ? 'rgba(21,128,61,0.09)' : 'rgba(21,128,61,0.14)';
-    if (group === 'overallTard') return isEven ? 'rgba(153,27,27,0.09)' : 'rgba(153,27,27,0.14)';
+    if (group === 'overall')     return isEven ? 'rgba(21,128,61,0.09)'  : 'rgba(21,128,61,0.14)';
+    if (group === 'overallTard') return isEven ? 'rgba(153,27,27,0.09)'  : 'rgba(153,27,27,0.14)';
     return isEven ? '#fff' : T.rowOdd;
   };
 
-  const getHeaderBg = (group) => {
+  const getColHeaderBg = (group) => {
     if (group === 'rendered')    return '#166534';
     if (group === 'tardiness')   return '#991b1b';
     if (group === 'halfday')     return '#8B5E00';
@@ -898,9 +935,12 @@ const OverallAttendance = () => {
     return T.accentDark;
   };
 
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Group toggle row height (px) — used for sticky offset of col-label row ─
+  const GROUP_ROW_H = 30;
+
+  // ──────────────────────────────────────────────────────────────────────────
   // RENDER
-  // ──────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={400}>
       <Box sx={{
@@ -1108,37 +1148,179 @@ const OverallAttendance = () => {
               <Box sx={{ px: 2.5, py: 2.5 }}>
                 <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
                   <Box sx={{
-                    overflowX: 'auto', overflowY: 'auto', maxHeight: 460,
+                    overflowX: 'auto', overflowY: 'auto', maxHeight: 500,
                     scrollbarWidth: 'thin',
                     '&::-webkit-scrollbar': { height: 6, width: 6 },
                     '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 },
                     '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 },
                   }}>
-                    <Table sx={{ minWidth: TABLE_COLUMNS.length * 140 + 160, borderCollapse: 'collapse' }}>
+                    {/*
+                      minWidth calculation: count total visible leaf columns.
+                      Collapsed groups contribute 0 visible columns but 1 zero-width cell,
+                      so we only sum widths of expanded group columns.
+                    */}
+                    <Table sx={{
+                      minWidth: COLUMN_GROUPS.reduce((sum, grp) => {
+                        const isCollapsed = !grp.alwaysVisible && collapsedGroups.has(grp.key);
+                        return sum + (isCollapsed ? 0 : grp.columns.length * 140);
+                      }, 160),
+                      borderCollapse: 'collapse',
+                    }}>
                       <TableHead>
+
+                        {/* ── Row 1: Group toggle headers ── */}
                         <TableRow>
-                          {TABLE_COLUMNS.map(({ label, key, group }) => (
-                            <TableCell key={key} sx={{
-                              minWidth: 140, textAlign: 'center',
-                              position: 'sticky', top: 0, zIndex: 2,
-                              fontSize: '0.65rem', fontWeight: 700,
-                              py: 0.9, px: 1.75, whiteSpace: 'nowrap',
-                              letterSpacing: '0.06em', textTransform: 'uppercase',
-                              borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
-                              color: '#fff',
-                              background: getHeaderBg(group),
-                            }}>{label}</TableCell>
-                          ))}
+                          {COLUMN_GROUPS.map(grp => {
+                            const isCore      = grp.alwaysVisible;
+                            const isCollapsed = !isCore && collapsedGroups.has(grp.key);
+                            const colSpan = isCollapsed ? 1 : grp.columns.length;
+
+                            return (
+                              <TableCell
+                                key={grp.key}
+                                colSpan={colSpan}
+                                onClick={isCore ? undefined : () => toggleGroup(grp.key)}
+                                sx={{
+                                  position: 'sticky', top: 0, zIndex: 3,
+                                  background: grp.headerBg,
+                                  color: '#fff',
+                                  textAlign: 'center',
+                                  fontSize: '0.62rem',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.08em',
+                                  textTransform: 'uppercase',
+                                  py: 0.65,
+                                  px: 1,
+                                  height: `${GROUP_ROW_H}px`,
+                                  cursor: isCore ? 'default' : 'pointer',
+                                  borderBottom: `1px solid rgba(255,255,255,0.12)`,
+                                  borderRight: `2px solid rgba(255,255,255,0.22)`,
+                                  whiteSpace: 'nowrap',
+                                  userSelect: 'none',
+                                  transition: 'opacity 0.15s, background 0.15s',
+                                  '&:hover': isCore ? {} : { opacity: 0.85 },
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                                  {!isCore && (
+                                    isCollapsed
+                                      ? <KeyboardArrowRightIcon sx={{ fontSize: 13, opacity: 0.9 }} />
+                                      : <KeyboardArrowDownIcon  sx={{ fontSize: 13, opacity: 0.9 }} />
+                                  )}
+                                  <span>{grp.label}</span>
+                                  {!isCore && !isCollapsed && (
+                                    <Box component="span" sx={{
+                                      fontSize: '0.52rem',
+                                      bgcolor: 'rgba(255,255,255,0.18)',
+                                      borderRadius: '3px',
+                                      px: 0.5, py: 0.1,
+                                      ml: 0.25,
+                                    }}>
+                                      hide
+                                    </Box>
+                                  )}
+                                  {!isCore && isCollapsed && (
+                                    <Box component="span" sx={{
+                                      fontSize: '0.52rem',
+                                      bgcolor: 'rgba(255,255,255,0.18)',
+                                      borderRadius: '3px',
+                                      px: 0.5, py: 0.1,
+                                      ml: 0.25,
+                                    }}>
+                                      show
+                                    </Box>
+                                  )}
+                                </Box>
+                              </TableCell>
+                            );
+                          })}
+
+                          {/* Actions group header */}
+                          <TableCell sx={{
+                            position: 'sticky', top: 0, right: 0, zIndex: 5,
+                            background: T.accentDark,
+                            color: '#fff',
+                            textAlign: 'center',
+                            fontSize: '0.62rem', fontWeight: 700,
+                            letterSpacing: '0.08em', textTransform: 'uppercase',
+                            py: 0.65, px: 1,
+                            height: `${GROUP_ROW_H}px`,
+                            borderBottom: `1px solid rgba(255,255,255,0.12)`,
+                            boxShadow: `-10px 0 12px -12px rgba(0,0,0,0.5)`,
+                            whiteSpace: 'nowrap',
+                          }}>
+                            Actions
+                          </TableCell>
+                        </TableRow>
+
+                        {/* ── Row 2: Column labels — mirrors Row 1 cell-for-cell ── */}
+                        {/*                                                           */}
+                        {/*  KEY FIX: we iterate COLUMN_GROUPS (same as Row 1),      */}
+                        {/*  not visibleColumns. For each collapsed group we place    */}
+                        {/*  one zero-width placeholder so both rows stay in sync.    */}
+                        <TableRow>
+                          {COLUMN_GROUPS.map(grp => {
+                            const isCore      = grp.alwaysVisible;
+                            const isCollapsed = !isCore && collapsedGroups.has(grp.key);
+
+                            if (isCollapsed) {
+                              // One invisible placeholder cell — keeps column count
+                              // in sync with Row 1's single collapsed toggle cell.
+                              return (
+                                <TableCell
+                                  key={grp.key + '_lbl_placeholder'}
+                                  sx={{
+                                    padding: 0,
+                                    width: 0,
+                                    minWidth: 0,
+                                    maxWidth: 0,
+                                    overflow: 'hidden',
+                                    position: 'sticky',
+                                    top: GROUP_ROW_H,
+                                    zIndex: 2,
+                                    background: grp.headerBg,
+                                    borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
+                                  }}
+                                />
+                              );
+                            }
+
+                            // Expanded group — render one labelled cell per column
+                            return grp.columns.map(({ label, key, group }) => (
+                              <TableCell key={key} sx={{
+                                minWidth: 140,
+                                textAlign: 'center',
+                                position: 'sticky',
+                                top: GROUP_ROW_H,
+                                zIndex: 2,
+                                fontSize: '0.63rem',
+                                fontWeight: 700,
+                                py: 0.9, px: 1.75,
+                                whiteSpace: 'nowrap',
+                                letterSpacing: '0.06em',
+                                textTransform: 'uppercase',
+                                borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
+                                color: '#fff',
+                                background: getColHeaderBg(group),
+                              }}>
+                                {label}
+                              </TableCell>
+                            ));
+                          })}
+
+                          {/* Actions column label */}
                           <TableCell sx={{
                             minWidth: 160, textAlign: 'center',
-                            position: 'sticky', top: 0, right: 0, zIndex: 4,
-                            fontSize: '0.65rem', fontWeight: 700,
+                            position: 'sticky', top: GROUP_ROW_H, right: 0, zIndex: 4,
+                            fontSize: '0.63rem', fontWeight: 700,
                             py: 0.9, px: 1.75, whiteSpace: 'nowrap',
                             letterSpacing: '0.06em', textTransform: 'uppercase',
                             borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
                             color: '#fff', background: T.accentDark,
                             boxShadow: `-10px 0 12px -12px ${alpha('#000', 0.5)}`,
-                          }}>Actions</TableCell>
+                          }}>
+                            &nbsp;
+                          </TableCell>
                         </TableRow>
                       </TableHead>
 
@@ -1152,47 +1334,73 @@ const OverallAttendance = () => {
                                 '&:hover td:not(.actions-col)': { bgcolor: `${T.rowHover} !important` },
                               }}
                             >
-                              {TABLE_COLUMNS.map(({ key, group }) => {
-                                const isDateListCol = key === '_absentTotalDays' || key === '_halfTotalDays';
-                                const displayVal = record[key];
-                                return (
-                                <TableCell key={key} sx={{
-                                  fontSize: '0.8rem', fontFamily: group ? 'monospace' : 'inherit',
-                                  borderBottom: `1px solid ${T.divider}`,
-                                  px: 1.75, py: 1, textAlign: 'center',
-                                  whiteSpace: isDateListCol ? 'normal' : 'nowrap',
-                                  maxWidth: isDateListCol ? 300 : undefined,
-                                  lineHeight: isDateListCol ? 1.35 : undefined,
-                                  fontWeight: group ? 700 : 500,
-                                  color: getCellColor(group),
-                                  bgcolor: getCellBg(group, isEven),
-                                  transition: 'background-color 0.12s',
-                                }}>
-                                  {editRecord && editRecord.id === record.id && key !== 'code' && !String(key).startsWith('_') ? (
-                                    <input
-                                      value={editRecord[key] ?? ''}
-                                      onChange={e => setEditRecord({ ...editRecord, [key]: e.target.value })}
-                                      style={{
-                                        width: '110px', padding: '4px 8px', borderRadius: '5px',
-                                        border: `1px solid ${T.accentBorder}`, fontSize: '0.8rem',
-                                        fontFamily: 'monospace', outline: 'none',
-                                        background: '#fff', color: T.text,
+                              {/* ── KEY FIX: iterate COLUMN_GROUPS, not visibleColumns ── */}
+                              {COLUMN_GROUPS.flatMap(grp => {
+                                const isCore      = grp.alwaysVisible;
+                                const isCollapsed = !isCore && collapsedGroups.has(grp.key);
+
+                                if (isCollapsed) {
+                                  // Zero-width placeholder to mirror Row 1 collapsed cell
+                                  return (
+                                    <TableCell
+                                      key={grp.key + '_data_placeholder_' + index}
+                                      sx={{
+                                        padding: 0,
+                                        width: 0,
+                                        minWidth: 0,
+                                        maxWidth: 0,
+                                        overflow: 'hidden',
+                                        borderBottom: `1px solid ${T.divider}`,
                                       }}
-                                      onFocus={e => { e.target.style.borderColor = T.accent; }}
-                                      onBlur={e => { e.target.style.borderColor = T.accentBorder; }}
                                     />
-                                  ) : isDateListCol && displayVal != null && String(displayVal).trim() !== '' ? (
-                                    <Tooltip title={String(displayVal)} placement="top" enterDelay={300}>
-                                      <span style={{ cursor: 'default' }}>{displayVal}</span>
-                                    </Tooltip>
-                                  ) : (
-                                    displayVal
-                                  )}
-                                </TableCell>
-                              );
+                                  );
+                                }
+
+                                // Expanded group — render one data cell per column
+                                return grp.columns.map(({ key, group }) => {
+                                  const isDateListCol = key === '_absentTotalDays' || key === '_halfTotalDays';
+                                  const displayVal = record[key];
+                                  return (
+                                    <TableCell key={key} sx={{
+                                      fontSize: '0.8rem',
+                                      fontFamily: group ? 'monospace' : 'inherit',
+                                      borderBottom: `1px solid ${T.divider}`,
+                                      px: 1.75, py: 1,
+                                      textAlign: 'center',
+                                      whiteSpace: isDateListCol ? 'normal' : 'nowrap',
+                                      maxWidth: isDateListCol ? 300 : undefined,
+                                      lineHeight: isDateListCol ? 1.35 : undefined,
+                                      fontWeight: group ? 700 : 500,
+                                      color: getCellColor(group),
+                                      bgcolor: getCellBg(group, isEven),
+                                      transition: 'background-color 0.12s',
+                                    }}>
+                                      {editRecord && editRecord.id === record.id && key !== 'code' && !String(key).startsWith('_') ? (
+                                        <input
+                                          value={editRecord[key] ?? ''}
+                                          onChange={e => setEditRecord({ ...editRecord, [key]: e.target.value })}
+                                          style={{
+                                            width: '110px', padding: '4px 8px', borderRadius: '5px',
+                                            border: `1px solid ${T.accentBorder}`, fontSize: '0.8rem',
+                                            fontFamily: 'monospace', outline: 'none',
+                                            background: '#fff', color: T.text,
+                                          }}
+                                          onFocus={e => { e.target.style.borderColor = T.accent; }}
+                                          onBlur={e => { e.target.style.borderColor = T.accentBorder; }}
+                                        />
+                                      ) : isDateListCol && displayVal != null && String(displayVal).trim() !== '' ? (
+                                        <Tooltip title={String(displayVal)} placement="top" enterDelay={300}>
+                                          <span style={{ cursor: 'default' }}>{displayVal}</span>
+                                        </Tooltip>
+                                      ) : (
+                                        displayVal
+                                      )}
+                                    </TableCell>
+                                  );
+                                });
                               })}
 
-                              {/* Actions cell */}
+                              {/* Actions cell — sticky right, always opaque */}
                               <TableCell
                                 className="actions-col"
                                 sx={{
@@ -1202,7 +1410,6 @@ const OverallAttendance = () => {
                                   borderBottom: `1px solid ${T.divider}`,
                                   px: 1.5,
                                   py: 0.75,
-                                  // Opaque background prevents underlying columns bleeding through (sticky column overlay).
                                   bgcolor: '#fff !important',
                                   transition: 'background-color 0.12s',
                                   boxShadow: `-10px 0 12px -12px ${alpha('#000', 0.35)}`,
@@ -1255,12 +1462,12 @@ const OverallAttendance = () => {
                 {/* Footer legend */}
                 <Box sx={{ pt: 1.5, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
-                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.1)', border: '1px solid rgba(21,128,61,0.3)' }} />, label: 'Rendered time' },
-                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.08)', border: '1px solid rgba(153,27,27,0.3)' }} />, label: 'Tardiness' },
-                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(139,94,0,0.09)', border: '1px solid rgba(139,94,0,0.3)' }} />, label: 'Half day' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.1)',   border: '1px solid rgba(21,128,61,0.3)'   }} />, label: 'Rendered time' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.08)',  border: '1px solid rgba(153,27,27,0.3)'   }} />, label: 'Tardiness' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(139,94,0,0.09)',   border: '1px solid rgba(139,94,0,0.3)'    }} />, label: 'Half day' },
                     { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(106,27,154,0.10)', border: '1px solid rgba(106,27,154,0.30)' }} />, label: 'Absences' },
-                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.14)', border: '1px solid rgba(21,128,61,0.4)' }} />, label: 'Overall rendered' },
-                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.14)', border: '1px solid rgba(153,27,27,0.4)' }} />, label: 'Overall tardiness' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(21,128,61,0.14)',  border: '1px solid rgba(21,128,61,0.4)'   }} />, label: 'Overall rendered' },
+                    { icon: <Box sx={{ width: 10, height: 10, borderRadius: '2px', bgcolor: 'rgba(153,27,27,0.14)',  border: '1px solid rgba(153,27,27,0.4)'   }} />, label: 'Overall tardiness' },
                   ].map((item, i) => (
                     <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
                       {item.icon}
@@ -1292,7 +1499,6 @@ const OverallAttendance = () => {
         {attendanceData.length > 0 && (
           <Fade in timeout={500}>
             <Box>
-              {/* Section divider label */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 0.5 }}>
                 <Box sx={{ flex: 1, height: '1px', bgcolor: T.accentBorder }} />
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.faint, textTransform: 'uppercase', letterSpacing: '0.14em', whiteSpace: 'nowrap' }}>
@@ -1302,14 +1508,13 @@ const OverallAttendance = () => {
               </Box>
 
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                {/* ── Regular Payroll Card ── */}
+                {/* Regular Payroll Card */}
                 <Box
                   onClick={goToEarningsForRegularPayroll}
                   sx={{
                     flex: 1, minWidth: 260, position: 'relative',
                     borderRadius: '12px', overflow: 'hidden',
                     cursor: 'pointer',
-                    opacity: 1,
                     border: `1.5px solid ${alpha(T.accent, 0.3)}`,
                     background: `linear-gradient(135deg, ${T.accent} 0%, ${T.accentDark} 100%)`,
                     transition: 'all 0.22s ease',
@@ -1343,7 +1548,7 @@ const OverallAttendance = () => {
                   <Box sx={{ height: 3, background: 'linear-gradient(90deg,rgba(255,255,255,0.1),rgba(255,255,255,0.3),rgba(255,255,255,0.1))' }} />
                 </Box>
 
-                {/* ── JO Payroll Card ── */}
+                {/* JO Payroll Card */}
                 <Box
                   onClick={!isSubmittingJO ? () => setShowJOConfirm(true) : undefined}
                   sx={{
@@ -1392,7 +1597,7 @@ const OverallAttendance = () => {
           </Fade>
         )}
 
-        {/* ── JO Payroll Confirm Dialog ── */}
+        {/* ── JO Confirm Dialog ── */}
         <PayrollConfirmDialog
           open={showJOConfirm}
           onClose={() => setShowJOConfirm(false)}
