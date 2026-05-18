@@ -855,10 +855,8 @@ const DailyTimeRecordFaculty = () => {
       });
       setAllUsersDTR(skeletonUsers);
       setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
-
-      // ── FIX: renamed from empNums to empNumsForStatus to avoid redeclaration ──
-      const empNumsForStatus = empList.map((e) => e.personID);
-      axios.post(`${API_BASE_URL}/attendance/api/dtr-print-status`, { employeeNumbers: empNumsForStatus, year: new Date(startDate).getFullYear(), month: new Date(startDate).getMonth() + 1 }, cfg())
+      const empListIds = empList.map((e) => e.personID);
+      axios.post(`${API_BASE_URL}/attendance/api/dtr-print-status`, { employeeNumbers: empListIds, year: new Date(startDate).getFullYear(), month: new Date(startDate).getMonth() + 1 }, cfg())
         .then((psRes) => {
           if (signal.aborted) return;
           const newMap = new Map();

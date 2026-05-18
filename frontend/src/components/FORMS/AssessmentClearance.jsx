@@ -1,812 +1,585 @@
-import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
-import API_BASE_URL from '../../apiConfig';
-import { getAuthHeaders } from '../../utils/auth';
+import React, { useRef, useState } from 'react';
 import logo from './logo.png';
-// Ensure this path matches where you saved the LoadingOverlay component above
 import LoadingOverlay from '../LoadingOverlay';
-import {
-  Box,
-  Button,
-  Typography,
-  Divider,
-  Snackbar,
-  Alert,
-  Fab,
-  Tooltip,
-  Zoom
-} from '@mui/material';
+import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const AssessmentClearance = () => {
-  // Initial state is EMPTY for a standard layout (Blank Form)
-  const [formData, setFormData] = useState({
-    date: '',
-    first_semester: false,
-    second_semester: false,
-    school_year_from: '',
-    school_year_to: '',
-    name: '',
-    position: '',
-    department: '',
-    signature_type: '',
-    college_dean: '',
-    director_of_instruction: '',
-    ecc_administrator: '',
-    date_signed: '',
-    email_address: '',
-    telephone_cellphone: '',
-    date_fully_accomplished: '',
-    vacation_address: '',
-    deadline_of_submission: '',
-  });
+  const captureRef = useRef(null);
 
-  // State for the loading overlay during PDF generation
   const [isGenerating, setIsGenerating] = useState(false);
-  
-  const [records, setRecords] = useState([]);
-  const [selectedRecord, setSelectedRecord] = useState(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
     severity: 'success',
   });
-  const printRef = useRef(null);
-
-  // --- CRUD LOGIC COMMENTED OUT ---
-  /*
-  const fetchRecords = async () => { ... };
-  const handleSave = async () => { ... };
-  const handleDelete = async () => { ... };
-  */
-
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
-  };
 
   const showSnackbar = (message, severity = 'success') => {
     setSnackbar({ open: true, message, severity });
   };
 
   const handleCloseSnackbar = () => {
-    setSnackbar({ ...snackbar, open: false });
+    setSnackbar((prev) => ({ ...prev, open: false }));
   };
 
-  // Capture helpers
-  const ensureCaptureStyles = (el) => {
-    if (!el) return {};
-    const orig = {
-      backgroundColor: el.style.backgroundColor,
-      width: el.style.width,
-      visibility: el.style.visibility,
-      display: el.style.display,
-      position: el.style.position,
-      left: el.style.left,
-      zIndex: el.style.zIndex,
-      opacity: el.style.opacity,
-    };
-    el.style.backgroundColor = '#ffffff';
-    el.style.width = '8.27in';
-    el.style.visibility = 'visible';
-    el.style.display = 'block';
-    el.style.position = 'fixed';
-    el.style.left = '-9999px';
-    el.style.zIndex = '10000';
-    el.style.opacity = '1';
-    return orig;
+  const baseFormStyle = {
+    width: '190mm',
+    minHeight: '277mm',
+    margin: '0 auto',
+    padding: '5mm',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
+    fontFamily: 'Arial, Helvetica, sans-serif',
+    fontSize: '9px',
+    color: '#000000',
   };
 
-  const restoreCaptureStyles = (el, orig) => {
-    if (!el || !orig) return;
-    try {
-      el.style.backgroundColor = orig.backgroundColor || '';
-      el.style.width = orig.width || '';
-      el.style.visibility = orig.visibility || '';
-      el.style.display = orig.display || '';
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.zIndex = orig.zIndex || '';
-      el.style.opacity = orig.opacity || '';
-    } catch (e) {
-      /* noop */
-    }
+  const screenFormStyle = {
+    ...baseFormStyle,
+    border: '1px solid #000',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+    marginTop: '20px',
+    marginBottom: '20px',
   };
 
-  const printPage = async () => {
-    if (!printRef.current) return;
+  const captureFormStyle = {
+    ...baseFormStyle,
+    width: '794px',
+    border: 'none',
+    boxShadow: 'none',
+    margin: 0,
+    padding: '8px',
+    position: 'absolute',
+    top: '-10000px',
+    left: '-10000px',
+    visibility: 'hidden',
+  };
 
-    try {
-      setIsGenerating(true); 
+  const tableStyle = {
+    borderCollapse: 'collapse',
+    width: '100%',
+    tableLayout: 'fixed',
+  };
 
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'in',
-        format: 'a4',
-      });
+  const borderedCell = (extra = {}) => ({
+    border: '1px solid #000',
+    padding: '3px 4px',
+    fontSize: '9px',
+    lineHeight: '1.2',
+    verticalAlign: 'middle',
+    fontFamily: 'Arial, Helvetica, sans-serif',
+    ...extra,
+  });
 
-      const orig = ensureCaptureStyles(printRef.current);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+  const printPage = () => {
+    const content = document.getElementById('assessment-clearance-content')?.innerHTML;
+    if (!content) return;
 
-      const canvas = await html2canvas(printRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
+    const printWindow = window.open('', '', 'width=900,height=650');
 
-      restoreCaptureStyles(printRef.current, orig);
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Print Assessment Clearance</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 10mm;
+            }
 
-      const imgData = canvas.toDataURL('image/png');
+            html,
+            body {
+              margin: 0;
+              padding: 0;
+              background: white;
+              font-family: Arial, Helvetica, sans-serif;
+            }
 
-      const formWidth = 8.27;
-      const formHeight = 11.69;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - formWidth) / 2;
-      const yOffset = (pageHeight - formHeight) / 2;
+            .assessment-print-wrapper {
+              width: 190mm;
+              min-height: 277mm;
+              margin: 0 auto;
+              padding: 5mm;
+              box-sizing: border-box;
+              font-family: Arial, Helvetica, sans-serif;
+              font-size: 9px;
+              color: #000;
+              overflow: hidden;
+              border: none !important;
+              box-shadow: none !important;
+            }
 
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-      pdf.autoPrint();
-      const blobUrl = pdf.output('bloburl');
-      window.open(blobUrl, '_blank');
-      
-      showSnackbar('Print view generated', 'success');
-    } catch (error) {
-      console.error('Error generating print view:', error);
-      showSnackbar('Error generating print view', 'error');
-    } finally {
-      setIsGenerating(false); 
-    }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              table-layout: fixed;
+            }
+
+            tr {
+              page-break-inside: avoid;
+            }
+
+            * {
+              font-family: Arial, Helvetica, sans-serif !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="assessment-print-wrapper">
+            ${content}
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
   };
 
   const downloadPDF = async () => {
-    if (!printRef.current) return;
+    if (!captureRef.current) return;
 
     try {
-      setIsGenerating(true); 
+      setIsGenerating(true);
 
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'in',
-        format: 'a4',
-      });
+      const el = captureRef.current;
 
-      const orig = ensureCaptureStyles(printRef.current);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      el.style.position = 'relative';
+      el.style.top = '0';
+      el.style.left = '0';
+      el.style.visibility = 'visible';
 
-      const canvas = await html2canvas(printRef.current, {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const canvas = await html2canvas(el, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
+        width: 794,
+        allowTaint: true,
       });
 
-      restoreCaptureStyles(printRef.current, orig);
+      el.style.position = 'absolute';
+      el.style.top = '-10000px';
+      el.style.left = '-10000px';
+      el.style.visibility = 'hidden';
 
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pageW = pdf.internal.pageSize.getWidth();
+      const margin = 8;
+      const imgW = pageW - margin * 2;
+      const imgH = (canvas.height / canvas.width) * imgW;
       const imgData = canvas.toDataURL('image/png');
 
-      const formWidth = 8.27;
-      const formHeight = 11.69;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - formWidth) / 2;
-      const yOffset = (pageHeight - formHeight) / 2;
+      pdf.addImage(imgData, 'PNG', margin, margin, imgW, imgH);
 
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-      
-      const fileName = `Assessment-Clearance-Form-${new Date().toISOString().split('T')[0]}.pdf`;
-      pdf.save(fileName);
+      pdf.save(
+        `Assessment-Clearance-${new Date().toISOString().split('T')[0]}.pdf`,
+      );
+
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (error) {
       console.error('Error generating PDF:', error);
       showSnackbar('Error generating PDF', 'error');
     } finally {
-      setIsGenerating(false); 
+      setIsGenerating(false);
     }
   };
 
-  const renderWithUnderline = (value, emptyLineWidth = '45px') => {
-    if (value) {
-      return (
-        <span
-          style={{
-            display: 'inline-block',
-            position: 'relative',
-            textAlign: 'center',
-            lineHeight: '1',
-            paddingBottom: '2px',
-          }}
-        >
-          <span style={{ display: 'block' }}>{value}</span>
-          <span
-            style={{
-              display: 'block',
-              width: '100%',
-              height: '0.5px',
-              backgroundColor: '#000000',
-              marginTop: '1px',
-            }}
-          />
-        </span>
-      );
-    }
-    
-    return (
-      <span
-        style={{
-          display: 'inline-block',
-          width: emptyLineWidth,
-          borderBottom: '1px solid black',
-        }}
-      />
-    );
-  };
-
-  const renderFormDisplay = () => {
-    return (
+  const renderFormContent = () => (
+    <>
       <div
-        ref={printRef}
-        className="print-content"
         style={{
-          border: '1px solid black',
-          padding: '0.2in',
-          width: '8.27in',
-          minHeight: '11.69in',
-          fontFamily: 'Poppins, sans-serif',
-          alignContent: 'center',
-          margin: 'auto',
-          marginTop: '20px',
-          marginBottom: '20px',
-          backgroundColor: '#ffffff',
-          boxSizing: 'border-box',
+          position: 'relative',
+          width: '100%',
+          minHeight: '82px',
+          marginTop: '2px',
         }}
       >
-        <div style={{ width: '5.25in', margin: 'auto' }}>
-          <div style={{ width: '5.25in', margin: 'auto', textAlign: 'center' }}>
-            <img
-              src={logo}
-              alt="Logo"
-              height="90px"
-              style={{ display: 'block', margin: '0 auto 10px auto' }}
-            />
-            <div style={{ textAlign: 'center' }}>
-              <font size="3">Republic of the Philippines</font>
-              <br />
-              <b>
-                <font size="4">EULOGIO "AMANG" RODRIGUEZ</font>
-              </b>
-              <br />
-              <b>
-                <font size="4">INSTITUTE OF SCIENCE AND TECHNOLOGY</font>
-              </b>
-              <br />
-              <font size="3">Nagtahan, Sampaloc, Manila</font>
-            </div>
-          </div>
-          <div style={{ textAlign: 'center', marginTop: '10px' }}>
-            {renderWithUnderline(formData.date, '200px')}
-            <div style={{ marginTop: '2px', fontSize: '90%' }}>Date</div>
-          </div>
-          <div style={{ textAlign: 'center', marginTop: '15px' }}>
-            <b>
-              <i>
-                <font size="4">ASSESSMENT CLEARANCE FOR PART-TIME FACULTY</font>
-              </i>
-            </b>
-            <br />
-            <br />1<sup>ST</sup>{' '}
-            {formData.first_semester ? (
-              '✓'
-            ) : (
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '45px',
-                  borderBottom: '1px solid black',
-                }}
-              />
-            )}{' '}
-            2<sup>ND</sup>{' '}
-            {formData.second_semester ? (
-              '✓'
-            ) : (
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '45px',
-                  borderBottom: '1px solid black',
-                }}
-              />
-            )}{' '}
-            Semester/School year{' '}
-            {renderWithUnderline(formData.school_year_from, '45px')} -{' '}
-            {renderWithUnderline(formData.school_year_to, '45px')}
-            <br />
-          </div>
-        </div>
-        <br />
-        <table
+        <img
+          src={logo}
+          alt="Logo"
           style={{
-            border: '0px',
-            borderCollapse: 'collapse',
-            width: '7.75in',
-            tableLayout: 'fixed',
-            margin: 'auto',
+            position: 'absolute',
+            left: '108px',
+            top: '0px',
+            width: '68px',
+            height: '68px',
+            objectFit: 'contain',
+          }}
+        />
+
+        <div
+          style={{
+            textAlign: 'center',
+            lineHeight: '1.2',
+            fontFamily: 'Arial, Helvetica, sans-serif',
           }}
         >
+          <div style={{ fontSize: '10px' }}>Republic of the Philippines</div>
+          <div style={{ fontWeight: 'bold', fontSize: '11px' }}>
+            EULOGIO "AMANG" RODRIGUEZ
+          </div>
+          <div style={{ fontWeight: 'bold', fontSize: '11px' }}>
+            INSTITUTE OF SCIENCE AND TECHNOLOGY
+          </div>
+          <div style={{ fontSize: '10px' }}>Nagtahan, Sampaloc, Manila</div>
+        </div>
+
+        <div style={{ marginTop: '14px', textAlign: 'center', fontSize: '9px' }}>
+          __________________
+          <br />
+          Date
+        </div>
+      </div>
+
+      <div style={{ textAlign: 'center', marginTop: '6px' }}>
+        <strong>
+          <em style={{ fontSize: '11px' }}>
+            ASSESSMENT CLEARANCE FOR PART-TIME FACULTY
+          </em>
+        </strong>
+
+        <br />
+        <br />
+
+        <span style={{ fontSize: '9px' }}>
+          1<sup>ST</sup> ____ 2<sup>ND</sup> ____ Semester/School year _____ - ______
+        </span>
+      </div>
+
+      <table style={{ ...tableStyle, marginTop: '22px' }}>
+        <tbody>
           <tr>
-            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.name, '100%')}
+            <td colSpan="12" style={{ height: '0.2in', textAlign: 'center' }}>
+              ________________________
             </td>
-            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-              &nbsp;
+            <td colSpan="2">&nbsp;</td>
+            <td colSpan="12" style={{ textAlign: 'center' }}>
+              ________________________
             </td>
-            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.position, '100%')}
-            </td>
-            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
+            <td colSpan="2" style={{ textAlign: 'center' }}>
               of
             </td>
-            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-              {renderWithUnderline(formData.department, '100%')}
+            <td colSpan="12" style={{ textAlign: 'center' }}>
+              ________________________
             </td>
           </tr>
+
           <tr>
-            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
+            <td colSpan="12" style={{ textAlign: 'center' }}>
               Name
             </td>
-            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-              &nbsp;
-            </td>
-            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
+            <td colSpan="2">&nbsp;</td>
+            <td colSpan="12" style={{ textAlign: 'center' }}>
               Position
             </td>
-            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-              &nbsp;
-            </td>
-            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
+            <td colSpan="2">&nbsp;</td>
+            <td colSpan="12" style={{ textAlign: 'center' }}>
               Department
             </td>
           </tr>
-        </table>
-        <br />
-        <br />
-        <table
-          style={{
-            borderCollapse: 'collapse',
-            width: '7.75in',
-            tableLayout: 'fixed',
-            margin: 'auto',
-          }}
-        >
+        </tbody>
+      </table>
+
+      <table style={{ ...tableStyle, marginTop: '18px' }}>
+        <tbody>
           <tr>
-            <td
-              colSpan="13"
-              style={{
-                border: '1px solid black',
-                height: '0.3in',
-                fontSize: '90%',
-                textAlign: 'center',
-              }}
-            >
+            <td colSpan="13" style={borderedCell({ height: '0.22in', textAlign: 'center' })}>
               &nbsp;
             </td>
-            <td
-              colSpan="17"
-              style={{
-                border: '1px solid black',
-                height: '0.3in',
-                fontSize: '90%',
-                textAlign: 'center',
-              }}
-            >
-              <b>SIGNATURE</b>
+            <td colSpan="17" style={borderedCell({ textAlign: 'center', fontWeight: 'bold' })}>
+              SIGNATURE
             </td>
-            <td
-              colSpan="5"
-              style={{
-                border: '1px solid black',
-                height: '0.3in',
-                fontSize: '90%',
-                textAlign: 'center',
-              }}
-            >
-              <b>DATE SIGNED</b>
+            <td colSpan="5" style={borderedCell({ textAlign: 'center', fontWeight: 'bold' })}>
+              DATE SIGNED
             </td>
           </tr>
+
           <tr>
-            <td
-              colSpan="13"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                fontSize: '85%',
-                verticalAlign: 'top',
-                padding: '5px',
-              }}
-            >
-              <b>
+            <td colSpan="13" style={borderedCell({ height: '0.68in', verticalAlign: 'top' })}>
+              <strong>
                 1.&nbsp;&nbsp;&nbsp;As to Area/College requirements.
                 <br />
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; NBC 461/Research/Grade Sheets/
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NBC 461/Research/Grade Sheets/
                 <br />
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; MR/SALN&PDS/Liquidation
-              </b>
-            </td>
-            <td
-              colSpan="17"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                fontSize: '85%',
-                textAlign: 'center',
-                padding: '5px',
-              }}
-            >
-              <br />
-              <div style={{ fontWeight: 'bold', marginBottom: '4px', minHeight: '20px' }}>
-                {formData.signature_type === 'college_dean'
-                  ? formData.college_dean
-                  : formData.signature_type === 'director_of_instruction'
-                    ? formData.director_of_instruction
-                    : formData.signature_type === 'ecc_administrator'
-                      ? formData.ecc_administrator
-                      : formData.college_dean ||
-                        formData.director_of_instruction ||
-                        formData.ecc_administrator}
-              </div>
-              <div
-                style={{
-                  width: '95%',
-                  margin: '0 auto 8px',
-                  borderBottom: '2px solid black',
-                }}
-              ></div>
-              <b>COLLEGE DEAN</b> (for Faculty Assigned in Colleges)
-              <br />
-              <b>DIRECTOR OF INSTRUCTION</b> (for Gen. Ed. Faculty)
-              <br />
-              <b>ECC ADMINISTRATOR</b> (for ECC Faculty)
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MR/SALN&PDS/Liquidation
+              </strong>
             </td>
 
-            <td
-              colSpan="5"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                textAlign: 'center',
-              }}
-            >
-              {formData.date_signed}
+            <td colSpan="17" style={borderedCell({ textAlign: 'center' })}>
+              <br />
+              _________________________________
+              <br />
+              <strong>COLLEGE DEAN</strong> (for Faculty Assigned in Colleges)
+              <br />
+              <strong>DIRECTOR OF INSTRUCTION</strong> (for Gen. Ed. Faculty)
+              <br />
+              <strong>ECC ADMINISTRATOR</strong> (for ECC Faculty)
+            </td>
+
+            <td colSpan="5" style={borderedCell({ textAlign: 'center' })}>
+              &nbsp;
             </td>
           </tr>
+
           <tr>
-            <td
-              colSpan="13"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                fontSize: '85%',
-                verticalAlign: 'top',
-                padding: '5px',
-              }}
-            >
-              <b>2.&nbsp;&nbsp;&nbsp;Recommending Approval</b>
-              <br />
+            <td colSpan="13" style={borderedCell({ height: '0.58in', verticalAlign: 'top' })}>
+              <strong>2.&nbsp;&nbsp;&nbsp;Recommending Approval</strong>
             </td>
-            <td
-              colSpan="17"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                fontSize: '85%',
-                textAlign: 'center',
-                padding: '5px',
-              }}
-            >
+
+            <td colSpan="17" style={borderedCell({ textAlign: 'center' })}>
               <br />
-              <div
-                style={{
-                  width: '95%',
-                  margin: '8px auto',
-                  borderBottom: '2px solid black',
-                }}
-              ></div>
-              <b>DR. ERIC C. MENDOZA</b>
+              _________________________________
+              <br />
+              <strong>DR. ERIC C. MENDOZA</strong>
               <br />
               Vice President for Academic Affairs
             </td>
 
-            <td
-              colSpan="5"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                textAlign: 'center',
-              }}
-            >
+            <td colSpan="5" style={borderedCell({ textAlign: 'center' })}>
               &nbsp;
             </td>
           </tr>
+
           <tr>
-            <td
-              colSpan="13"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                fontSize: '85%',
-                verticalAlign: 'top',
-                padding: '5px',
-              }}
-            >
-              <b>3.&nbsp;&nbsp;&nbsp;Approved</b>
-              <br />
+            <td colSpan="13" style={borderedCell({ height: '0.58in', verticalAlign: 'top' })}>
+              <strong>3.&nbsp;&nbsp;&nbsp;Approved</strong>
             </td>
-            <td
-              colSpan="17"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                fontSize: '85%',
-                textAlign: 'center',
-                padding: '5px',
-              }}
-            >
+
+            <td colSpan="17" style={borderedCell({ textAlign: 'center' })}>
               <br />
-              <div
-                style={{
-                  width: '95%',
-                  margin: '8px auto',
-                  borderBottom: '2px solid black',
-                }}
-              ></div>
-              <b>Engr. ROGELIO T. MAMARADLO</b>
+              _________________________________
+              <br />
+              <strong>Engr. ROGELIO T. MAMARADLO</strong>
               <br />
               President
             </td>
 
-            <td
-              colSpan="5"
-              style={{
-                border: '1px solid black',
-                height: '0.45in',
-                textAlign: 'center',
-              }}
-            >
+            <td colSpan="5" style={borderedCell({ textAlign: 'center' })}>
               &nbsp;
             </td>
           </tr>
-        </table>
-        <br />
-        <table
-          style={{
-            border: '0px',
-            borderCollapse: 'collapse',
-            width: '7.75in',
-            tableLayout: 'fixed',
-            margin: 'auto',
-          }}
-        >
-          {/* REMOVED GRAY BACKGROUND */}
+        </tbody>
+      </table>
+
+      <table style={{ ...tableStyle, marginTop: '10px' }}>
+        <tbody>
           <tr>
-            <td
-              colSpan="32"
-              style={{ height: '0.25in' }}
-            >
+            <td colSpan="32" style={{ backgroundColor: '#bfbfbf', height: '0.12in' }}>
               &nbsp;
             </td>
           </tr>
+
           <tr>
             <td
               colSpan="16"
-              style={{ height: '0.4in', verticalAlign: 'bottom' }}
+              style={{
+                height: '0.22in',
+                verticalAlign: 'bottom',
+                fontSize: '8px',
+                padding: '2px 4px',
+              }}
             >
-              Email Address:{' '}
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '250px',
-                  borderBottom: '1.5px solid black',
-                  marginLeft: '6px',
-                  paddingBottom: '2px',
-                }}
-              >
-                {formData.email_address || '\u00A0'}
+              Email Address:
+              <span style={{ marginLeft: '5px' }}>
+                __________________________
               </span>
             </td>
 
             <td
               colSpan="16"
-              style={{ height: '0.4in', verticalAlign: 'bottom' }}
+              style={{
+                height: '0.22in',
+                verticalAlign: 'bottom',
+                fontSize: '8px',
+                padding: '2px 4px',
+              }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '6px',
-                  width: '90%',
-                }}
-              >
-                <span>Telephone/Cell Phone #:</span>
-
-                <span
-                  style={{
-                    flex: 1,
-                    borderBottom: '1.5px solid black',
-                    paddingBottom: '2px',
-                    MinWidth: '40px',
-                  }}
-                >
-                  {formData.telephone_cellphone || '\u00A0'}
-                </span>
-              </div>
+              Telephone/Cell Phone #:
+              <span style={{ marginLeft: '5px' }}>
+                ___________________
+              </span>
             </td>
           </tr>
+
           <tr>
             <td
               colSpan="10"
               style={{
-                height: '0.6in',
-                fontSize: '90%',
+                height: '0.38in',
+                fontSize: '8px',
                 textAlign: 'center',
                 verticalAlign: 'bottom',
+                lineHeight: '1.1',
               }}
             >
-              <div
-                style={{
-                  width: ' 100%',
-                  margin: '0 auto 6px',
-                  borderBottom: '2px solid black',
-                }}
-              ></div>
+              ________________________
+              <br />
               Signature of Faculty Member
             </td>
 
             <td
               colSpan="10"
               style={{
-                height: '0.6in',
-                fontSize: '90%',
+                height: '0.38in',
+                fontSize: '8px',
                 textAlign: 'center',
                 verticalAlign: 'bottom',
+                lineHeight: '1.1',
               }}
             >
-              {renderWithUnderline(formData.date_fully_accomplished, '200px')}
+              ________________________
               <br />
               Date Fully Accomplished
             </td>
+
             <td
               colSpan="12"
               style={{
-                height: '0.6in',
-                fontSize: '90%',
+                height: '0.38in',
+                fontSize: '8px',
                 textAlign: 'center',
                 verticalAlign: 'bottom',
+                lineHeight: '1.1',
               }}
             >
-              {renderWithUnderline(
-                formData.vacation_address,
-                '100%',
-              )}
+              ______________________________
               <br />
               Vacation Address
             </td>
           </tr>
+
+          <tr>
+            <td colSpan="32" style={{ height: '0.08in' }}>
+              &nbsp;
+            </td>
+          </tr>
+
+          <tr>
+            <td colSpan="32" style={{ backgroundColor: '#bfbfbf', height: '0.12in' }}>
+              &nbsp;
+            </td>
+          </tr>
+
           <tr>
             <td
               colSpan="32"
-              style={{ backgroundColor: 'white', height: '0.25in' }}
+              style={{
+                height: '0.22in',
+                fontSize: '8px',
+                paddingTop: '4px',
+              }}
             >
-              &nbsp;
+              <strong>
+                DEADLINE OF SUBMISSION: ______________________________
+              </strong>
             </td>
           </tr>
-          {/* REMOVED GRAY BACKGROUND */}
+
           <tr>
+            <td colSpan="2" style={{ height: '0.18in' }}>
+              &nbsp;
+            </td>
+
             <td
-              colSpan="32"
-              style={{ height: '0.25in' }}
+              colSpan="30"
+              style={{
+                height: '0.18in',
+                lineHeight: '1.15',
+                fontSize: '8px',
+              }}
             >
-              &nbsp;
-            </td>
-          </tr>
-          <tr>
-            <td colSpan="32" style={{ height: '0.35in', fontSize: '90%' }}>
-              <b>
-                DEADLINE OF SUBMISSION:{' '}
-                {renderWithUnderline(formData.deadline_of_submission, '200px')}{' '}
-              </b>
-            </td>
-          </tr>
-          <tr>
-            <td colSpan="2" style={{ height: '0.3in' }}>
-              &nbsp;
-            </td>
-            <td colSpan="30" style={{ height: '0.3in', fontSize: '85%' }}>
               : Faculty
               <br />
               : HRMS
-              <br />: FMS (2 copies) 1 photocopy
+              <br />
+              : FMS (2 copies) 1 photocopy
             </td>
           </tr>
-        </table>
-      </div>
-    );
-  };
+        </tbody>
+      </table>
+    </>
+  );
 
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      justifyContent: 'center', 
-      minHeight: '100vh', 
-      bgcolor: '#ffffff', 
-      position: 'relative' 
-    }}>
-      
-      <Box
-        sx={{
-          width: '100%',
-          overflow: 'auto',
-          paddingBottom: '100px',
-        }}
-      >
-        {renderFormDisplay()}
+    <Box
+      sx={{
+        display: 'flex',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        bgcolor: '#f5f5f5',
+        position: 'relative',
+      }}
+    >
+      <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
+        <div id="assessment-clearance-content" style={screenFormStyle}>
+          {renderFormContent()}
+        </div>
+
+        <div ref={captureRef} style={captureFormStyle}>
+          {renderFormContent()}
+        </div>
       </Box>
 
-      {/* Floating Action Buttons (Bottom Right - ROW) */}
-      <Box className="no-print forms-floating-actions" sx={{position: 'fixed',
+      <Box
+        className="no-print forms-floating-actions"
+        sx={{
+          position: 'fixed',
           bottom: '1in',
           right: 30,
           display: 'flex',
-          flexDirection: 'row', 
           gap: 2,
           zIndex: 1000,
         }}
       >
-        <Zoom in={true} style={{ transitionDelay: '0ms' }}>
+        <Zoom in>
           <Tooltip title="Print Form" placement="top">
-            <Fab 
-              color="primary" 
-              aria-label="print" 
+            <Fab
               onClick={printPage}
-              sx={{ 
-                bgcolor: '#6D2323', 
+              sx={{
+                bgcolor: '#6D2323',
                 '&:hover': { bgcolor: '#8a4747' },
-                width: 56,
-                height: 56
               }}
             >
-              <PrintIcon />
+              <PrintIcon sx={{ color: '#fff' }} />
             </Fab>
           </Tooltip>
         </Zoom>
 
-        <Zoom in={true} style={{ transitionDelay: '100ms' }}>
+        <Zoom in>
           <Tooltip title="Download PDF" placement="top">
-            <Fab 
-              color="primary" 
-              aria-label="download" 
+            <Fab
               onClick={downloadPDF}
-              sx={{ 
-                bgcolor: '#6D2323', 
+              sx={{
+                bgcolor: '#6D2323',
                 '&:hover': { bgcolor: '#8a4747' },
-                width: 56,
-                height: 56
               }}
             >
-              <PictureAsPdfIcon />
+              <PictureAsPdfIcon sx={{ color: '#fff' }} />
             </Fab>
           </Tooltip>
         </Zoom>
       </Box>
 
-      {/* This overlay now has the blur effect */}
       <LoadingOverlay open={isGenerating} message="Generating Document..." />
 
       <Snackbar
@@ -816,8 +589,8 @@ const AssessmentClearance = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
         <Alert
-          onClose={handleCloseSnackbar}
           severity={snackbar.severity}
+          onClose={handleCloseSnackbar}
           sx={{ width: '100%' }}
         >
           {snackbar.message}
