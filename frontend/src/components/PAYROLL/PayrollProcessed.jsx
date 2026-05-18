@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import {
   Table,
@@ -241,6 +241,8 @@ const PayrollProcessed = () => {
   const [activePayrollView, setActivePayrollView] = useState('FULL_VIEW');
   const [openViewModal, setOpenViewModal] = useState(false);
   const [viewRow, setViewRow] = useState(null);
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [selectedEmpCat, setSelectedEmpCat] = useState('');
 
   // ── Payroll Month Filter State ──────────────────────────────────────────────
   const currentYear = new Date().getFullYear();
@@ -251,6 +253,22 @@ const PayrollProcessed = () => {
   const [selectedMonthDays, setSelectedMonthDays] = useState(null);
 
   const getCalendarDays = (year, month1based) => new Date(year, month1based, 0).getDate();
+
+  const employmentCategoryOptions = useMemo(() => {
+    const unique = new Map();
+    Object.values(empCatMap).forEach((cat) => {
+      if (!cat?.label) return;
+      if (!unique.has(cat.label)) {
+        unique.set(cat.label, {
+          label: cat.label,
+          colorHex: cat.colorHex || '#757575',
+        });
+      }
+    });
+    return Array.from(unique.values()).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [empCatMap]);
 
   const fetchPayrollFormulasData = async () => {
     try {
@@ -360,14 +378,49 @@ const PayrollProcessed = () => {
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
   };
 
-  const REGULAR_CATEGORIES = [2, 3, 4, -1];
+  const fetchEmpCatMap = async () => {
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+        getAuthHeaders(),
+      );
+      const map = {};
+      (Array.isArray(res.data) ? res.data : []).forEach((item) => {
+        if (!item.employeeNumber) return;
+        const label =
+          item.parentGroup && item.typeName
+            ? `${item.parentGroup} | ${item.typeName}`
+            : item.categoryLabel || '';
+        if (label)
+          map[item.employeeNumber.toString()] = {
+            label,
+            colorHex: item.colorHex || '#757575',
+            parentGroup: item.parentGroup || '',
+            typeName: item.typeName || '',
+          };
+      });
+      setEmpCatMap(map);
+    } catch (err) {
+      console.error('Error fetching employment categories:', err);
+    }
+  };
 
   const fetchFinalizedPayroll = async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/PayrollRoute/payroll-processed`, getAuthHeaders());
-      const regularData = (Array.isArray(res.data) ? res.data : []).filter((item) => REGULAR_CATEGORIES.includes(item.employmentCategory));
-      setFinalizedData(regularData);
-      setFilteredFinalizedData(regularData);
+      const allData = Array.isArray(res.data) ? res.data : [];
+      
+      // Filter by employment category if selected
+      let filteredByEmpCat = allData;
+      if (selectedEmpCat) {
+        filteredByEmpCat = allData.filter((record) => {
+          const cat = empCatMap[record.employeeNumber?.toString()];
+          return cat?.label === selectedEmpCat;
+        });
+      }
+      
+      setFinalizedData(filteredByEmpCat);
+      setFilteredFinalizedData(filteredByEmpCat);
       setLoading(false);
     } catch (err) {
       console.error('Error fetching finalized payroll:', err);
@@ -394,13 +447,15 @@ const PayrollProcessed = () => {
 
   usePayrollRealtimeRefresh(() => {
     fetchDepartments();
+    fetchEmpCatMap();
     fetchFinalizedPayroll();
     fetchReleasedPayroll();
     fetchPayrollFormulasData();
   });
 
   useEffect(() => { fetchDepartments(); }, []);
-  useEffect(() => { fetchFinalizedPayroll(); }, []);
+  useEffect(() => { fetchEmpCatMap(); }, []);
+  useEffect(() => { fetchFinalizedPayroll(); }, [selectedEmpCat, empCatMap]);
   useEffect(() => { fetchReleasedPayroll(); }, []);
   useEffect(() => { fetchPayrollFormulasData(); }, []);
 
@@ -412,6 +467,11 @@ const PayrollProcessed = () => {
       setSummaryData((prev) => ({ ...prev, totalReleased: 0 }));
     }
   }, [filteredFinalizedData, releasedIdSet]);
+
+  const handleEmpCatChange = (e) => {
+    setSelectedEmpCat(e.target.value);
+    setPage(0);
+  };
 
   const applyFilters = (department, search, filterDate, month, year, baseData = finalizedData) => {
     let filtered = [...baseData];
