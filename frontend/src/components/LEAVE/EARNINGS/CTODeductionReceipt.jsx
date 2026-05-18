@@ -5,6 +5,8 @@
 //  3. Step 3 restyled to match Step 1/2 aesthetics
 //  4. AttendanceSummary tip text is compact/professional (applied via prop pattern)
 //  5. Half-day/absent info is shown in EditModal via a tip banner
+//  FIX: VL is now force-injected into absenceOptionsUi and tardinessOptionsUi
+//       so employees without VL in /api/deductions/options still see it as an option.
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
@@ -75,7 +77,7 @@ const humanizeDeductionCharge = (src) => {
   return u || "—";
 };
 
-// ─── Theme tokens (unchanged) ─────────────────────────────────────────────────
+// ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
   accent: "#6d2323",
   accentDark: "#5a1d1d",
@@ -206,17 +208,9 @@ const BalanceFooter = ({ bal, label }) => {
   );
 };
 
-// ─── CollapsibleLedger — the new dropdown card ────────────────────────────────
-// Shows a summary header row. On click expands to the full receipt.
+// ─── CollapsibleLedger ────────────────────────────────────────────────────────
 const CollapsibleLedger = ({
-  title,          // e.g. "Absence offset (SC / CTO)"
-  valueLabel,     // e.g. "−0.250 d"
-  valueColor,
-  statusBadge,    // optional JSX badge
-  outline,        // "default" | "success" | "warning"
-  children,       // expanded body
-  footer,         // expanded footer
-  defaultOpen = false,
+  title, valueLabel, valueColor, statusBadge, outline, children, footer, defaultOpen = false,
 }) => {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -230,34 +224,24 @@ const CollapsibleLedger = ({
     : "rgba(0,0,0,0.025)";
 
   return (
-    <Box sx={{
-      border: `1px solid ${borderColor}`,
-      borderRadius: 1.5,
-      overflow: "hidden",
-      flex: 1, minWidth: 0,
-      bgcolor: "#fff",
-    }}>
-      {/* ── Clickable summary header ── */}
+    <Box sx={{ border:`1px solid ${borderColor}`, borderRadius:1.5, overflow:"hidden", flex:1, minWidth:0, bgcolor:"#fff" }}>
       <Box
         onClick={() => setOpen((p) => !p)}
         sx={{
-          px: 1.4, py: 0.9,
-          bgcolor: headerBg,
+          px:1.4, py:0.9, bgcolor:headerBg,
           borderBottom: open ? `1px solid ${borderColor}` : "none",
-          display: "flex", alignItems: "center", gap: 1,
-          cursor: "pointer", userSelect: "none",
-          transition: "background 0.14s",
+          display:"flex", alignItems:"center", gap:1,
+          cursor:"pointer", userSelect:"none", transition:"background 0.14s",
           "&:hover": { bgcolor: open ? headerBg : "rgba(0,0,0,0.04)" },
         }}
       >
-        {/* Title + value */}
         <Box sx={{ flex:1, minWidth:0 }}>
-          <Typography sx={{ fontSize:"0.7rem", fontWeight:700, color: T.text, fontFamily:T.poppins, lineHeight:1.2 }}>
+          <Typography sx={{ fontSize:"0.7rem", fontWeight:700, color:T.text, fontFamily:T.poppins, lineHeight:1.2 }}>
             {title}
           </Typography>
         </Box>
         {statusBadge && <Box sx={{ flexShrink:0 }}>{statusBadge}</Box>}
-        <Typography sx={{ fontSize:"0.85rem", fontWeight:900, color: valueColor || T.text, fontFamily:T.poppins, flexShrink:0, mr:0.5 }}>
+        <Typography sx={{ fontSize:"0.85rem", fontWeight:900, color:valueColor||T.text, fontFamily:T.poppins, flexShrink:0, mr:0.5 }}>
           {valueLabel}
         </Typography>
         {open
@@ -265,13 +249,9 @@ const CollapsibleLedger = ({
           : <ExpandMoreIcon sx={{ fontSize:15, color:T.faint, flexShrink:0 }} />
         }
       </Box>
-
-      {/* ── Expanded body ── */}
       <Collapse in={open}>
         <Box>
-          <Box sx={{ px:"11px", py:"8px" }}>
-            {children}
-          </Box>
+          <Box sx={{ px:"11px", py:"8px" }}>{children}</Box>
           {footer && <Box sx={{ flexShrink:0 }}>{footer}</Box>}
         </Box>
       </Collapse>
@@ -281,18 +261,9 @@ const CollapsibleLedger = ({
 
 // ─── Main CTODeductionReceipt ─────────────────────────────────────────────────
 const CTODeductionReceipt = ({
-  employee,
-  attendanceData,
-  year,
-  month,
-  onDeductSuccess,
-  refreshKey,
-  empCat,
-  onDeductHalfDayVLRequested,
-  halfDayDeductDate,
-  halfDayPendingDates,
-  deductedVlHalfDates = [],
-  metricsTardinessHrs,
+  employee, attendanceData, year, month, onDeductSuccess, refreshKey, empCat,
+  onDeductHalfDayVLRequested, halfDayDeductDate, halfDayPendingDates,
+  deductedVlHalfDates = [], metricsTardinessHrs,
 }) => {
   const [absenceDeductionOptions, setAbsenceDeductionOptions] = useState([]);
   const [tardinessDeductionOptions, setTardinessDeductionOptions] = useState([]);
@@ -467,18 +438,27 @@ const CTODeductionReceipt = ({
   const empCatAllowsCto=employmentCategoryAllowsCompensatoryTimeOff(empCat);
   const empCatDisplay=employmentCategoryLabel(empCat);
 
+  // ── FIX: Force VL into absence options (alongside existing SC injection) ────
   const absenceOptionsUi=useMemo(()=>{
     const list=Array.isArray(absenceDeductionOptions)?[...absenceDeductionOptions]:[];
+    // Force SC if missing
     if(!list.some((o)=>String(o?.value||"").toUpperCase()==="SC"))
       list.unshift({value:"SC",label:"Service Credit (SC)",leave_type_id:null});
+    // Force VL if missing
+    if(!list.some((o)=>String(o?.value||"").toUpperCase()==="VL"))
+      list.unshift({value:"VL",label:"Vacation Leave (VL)",leave_type_id:null});
     const sal=list.filter((o)=>String(o?.value||"").toUpperCase()==="SALARY_DEDUCTION");
     const rest=list.filter((o)=>String(o?.value||"").toUpperCase()!=="SALARY_DEDUCTION");
     const skipOpt={value:DEDUCTION_SKIP_VALUE,label:"Select...",leave_type_id:null};
     return[skipOpt,...rest,...sal];
   },[absenceDeductionOptions]);
 
+  // ── FIX: Force VL into tardiness options ────────────────────────────────────
   const tardinessOptionsUi=useMemo(()=>{
     const list=Array.isArray(tardinessDeductionOptions)?[...tardinessDeductionOptions]:[];
+    // Force VL if missing
+    if(!list.some((o)=>String(o?.value||"").toUpperCase()==="VL"))
+      list.unshift({value:"VL",label:"Vacation Leave (VL)",leave_type_id:null});
     const sal=list.filter((o)=>String(o?.value||"").toUpperCase()==="SALARY_DEDUCTION");
     const rest=list.filter((o)=>String(o?.value||"").toUpperCase()!=="SALARY_DEDUCTION");
     const skipOpt={value:DEDUCTION_SKIP_VALUE,label:"Select...",leave_type_id:null};
@@ -737,13 +717,11 @@ const CTODeductionReceipt = ({
   const absenceLedgerOutline=showAbsence&&absenceCoveredBySC&&absentDays>0?scApproved?"success":"warning":showAbsence&&absenceFullyDeducted&&!absenceCoveredBySC?absenceApproved?"success":"warning":showAbsence&&absentDays>0&&absenceSalaryFullyRecovered&&!absenceCoveredBySC&&!absenceFullyDeducted?"success":"default";
   const tardinessLedgerOutline=showTardiness&&tardinessFullyDeducted?tardinessApproved||tardinessSalaryFullyRecovered?"success":"warning":"default";
 
-  // ── Value labels for the collapsed summary header ──────────────────────────
   const absenceHeaderValue=!showAbsence?"—":absenceCoveredBySC?"Covered (SC)":absenceFullyDeducted?"Applied":remainingAbsence>0?`−${remainingAbsence.toFixed(3)} d`:"—";
   const absenceHeaderColor=!showAbsence?T.faint:absenceCoveredBySC||absenceFullyDeducted?"#2e7d32":remainingAbsence>0?"#c62828":T.faint;
   const tardinessHeaderValue=!showTardiness?"—":tardinessFullyDeducted?"Applied":remainingTardiness>0?`−${remainingTardiness.toFixed(3)} d`:"—";
   const tardinessHeaderColor=!showTardiness?T.faint:tardinessFullyDeducted?"#2e7d32":remainingTardiness>0?"#c62828":T.faint;
 
-  // ── Left ledger balance footer (for expanded view) ─────────────────────────
   const leftAbsLedgerBal=!showAbsence?null:useScCtoPolicyPreview?policySelection==="cto"?Number((ctoBal-remainingAbsence).toFixed(3)):Number((scBuffer-remainingAbsence).toFixed(3)):absenceIsSkipped?Number(ctoBal.toFixed(3)):absenceFullyDeducted||absenceCoveredBySC?Number((ctoBal-alreadyCtoDeducted).toFixed(3)):String(absenceSource).toUpperCase()==="SC"?newScBalanceAfterAbsence:String(absenceSource).toUpperCase()==="CTO"?newCtoBalance:String(absenceSource).toUpperCase()!=="SALARY_DEDUCTION"?Number((toNum(assignmentMap[absenceSource]?.remaining_hours)/8-remainingAbsence).toFixed(3)):newCtoBalance;
   const leftAbsLedgerLabel=!showAbsence?"":useScCtoPolicyPreview?policySelection==="cto"?"New CTO balance":"New SC balance":absenceIsSkipped?"No change":absenceFullyDeducted||absenceCoveredBySC?"New CTO bal":String(absenceSource).toUpperCase()==="SC"?"New SC bal":String(absenceSource).toUpperCase()==="CTO"?"New CTO bal":String(absenceSource).toUpperCase()!=="SALARY_DEDUCTION"?`New ${humanizeDeductionCharge(absenceSource)} bal`:"New CTO bal";
   const rightTardLedgerBal=!showTardiness?null:tardinessIsSkipped?Number(tardBalDays.toFixed(3)):tardinessFullyDeducted?Number((tardBalDays-totalTardPostedLeave).toFixed(3)):newVlBalance;
@@ -797,10 +775,9 @@ const CTODeductionReceipt = ({
           <Alert severity="success" sx={{ py:0.5, fontSize:"0.65rem", borderRadius:1.25 }}>{deductSuccess}</Alert>
         )}
 
-        {/* ═══ STEP 1 — Absence & Tardiness (collapsible side-by-side dropdowns) ═══ */}
+        {/* ═══ STEP 1 ═══ */}
         {showStep1 && (
           <Box sx={{ borderRadius:1.5, border:`1px solid ${bothDone?"rgba(46,125,50,0.22)":"rgba(109,35,35,0.14)"}`, bgcolor:"#fff", overflow:"hidden" }}>
-            {/* Header */}
             <Box sx={{ px:1.6, py:0.9, bgcolor:"rgba(0,0,0,0.03)", borderBottom:"1px solid rgba(0,0,0,0.08)", display:"flex", alignItems:"center", justifyContent:"space-between", gap:1, flexWrap:"wrap" }}>
               <Box sx={{ display:"flex", alignItems:"center", gap:0.75, minWidth:0 }}>
                 <StepNum n={1} done={bothDone} />
@@ -822,7 +799,6 @@ const CTODeductionReceipt = ({
             </Box>
 
             <Box sx={{ px:1.6, py:1.1 }}>
-              {/* SC-first warning */}
               {showScWarningButtons && (
                 <Box sx={{ display:"flex", gap:0.75, alignItems:"flex-start", p:"8px 10px", mb:1, borderRadius:1.25, bgcolor:"#FAEEDA", border:"0.5px solid #FAC775" }}>
                   <Box sx={{ width:13,height:13,borderRadius:"50%",bgcolor:"#FAC775",color:"#633806",fontSize:"0.6rem",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,mt:"2px" }}>!</Box>
@@ -832,7 +808,6 @@ const CTODeductionReceipt = ({
                 </Box>
               )}
 
-              {/* SC/CTO draw-order selector */}
               {showScWarningButtons&&absentDays>0&&!absenceCoveredBySC&&!absenceFullyDeducted&&remainingAbsence>0&&(
                 <Box sx={{ border:"2px solid #185FA5", borderRadius:1.25, overflow:"hidden", mb:1 }}>
                   <Box sx={{ px:1, py:0.4, bgcolor:"#E6F1FB", borderBottom:"1px solid #B5D4F4" }}>
@@ -854,16 +829,14 @@ const CTODeductionReceipt = ({
                 </Box>
               )}
 
-              {/* ── Two side-by-side collapsible ledger cards ── */}
               <Box sx={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:1 }}>
-
                 {/* LEFT — Absence offset */}
                 <CollapsibleLedger
                   title="Absence offset (SC / CTO)"
                   valueLabel={absenceHeaderValue}
                   valueColor={absenceHeaderColor}
                   outline={absenceLedgerOutline}
-defaultOpen={false}
+                  defaultOpen={false}
                   statusBadge={
                     !showAbsence ? (
                       <Chip size="small" label="None" sx={{ height:15,fontSize:"0.55rem",fontWeight:600,bgcolor:"rgba(46,125,50,0.1)",color:"#1b5e20",border:"none" }} />
@@ -927,7 +900,7 @@ defaultOpen={false}
                   valueLabel={tardinessHeaderValue}
                   valueColor={tardinessHeaderColor}
                   outline={tardinessLedgerOutline}
-defaultOpen={false}
+                  defaultOpen={false}
                   statusBadge={
                     tardinessFullyDeducted ? (
                       <SBadge label={tardinessApproved||tardinessSalaryFullyRecovered?"Applied":"Pending"} approved={tardinessApproved||tardinessSalaryFullyRecovered} />
@@ -964,7 +937,7 @@ defaultOpen={false}
           </Box>
         )}
 
-        {/* ═══ STEP 2 — Choose deduction accounts ═══════════════════════════ */}
+        {/* ═══ STEP 2 ═══ */}
         {showStep2AccountsCard && (
           <Box sx={{ borderRadius:1.5, border:"1px solid rgba(0,0,0,0.1)", bgcolor:"#fff", overflow:"hidden" }}>
             <Box sx={{ px:1.6, py:0.9, bgcolor:"rgba(0,0,0,0.03)", borderBottom:"1px solid rgba(0,0,0,0.08)", display:"flex", alignItems:"center", gap:0.75 }}>
@@ -1056,14 +1029,13 @@ defaultOpen={false}
           <Alert severity={absenceApproved||scApproved?"success":"warning"} sx={{ py:0.35,fontSize:"0.65rem" }}>Absence deduction already {absenceApproved||scApproved?"approved":"pending"}.</Alert>
         )}
 
-        {/* ═══ STEP 3 — Half-day deductions (restyled to match Steps 1/2) ═══ */}
+        {/* ═══ STEP 3 — Half-day deductions ═══ */}
         {halfDayRows.length>0&&typeof onDeductHalfDayVLRequested==="function"&&(
           <Box sx={{
             borderRadius:1.5,
             border:`1px solid ${halfDayPendingCount===0?"rgba(46,125,50,0.45)":"rgba(0,0,0,0.1)"}`,
             bgcolor:"#fff", overflow:"hidden",
           }}>
-            {/* Header — matches Steps 1/2 style exactly */}
             <Box sx={{
               px:1.6, py:0.9,
               bgcolor:halfDayPendingCount===0?"rgba(46,125,50,0.06)":"rgba(0,0,0,0.03)",
@@ -1087,7 +1059,6 @@ defaultOpen={false}
               />
             </Box>
 
-            {/* Body */}
             <Box sx={{ px:1.6, py:1 }}>
               <Box sx={{ display:"flex", flexDirection:"column", gap:0.75 }}>
                 {halfDayRows.map((d)=>{
@@ -1232,7 +1203,6 @@ defaultOpen={false}
               </Alert>);
             })()}
 
-            {/* Policy notes */}
             {deductSource==="cto"&&(
               <Box sx={{ display:"flex",alignItems:"flex-start",gap:0.8,px:1.25,py:1,borderRadius:"10px",bgcolor:"rgba(255,152,0,0.08)",border:"1px solid rgba(255,152,0,0.3)" }}>
                 <WarnIcon sx={{ fontSize:15,color:"#e65100",flexShrink:0,mt:"1px" }} />

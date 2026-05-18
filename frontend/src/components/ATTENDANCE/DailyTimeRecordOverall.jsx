@@ -372,7 +372,7 @@ const DailyTimeRecordFaculty = () => {
   const [records, setRecords]             = useState([]);
   const [employeeName, setEmployeeName]   = useState('');
   const [officialTimes, setOfficialTimes] = useState({});
-  const [batchOfficialTimesMap, setBatchOfficialTimesMap] = useState({}); // Map of employeeNumber -> officialTimes
+  const [batchOfficialTimesMap, setBatchOfficialTimesMap] = useState({});
   const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
   const dtrRef = useRef(null);
 
@@ -611,20 +611,16 @@ const DailyTimeRecordFaculty = () => {
 
       const allRows = response.data || [];
 
-      // Filter to only schedules whose date range overlaps the selected period.
-      // If no period is provided (initial load), skip filtering.
       const filtered = (periodStart && periodEnd)
         ? allRows.filter((r) => {
             const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
             const schedEnd   = r.endDate   ? String(r.endDate).split('T')[0]   : null;
             if (!schedStart || !schedEnd) return false;
-            // Overlap condition: sched starts before period ends AND sched ends after period starts
             return schedStart <= periodEnd && schedEnd >= periodStart;
           })
         : allRows;
 
       const map = filtered.reduce((acc, r) => {
-        // Last-write-wins per day — higher id = more recent row takes precedence
         if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
           acc[r.day] = {
             _id: r.id,
@@ -637,7 +633,6 @@ const DailyTimeRecordFaculty = () => {
         return acc;
       }, {});
 
-      // Strip internal _id before storing
       const cleanMap = Object.fromEntries(
         Object.entries(map).map(([day, val]) => {
           const { _id, ...rest } = val;
@@ -860,14 +855,17 @@ const DailyTimeRecordFaculty = () => {
       });
       setAllUsersDTR(skeletonUsers);
       setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
-      const empNums = empList.map((e) => e.personID);
-      axios.post(`${API_BASE_URL}/attendance/api/dtr-print-status`, { employeeNumbers: empNums, year: new Date(startDate).getFullYear(), month: new Date(startDate).getMonth() + 1 }, cfg())
+
+      // ── FIX: renamed from empNums to empNumsForStatus to avoid redeclaration ──
+      const empNumsForStatus = empList.map((e) => e.personID);
+      axios.post(`${API_BASE_URL}/attendance/api/dtr-print-status`, { employeeNumbers: empNumsForStatus, year: new Date(startDate).getFullYear(), month: new Date(startDate).getMonth() + 1 }, cfg())
         .then((psRes) => {
           if (signal.aborted) return;
           const newMap = new Map();
           (psRes.data || []).forEach((s) => newMap.set(s.employee_number, { printed_at: s.printed_at, printed_by: s.printed_by }));
           setPrintStatusMap(newMap);
         }).catch((e) => { if (!signal.aborted) console.error('print status:', e); });
+
       const totalPages = Math.ceil(empList.length / PAGE_SIZE);
       const pageResults = await Promise.all(
         Array.from({ length: totalPages }, (_, index) => index + 1).map(async (page) => {
@@ -900,7 +898,8 @@ const DailyTimeRecordFaculty = () => {
       });
       setAllUsersDTR(mergedUsers.slice());
       setAllUsersDTR((prev) => prev.map((u) => (u._loading ? { ...u, _loading: false } : u)));
-      // Fetch official times for all batch users
+
+      // ── Second empNums usage — kept as-is (no conflict now) ──
       const empNums = mergedUsers.map((u) => u.employeeNumber);
       fetchBatchOfficialTimes(empNums, startDate, endDate).catch(() => {});
     } catch (error) {
@@ -1522,7 +1521,6 @@ const DailyTimeRecordFaculty = () => {
       );
     });
 
-  // officialTimesForUser: pass the fetched map for individual; for batch use {} (per-user fetch not done in batch)
   const renderDTRTablePair = (sourceRecords, nameDisplay, officialTimesForUser = {}) => (
     <div style={{ display: 'flex', gap: '2%', width: '8.7in', minWidth: '8.5in', margin: '0 auto', backgroundColor: 'white', position: 'relative', zIndex: 1 }} className="table-side-by-side">
       {[0, 1].map((tIdx) => (
@@ -1542,7 +1540,6 @@ const DailyTimeRecordFaculty = () => {
         {renderDTRTablePair(
           user.records,
           user.fullName,
-          // Use fetched official times from batch map, or single-loaded official times if user matches personID
           String(user.employeeNumber) === String(personID) ? officialTimes : (batchOfficialTimesMap[user.employeeNumber] || {}),
         )}
       </div>
@@ -1854,7 +1851,6 @@ const DailyTimeRecordFaculty = () => {
                                     <div className="table-container" ref={dtrRef}>
                                       <div className="table-wrapper" style={{ position: 'relative' }}>
                                         <img src={hrisLogo} alt="Watermark" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.07, width: '80%', maxWidth: '600px', pointerEvents: 'none', userSelect: 'none', zIndex: 0 }} />
-                                        {/* Pass officialTimes for the individual view */}
                                         {renderDTRTablePair(records, employeeName, officialTimes)}
                                       </div>
                                     </div>
@@ -2207,7 +2203,6 @@ const DailyTimeRecordFaculty = () => {
                 </Box>
               </DialogContent>
             </Dialog>
-
           </Box>
         </Fade>
       )}

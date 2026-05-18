@@ -1155,12 +1155,6 @@ function FloatingConversionWidget({ onNavigateToModule }) {
 }
 
 // ─── CommutationWarningModal ───────────────────────────────────────────────────
-/**
- * isCurrent: whether the period being commuted is the latest (current) one.
- * previousPeriods: sibling periods for this employee+leaveCode (all of them, for breakdown display).
- * previousPeriodsToCommute: ONLY the non-locked periods with remaining > 0 that will ALSO be commuted
- *   (only populated when isCurrent=true, i.e. cascade scenario).
- */
 const CommutationWarningModal = ({
   open, onClose, onConfirm,
   period,
@@ -1181,7 +1175,6 @@ const CommutationWarningModal = ({
   const usedHrs    = toNum(period.used_hours);
   const totalHrs   = toNum(period.total_hours);
 
-  // Total remaining that will be commuted across all affected periods
   const cascadeRemHrs = previousPeriodsToCommute.reduce((s, p) => s + toNum(p.remaining_hours), 0);
   const grandTotalCommuted = remHrs + (isCurrent ? cascadeRemHrs : 0);
 
@@ -1193,7 +1186,6 @@ const CommutationWarningModal = ({
     <Modal open={open} onClose={!loading ? onClose : undefined} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}>
       <Fade in={open}>
         <Box sx={{ width: "100%", maxWidth: isCurrent && previousPeriodsToCommute.length > 0 ? 580 : 520, borderRadius: "14px", overflow: "hidden", boxShadow: "0 32px 80px rgba(0,0,0,0.28)", bgcolor: "#fff", display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
-          {/* Header */}
           <Box sx={{ px: 3.5, py: 2.5, background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 50%, #b91c1c 100%)", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden", flexShrink: 0 }}>
             <Box sx={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.05)" }} />
             <Box sx={{ position: "absolute", bottom: -20, left: "40%", width: 100, height: 100, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
@@ -1211,10 +1203,7 @@ const CommutationWarningModal = ({
             <IconButton onClick={onClose} disabled={loading} size="small" sx={{ color: "rgba(255,255,255,0.7)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}><Close sx={{ fontSize: 16 }} /></IconButton>
           </Box>
 
-          {/* Body */}
           <Box sx={{ px: 3.5, py: 2.5, overflowY: "auto", flex: 1 }}>
-
-            {/* Cascade notice */}
             {isCurrent && previousPeriodsToCommute.length > 0 && (
               <Box sx={{ mb: 2.5, px: 2, py: 1.5, borderRadius: "10px", bgcolor: "rgba(230,81,0,0.07)", border: "1.5px solid rgba(230,81,0,0.28)", display: "flex", gap: 1.25 }}>
                 <InfoIcon sx={{ fontSize: 18, color: "#e65100", flexShrink: 0, mt: 0.1 }} />
@@ -1225,7 +1214,6 @@ const CommutationWarningModal = ({
                   <Typography sx={{ fontSize: "0.7rem", color: "#78350f", fontFamily: T.poppins, lineHeight: 1.6 }}>
                     Since you are commuting the current period, all older periods with remaining balances will be commuted first to keep records consistent.
                   </Typography>
-                  {/* List previous periods */}
                   <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 0.4 }}>
                     {previousPeriodsToCommute.map((pp) => (
                       <Box key={pp.id} sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 1.25, py: 0.5, borderRadius: "7px", bgcolor: "rgba(230,81,0,0.06)", border: "1px solid rgba(230,81,0,0.18)" }}>
@@ -1238,7 +1226,6 @@ const CommutationWarningModal = ({
               </Box>
             )}
 
-            {/* Big commutation amount */}
             <Box sx={{ mb: 2.5, p: 2.5, borderRadius: "10px", background: "linear-gradient(135deg, rgba(109,35,35,0.06) 0%, rgba(109,35,35,0.02) 100%)", border: `1.5px solid rgba(109,35,35,0.18)`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <Box>
                 <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: alpha(T.accent, 0.55), textTransform: "uppercase", letterSpacing: "0.09em", mb: 0.4, fontFamily: T.poppins }}>
@@ -1269,7 +1256,6 @@ const CommutationWarningModal = ({
               </Box>
             </Box>
 
-            {/* Current period balance breakdown */}
             <Box sx={{ mb: 1.25 }}>
               <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.75 }}>Current period breakdown</Typography>
               <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1 }}>
@@ -1282,7 +1268,6 @@ const CommutationWarningModal = ({
               </Box>
             </Box>
 
-            {/* Carry-over warning */}
             {hasCarryOver && (
               <Box sx={{ mb: 2, px: 2, py: 1.5, borderRadius: "10px", bgcolor: "rgba(234,179,8,0.07)", border: "1.5px solid rgba(234,179,8,0.35)", display: "flex", gap: 1.25 }}>
                 <WarningIcon sx={{ fontSize: 18, color: "#b45309", flexShrink: 0, mt: 0.15 }} />
@@ -1295,7 +1280,6 @@ const CommutationWarningModal = ({
               </Box>
             )}
 
-            {/* What happens after cascade note */}
             {isCurrent && previousPeriodsToCommute.length > 0 && (
               <Box sx={{ mb: 2, px: 2, py: 1.25, borderRadius: "8px", bgcolor: "rgba(25,118,210,0.05)", border: "1px solid rgba(25,118,210,0.18)" }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
@@ -1308,7 +1292,6 @@ const CommutationWarningModal = ({
               </Box>
             )}
 
-            {/* Irreversible warning */}
             <Box sx={{ px: 2, py: 1.5, borderRadius: "10px", bgcolor: "rgba(220,38,38,0.06)", border: "1.5px solid rgba(220,38,38,0.22)", display: "flex", gap: 1.25 }}>
               <CommutationIcon sx={{ fontSize: 18, color: "#dc2626", flexShrink: 0, mt: 0.1 }} />
               <Box>
@@ -1320,7 +1303,6 @@ const CommutationWarningModal = ({
             </Box>
           </Box>
 
-          {/* Footer */}
           <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
             <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic", maxWidth: 240 }}>
               {isCurrent && previousPeriodsToCommute.length > 0
@@ -1384,8 +1366,6 @@ const LeaveAssignment = () => {
   const [selectedEmployeeLeaves,     setSelectedEmployeeLeaves]     = useState(null);
   const [selectedLeaveTypeInModal,   setSelectedLeaveTypeInModal]   = useState(null);
 
-  // commutationWarning now includes extra metadata
-  // shape: { period, isCurrent, previousPeriodsToCommute }
   const [commutationWarning, setCommutationWarning] = useState(null);
 
   const [recordsPage,         setRecordsPage]         = useState(0);
@@ -1632,8 +1612,6 @@ const LeaveAssignment = () => {
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  // ─── refreshModalState ────────────────────────────────────────────────────────
-  // Re-fetches assignments and syncs the modal's selectedEmployeeLeaves/selectedLeaveTypeInModal state.
   const refreshModalState = useCallback(async (empNum, leaveCode) => {
     await fetchAssignments();
     const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`);
@@ -1656,26 +1634,19 @@ const LeaveAssignment = () => {
     return grouped;
   }, []); // eslint-disable-line
 
-  // ─── handleOpenCommutationWarning ─────────────────────────────────────────────
-  // Determines whether this is the current (latest) period for the employee+leaveCode,
-  // and if so, gathers all previous non-locked periods with remaining > 0.
   const handleOpenCommutationWarning = useCallback((period) => {
     if (!period?.id) return;
     const rem = toNum(period.remaining_hours);
     if (rem <= 0) return;
 
-    // Get all sibling periods for same employee + leaveCode
     const siblings = assignments.filter(
       (a) => a.employeeNumber?.toString() === period.employeeNumber?.toString() && a.leave_code === period.leave_code
     );
 
-    // Sort descending to find the current (latest) period
     const sorted = sortPeriodsDesc(siblings);
     const latestId = sorted[0]?.id;
     const isCurrent = String(period.id) === String(latestId);
 
-    // Previous periods to cascade-commute: only if commuting the current one
-    // These are all sibling periods that are NOT the current, NOT already locked, and have remaining > 0
     const previousPeriodsToCommute = isCurrent
       ? sorted.slice(1).filter((p) => !isCommutedLocked(p) && toNum(p.remaining_hours) > 0)
       : [];
@@ -1683,10 +1654,6 @@ const LeaveAssignment = () => {
     setCommutationWarning({ period, isCurrent, previousPeriodsToCommute });
   }, [assignments]);
 
-  // ─── handleTransferToCommutation ──────────────────────────────────────────────
-  // Main commutation handler. When isCurrent=true and there are previous periods,
-  // cascade-commute all of them first, then commute the current one,
-  // then update the current period's carried_forward_hours to 0.
   const handleTransferToCommutation = useCallback(async () => {
     if (!commutationWarning) return;
     const { period, isCurrent, previousPeriodsToCommute } = commutationWarning;
@@ -1702,7 +1669,6 @@ const LeaveAssignment = () => {
     const headers = { Authorization: `Bearer ${token}` };
 
     try {
-      // Step 1: Cascade-commute all previous periods (oldest first for clean ordering)
       if (isCurrent && previousPeriodsToCommute.length > 0) {
         const oldestFirst = [...previousPeriodsToCommute].reverse();
         for (const prev of oldestFirst) {
@@ -1710,23 +1676,14 @@ const LeaveAssignment = () => {
         }
       }
 
-      // Step 2: Commute the current period itself
       await axios.post(`${API_BASE_URL}/commutationRoute/leave_commutation/commute/${period.id}`, {}, { headers });
 
-      // Step 3: If cascade happened, the current period's total included carry-over from those
-      // now-commuted previous periods. We need to zero out the carried_forward_hours so the
-      // current period's total no longer double-counts them. Also zero remaining.
-      // NOTE: The backend /commute/:id should already set remaining_hours=0 and lock the record.
-      // What we additionally do here is patch carried_forward_hours=0 on the CURRENT period
-      // so the total_hours is recalculated correctly if re-displayed.
       if (isCurrent && previousPeriodsToCommute.length > 0) {
         const cascadeCarriedHrs = previousPeriodsToCommute.reduce((s, p) => s + toNum(p.remaining_hours), 0);
-        // Only patch if the current period actually carried those forward
         const currentCarried = toNum(period.carried_forward_hours);
         if (currentCarried > 0) {
           const newCarried  = Math.max(0, currentCarried - cascadeCarriedHrs);
           const newTotal    = Math.max(0, toNum(period.total_hours) - cascadeCarriedHrs);
-          // remaining is 0 (just commuted)
           try {
             await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${period.id}`,
               {
@@ -1742,14 +1699,10 @@ const LeaveAssignment = () => {
               },
               { headers }
             );
-          } catch {
-            // Non-fatal: the commutation already happened, just the carry-over patch failed.
-            // Log silently.
-          }
+          } catch { /* non-fatal */ }
         }
       }
 
-      // Refresh state
       setCommutationWarning(null);
       const empNum = period.employeeNumber?.toString();
       const leaveCode = period.leave_code;
@@ -2090,7 +2043,7 @@ const LeaveAssignment = () => {
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
                         const remH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours); }, 0);
-                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.total_hours); }, 0);
+                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours) + toNum(latest?.used_hours); }, 0);
                         const overallColor = getStatusColor(remH, totalH);
                         const initials = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info = getEmployeeInfo(grp.employeeNumber);
@@ -2117,7 +2070,7 @@ const LeaveAssignment = () => {
                                 {grp.leaveTypes.slice(0, 3).map((lt) => {
                                   const latest = getLatestPeriodSnapshot(lt.periods);
                                   const displayH = toNum(latest?.remaining_hours);
-                                  const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
+                                  const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.remaining_hours) + toNum(latest?.used_hours));
                                   return (
                                     <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
                                       <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, whiteSpace: "nowrap", fontFamily: T.poppins }}>{lt.leave_code} {unit === "hours" ? `${displayH.toFixed(3)}h` : `${(displayH / 8).toFixed(3)}d`}</Typography>
@@ -2144,7 +2097,7 @@ const LeaveAssignment = () => {
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
                         const remH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours); }, 0);
-                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.total_hours); }, 0);
+                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours) + toNum(latest?.used_hours); }, 0);
                         const overallColor = getStatusColor(remH, totalH);
                         const initials = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info = getEmployeeInfo(grp.employeeNumber);
@@ -2172,7 +2125,7 @@ const LeaveAssignment = () => {
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                               {grp.leaveTypes.slice(0, 3).map((lt) => {
                                 const latest = getLatestPeriodSnapshot(lt.periods);
-                                const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.total_hours));
+                                const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.remaining_hours) + toNum(latest?.used_hours));
                                 return <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{lt.leave_code}</Typography></Box>;
                               })}
                               {grp.leaveTypes.length > 3 && <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.leaveTypes.length - 3}</Typography></Box>}
@@ -2237,8 +2190,8 @@ const LeaveAssignment = () => {
                             {selectedEmployeeLeaves.leaveTypes.map((lt) => {
                               const latest = getLatestPeriodSnapshot(lt.periods);
                               const remH   = toNum(latest?.remaining_hours);
-                              const totalH = toNum(latest?.total_hours);
-                              const sc     = getStatusColor(remH, totalH);
+                              const usedH  = toNum(latest?.used_hours);
+                              const sc     = getStatusColor(remH, remH + usedH);
                               const isActive = selectedLeaveTypeInModal?.leave_code === lt.leave_code;
                               const ltObj  = leaveTypes.find((x) => x.leave_code === lt.leave_code);
                               const restriction = ltObj ? getLeaveGenderRestriction(ltObj) : null;
@@ -2271,7 +2224,6 @@ const LeaveAssignment = () => {
                             <Box sx={{ flex: 1, overflowY: "auto", p: 3 }}>
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                 {sortPeriodsDesc(selectedLeaveTypeInModal.periods).map((period, index) => {
-                                  const sc         = getStatusColor(period.remaining_hours, period.total_hours);
                                   const isLatest   = index === 0;
                                   const isLocked   = isCommutedLocked(period);
                                   const remHrs     = toNum(period.remaining_hours);
@@ -2280,7 +2232,10 @@ const LeaveAssignment = () => {
                                   const carriedHrs = toNum(period.carried_forward_hours);
                                   const allocRawHrs = toNum(period.allocated_hours);
                                   const allocHrs   = allocRawHrs > 0 ? allocRawHrs : Math.max(0, totalHrs - carriedHrs);
-                                  const pctUsed    = isLocked ? 0 : (totalHrs > 0 ? Math.min((usedHrs / totalHrs) * 100, 100) : 0);
+                                  // ─── FIX: Total = remaining + used (excludes commuted-away credits) ───
+                                  const usableTotal = remHrs + usedHrs;
+                                  const sc         = getStatusColor(remHrs, usableTotal);
+                                  const pctUsed    = isLocked ? 0 : (usableTotal > 0 ? Math.min((usedHrs / usableTotal) * 100, 100) : 0);
                                   const fmt        = (h) => unit === "hours" ? `${toNum(h).toFixed(3)} h` : `${(toNum(h) / 8).toFixed(3)} d`;
                                   return (
                                     <Box key={period.id} sx={{ borderRadius: "10px", border: `1px solid ${isLatest ? "#2E7D32" : T.divider}`, overflow: "hidden", bgcolor: "#fff" }}>
@@ -2296,9 +2251,15 @@ const LeaveAssignment = () => {
                                         </Box>
                                       </Box>
 
-                                      {/* Stats grid */}
+                                      {/* Stats grid — Total now shows remHrs + usedHrs (excludes commuted credits) */}
                                       <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
-                                        {[["Carried Over", carriedHrs, carriedHrs > 0 ? "#2e7d32" : T.faint], ["Balance Given", allocHrs, "#1565c0"], ["Used", usedHrs, "#e65100"], ["Remaining", remHrs, sc], ["Total", totalHrs, "#2e7d32"]].map(([label, val, color], i) => (
+                                        {[
+                                          ["Carried Over", carriedHrs, carriedHrs > 0 ? "#2e7d32" : T.faint],
+                                          ["Balance Given", allocHrs, "#1565c0"],
+                                          ["Used", usedHrs, "#e65100"],
+                                          ["Remaining", remHrs, sc],
+                                          ["Total", usableTotal, "#2e7d32"],
+                                        ].map(([label, val, color], i) => (
                                           <Box key={label} sx={{ px: 1.75, py: 1.5, borderRight: i < 4 ? `1px solid ${T.divider}` : "none", borderBottom: `1px solid ${T.divider}`, textAlign: "center" }}>
                                             <Typography sx={{ fontSize: "0.59rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.5 }}>{label}</Typography>
                                             <Typography sx={{ fontWeight: 800, color, fontSize: "0.9rem", lineHeight: 1, fontFamily: T.poppins }}>{fmt(val)}</Typography>
@@ -2396,7 +2357,7 @@ const LeaveAssignment = () => {
                         <Box sx={{ mb: 2.5, p: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <Box>
                             <Typography sx={fieldLabelSx}>Still Available</Typography>
-                            <RemainingBalance hoursLike={toNum(editAssignment.remaining_hours)} color={getStatusColor(toNum(editAssignment.remaining_hours), toNum(editAssignment.total_hours))} unit={unit} alignItems="flex-start" large />
+                            <RemainingBalance hoursLike={toNum(editAssignment.remaining_hours)} color={getStatusColor(toNum(editAssignment.remaining_hours), toNum(editAssignment.remaining_hours) + toNum(editAssignment.used_hours))} unit={unit} alignItems="flex-start" large />
                           </Box>
                           <Box sx={{ textAlign: "right" }}>
                             <Typography sx={fieldLabelSx}>Period</Typography>
@@ -2409,7 +2370,7 @@ const LeaveAssignment = () => {
                           </Box>
                         </Box>
                         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1.5, mb: 2.5 }}>
-                          {[["Total Credits", toNum(editAssignment.total_hours), T.accent], ["Used So Far", toNum(editAssignment.used_hours), "#ed6c02"], ["Still Available", toNum(editAssignment.remaining_hours), getStatusColor(toNum(editAssignment.remaining_hours), toNum(editAssignment.total_hours))]].map(([label, val, color]) => (
+                          {[["Total Credits", toNum(editAssignment.remaining_hours) + toNum(editAssignment.used_hours), T.accent], ["Used So Far", toNum(editAssignment.used_hours), "#ed6c02"], ["Still Available", toNum(editAssignment.remaining_hours), getStatusColor(toNum(editAssignment.remaining_hours), toNum(editAssignment.remaining_hours) + toNum(editAssignment.used_hours))]].map(([label, val, color]) => (
                             <Box key={label} sx={{ p: 1.5, borderRadius: 2, textAlign: "center", bgcolor: `${color}08`, border: `1px solid ${color}20` }}>
                               <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5, mb: 0.25, fontFamily: T.poppins }}>{label}</Typography>
                               <Typography sx={{ fontWeight: 900, color, fontSize: "0.95rem", lineHeight: 1, fontFamily: T.poppins }}>{unit === "hours" ? `${val.toFixed(3)}h` : `${(val / 8).toFixed(3)}d`}</Typography>

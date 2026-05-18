@@ -1,13 +1,54 @@
-const express = require("express");
-const router = express.Router();
-const db = require("../db");
-const jwt = require("jsonwebtoken");
-const { logAudit } = require("../middleware/auth");
+/**
+ * commutationRoute.js
+ *
+ * Key change vs. previous version:
+ *   OLD → UPDATE leave_assignment SET remaining_hours = 0, used_hours = total_hours
+ *   NEW → INSERT leave_credit_usage (hours_delta = -remaining)
+ *         UPDATE leave_assignment SET commuted = 1   ← lock flag only, no balance mutation
+ *
+ * Required one-time migration (see migration_leave_credit_usage.sql):
+ *   ALTER TABLE leave_assignment ADD COLUMN commuted TINYINT(1) NOT NULL DEFAULT 0;
+ *
+ *   CREATE TABLE leave_credit_usage (
+ *     id INT AUTO_INCREMENT PRIMARY KEY,
+ *     leave_assignment_id INT NOT NULL,
+ *     source_type VARCHAR(50) NOT NULL,  -- 'commutation' | 'leave_request'
+ *     source_id   INT DEFAULT NULL,
+ *     hours_delta DECIMAL(10,4) NOT NULL, -- negative = deduction
+ *     voided_at   DATETIME DEFAULT NULL,
+ *     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ *     KEY idx_lcu_assignment (leave_assignment_id)
+ *   );
+ */
+
+const express = require('express');
+const router  = express.Router();
+const db      = require('../db');
+const jwt     = require('jsonwebtoken');
+const { logAudit } = require('../middleware/auth');
 
 let io;
-router.setSocketIO = (socketIO) => {
-  io = socketIO;
+router.setSocketIO = (socketIO) => { io = socketIO; };
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+const parseDbHours = (val) => {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  const s = String(val).trim();
+  if (!s) return 0;
+  if (s.includes(':')) {
+    const [hh, mm, ss] = s.split(':');
+    return (Number(hh) || 0) + (Number(mm) || 0) / 60 + (Number(ss) || 0) / 3600;
+  }
+  const n = parseFloat(s.replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
 };
+
+const query = (sql, params = []) =>
+  new Promise((resolve, reject) =>
+    db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result))),
+  );
 
 const getActorEmployeeNumber = (req, fallback = null) => {
   if (req.user?.employeeNumber) return String(req.user.employeeNumber);
@@ -17,117 +58,87 @@ const getActorEmployeeNumber = (req, fallback = null) => {
     try {
       const decoded = jwt.decode(token);
       if (decoded?.employeeNumber) return String(decoded.employeeNumber);
-      if (decoded?.username) return String(decoded.username);
-    } catch (e) { /* ignore */ }
+      if (decoded?.username)       return String(decoded.username);
+    } catch (_) { /* ignore */ }
   }
   return fallback ? String(fallback) : 'unknown';
 };
 
-const insertTransactionLog = (employeeId, message) =>
-  new Promise((resolve) => {
-    db.query(
+const insertTransactionLog = async (employeeId, message) => {
+  try {
+    await query(
       'INSERT INTO transaction_table (employee_id, message) VALUES (?, ?)',
       [employeeId, message],
-      (err, result) => resolve(err ? null : result)
     );
-  });
+  } catch (_) { /* non-fatal */ }
+};
 
-const getEmployeeFullName = (employeeNumber) =>
-  new Promise((resolve) => {
-    db.query(
+const getEmployeeFullName = async (employeeNumber) => {
+  try {
+    const rows = await query(
       `SELECT CONCAT_WS(' ', firstName, middleName, lastName, nameExtension) AS fullName
-       FROM person_table WHERE agencyEmployeeNum = ? LIMIT 1`,
+         FROM person_table WHERE agencyEmployeeNum = ? LIMIT 1`,
       [employeeNumber],
-      (err, rows) => resolve((!err && rows && rows[0]?.fullName) ? rows[0].fullName.trim() : String(employeeNumber))
     );
-  });
+    return rows[0]?.fullName?.trim() || String(employeeNumber);
+  } catch (_) { return String(employeeNumber); }
+};
 
-const formatUserDisplayName = (employeeNumber, fullName) =>
-  fullName && fullName !== String(employeeNumber) ? `${fullName} (${employeeNumber})` : String(employeeNumber);
+const formatUserDisplayName = (num, name) =>
+  name && name !== String(num) ? `${name} (${num})` : String(num);
 
 const emitChange = (eventName) => {
-  if (io) {
-    io.emit(eventName);
-    console.log(`[Socket.IO] Emitted ${eventName}`);
-  }
+  if (io) { io.emit(eventName); console.log(`[Socket.IO] Emitted ${eventName}`); }
 };
 
-// ─── helpers ────────────────────────────────────────────────
-const parseDbHours = (val) => {
-  if (val === null || val === undefined) return 0;
-  if (typeof val === "number") return Number.isFinite(val) ? val : 0;
-  const s = String(val).trim();
-  if (!s) return 0;
-  if (s.includes(":")) {
-    const [hh, mm, ss] = s.split(":");
-    return (Number(hh) || 0) + (Number(mm) || 0) / 60 + (Number(ss) || 0) / 3600;
-  }
-  const n = parseFloat(s.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : 0;
-};
+// ─── GET /leave_commutation ───────────────────────────────────────────────────
 
-// Status labels
-const STATUS = { 0: "Pending", 1: "Approved", 2: "Released", 3: "Cancelled" };
-
-// ============================================================
-// GET /leave_commutation
-// All commutation records (with employee & leave info)
-// ============================================================
-router.get("/leave_commutation", (req, res) => {
-  const query = `
-    SELECT
-      lc.*,
-      lt.leave_description,
-      CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS fullName,
-      p.firstName, p.lastName,
-      DATE_FORMAT(lc.commuted_at, '%Y-%m-%d %H:%i:%s') AS commuted_at_fmt,
-      DATE_FORMAT(lc.approved_at, '%Y-%m-%d %H:%i:%s') AS approved_at_fmt
+router.get('/leave_commutation', (req, res) => {
+  const sql = `
+    SELECT lc.*,
+           lt.leave_description,
+           CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS fullName,
+           p.firstName, p.lastName,
+           DATE_FORMAT(lc.commuted_at, '%Y-%m-%d %H:%i:%s') AS commuted_at_fmt,
+           DATE_FORMAT(lc.approved_at, '%Y-%m-%d %H:%i:%s') AS approved_at_fmt
     FROM leave_commutation lc
-    LEFT JOIN leave_table      lt ON lc.leave_code     = lt.leave_code
-    LEFT JOIN person_table     p  ON lc.employeeNumber = p.agencyEmployeeNum
+    LEFT JOIN leave_table  lt ON lc.leave_code     = lt.leave_code
+    LEFT JOIN person_table p  ON lc.employeeNumber = p.agencyEmployeeNum
     ORDER BY lc.commuted_at DESC
   `;
-  db.query(query, (err, results) => {
+  db.query(sql, (err, results) => {
     if (err) {
-      console.error("[GET /leave_commutation]", err.message);
-      return res.status(500).json({ error: "Failed to fetch commutation records: " + err.message });
+      console.error('[GET /leave_commutation]', err.message);
+      return res.status(500).json({ error: 'Failed to fetch commutation records: ' + err.message });
     }
     res.json(results);
   });
 });
 
-// ============================================================
-// GET /leave_commutation/employee/:employeeNumber
-// Commutation records for a specific employee
-// ============================================================
-router.get("/leave_commutation/employee/:employeeNumber", (req, res) => {
-  const query = `
-    SELECT
-      lc.*,
-      lt.leave_description,
-      DATE_FORMAT(lc.commuted_at, '%Y-%m-%d %H:%i:%s') AS commuted_at_fmt,
-      DATE_FORMAT(lc.approved_at, '%Y-%m-%d %H:%i:%s') AS approved_at_fmt
+// ─── GET /leave_commutation/employee/:employeeNumber ─────────────────────────
+
+router.get('/leave_commutation/employee/:employeeNumber', (req, res) => {
+  const sql = `
+    SELECT lc.*,
+           lt.leave_description,
+           DATE_FORMAT(lc.commuted_at, '%Y-%m-%d %H:%i:%s') AS commuted_at_fmt,
+           DATE_FORMAT(lc.approved_at, '%Y-%m-%d %H:%i:%s') AS approved_at_fmt
     FROM leave_commutation lc
     LEFT JOIN leave_table lt ON lc.leave_code = lt.leave_code
     WHERE lc.employeeNumber = ?
     ORDER BY lc.commuted_at DESC
   `;
-  db.query(query, [req.params.employeeNumber], (err, results) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch records" });
+  db.query(sql, [req.params.employeeNumber], (err, results) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch records' });
     res.json(results);
   });
 });
 
-// ============================================================
-// GET /leave_commutation/carried-forward/:employeeNumber/:leave_code
-// Returns total commuted_hours not yet "carried" to a new period
-// so LeaveAssignment can auto-fill Carried Balance.
-// ============================================================
-router.get("/leave_commutation/carried-forward/:employeeNumber/:leave_code", (req, res) => {
-  const { employeeNumber, leave_code } = req.params;
+// ─── GET /leave_commutation/carried-forward/:employeeNumber/:leave_code ───────
 
-  // Sum approved/pending commuted hours that haven't been assigned yet
-  const query = `
+router.get('/leave_commutation/carried-forward/:employeeNumber/:leave_code', (req, res) => {
+  const { employeeNumber, leave_code } = req.params;
+  const sql = `
     SELECT COALESCE(SUM(commuted_hours), 0) AS total_commuted_hours,
            COALESCE(SUM(commuted_days),  0) AS total_commuted_days
     FROM leave_commutation
@@ -135,8 +146,8 @@ router.get("/leave_commutation/carried-forward/:employeeNumber/:leave_code", (re
       AND TRIM(leave_code) = TRIM(?)
       AND status IN (0, 1)
   `;
-  db.query(query, [employeeNumber, leave_code], (err, rows) => {
-    if (err) return res.status(500).json({ error: "Failed to compute carry-forward" });
+  db.query(sql, [employeeNumber, leave_code], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to compute carry-forward' });
     res.json({
       commuted_hours: parseDbHours(rows[0]?.total_commuted_hours),
       commuted_days:  parseDbHours(rows[0]?.total_commuted_days),
@@ -144,145 +155,132 @@ router.get("/leave_commutation/carried-forward/:employeeNumber/:leave_code", (re
   });
 });
 
-// ============================================================
-// POST /leave_commutation/commute/:assignmentId
-// Main action: commute remaining hours from a leave assignment.
-//
-//  1. Fetch the leave_assignment row.
-//  2. Validate remaining_hours > 0.
-//  3. INSERT into leave_commutation.
-//  4. Zero out remaining_hours & set used_hours = total_hours in leave_assignment.
-//  5. Emit socket events.
-// ============================================================
-router.post("/leave_commutation/commute/:assignmentId", (req, res) => {
+// ─── POST /leave_commutation/commute/:assignmentId ───────────────────────────
+
+router.post('/leave_commutation/commute/:assignmentId', async (req, res) => {
   const { assignmentId } = req.params;
   const { commuted_by, remarks } = req.body || {};
   const actorEmpNum = getActorEmployeeNumber(req, commuted_by);
 
-  db.query(
-    "SELECT * FROM leave_assignment WHERE id = ?",
-    [assignmentId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: "DB error: " + err.message });
-      if (!rows.length) return res.status(404).json({ error: "Leave assignment not found" });
+  try {
+    // 1. Load the assignment
+    const rows = await query('SELECT * FROM leave_assignment WHERE id = ?', [assignmentId]);
+    if (!rows.length) return res.status(404).json({ error: 'Leave assignment not found' });
 
-      const asgn = rows[0];
-      const remainingHours = parseDbHours(asgn.remaining_hours);
+    const asgn = rows[0];
 
-      if (remainingHours <= 0) {
-        return res.status(400).json({
-          error: "No remaining hours to commute",
-          detail: "This assignment already has zero remaining hours.",
-        });
-      }
+    // 2. Compute effective remaining (base + any prior usage transactions)
+    const usageRows = await query(
+      'SELECT * FROM leave_credit_usage WHERE leave_assignment_id = ? AND voided_at IS NULL',
+      [asgn.id],
+    );
+    const priorDelta     = usageRows.reduce((s, u) => s + parseDbHours(u.hours_delta), 0);
+    const remainingHours = Math.max(0, parseDbHours(asgn.remaining_hours) + priorDelta);
 
-      const commutedDays = remainingHours / 8;
-
-      // INSERT commutation record
-      const insertQuery = `
-        INSERT INTO leave_commutation
-          (leave_assignment_id, employeeNumber, leave_code, period_year, period_semester,
-           commuted_hours, commuted_days, status, commuted_by, commuted_at, remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), ?)
-      `;
-      db.query(
-        insertQuery,
-        [
-          asgn.id,
-          asgn.employeeNumber,
-          asgn.leave_code,
-          asgn.period_year,
-          asgn.period_semester || null,
-          remainingHours,
-          commutedDays,
-          commuted_by || null,
-          remarks || null,
-        ],
-        (insertErr, insertResult) => {
-          if (insertErr) {
-            console.error("[POST /commute] Insert error:", insertErr.message);
-            return res.status(500).json({ error: "Failed to create commutation record: " + insertErr.message });
-          }
-
-          // Zero out remaining_hours; used_hours = total_hours
-          const totalHours = parseDbHours(asgn.total_hours);
-          db.query(
-            "UPDATE leave_assignment SET remaining_hours = 0, used_hours = ? WHERE id = ?",
-            [totalHours, asgn.id],
-            (updateErr) => {
-              if (updateErr) {
-                console.error("[POST /commute] Zero-out error:", updateErr.message);
-                logAudit({ employeeNumber: actorEmpNum }, 'Commute Leave Failed', 'leave_commutation', insertResult.insertId, asgn.employeeNumber);
-                return res.status(500).json({ error: "Commutation recorded but failed to zero out assignment: " + updateErr.message });
-              }
-
-              // Audit log
-              const leaveCode = asgn.leave_code;
-              (async () => {
-                try {
-                  const leaveDesc = await new Promise(resolve =>
-                    db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leaveCode], (e, r) =>
-                      resolve((r && r[0] && r[0].leave_description) || leaveCode)
-                    )
-                  );
-                  const commutedDaysStr = commutedDays.toFixed(2);
-                  logAudit(
-                    { employeeNumber: actorEmpNum },
-                    `Commute Leave - ${leaveDesc} (${commutedDaysStr} days)`,
-                    'leave_commutation',
-                    insertResult.insertId,
-                    asgn.employeeNumber
-                  );
-                  const [actorName, empName] = await Promise.all([
-                    getEmployeeFullName(actorEmpNum),
-                    getEmployeeFullName(String(asgn.employeeNumber)),
-                  ]);
-                  const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-                  const empDisplay = formatUserDisplayName(String(asgn.employeeNumber), empName);
-                  await insertTransactionLog(
-                    String(asgn.employeeNumber),
-                    `${actorDisplay} transferred ${leaveDesc} (${commutedDaysStr} days) to Leave Commutation for ${empDisplay}`
-                  );
-                } catch (e) { console.error('[commute] log error:', e.message); }
-              })();
-
-              emitChange("leaveCommutationChanged");
-              emitChange("leaveAssignmentChanged");
-
-              res.json({
-                message: "Leave commuted successfully",
-                commutation_id: insertResult.insertId,
-                leave_assignment_id: asgn.id,
-                employeeNumber: asgn.employeeNumber,
-                leave_code: asgn.leave_code,
-                period_year: asgn.period_year,
-                period_semester: asgn.period_semester,
-                commuted_hours: remainingHours,
-                commuted_days: commutedDays,
-                status: 0,
-              });
-            }
-          );
-        }
-      );
+    if (remainingHours <= 0) {
+      return res.status(400).json({
+        error:  'No remaining hours to commute',
+        detail: 'This assignment already has zero effective remaining hours.',
+      });
     }
-  );
+
+    const commutedDays = remainingHours / 8;
+
+    // 3. Insert commutation record
+    const insertResult = await query(
+      `INSERT INTO leave_commutation
+         (leave_assignment_id, employeeNumber, leave_code, period_year, period_semester,
+          commuted_hours, commuted_days, status, commuted_by, commuted_at, remarks)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), ?)`,
+      [
+        asgn.id,
+        asgn.employeeNumber,
+        asgn.leave_code,
+        asgn.period_year,
+        asgn.period_semester || null,
+        remainingHours,
+        commutedDays,
+        commuted_by || null,
+        remarks     || null,
+      ],
+    );
+    const commutationId = insertResult.insertId;
+
+    // 4. Insert leave_credit_usage transaction (preserves remaining_hours)
+    await query(
+      `INSERT INTO leave_credit_usage
+         (leave_assignment_id, source_type, source_id, hours_delta, created_at)
+       VALUES (?, 'commutation', ?, ?, NOW())`,
+      [asgn.id, commutationId, -remainingHours],
+    );
+
+    // 5. Mark assignment as commuted — does NOT touch remaining_hours
+    await query('UPDATE leave_assignment SET commuted = 1 WHERE id = ?', [asgn.id]);
+
+    // 6. Audit + transaction log
+    try {
+      const ltRows = await query(
+        'SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1',
+        [asgn.leave_code],
+      );
+      const leaveDesc       = ltRows[0]?.leave_description || asgn.leave_code;
+      const commutedDaysStr = commutedDays.toFixed(2);
+
+      logAudit(
+        { employeeNumber: actorEmpNum },
+        `Commute Leave - ${leaveDesc} (${commutedDaysStr} days)`,
+        'leave_commutation',
+        commutationId,
+        asgn.employeeNumber,
+      );
+
+      const [actorName, empName] = await Promise.all([
+        getEmployeeFullName(actorEmpNum),
+        getEmployeeFullName(String(asgn.employeeNumber)),
+      ]);
+      await insertTransactionLog(
+        String(asgn.employeeNumber),
+        `${formatUserDisplayName(actorEmpNum, actorName)} transferred ${leaveDesc} ` +
+        `(${commutedDaysStr} days) to Leave Commutation for ` +
+        `${formatUserDisplayName(String(asgn.employeeNumber), empName)}`,
+      );
+    } catch (logErr) {
+      console.error('[commute] log error:', logErr.message);
+    }
+
+    emitChange('leaveCommutationChanged');
+    emitChange('leaveAssignmentChanged');
+
+    res.json({
+      message:             'Leave commuted successfully',
+      commutation_id:      commutationId,
+      leave_assignment_id: asgn.id,
+      employeeNumber:      asgn.employeeNumber,
+      leave_code:          asgn.leave_code,
+      period_year:         asgn.period_year,
+      period_semester:     asgn.period_semester,
+      commuted_hours:      remainingHours,
+      commuted_days:       commutedDays,
+      status:              0,
+    });
+  } catch (err) {
+    console.error('[POST /commute] error:', err.message);
+    res.status(500).json({ error: 'Commutation failed: ' + err.message });
+  }
 });
 
-// ============================================================
-// PUT /leave_commutation/:id
-// Update status, approver, or remarks
-// ============================================================
-router.put("/leave_commutation/:id", (req, res) => {
+// ─── PUT /leave_commutation/:id ───────────────────────────────────────────────
+
+router.put('/leave_commutation/:id', (req, res) => {
   const { id } = req.params;
   const { status, approved_by, remarks } = req.body;
 
-  db.query("SELECT * FROM leave_commutation WHERE id = ?", [id], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!rows.length) return res.status(404).json({ error: "Record not found" });
+  db.query('SELECT * FROM leave_commutation WHERE id = ?', [id], (err, rows) => {
+    if (err)          return res.status(500).json({ error: err.message });
+    if (!rows.length) return res.status(404).json({ error: 'Record not found' });
 
-    const current = rows[0];
-    const newStatus = status !== undefined ? Number(status) : current.status;
+    const current    = rows[0];
+    const newStatus  = status !== undefined ? Number(status) : current.status;
     const approvedAt =
       newStatus === 1 && current.status !== 1 ? new Date() : current.approved_at;
 
@@ -294,28 +292,51 @@ router.put("/leave_commutation/:id", (req, res) => {
         newStatus,
         approved_by !== undefined ? approved_by : current.approved_by,
         approvedAt,
-        remarks !== undefined ? remarks : current.remarks,
+        remarks     !== undefined ? remarks     : current.remarks,
         id,
       ],
       (updateErr) => {
         if (updateErr) return res.status(500).json({ error: updateErr.message });
-        emitChange("leaveCommutationChanged");
+        emitChange('leaveCommutationChanged');
         res.json({ id, status: newStatus, approved_by, approved_at: approvedAt, remarks });
-      }
+      },
     );
   });
 });
 
-// ============================================================
-// DELETE /leave_commutation/:id
-// Remove a commutation record (admin only; does NOT restore hours)
-// ============================================================
-router.delete("/leave_commutation/:id", (req, res) => {
-  db.query("DELETE FROM leave_commutation WHERE id = ?", [req.params.id], (err) => {
-    if (err) return res.status(500).json({ error: "Failed to delete record" });
-    emitChange("leaveCommutationChanged");
-    res.json({ message: "Commutation record deleted" });
-  });
+// ─── DELETE /leave_commutation/:id ────────────────────────────────────────────
+// Voids the usage row and unlocks the assignment so the balance is restored.
+
+router.delete('/leave_commutation/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await query(
+      `UPDATE leave_credit_usage SET voided_at = NOW()
+        WHERE source_type = 'commutation' AND source_id = ?`,
+      [id],
+    );
+
+    const lcRows = await query(
+      'SELECT leave_assignment_id FROM leave_commutation WHERE id = ?',
+      [id],
+    );
+    if (lcRows.length) {
+      await query(
+        'UPDATE leave_assignment SET commuted = 0 WHERE id = ?',
+        [lcRows[0].leave_assignment_id],
+      );
+    }
+
+    await query('DELETE FROM leave_commutation WHERE id = ?', [id]);
+
+    emitChange('leaveCommutationChanged');
+    emitChange('leaveAssignmentChanged');
+    res.json({ message: 'Commutation record deleted and balance restored' });
+  } catch (err) {
+    console.error('[DELETE /leave_commutation]', err.message);
+    res.status(500).json({ error: 'Failed to delete record: ' + err.message });
+  }
 });
 
 module.exports = router;
