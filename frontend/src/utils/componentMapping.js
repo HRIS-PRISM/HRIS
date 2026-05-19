@@ -42,6 +42,8 @@ import {
   Announcement as AnnouncementIcon,
   History,
   FolderSpecial,
+  SupervisedUserCircle,
+  ManageAccounts,
 } from '@mui/icons-material';
 
 export const componentMapping = {
@@ -500,6 +502,20 @@ export const componentMapping = {
     componentName: 'EarningsManagement',
     description: 'Earnings Management',
     icon: FileCopy,
+  },
+  'supervisor-assignment': {
+    componentPath: 'components/LEAVE/SupervisorAssignment.jsx',
+    routePath: '/supervisor-assignment',
+    componentName: 'SupervisorAssignment',
+    description: 'Supervisor Assignment Management',
+    icon: ManageAccounts,
+  },
+  'leave-request-supervisor': {
+    componentPath: 'components/LEAVE/LeaveRequestSupervisor.jsx',
+    routePath: '/leave-request-supervisor',
+    componentName: 'LeaveRequestSupervisor',
+    description: 'Leave Request Approval - Supervisor',
+    icon: SupervisedUserCircle,
   },
     file201: {
     componentPath: 'components/FILE201/File201Admin.jsx',

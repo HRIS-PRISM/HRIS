@@ -79,6 +79,8 @@ import {
   Calculate as CalculateIcon,
   PlaylistAdd,
   PostAdd,
+  ManageAccounts,
+  SupervisedUserCircle,
 } from "@mui/icons-material";
 import {
   AccessAlarm,
@@ -300,10 +302,7 @@ const Sidebar = ({
     "holiday",
     "philhealth",
     "payroll-formulas",
-    "leave-table",
-    "leave-assignment",
-    "leave-request",
-    "leave-request-user",
+
   ];
 
   const leaveManagementItems = [
@@ -316,6 +315,8 @@ const Sidebar = ({
     "compensatory-time-off",
     "assignment-management",
     "earnings-management",
+    "supervisor-assignment",
+    "leave-request-supervisor",
   ];
 
   const formsItems = [
@@ -1583,7 +1584,7 @@ const Sidebar = ({
                   <DescriptionIcon />
                 </ListItemIcon>
                 <ListItemText
-                  primary="Leave Request User"
+                  primary="Leave Request "
                   sx={{ marginLeft: "-10px" }}
                 />
               </ListItem>
@@ -3158,7 +3159,9 @@ const Sidebar = ({
             {/* LEAVE DROPDOWN */}
             {(shouldShowMenuItem("/leave-table") ||
               shouldShowMenuItem("/leave-assignment") ||
-              shouldShowMenuItem("/leave-request")) && (
+              shouldShowMenuItem("/leave-request") ||
+              shouldShowMenuItem("/supervisor-assignment") ||
+              shouldShowMenuItem("/leave-request-supervisor")) && (
               <>
                 <ListItem
                   button
@@ -3522,6 +3525,119 @@ const Sidebar = ({
                           </ListItemIcon>
                           <ListItemText
                             primary="Leave Table"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
+                      {/* Supervisor Assignment - Admin only */}
+                      {userRole !== "staff" &&
+                      shouldShowMenuItem("/supervisor-assignment") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/supervisor-assignment"
+                          onClick={() => handleItemClick("supervisor-assignment")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "supervisor-assignment"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "supervisor-assignment"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "supervisor-assignment"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "supervisor-assignment"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              borderTopRightRadius: "15px",
+                              borderBottomRightRadius: "15px",
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "supervisor-assignment" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "supervisor-assignment" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <ManageAccounts />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Supervisor Assignment"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
+                      {/* Leave Request Supervisor - Supervisor only */}
+                      {shouldShowMenuItem("/leave-request-supervisor") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/leave-request-supervisor"
+                          onClick={() => handleItemClick("leave-request-supervisor")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "leave-request-supervisor"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "leave-request-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "leave-request-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "leave-request-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              borderTopRightRadius: "15px",
+                              borderBottomRightRadius: "15px",
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "leave-request-supervisor" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "leave-request-supervisor" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <SupervisedUserCircle />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Leave Request Approval"
                             sx={{ marginLeft: "-10px" }}
                           />
                         </ListItem>

@@ -1,387 +1,457 @@
-import React, { useState, useRef } from "react";
-import logo from "./logo.png";
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
-import { 
-  Box, 
-  Fab, 
-  Tooltip, 
-  Zoom, 
-  Snackbar, 
-  Alert 
-} from '@mui/material';
+import React, { useRef, useState } from 'react';
+import logo from './logo.png';
+import LoadingOverlay from '../LoadingOverlay';
+import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-// Adjust this path to where you saved the LoadingOverlay component
-import LoadingOverlay from '../LoadingOverlay';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
+/* ════════════════════════════════════════════════════════════
+   InServiceTraining component
+════════════════════════════════════════════════════════════ */
 const InServiceTraining = () => {
-    const printRef = useRef(null);
+  const printRef = useRef(null);
+  const captureRef = useRef(null);
 
-    // State for Loading Overlay and Notifications
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [snackbar, setSnackbar] = useState({
-        open: false,
-        message: '',
-        severity: 'success',
-    });
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-    const showSnackbar = (message, severity = 'success') => {
-        setSnackbar({ open: true, message, severity });
-    };
+  const showSnackbar = (message, severity = 'success') =>
+    setSnackbar({ open: true, message, severity });
+  const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-    const handleCloseSnackbar = () => {
-        setSnackbar({ ...snackbar, open: false });
-    };
+  /* ── Native print ── */
+  const printPage = () => {
+    const content = document.getElementById('in-service-training-content').innerHTML;
+    const printWindow = window.open('', '', 'width=900,height=650');
 
-    const ensureCaptureStyles = (el) => {
-        if (!el) return {};
-        const orig = {
-            backgroundColor: el.style.backgroundColor,
-            width: el.style.width,
-            visibility: el.style.visibility,
-            display: el.style.display,
-            position: el.style.position,
-            left: el.style.left,
-            zIndex: el.style.zIndex,
-            opacity: el.style.opacity,
-        };
-        el.style.backgroundColor = '#ffffff';
-        el.style.width = '8.27in';
-        el.style.visibility = 'visible';
-        el.style.display = 'block';
-        el.style.position = 'fixed';
-        el.style.left = '-9999px';
-        el.style.zIndex = '10000';
-        el.style.opacity = '1';
-        return orig;
-    };
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Print Report on In-Service Training</title>
+          <style>
+            body { font-family: Arial; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; }
+            @page { size: A4 portrait; margin: 0.4in; }
+          </style>
+        </head>
+        <body>${content}</body>
+      </html>
+    `);
 
-    const restoreCaptureStyles = (el, orig) => {
-        if (!el || !orig) return;
-        try {
-            el.style.backgroundColor = orig.backgroundColor || '';
-            el.style.width = orig.width || '';
-            el.style.visibility = orig.visibility || '';
-            el.style.display = orig.display || '';
-            el.style.position = orig.position || '';
-            el.style.left = orig.left || '';
-            el.style.zIndex = orig.zIndex || '';
-            el.style.opacity = orig.opacity || '';
-        } catch (e) {
-            /* noop */
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+  };
+
+  /* ── PDF download ── */
+  const downloadPDF = async () => {
+    if (!captureRef.current) return;
+    try {
+      setIsGenerating(true);
+
+      const el = captureRef.current;
+      el.style.position = 'relative';
+      el.style.top = '0';
+      el.style.left = '0';
+      el.style.visibility = 'visible';
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width: 794,
+        allowTaint: true,
+      });
+
+      el.style.position = 'absolute';
+      el.style.top = '-10000px';
+      el.style.left = '-10000px';
+      el.style.visibility = 'hidden';
+
+      if (!canvas) throw new Error('Canvas generation failed');
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const imgW = pageW - margin * 2;
+      const imgH = (canvas.height / canvas.width) * imgW;
+      const imgData = canvas.toDataURL('image/png');
+
+      let yPos = margin;
+      let remainingH = imgH;
+      const usableH = pageH - margin * 2;
+
+      while (remainingH > 0) {
+        const sliceH = Math.min(remainingH, usableH);
+        pdf.addImage(imgData, 'PNG', margin, yPos, imgW, imgH);
+        remainingH -= usableH;
+        if (remainingH > 0) {
+          pdf.addPage();
+          yPos = margin - (imgH - sliceH);
         }
-    };
+      }
 
-    const printPage = async () => {
-        if (!printRef.current) return;
-        try {
-            setIsGenerating(true);
+      pdf.save(`In-Service-Training-${new Date().toISOString().split('T')[0]}.pdf`);
+      showSnackbar('PDF downloaded successfully', 'success');
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      showSnackbar('Error generating PDF: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-            restoreCaptureStyles(printRef.current, orig);
-            
-            const imgData = canvas.toDataURL('image/png');
-            const formWidth = 8.27;
-            const formHeight = 11.69;
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            const xOffset = (pageWidth - formWidth) / 2;
-            const yOffset = (pageHeight - formHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-            pdf.autoPrint();
-            const blobUrl = pdf.output('bloburl');
-            window.open(blobUrl, '_blank');
-            
-            showSnackbar('Print view generated', 'success');
-        } catch (error) {
-            console.error('Error generating print view:', error);
-            showSnackbar('Error generating print view', 'error');
-        } finally {
-            setIsGenerating(false);
-        }
-    };
+  /* ── Shared form style ── */
+  const formStyle = {
+    fontFamily: 'Arial, Helvetica, sans-serif',
+    fontSize: '10px',
+    width: '190mm',
+    minHeight: '277mm',
+    margin: '0 auto',
+    border: '1px solid #000',
+    padding: '5mm',
+    backgroundColor: '#fff',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
+  };
 
-    const downloadPDF = async () => {
-        if (!printRef.current) return;
-        try {
-            setIsGenerating(true);
+  const line = (width = '200px') => ({
+    borderBottom: '1px solid black',
+    display: 'inline-block',
+    width,
+    marginLeft: '5px',
+  });
 
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-            restoreCaptureStyles(printRef.current, orig);
-            
-            const imgData = canvas.toDataURL('image/png');
-            const formWidth = 8.27;
-            const formHeight = 11.69;
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            const xOffset = (pageWidth - formWidth) / 2;
-            const yOffset = (pageHeight - formHeight) / 2;
-            
-            pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-            
-            const fileName = `In-Service-Training-${new Date().toISOString().split('T')[0]}.pdf`;
-            pdf.save(fileName);
-            
-            showSnackbar('PDF downloaded successfully', 'success');
-        } catch (error) {
-            console.error('Error generating PDF:', error);
-            showSnackbar('Error generating PDF', 'error');
-        } finally {
-            setIsGenerating(false);
-        }
-    };
+  /* ── Form content ── */
+  const renderFormContent = () => (
+    <>
+      {/* ══ HEADER ══ */}
+      <div style={{ position: 'relative', textAlign: 'center', marginBottom: '10px', minHeight: '90px' }}>
+        <img
+          src={logo}
+          alt="EARIST Logo"
+          style={{
+            height: '80px',
+            width: 'auto',
+            position: 'absolute',
+            left: '100px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+          }}
+        />
+        <div style={{ lineHeight: '1.6', fontFamily: 'Arial, Helvetica, sans-serif', paddingTop: '4px' }}>
+          <div style={{ fontSize: '10px' }}>Republic of the Philippines</div>
+          <div style={{ fontSize: '13px', fontWeight: 'bold' }}>EULOGIO "AMANG" RODRIGUEZ</div>
+          <div style={{ fontSize: '13px', fontWeight: 'bold' }}>INSTITUTE OF SCIENCE AND TECHNOLOGY</div>
+          <div style={{ fontSize: '10px' }}>Nagtahan, Sampaloc, Manila</div>
+        </div>
+      </div>
 
-    // Reusable style for input lines
-    const inputLineStyle = { 
-        borderBottom: '1px solid black', 
-        display: 'inline-block', 
-        width: '200px', 
-        marginLeft: '5px' 
-    };
+      {/* ══ FORM TITLE ══ */}
+      <div
+        style={{
+          border: '2px solid black',
+          padding: '6px 14px',
+          width: 'fit-content',
+          margin: '0 auto 16px auto',
+          textAlign: 'center',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontSize: '13px',
+          fontWeight: 'bold',
+        }}
+      >
+        REPORT ON IN-SERVICE TRAINING
+      </div>
 
-    return (
-        <Box sx={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            minHeight: '100vh', 
-            bgcolor: '#ffffff', 
-            position: 'relative' 
-        }}>
-            <Box sx={{ width: '100%', overflow: 'auto', paddingBottom: '100px' }}>
-                
-                <div ref={printRef} style={{
-                    border: '1px solid black',
-                    padding: '0.5in',
-                    width: '8.27in', 
-                    minHeight: '11.69in', 
-                    height: 'auto', 
-                    fontFamily: 'Arial, Helvetica, sans-serif',
-                    margin: 'auto',
-                    marginTop: '30px',
-                    display: 'block',
-                    boxSizing: 'border-box',
-                    backgroundColor: '#ffffff'
-                }}>
+      {/* ══ PERSONAL INFO ══ */}
+      <table
+        style={{
+          borderCollapse: 'collapse',
+          width: '100%',
+          tableLayout: 'fixed',
+          marginBottom: '6px',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontSize: '10px',
+        }}
+      >
+        <colgroup>
+          <col style={{ width: '50%' }} />
+          <col style={{ width: '50%' }} />
+        </colgroup>
+        <tbody>
+          <tr style={{ height: '24px' }}>
+            <td style={{ verticalAlign: 'bottom', paddingBottom: '2px' }}>
+              Name: <span style={line('200px')} />
+            </td>
+            <td style={{ verticalAlign: 'bottom', paddingBottom: '2px' }}>
+              Position: <span style={line('200px')} />
+            </td>
+          </tr>
+          <tr style={{ height: '24px' }}>
+            <td style={{ verticalAlign: 'bottom', paddingBottom: '2px' }}>
+              College/Office: <span style={line('180px')} />
+            </td>
+            <td style={{ verticalAlign: 'bottom', paddingBottom: '2px' }}>
+              Designation: <span style={line('180px')} />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div style={{ borderBottom: '1px solid black', marginBottom: '12px' }} />
 
-                    {/* Header Section */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '25px' }}>
-                        <div style={{ marginRight: '15px' }}>
-                            <img src={logo} alt="Logo" style={{ height: '90px', width: 'auto' }} />
-                        </div>
-                        <div style={{ textAlign: 'center', lineHeight: '1.2' }}>
-                            <div style={{ fontSize: '14px' }}>Republic of the Philippines</div>
-                            <div style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                                EULOGIO "AMANG" RODRIGUEZ
-                            </div>
-                            <div style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                                INSTITUTE OF SCIENCE AND TECHNOLOGY
-                            </div>
-                            <div style={{ fontSize: '14px' }}>Nagtahan, Sampaloc, Manila</div>
-                        </div>
-                    </div>
+      {/* ══ MAIN CONTENT LIST ══ */}
+      <div style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '11px', lineHeight: '1.8' }}>
+        <ol type="I" style={{ paddingLeft: '20px', margin: 0 }}>
 
-                    {/* Form Title */}
-                    <div style={{ border: '2px solid black', padding: '10px', width: 'fit-content', margin: '0 auto 30px auto', textAlign: 'center' }}>
-                        <b style={{ fontSize: '18px' }}>REPORT ON IN-SERVICE TRAINING</b>
-                    </div>
+          <li style={{ fontWeight: 'bold', marginBottom: '6px' }}>GENERAL INFORMATION</li>
+          <ol type="1" style={{ paddingLeft: '30px', fontWeight: 'normal', marginBottom: '10px' }}>
+            <li style={{ marginBottom: '4px' }}>
+              Title: <span style={line('350px')} />
+            </li>
+            <li style={{ marginBottom: '4px' }}>
+              Sponsor: <span style={line('330px')} />
+            </li>
+            <li style={{ marginBottom: '4px' }}>
+              Venue: <span style={line('340px')} />
+            </li>
+            <li style={{ marginBottom: '4px' }}>
+              Inclusive Dates: <span style={line('290px')} />
+            </li>
+            <li style={{ marginBottom: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px', marginBottom: '4px' }}>
+                <span>Authority:</span>
+                <span style={line('40px')} />
+                <span style={{ margin: '0 4px' }}>CHED/DECS/ASSN.MEMO No.</span>
+                <span style={line('90px')} />
+                <span style={{ margin: '0 4px' }}>Date:</span>
+                <span style={line('80px')} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '2px', paddingLeft: '60px' }}>
+                <span>Officer Order No.</span>
+                <span style={line('90px')} />
+                <span style={{ margin: '0 4px' }}>Date:</span>
+                <span style={line('80px')} />
+              </div>
+            </li>
+          </ol>
 
-                    {/* Personal Info Section */}
-                    <div style={{ marginBottom: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <span>Name:</span>
-                                <span style={{ ...inputLineStyle, width: '250px' }}></span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <span>Position:</span>
-                                <span style={{ ...inputLineStyle, width: '250px' }}></span>
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <span>College/Office:</span>
-                                <span style={{ ...inputLineStyle, width: '250px' }}></span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <span>Designation:</span>
-                                <span style={{ ...inputLineStyle, width: '250px' }}></span>
-                            </div>
-                        </div>
-                        <div style={{ width: '100%', borderBottom: '1px solid black', marginBottom: '20px', marginTop: '10px' }}></div>
-                    </div>
+          <li style={{ fontWeight: 'bold', marginBottom: '6px' }}>
+            HIGHLIGHTS (Objectives, topics discussed, activities, outputs, etc.)
+          </li>
 
-                    {/* Main Content List */}
-                    <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
-                        <ol type="I" style={{ paddingLeft: '20px' }}>
-                            <li style={{ fontWeight: 'bold' }}>GENERAL INFORMATION</li>
-                            <br />
-                            <ol type="1" style={{ paddingLeft: '40px' }}>
-                                <li style={{ marginBottom: '5px' }}>
-                                    Title: <span style={{ ...inputLineStyle, width: '400px' }}></span>
-                                </li>
-                                <li style={{ marginBottom: '5px' }}>
-                                    Sponsor: <span style={{ ...inputLineStyle, width: '400px' }}></span>
-                                </li>
-                                <li style={{ marginBottom: '5px' }}>
-                                    Venue: <span style={{ ...inputLineStyle, width: '400px' }}></span>
-                                </li>
-                                <li style={{ marginBottom: '5px' }}>
-                                    Inclusive Dates: <span style={{ ...inputLineStyle, width: '300px' }}></span>
-                                </li>
-                                <li>
-                                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
-                                        <span>Authority:</span>
-                                        <span style={{ ...inputLineStyle, width: '50px' }}></span>
-                                        <span style={{ margin: '0 5px' }}>CHED/DECS/ASSN.MEMO No.</span>
-                                        <span style={{ ...inputLineStyle, width: '120px' }}></span>
-                                        <span style={{ margin: '0 5px' }}>Date:</span>
-                                        <span style={{ ...inputLineStyle, width: '100px' }}></span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                                        <span style={{ marginLeft: '68px' }}>Officer Order No.</span>
-                                        <span style={{ ...inputLineStyle, width: '120px' }}></span>
-                                        <span style={{ margin: '0 5px' }}>Date:</span>
-                                        <span style={{ ...inputLineStyle, width: '100px' }}></span>
-                                    </div>
-                                </li>
-                            </ol>
-                            <br />
-                            <li style={{ fontWeight: 'bold' }}>HIGHLIGHTS (Objectives, topics discussed, activities, outputs, etc.)</li>
-                            <br />
-                            <li style={{ fontWeight: 'bold' }}>PLANS (What you will do to implement what you learned)</li>
-                            <br />
-                            <li style={{ fontWeight: 'bold' }}>RECOMMENDATION (What you suggest to your College or the Institute to implement what you learned)</li>
-                            <br />
-                            <li style={{ fontWeight: 'bold' }}>ANNEXES (Program, handouts, project proposals, etc.)</li>
-                        </ol>
-                    </div>
+          <li style={{ fontWeight: 'bold', marginBottom: '6px' }}>
+            PLANS (What you will do to implement what you learned)
+          </li>
 
-                    {/* Signature Section */}
-                    <div style={{ marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                        
-                        {/* Faculty Signature */}
-                        <div style={{ textAlign: 'center', alignSelf: 'flex-end', width: '250px' }}>
-                            <div style={{ borderBottom: '1px solid black', marginBottom: '5px' }}></div>
-                            <div>Signature</div>
-                            <div style={{ marginTop: '15px' }}>Date: <span style={{ ...inputLineStyle, width: '120px' }}></span></div>
-                        </div>
+          <li style={{ fontWeight: 'bold', marginBottom: '6px' }}>
+            RECOMMENDATION (What you suggest to your College or the Institute to implement what you learned)
+          </li>
 
-                        {/* Noted By Section */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                            
-                            {/* Dean/Director */}
-                            <div style={{ textAlign: 'center', width: '250px' }}>
-                                <div style={{ marginBottom: '5px', fontWeight: 'bold' }}>NOTED:</div>
-                                <div style={{ borderBottom: '1px solid black', marginBottom: '5px' }}></div>
-                                <div>Dean/Director</div>
-                                <div style={{ marginTop: '15px' }}>Date: <span style={{ ...inputLineStyle, width: '120px' }}></span></div>
-                            </div>
+          <li style={{ fontWeight: 'bold' }}>
+            ANNEXES (Program, handouts, project proposals, etc.)
+          </li>
+        </ol>
+      </div>
 
-                            {/* President */}
-                            <div style={{ textAlign: 'center', width: '250px' }}>
-                                <div style={{ borderBottom: '1px solid black', marginBottom: '5px' }}></div>
-                                <div style={{ fontWeight: 'bold', fontSize: '13px' }}>ROGELIO T. MAMARADLO, Ed.D.</div>
-                                <div style={{ fontSize: '13px' }}>SUC President I</div>
-                                <div style={{ marginTop: '15px' }}>Date: <span style={{ ...inputLineStyle, width: '120px' }}></span></div>
-                            </div>
-                        </div>
-                    </div>
+      {/* ══ SIGNATURE SECTION ══ */}
+      <table
+        style={{
+          borderCollapse: 'collapse',
+          width: '100%',
+          tableLayout: 'fixed',
+          marginTop: '30px',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontSize: '10px',
+        }}
+      >
+        <colgroup>
+          <col style={{ width: '40%' }} />
+          <col style={{ width: '20%' }} />
+          <col style={{ width: '40%' }} />
+        </colgroup>
+        <tbody>
+          {/* Faculty signature — right-aligned */}
+          <tr>
+            <td />
+            <td />
+            <td style={{ textAlign: 'center', paddingBottom: '4px' }}>
+              <div style={{ borderTop: '1px solid #000', width: '90%', margin: '0 auto', paddingTop: '3px' }}>
+                Signature
+              </div>
+            </td>
+          </tr>
+          <tr style={{ height: '20px' }}>
+            <td />
+            <td />
+            <td style={{ textAlign: 'center' }}>
+              Date: <span style={line('100px')} />
+            </td>
+          </tr>
 
-                    {/* Footer Note */}
-                    <div style={{ marginTop: '30px', fontSize: '10px', textAlign: 'right' }}>
-                        (NOTE: Use this page for Part I&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br />
-                        Use additional sheets for Part II-V)
-                    </div>
+          {/* Spacer */}
+          <tr style={{ height: '24px' }}><td colSpan={3} /></tr>
 
-                </div>
-            </Box>
+          {/* NOTED row */}
+          <tr>
+            <td style={{ fontWeight: 'bold', paddingBottom: '30px' }}>NOTED:</td>
+            <td />
+            <td />
+          </tr>
 
-            {/* Floating Action Buttons (Bottom Right) */}
-            <Box className="no-print forms-floating-actions" sx={{position: 'fixed',
-                    bottom: '1in',
-                    right: 30,
-                    display: 'flex',
-                    flexDirection: 'row', 
-                    gap: 2,
-                    zIndex: 1000,
-                }}
+          {/* Dean / President signatures */}
+          <tr>
+            <td style={{ textAlign: 'center' }}>
+              <div style={{ borderTop: '1px solid #000', width: '90%', margin: '0 auto', paddingTop: '3px' }}>
+                Dean/Director
+              </div>
+            </td>
+            <td />
+            <td style={{ textAlign: 'center' }}>
+              <div style={{ borderTop: '1px solid #000', width: '90%', margin: '0 auto', paddingTop: '3px' }}>
+                <strong>ROGELIO T. MAMARADLO, Ed.D.</strong>
+              </div>
+              <div>SUC President I</div>
+            </td>
+          </tr>
+          <tr style={{ height: '20px' }}>
+            <td style={{ textAlign: 'center' }}>
+              Date: <span style={line('100px')} />
+            </td>
+            <td />
+            <td style={{ textAlign: 'center' }}>
+              Date: <span style={line('100px')} />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ══ FOOTER NOTE ══ */}
+      <div
+        style={{
+          marginTop: '20px',
+          fontSize: '9px',
+          textAlign: 'right',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          lineHeight: '1.5',
+        }}
+      >
+        (NOTE: Use this page for Part I<br />
+        Use additional sheets for Part II–V)
+      </div>
+    </>
+  );
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        bgcolor: '#ffffff',
+        position: 'relative',
+      }}
+    >
+      <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
+
+        {/* ══ VISIBLE FORM ══ */}
+        <div
+          ref={printRef}
+          id="in-service-training-content"
+          style={{ ...formStyle, marginTop: '30px' }}
+        >
+          {renderFormContent()}
+        </div>
+
+        {/* ══ HIDDEN CAPTURE CONTAINER ══ */}
+        <div
+          ref={captureRef}
+          style={{
+            ...formStyle,
+            width: '794px',
+            position: 'absolute',
+            top: '-10000px',
+            left: '-10000px',
+            border: '1px solid #000',
+            padding: '8px',
+            backgroundColor: '#ffffff',
+            margin: '0',
+          }}
+        >
+          {renderFormContent()}
+        </div>
+      </Box>
+
+      {/* ══ Floating Action Buttons ══ */}
+      <Box
+        className="no-print forms-floating-actions"
+        sx={{
+          position: 'fixed',
+          bottom: '1in',
+          right: 30,
+          display: 'flex',
+          flexDirection: 'row',
+          gap: 2,
+          zIndex: 1000,
+        }}
+      >
+        <Zoom in style={{ transitionDelay: '0ms' }}>
+          <Tooltip title="Print Form" placement="top">
+            <Fab
+              aria-label="print"
+              onClick={printPage}
+              sx={{
+                bgcolor: '#6D2323',
+                '&:hover': { bgcolor: '#8a4747' },
+                width: 56,
+                height: 56,
+              }}
             >
-                <Zoom in={true} style={{ transitionDelay: '0ms' }}>
-                    <Tooltip title="Print Form" placement="top">
-                        <Fab 
-                            color="primary" 
-                            aria-label="print" 
-                            onClick={printPage}
-                            sx={{ 
-                                bgcolor: '#6D2323', 
-                                '&:hover': { bgcolor: '#8a4747' },
-                                width: 56,
-                                height: 56
-                            }}
-                        >
-                            <PrintIcon />
-                        </Fab>
-                    </Tooltip>
-                </Zoom>
+              <PrintIcon sx={{ color: '#fff' }} />
+            </Fab>
+          </Tooltip>
+        </Zoom>
 
-                <Zoom in={true} style={{ transitionDelay: '100ms' }}>
-                    <Tooltip title="Download PDF" placement="top">
-                        <Fab 
-                            color="primary" 
-                            aria-label="download" 
-                            onClick={downloadPDF}
-                            sx={{ 
-                                bgcolor: '#6D2323', 
-                                '&:hover': { bgcolor: '#8a4747' },
-                                width: 56,
-                                height: 56
-                            }}
-                        >
-                            <PictureAsPdfIcon />
-                        </Fab>
-                    </Tooltip>
-                </Zoom>
-            </Box>
-
-            {/* Loading Overlay with Blur */}
-            <LoadingOverlay open={isGenerating} message="Generating Document..." />
-
-            {/* Snackbar for notifications */}
-            <Snackbar
-                open={snackbar.open}
-                autoHideDuration={6000}
-                onClose={handleCloseSnackbar}
-                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        <Zoom in style={{ transitionDelay: '100ms' }}>
+          <Tooltip title="Download PDF" placement="top">
+            <Fab
+              aria-label="download"
+              onClick={downloadPDF}
+              sx={{
+                bgcolor: '#6D2323',
+                '&:hover': { bgcolor: '#8a4747' },
+                width: 56,
+                height: 56,
+              }}
             >
-                <Alert
-                    onClose={handleCloseSnackbar}
-                    severity={snackbar.severity}
-                    sx={{ width: '100%' }}
-                >
-                    {snackbar.message}
-                </Alert>
-            </Snackbar>
-        </Box>
-    );
+              <PictureAsPdfIcon sx={{ color: '#fff' }} />
+            </Fab>
+          </Tooltip>
+        </Zoom>
+      </Box>
+
+      <LoadingOverlay open={isGenerating} message="Generating Document..." />
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
 };
+
 export default InServiceTraining;

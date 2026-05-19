@@ -136,6 +136,8 @@ import LeaveCredits from "./components/LEAVE/LeaveCredits";
 import Leave from "./components/FORMS/Leave";
 import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
 import ServiceCredits from "./components/LEAVE/ServiceCredits";
+import LeaveRequestSupervisor from "./components/LEAVE/LeaveRequestSupervisor";
+import SupervisorAssignment from "./components/LEAVE/SupervisorAssignment";
 
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
@@ -1768,6 +1770,33 @@ function App() {
                   allowedRoles={["administrator", "superadmin", "technical"]}
                 >
                   <EarningsManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/supervisor-assignment"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <SupervisorAssignment />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-request-supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                    "supervisor",
+                    "dean",
+                    "department_head",
+                  ]}
+                >
+                  <LeaveRequestSupervisor />
                 </ProtectedRoute>
               }
             />

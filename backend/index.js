@@ -66,6 +66,7 @@ const earningsRoutes = require('./routes/earningsRoutes');
 const deductionsRoutes = require('./routes/deductions');
 const leaveSalaryShortfallRoutes = require('./routes/leaveSalaryShortfallRoutes');
 const attendanceResultRoutes = require('./routes/attendanceResultRoutes');
+const supervisorRoutes = require('./routes/supervisor');
 
 
 
@@ -441,6 +442,7 @@ app.use('/', itemRoutes);
 app.use('/', salaryRoutes);
 app.use('/', departmentRoutes);
 app.use('/', leaveRoutes);
+app.use('/', supervisorRoutes);
 app.use('/', holidayRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
