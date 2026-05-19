@@ -1194,62 +1194,6 @@ const Sidebar = ({
               </ListItem>
             )}
 
-            {/* MY ATTENDANCE */}
-            {shouldShowMenuItem("/my-attendance") && (
-              <ListItem
-                button
-                component={Link}
-                to="/my-attendance"
-                onClick={() => handleItemClick("my-attendance")}
-                sx={{
-                  bgcolor:
-                    selectedItem === "my-attendance"
-                      ? settings.accentColor || "#FEF9E1"
-                      : "inherit",
-                  color:
-                    selectedItem === "my-attendance"
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-
-                  "& .MuiListItemIcon-root": {
-                    color:
-                      selectedItem === "my-attendance"
-                        ? settings.textPrimaryColor
-                        : settings.textSecondaryColor,
-                  },
-                  "& .MuiListItemText-primary": {
-                    color:
-                      selectedItem === "my-attendance"
-                        ? settings.textPrimaryColor
-                        : settings.textSecondaryColor,
-                  },
-
-                  "&:hover": {
-                    bgcolor: settings.hoverColor || "#6D2323",
-                    color: settings.textSecondaryColor,
-                    "& .MuiListItemIcon-root": {
-                      color: settings.textSecondaryColor,
-                    },
-                    "& .MuiListItemText-primary": {
-                      color: settings.textSecondaryColor,
-                    },
-                  },
-
-                  borderTopRightRadius:
-                    selectedItem === "my-attendance" ? "15px" : 0,
-                  borderBottomRightRadius:
-                    selectedItem === "my-attendance" ? "15px" : 0,
-                }}
-              >
-                <ListItemIcon>
-                  <CalendarToday />
-                </ListItemIcon>
-                <ListItemText
-                  primary="My Attendance"
-                  sx={{ marginLeft: "-10px" }}
-                />
-              </ListItem>
-            )}
 
             {/* DAILY TIME RECORD DROPDOWN */}
             {(shouldShowMenuItem("/daily_time_record") ||
