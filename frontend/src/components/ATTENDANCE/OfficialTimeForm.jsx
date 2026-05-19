@@ -623,17 +623,12 @@ const formatDateLong = (val) => {
   return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, '0')}, ${d.getFullYear()}`;
 };
 
-// Helper to format the schedule display text (e.g., "2nd Semester S.Y 2026 - 2027")
 const formatScheduleDisplayText = (academicYear) => {
   if (!academicYear) return '—';
   const str = String(academicYear).trim();
-  // Expected format: "2026 - 2027 2nd Semester" or similar
-  // Extract years first
   const yearsMatch = str.match(/(\d{4})\s*-\s*(\d{4})/);
-  // Extract semester (look for patterns like "2nd Semester", "1st Semester", "Summer", etc.)
-  const semesterMatch = str.match(/(1st|2nd|Summer|Vacation|Christmas|Midyear|Enrollment)\s+\w+/i) || 
+  const semesterMatch = str.match(/(1st|2nd|Summer|Vacation|Christmas|Midyear|Enrollment)\s+\w+/i) ||
                          str.match(/(1st|2nd|Summer|Vacation|Christmas|Midyear|Enrollment)/i);
-  
   if (yearsMatch) {
     const years = `${yearsMatch[1]} - ${yearsMatch[2]}`;
     const semester = semesterMatch ? semesterMatch[0].trim() : '';
@@ -707,10 +702,41 @@ const TIME_FIELDS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCHEDULE TIME ROWS
+// SCHEDULE TIME ROWS  ←  UPDATED with row-clear, copy-from-above, apply-below
 // ─────────────────────────────────────────────────────────────────────────────
 const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = false }) => {
   const fields = TIME_FIELDS[scheduleView] || TIME_FIELDS.workDays;
+
+  // Does this row have any non-empty time value for the current tab's fields?
+  const rowHasValues = (record) => fields.some(f => record[f.key] && record[f.key] !== '');
+
+  // Does this row's times exactly match the row above?
+  const rowMatchesAbove = (index) => {
+    if (index === 0) return false;
+    const above = records[index - 1];
+    const current = records[index];
+    return fields.every(f => (above[f.key] || '') === (current[f.key] || ''));
+  };
+
+  // Clear all field values in a single row for the active tab
+  const clearRow = (index) => {
+    fields.forEach(f => onChangeRecord(index, f.key, ''));
+  };
+
+  // Copy the row above's times into this row
+  const copyFromAbove = (index) => {
+    const above = records[index - 1];
+    fields.forEach(f => onChangeRecord(index, f.key, above[f.key] || ''));
+  };
+
+  // Copy this row's times to every row below it
+  const applyToAllBelow = (fromIndex) => {
+    const source = records[fromIndex];
+    for (let i = fromIndex + 1; i < records.length; i++) {
+      fields.forEach(f => onChangeRecord(i, f.key, source[f.key] || ''));
+    }
+  };
+
   return (
     <>
       <TableHead>
@@ -719,22 +745,133 @@ const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = fa
           {fields.map(f => (
             <TableCell key={f.key} sx={{ color: '#fff', fontWeight: 700, fontSize: '0.75rem', py: 1.25, minWidth: readOnly ? 120 : 200, position: 'sticky', top: 0, zIndex: 1, bgcolor: T.accent }}>{f.label}</TableCell>
           ))}
+          {/* Actions column — only in edit mode */}
+          {!readOnly && (
+            <TableCell sx={{ color: '#fff', fontWeight: 700, fontSize: '0.75rem', py: 1.25, width: 130, position: 'sticky', top: 0, zIndex: 1, bgcolor: T.accent, textAlign: 'center' }}>
+              Actions
+            </TableCell>
+          )}
         </TableRow>
       </TableHead>
       <TableBody>
-        {records.map((record, index) => (
-          <TableRow key={record.day || index} sx={{ '&:nth-of-type(even)': { bgcolor: T.rowOdd }, '&:hover': { bgcolor: T.rowHover } }}>
-            <TableCell sx={{ fontWeight: 700, color: T.text, fontSize: '0.82rem', py: 0.75 }}>{record.day}</TableCell>
-            {fields.map(f => (
-              <TableCell key={f.key} sx={{ py: 0.6, minWidth: readOnly ? 120 : 200 }}>
-                {readOnly
-                  ? <Typography sx={{ color: T.text, fontSize: '0.82rem', fontFamily: 'monospace' }}>{record[f.key] || '—'}</Typography>
-                  : <TimePickerField value={record[f.key] || ''} onChange={val => onChangeRecord(index, f.key, val)} accentColor={T.accent} />
-                }
+        {records.map((record, index) => {
+          const hasValues = rowHasValues(record);
+          const aboveHasValues = index > 0 && rowHasValues(records[index - 1]);
+          const matchesAbove = !readOnly && rowMatchesAbove(index);
+          // Show "copy from above" only when row above has values AND this row doesn't already match it
+          const canCopyFromAbove = !readOnly && index > 0 && aboveHasValues && !matchesAbove;
+          const isLastRow = index === records.length - 1;
+
+          return (
+            <TableRow
+              key={record.day || index}
+              sx={{ '&:nth-of-type(even)': { bgcolor: T.rowOdd }, '&:hover': { bgcolor: T.rowHover } }}
+            >
+              <TableCell sx={{ fontWeight: 700, color: T.text, fontSize: '0.82rem', py: 0.75, verticalAlign: 'middle' }}>
+                {record.day}
               </TableCell>
-            ))}
-          </TableRow>
-        ))}
+
+              {fields.map(f => (
+                <TableCell key={f.key} sx={{ py: 0.6, minWidth: readOnly ? 120 : 200, verticalAlign: 'middle' }}>
+                  {readOnly
+                    ? <Typography sx={{ color: T.text, fontSize: '0.82rem', fontFamily: 'monospace' }}>{record[f.key] || '—'}</Typography>
+                    : <TimePickerField value={record[f.key] || ''} onChange={val => onChangeRecord(index, f.key, val)} accentColor={T.accent} />
+                  }
+                </TableCell>
+              ))}
+
+              {/* ── Per-row action buttons ── */}
+              {!readOnly && (
+                <TableCell sx={{ py: 0.5, verticalAlign: 'middle', textAlign: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, flexWrap: 'nowrap' }}>
+
+                    {/* 1. Clear this row */}
+                    <Tooltip title={`Clear all fields on ${record.day}`} placement="top">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => clearRow(index)}
+                          disabled={!hasValues}
+                          sx={{
+                            width: 26, height: 26, borderRadius: 1.5,
+                            border: `0.5px solid ${hasValues ? 'rgba(198,40,40,0.35)' : T.divider}`,
+                            color: hasValues ? '#c62828' : T.faint,
+                            bgcolor: hasValues ? 'rgba(198,40,40,0.05)' : 'transparent',
+                            transition: 'all 0.15s',
+                            '&:hover': { bgcolor: 'rgba(198,40,40,0.12)', borderColor: '#c62828' },
+                            '&.Mui-disabled': { opacity: 0.35 },
+                          }}
+                        >
+                          <ClearAll sx={{ fontSize: 13 }} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+
+                    {/* 2a. "Same as above" badge — shown when already matching */}
+                    {matchesAbove && (
+                      <Tooltip title={`Times match ${records[index - 1].day}`} placement="top">
+                        <Box sx={{
+                          display: 'inline-flex', alignItems: 'center', gap: 0.4,
+                          px: 0.8, py: 0.2, borderRadius: '8px',
+                          fontSize: '0.6rem', fontWeight: 700, whiteSpace: 'nowrap',
+                          bgcolor: 'rgba(46,125,50,0.08)', color: '#2e7d32',
+                          border: '0.5px solid rgba(46,125,50,0.3)',
+                          userSelect: 'none',
+                        }}>
+                          <Box component="span" sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#2e7d32', display: 'inline-block', flexShrink: 0 }} />
+                          same
+                        </Box>
+                      </Tooltip>
+                    )}
+
+                    {/* 2b. Copy from above — shown when above has values and row differs */}
+                    {canCopyFromAbove && (
+                      <Tooltip title={`Copy ${records[index - 1].day}'s times here`} placement="top">
+                        <IconButton
+                          size="small"
+                          onClick={() => copyFromAbove(index)}
+                          sx={{
+                            width: 26, height: 26, borderRadius: 1.5,
+                            border: `0.5px solid ${alpha(T.accent, 0.4)}`,
+                            color: T.accent,
+                            bgcolor: T.accentFaint,
+                            transition: 'all 0.15s',
+                            '&:hover': { bgcolor: alpha(T.accent, 0.14), borderColor: T.accent },
+                          }}
+                        >
+                          {/* Arrow pointing up */}
+                          <ArrowBack sx={{ fontSize: 12, transform: 'rotate(90deg)' }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+
+                    {/* 3. Apply to all below */}
+                    {hasValues && !isLastRow && (
+                      <Tooltip title={`Apply ${record.day}'s times to all days below`} placement="top">
+                        <IconButton
+                          size="small"
+                          onClick={() => applyToAllBelow(index)}
+                          sx={{
+                            width: 26, height: 26, borderRadius: 1.5,
+                            border: `0.5px solid ${alpha('#1565c0', 0.4)}`,
+                            color: '#1565c0',
+                            bgcolor: 'rgba(21,101,192,0.05)',
+                            transition: 'all 0.15s',
+                            '&:hover': { bgcolor: 'rgba(21,101,192,0.14)', borderColor: '#1565c0' },
+                          }}
+                        >
+                          {/* Arrow pointing down */}
+                          <ArrowForward sx={{ fontSize: 12, transform: 'rotate(90deg)' }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+
+                  </Box>
+                </TableCell>
+              )}
+            </TableRow>
+          );
+        })}
       </TableBody>
     </>
   );
@@ -782,7 +919,7 @@ const OfficialTimeForm = () => {
   const showAllUsers = viewMode === 'allUsers';
 
   // ── Employee search state ──
-  const [selectedEmployee, setSelectedEmployee] = useState(null); // { name, employeeNumber, department }
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [employeeID, setEmployeeID] = useState('');
 
   // ── Records state ──
@@ -802,7 +939,7 @@ const OfficialTimeForm = () => {
   const draftStatus = 'active';
 
   // ── Right panel: which schedule is open ──
-  const [activeScheduleKey, setActiveScheduleKey] = useState(null); // "startDate|endDate"
+  const [activeScheduleKey, setActiveScheduleKey] = useState(null);
   const [scheduleView, setScheduleView] = useState('workDays');
 
   // ── View/Edit schedule modal ──
@@ -891,7 +1028,6 @@ const OfficialTimeForm = () => {
     return rows;
   }, [scheduleBlocks]);
 
-  // Active schedule key defaults to the first active one
   const activeBlockData = useMemo(() => {
     if (!activeScheduleKey) return scheduleBlocks[0] || null;
     return scheduleBlocks.find(b => b.key === activeScheduleKey) || scheduleBlocks[0] || null;
@@ -943,7 +1079,6 @@ const OfficialTimeForm = () => {
     checksumRef.current = null;
     setTamperDetected(false);
 
-    // Auto-search immediately after selecting
     const id = String(emp.employeeNumber);
     setLoading(true);
     setHasSearched(true);
@@ -953,7 +1088,6 @@ const OfficialTimeForm = () => {
       stampServerRecords(data);
       setRecords(deepClone(data));
       setFound(res.data.length > 0);
-      // Auto-select the first (active) schedule block
       if (res.data.length > 0) {
         const byKey = new Map();
         for (const r of res.data) {
@@ -1005,7 +1139,6 @@ const OfficialTimeForm = () => {
     if (!draftStartDate || !draftEndDate) { showToast('Please fill Start Date and End Date first.'); return; }
     if (new Date(draftStartDate) > new Date(draftEndDate)) { showToast('Start date must be on or before End date.'); return; }
 
-    // Check for date conflicts
     const draftStart = new Date(draftStartDate).getTime();
     const draftEnd = new Date(draftEndDate).getTime();
     const hasConflict = scheduleBlocks.some(v => {
@@ -1057,7 +1190,6 @@ const OfficialTimeForm = () => {
       setLastSaved(new Date());
       showToast('Official time saved successfully.');
       setShowScheduleModal(false);
-      // Refresh
       const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, getAuthHeaders());
       const allRows = res.data || [];
       stampServerRecords(allRows);
@@ -1218,7 +1350,6 @@ const OfficialTimeForm = () => {
     setShowBulkBlocksModal(false); setShowScheduleModal(true);
   }, [bulkScheduleBlocks, bulkTargetEmployees, showToast]);
 
-  // Dialog shared header
   const dialogHeaderSx = { bgcolor: T.accent, px: 3, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' };
   const dialogCloseBtn = (onClose, disabled) => (
     <IconButton size="small" onClick={onClose} disabled={disabled} sx={{ color: '#fff', ml: 1, flexShrink: 0, '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }} aria-label="Close">
@@ -1264,14 +1395,13 @@ const OfficialTimeForm = () => {
             </Box>
           </SectionCard>
 
-          {/* ══ SINGLE EMPLOYEE VIEW — TWO COLUMN ══ */}
+          {/* ══ SINGLE EMPLOYEE VIEW ══ */}
           {showSingleView && (
             <Fade in timeout={400} key="single-view">
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '360px 1fr' }, gap: 2, alignItems: 'stretch', minHeight: { lg: 'calc(100vh - 295px)' } }}>
 
                 {/* ─── LEFT PANEL ─── */}
                 <SectionCard sx={{ position: { lg: 'sticky' }, top: { lg: 16 }, minHeight: { lg: 'calc(100vh - 295px)' }, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  {/* ── 1. Employee Search ── */}
                   <PanelHeader icon={Person} title="Step 1 — Search employee" />
                   <Box sx={{ p: 2.5 }}>
                     <EmployeeSearchField
@@ -1279,8 +1409,6 @@ const OfficialTimeForm = () => {
                       selectedEmployee={selectedEmployee}
                       onClear={handleEmployeeClear}
                     />
-
-                    {/* Employee preview pill */}
                     {selectedEmployee ? (
                       <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1.25, px: 1.75, py: 1.25, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
                         <Avatar sx={{ width: 32, height: 32, bgcolor: alpha(T.accent, 0.15), color: T.accent, fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>
@@ -1300,7 +1428,6 @@ const OfficialTimeForm = () => {
 
                   <Divider sx={{ borderColor: T.divider }} />
 
-                  {/* ── 3. Create New Schedule ── */}
                   <PanelHeader
                     icon={Add}
                     title="Create new schedule"
@@ -1334,7 +1461,6 @@ const OfficialTimeForm = () => {
 
                   <Divider sx={{ borderColor: T.divider }} />
 
-                  {/* ── 4. Excel Upload ── */}
                   <PanelHeader icon={CloudUploadIcon} title="Excel upload" rightContent={<Typography sx={{ fontSize: '0.7rem', color: T.faint, fontStyle: 'italic' }}>optional</Typography>} />
                   <Box sx={{ p: 2.5 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
@@ -1358,10 +1484,9 @@ const OfficialTimeForm = () => {
                   </Box>
                 </SectionCard>
 
-                {/* ─── RIGHT PANEL — Schedule Detail ─── */}
+                {/* ─── RIGHT PANEL ─── */}
                 <SectionCard sx={{ minHeight: { lg: 'calc(100vh - 295px)' }, height: '100%', display: 'flex', flexDirection: 'column' }}>
                   {!selectedEmployee ? (
-                    // Empty state — no employee selected
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: { xs: 400, lg: 'calc(100vh - 405px)' }, flex: 1, gap: 2, p: 4, textAlign: 'center' }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Schedule sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
@@ -1377,7 +1502,6 @@ const OfficialTimeForm = () => {
                       <Typography sx={{ fontSize: '0.88rem', color: T.muted }}>Loading schedules…</Typography>
                     </Box>
                   ) : !activeBlockData ? (
-                    // Employee found but no schedules
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: { xs: 400, lg: 'calc(100vh - 405px)' }, flex: 1, gap: 2, p: 4, textAlign: 'center' }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Schedule sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
@@ -1389,7 +1513,6 @@ const OfficialTimeForm = () => {
                       </Box>
                     </Box>
                   ) : (
-                    // Schedule detail
                     <>
                       <PanelHeader
                         icon={Schedule}
@@ -1417,7 +1540,6 @@ const OfficialTimeForm = () => {
                       />
 
                       <Box sx={{ px: 3, py: 2, flex: 1 }}>
-                        {/* Meta info row */}
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 2.5, p: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '10px', alignItems: 'center' }}>
                           {[
                             { label: 'Employee', value: selectedEmployee.name },
@@ -1437,56 +1559,26 @@ const OfficialTimeForm = () => {
                           </Box>
                         </Box>
 
-                        {/* Existing schedules moved from left panel */}
                         <Box sx={{ mb: 1.75, border: `1px solid ${T.accentBorder}`, borderRadius: 1.5, overflow: 'hidden', bgcolor: alpha(T.accent, 0.02) }}>
                           <Box sx={{ px: 1.5, py: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${T.accentBorder}`, bgcolor: '#fff' }}>
-                            <Typography sx={{ fontSize: '0.75rem', color: T.accent, fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>
-                              Existing schedules
-                            </Typography>
+                            <Typography sx={{ fontSize: '0.75rem', color: T.accent, fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>Existing schedules</Typography>
                             <Box component="span" sx={{ fontSize: '0.68rem', fontWeight: 700, bgcolor: alpha('#2e7d32', 0.1), color: '#2e7d32', border: '0.5px solid rgba(46,125,50,0.3)', borderRadius: '9px', px: 1, py: 0.25 }}>
                               {scheduleBlocks.length}
                             </Box>
                           </Box>
                           <Box sx={{ maxHeight: 148, overflowY: 'auto', '&::-webkit-scrollbar': { width: '6px' }, '&::-webkit-scrollbar-thumb': { background: '#d0b8b8', borderRadius: '4px' } }}>
                             {scheduleBlockRows.map((row, rowIndex) => (
-                              <Box
-                                key={`schedule-row-${rowIndex}`}
-                                sx={{
-                                  display: 'grid',
-                                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                                  borderBottom: rowIndex < scheduleBlockRows.length - 1 ? `0.5px solid ${T.accentBorder}` : 'none',
-                                }}
-                              >
+                              <Box key={`schedule-row-${rowIndex}`} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, borderBottom: rowIndex < scheduleBlockRows.length - 1 ? `0.5px solid ${T.accentBorder}` : 'none' }}>
                                 {row.map((v, colIndex) => {
                                   const absoluteIndex = rowIndex * 2 + colIndex;
                                   const isActive = String(v.status || 'active').toLowerCase() === 'active';
                                   const isSelected = activeScheduleKey === v.key || (!activeScheduleKey && absoluteIndex === 0);
                                   return (
-                                    <Box
-                                      key={v.key}
-                                      onClick={() => setActiveScheduleKey(v.key)}
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1,
-                                        px: 1.25,
-                                        py: 0.65,
-                                        borderLeft: isActive ? '3px solid #2e7d32' : '3px solid transparent',
-                                        borderRight: { md: colIndex === 0 ? `0.5px solid ${T.accentBorder}` : 'none' },
-                                        cursor: 'pointer',
-                                        bgcolor: isSelected ? alpha(T.accent, 0.06) : 'transparent',
-                                        transition: 'all 0.15s',
-                                        '&:hover': { bgcolor: T.accentFaint },
-                                      }}
-                                    >
+                                    <Box key={v.key} onClick={() => setActiveScheduleKey(v.key)} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.25, py: 0.65, borderLeft: isActive ? '3px solid #2e7d32' : '3px solid transparent', borderRight: { md: colIndex === 0 ? `0.5px solid ${T.accentBorder}` : 'none' }, cursor: 'pointer', bgcolor: isSelected ? alpha(T.accent, 0.06) : 'transparent', transition: 'all 0.15s', '&:hover': { bgcolor: T.accentFaint } }}>
                                       <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: isActive ? '#2e7d32' : '#b7b7b7', flexShrink: 0 }} />
                                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                                        <Typography sx={{ fontSize: '0.76rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
-                                          {formatScheduleDisplayText(v.academicYear)}
-                                        </Typography>
-                                        <Typography sx={{ fontSize: '0.68rem', color: T.faint, mt: 0.1 }} noWrap>
-                                          {formatDateLong(v.startDate) || formatDateOnly(v.startDate)} to {formatDateLong(v.endDate) || formatDateOnly(v.endDate)}
-                                        </Typography>
+                                        <Typography sx={{ fontSize: '0.76rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{formatScheduleDisplayText(v.academicYear)}</Typography>
+                                        <Typography sx={{ fontSize: '0.68rem', color: T.faint, mt: 0.1 }} noWrap>{formatDateLong(v.startDate) || formatDateOnly(v.startDate)} to {formatDateLong(v.endDate) || formatDateOnly(v.endDate)}</Typography>
                                       </Box>
                                       <Tooltip title="View in modal">
                                         <IconButton size="small" onClick={e => {
@@ -1509,12 +1601,10 @@ const OfficialTimeForm = () => {
                           </Box>
                         </Box>
 
-                        {/* Tab bar */}
                         <Box sx={{ mb: 2 }}>
                           <ScheduleTabBar activeTab={scheduleView} setTab={setScheduleView} />
                         </Box>
 
-                        {/* Time table */}
                         <PremiumTableContainer>
                           <Table size="small" stickyHeader>
                             <ScheduleTimeRows
@@ -1525,7 +1615,6 @@ const OfficialTimeForm = () => {
                             />
                           </Table>
                         </PremiumTableContainer>
-
                       </Box>
 
                       <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: '#fafafa', px: 3, py: 1.75, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
@@ -1648,6 +1737,8 @@ const OfficialTimeForm = () => {
                   ))}
                 </Grid>
               </Box>
+
+              {/* Tab bar + action buttons row */}
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, gap: 1, flexWrap: 'wrap' }}>
                 <ScheduleTabBar activeTab={modalScheduleView} setTab={setModalScheduleView} />
                 <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
@@ -1655,6 +1746,30 @@ const OfficialTimeForm = () => {
                   <Button size="small" variant="outlined" onClick={handleResetModalToDefault} sx={{ borderColor: T.accentBorder, color: '#555', fontWeight: 600, textTransform: 'none', fontSize: '0.78rem', '&:hover': { bgcolor: '#f5f5f5' } }}>Reset Default</Button>
                 </Box>
               </Box>
+
+              {/* Legend for action buttons */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5, px: 0.5, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: '0.68rem', color: T.faint, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Row actions:</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 18, height: 18, borderRadius: 1, border: '0.5px solid rgba(198,40,40,0.35)', bgcolor: 'rgba(198,40,40,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ClearAll sx={{ fontSize: 11, color: '#c62828' }} />
+                  </Box>
+                  <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>Clear row</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 18, height: 18, borderRadius: 1, border: `0.5px solid ${alpha(T.accent, 0.4)}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ArrowBack sx={{ fontSize: 10, color: T.accent, transform: 'rotate(90deg)' }} />
+                  </Box>
+                  <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>Copy from above</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 18, height: 18, borderRadius: 1, border: '0.5px solid rgba(21,101,192,0.4)', bgcolor: 'rgba(21,101,192,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <ArrowForward sx={{ fontSize: 10, color: '#1565c0', transform: 'rotate(90deg)' }} />
+                  </Box>
+                  <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>Apply to all below</Typography>
+                </Box>
+              </Box>
+
               <TableContainer sx={{ border: `1px solid ${T.divider}`, borderRadius: 1.5, overflow: 'auto', mb: 3 }}>
                 <Table size="small">
                   <ScheduleTimeRows records={modalRecords} onChangeRecord={handleModalRecordChange} scheduleView={modalScheduleView} readOnly={false} />
@@ -1701,11 +1816,51 @@ const OfficialTimeForm = () => {
                     <Box><Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Status</Typography><Box sx={{ mt: 0.5 }}><StatusBadge active={String(viewScheduleInfo.status || 'active').toLowerCase() === 'active'} /></Box></Box>
                   </Box>
                   <Box sx={{ mb: 2 }}><ScheduleTabBar activeTab={isEditingViewSchedule ? editViewScheduleView : viewScheduleView} setTab={isEditingViewSchedule ? setEditViewScheduleView : setViewScheduleView} /></Box>
+
+                  {/* Legend — only in edit mode */}
+                  {isEditingViewSchedule && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5, px: 0.5, flexWrap: 'wrap' }}>
+                      <Typography sx={{ fontSize: '0.68rem', color: T.faint, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Row actions:</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 18, height: 18, borderRadius: 1, border: '0.5px solid rgba(198,40,40,0.35)', bgcolor: 'rgba(198,40,40,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <ClearAll sx={{ fontSize: 11, color: '#c62828' }} />
+                        </Box>
+                        <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>Clear row</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 18, height: 18, borderRadius: 1, border: `0.5px solid ${alpha(T.accent, 0.4)}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <ArrowBack sx={{ fontSize: 10, color: T.accent, transform: 'rotate(90deg)' }} />
+                        </Box>
+                        <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>Copy from above</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 18, height: 18, borderRadius: 1, border: '0.5px solid rgba(21,101,192,0.4)', bgcolor: 'rgba(21,101,192,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <ArrowForward sx={{ fontSize: 10, color: '#1565c0', transform: 'rotate(90deg)' }} />
+                        </Box>
+                        <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>Apply to all below</Typography>
+                      </Box>
+                    </Box>
+                  )}
+
                   <TableContainer sx={{ border: `1px solid ${T.divider}`, borderRadius: '10px', overflow: 'hidden', mb: 3 }}>
                     <Table size="small">
                       {isEditingViewSchedule
-                        ? <ScheduleTimeRows records={[...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))} onChangeRecord={(index, field, value) => { const sorted = [...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day)); const day = sorted[index]?.day; setEditViewRecords(prev => prev.map(r => r.day === day ? { ...r, [field]: value } : r)); }} scheduleView={editViewScheduleView} readOnly={false} />
-                        : <ScheduleTimeRows records={[...viewScheduleRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))} onChangeRecord={() => {}} scheduleView={viewScheduleView} readOnly />
+                        ? <ScheduleTimeRows
+                            records={[...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))}
+                            onChangeRecord={(index, field, value) => {
+                              const sorted = [...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+                              const day = sorted[index]?.day;
+                              setEditViewRecords(prev => prev.map(r => r.day === day ? { ...r, [field]: value } : r));
+                            }}
+                            scheduleView={editViewScheduleView}
+                            readOnly={false}
+                          />
+                        : <ScheduleTimeRows
+                            records={[...viewScheduleRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))}
+                            onChangeRecord={() => {}}
+                            scheduleView={viewScheduleView}
+                            readOnly
+                          />
                       }
                     </Table>
                   </TableContainer>
