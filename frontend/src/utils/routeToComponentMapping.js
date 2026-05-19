@@ -88,6 +88,8 @@ export const routeToComponentMap = {
   '/compensatory-time-off': 'compensatory-time-off',
   '/assignment-management': 'assignment-management',
   '/earnings-management': 'earnings-management',
+  '/supervisor-assignment': 'supervisor-assignment',
+  '/leave-request-supervisor': 'leave-request-supervisor',
 };
 
 /**

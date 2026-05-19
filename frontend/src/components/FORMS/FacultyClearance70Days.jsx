@@ -1,368 +1,544 @@
-import React, { useRef } from "react";
-import logo from './logo.png'
-import Button from '@mui/material/Button';
+import React, { useRef, useState } from 'react';
+import logo from './logo.png';
+import LoadingOverlay from '../LoadingOverlay';
+import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
-import DownloadIcon from '@mui/icons-material/Download';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
+/* ── Style helpers ── */
+const tbl = { borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' };
+
+const cell = (extra = {}) => ({
+  padding: '2px 4px',
+  verticalAlign: 'top',
+  fontSize: '10px',
+  fontFamily: 'Arial, Helvetica, sans-serif',
+  lineHeight: '1.3',
+  ...extra,
+});
+
+const bAll = { border: '1px solid #000' };
+const b = (...args) => Object.assign({}, ...args);
+
+/* ════════════════════════════════════════════════════════════
+   FacultyClearance70Days component
+════════════════════════════════════════════════════════════ */
 const FacultyClearance70Days = () => {
-    const printRef = useRef(null);
+  const printRef = useRef(null);
+  const captureRef = useRef(null);
 
-    const ensureCaptureStyles = (el) => {
-        if (!el) return {};
-        const orig = {
-            backgroundColor: el.style.backgroundColor,
-            width: el.style.width,
-            visibility: el.style.visibility,
-            display: el.style.display,
-            position: el.style.position,
-            left: el.style.left,
-            zIndex: el.style.zIndex,
-            opacity: el.style.opacity,
-        };
-        el.style.backgroundColor = '#ffffff';
-        el.style.width = '8.27in'; // A4 Width
-        el.style.visibility = 'visible';
-        el.style.display = 'block';
-        el.style.position = 'fixed';
-        el.style.left = '-9999px';
-        el.style.zIndex = '10000';
-        el.style.opacity = '1';
-        return orig;
-    };
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-    const restoreCaptureStyles = (el, orig) => {
-        if (!el || !orig) return;
-        el.style.backgroundColor = orig.backgroundColor || '';
-        el.style.width = orig.width || '';
-        el.style.visibility = orig.visibility || '';
-        el.style.display = orig.display || '';
-        el.style.position = orig.position || '';
-        el.style.left = orig.left || '';
-        el.style.zIndex = orig.zIndex || '';
-        el.style.opacity = orig.opacity || '';
-    };
+  const showSnackbar = (message, severity = 'success') =>
+    setSnackbar({ open: true, message, severity });
+  const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-    const printPage = async () => {
-        if (!printRef.current) return;
+  /* ── Native print ── */
+  const printPage = () => {
+    const content = document.getElementById('faculty-clearance-70days-content').innerHTML;
+    const printWindow = window.open('', '', 'width=900,height=650');
 
-        try {
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Print Faculty Clearance 70 Days</title>
+          <style>
+            body { font-family: Arial; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; }
+            @page { size: A4; margin: 0.4in; }
+          </style>
+        </head>
+        <body>${content}</body>
+      </html>
+    `);
 
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-            restoreCaptureStyles(printRef.current, orig);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+  };
 
-            const imgData = canvas.toDataURL('image/png');
-            const formWidth = 8.27;
-            const formHeight = 11.69;
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            const xOffset = (pageWidth - formWidth) / 2;
-            const yOffset = (pageHeight - formHeight) / 2;
+  /* ── PDF download ── */
+  const downloadPDF = async () => {
+    if (!captureRef.current) return;
+    try {
+      setIsGenerating(true);
 
-            pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-            pdf.autoPrint();
-            const blobUrl = pdf.output('bloburl');
-            window.open(blobUrl, '_blank');
-        } catch (error) {
-            console.error('Error generating print view:', error);
+      const el = captureRef.current;
+      el.style.position = 'relative';
+      el.style.top = '0';
+      el.style.left = '0';
+      el.style.visibility = 'visible';
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width: 794,
+        allowTaint: true,
+      });
+
+      el.style.position = 'absolute';
+      el.style.top = '-10000px';
+      el.style.left = '-10000px';
+      el.style.visibility = 'hidden';
+
+      if (!canvas) throw new Error('Canvas generation failed');
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const imgW = pageW - margin * 2;
+      const imgH = (canvas.height / canvas.width) * imgW;
+      const imgData = canvas.toDataURL('image/png');
+
+      let yPos = margin;
+      let remainingH = imgH;
+      const usableH = pageH - margin * 2;
+
+      while (remainingH > 0) {
+        const sliceH = Math.min(remainingH, usableH);
+        pdf.addImage(imgData, 'PNG', margin, yPos, imgW, imgH);
+        remainingH -= usableH;
+        if (remainingH > 0) {
+          pdf.addPage();
+          yPos = margin - (imgH - sliceH);
         }
-    };
+      }
 
-    const downloadPDF = async () => {
-        if (!printRef.current) return;
+      pdf.save(`Faculty-Clearance-70Days-${new Date().toISOString().split('T')[0]}.pdf`);
+      showSnackbar('PDF downloaded successfully', 'success');
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      showSnackbar('Error generating PDF: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-        try {
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
+  /* ── Shared form style ── */
+  const formStyle = {
+    fontFamily: 'Arial, Helvetica, sans-serif',
+    fontSize: '10px',
+    width: '190mm',
+    minHeight: '277mm',
+    margin: '0 auto',
+    border: '1px solid #000',
+    padding: '5mm',
+    backgroundColor: '#fff',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
+  };
 
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-            restoreCaptureStyles(printRef.current, orig);
-
-            const imgData = canvas.toDataURL('image/png');
-            const formWidth = 8.27;
-            const formHeight = 11.69;
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            const xOffset = (pageWidth - formWidth) / 2;
-            const yOffset = (pageHeight - formHeight) / 2;
-
-            pdf.addImage(imgData, 'PNG', xOffset, yOffset, formWidth, formHeight);
-            const fileName = `Faculty-Clearance-70Days-${new Date().toISOString().split('T')[0]}.pdf`;
-            pdf.save(fileName);
-        } catch (error) {
-            console.error('Error generating PDF:', error);
-        }
-    };
-
-    return (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '16px' }}>
-                <Button variant="contained" startIcon={<PrintIcon />} onClick={printPage}>
-                    Print
-                </Button>
-                <Button variant="contained" startIcon={<DownloadIcon />} onClick={downloadPDF}>
-                    Download PDF
-                </Button>
-            </div>
-
-            <div ref={printRef} style={{
-                border: '1px solid black',
-                padding: '0.5in',
-                width: '8.27in', // Standard A4 width
-                minHeight: '11.69in', // Standard A4 height
-                height: 'auto', // Allows expansion if content is long
-                fontFamily: 'Arial, Helvetica, sans-serif',
-                margin: '50px auto', // Centers horizontally
-                display: 'block',
-                boxSizing: 'border-box', // Ensures padding doesn't expand width
-                backgroundColor: '#ffffff'
-            }}>
-
-                {/* Header Section: Flexbox for centering and alignment */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
-                    <div style={{ marginRight: '15px' }}>
-                        <img src={logo} alt="Logo" style={{ height: '90px', width: 'auto' }} />
-                    </div>
-                    <div style={{ textAlign: 'center', lineHeight: '1.2' }}>
-                        <div style={{ fontSize: '14px' }}>Republic of the Philippines</div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                            EULOGIO "AMANG" RODRIGUEZ
-                        </div>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                            INSTITUTE OF SCIENCE AND TECHNOLOGY
-                        </div>
-                        <div style={{ fontSize: '14px' }}>Nagtahan, Sampaloc, Manila</div>
-                    </div>
-                </div>
-
-                {/* Title Section: Centered with bottom spacing */}
-                <div style={{ 
-                    textAlign: 'center', 
-                    fontSize: '18px', 
-                    fontWeight: 'bold', 
-                    marginBottom: '40px', // Added bottom space
-                    textTransform: 'uppercase'
-                }}>
-                    Faculty Clearance for 70 Days Proportional Vacation (PVP)
-                    <div style={{ fontSize: '14px', fontWeight: 'normal', marginTop: '5px', textTransform: 'none' }}>
-                        (___________ to ___________)
-                    </div>
-                </div>
-
-                {/* Table 1: Certification Text */}
-                <table style={{ border: '0px', borderCollapse: 'collapse', width: '7.2in', tableLayout: 'fixed', margin: 'auto' }}>
-                    <tbody>
-                        <tr>
-                            <td colSpan="4" style={{ height: '0.5in', verticalAlign: 'top' }}>
-                                &nbsp;
-                            </td>
-                            <td colSpan="36" style={{ height: '0.5in', verticalAlign: 'top' }}>
-                                This is to certify that due to the closing of <b><i><u>School Year</u></i></b> __________
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-                                ______________________
-                            </td>
-                            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-                                ______________________
-                            </td>
-                            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-                                of
-                            </td>
-                            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-                                ____________________
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-                                Name
-                            </td>
-                            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-                                Position
-                            </td>
-                            <td colSpan="2" style={{ height: '0.25in', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                            <td colSpan="12" style={{ height: '0.25in', textAlign: 'center' }}>
-                                Department
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="40" style={{ height: '0.25in' }}>
-                                of the Eulogio "Amang" Rodriguez Institute of Science and Technology, is cleared of all accountabilities<br />
-                                as herein enumerated insofar as the Institute is concerned as of ____________________. This Faculty<br />
-                                Clearance is for the <b><i>70 Days Proportional Vacation Pay (PVP)</i></b> salary claim only. <b>(TO BE ACCOMPLISHED IN 4 COPIES)</b>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <br />
-
-                {/* Table 2: Signatories */}
-                <table style={{ borderCollapse: 'collapse', width: '7.2in', tableLayout: 'fixed', margin: 'auto' }}>
-                    <tbody>
-                        <tr>
-                            <td colSpan="13" style={{ border: '1px solid black', height: '0.3in', fontSize: '90%', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                            <td colSpan="17" style={{ border: '1px solid black', height: '0.3in', fontSize: '90%', textAlign: 'center' }}>
-                                <b>SIGNATURE</b>
-                            </td>
-                            <td colSpan="5" style={{ border: '1px solid black', height: '0.3in', fontSize: '90%', textAlign: 'center' }}>
-                                <b>DATE SIGNED</b>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="13" style={{ border: '1px solid black', height: '0.5in', fontSize: '90%', verticalAlign: 'top' }}>
-                                <b>1.&nbsp;&nbsp;&nbsp;As to Area/College requirements.<br />
-                                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                                    NBC 461/Research/Grade Sheets/<br />
-                                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                                    MR/SALN&PDS/Liquidation </b>
-                                <br />
-                                <br />
-                                <br />
-                            </td>
-                            <td colSpan="17" style={{ border: '1px solid black', height: '0.5in', fontSize: '90%', textAlign: 'center' }}>
-                                <br />
-                                <br />
-                                <br />
-                                _________________________________________<br />
-                                <b>COLLEGE DEAN</b> (for Faculty Assigned in Colleges)<br />
-                                <b>DIRECTOR OF INSTRUCTION</b> (for Gen. Ed. Faculty)<br />
-                                <b>ECC ADMINISTRATOR</b> (for ECC Faculty)
-                            </td>
-                            <td colSpan="5" style={{ border: '1px solid black', height: '0.5in', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="13" style={{ border: '1px solid black', height: '0.5in', fontSize: '90%', verticalAlign: 'top' }}>
-                                <b>2.&nbsp;&nbsp;&nbsp;Recommending Approval</b> <br />
-                                <br />
-                                <br />
-                                <br />
-                                <br />
-                            </td>
-                            <td colSpan="17" style={{ border: '1px solid black', height: '0.5in', fontSize: '90%', textAlign: 'center' }}>
-                                <br />
-                                <br />
-                                <br />
-                                _________________________________________<br />
-                                <b>DR. ERIC C. MENDOZA</b><br />
-                                Vice President for Academic Affairs
-                            </td>
-                            <td colSpan="5" style={{ border: '1px solid black', height: '0.5in', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="13" style={{ border: '1px solid black', height: '0.5in', fontSize: '90%', verticalAlign: 'top' }}>
-                                <b>3.&nbsp;&nbsp;&nbsp;Approved </b> <br />
-                                <br />
-                                <br />
-                                <br />
-                                <br />
-                            </td>
-                            <td colSpan="17" style={{ border: '1px solid black', height: '0.5in', fontSize: '90%', textAlign: 'center' }}>
-                                <br />
-                                <br />
-                                <br />
-                                _________________________________________<br />
-                                <b>Engr. ROGELIO T. MAMARADLO</b><br />
-                                President
-                            </td>
-                            <td colSpan="5" style={{ border: '1px solid black', height: '0.5in', textAlign: 'center' }}>
-                                &nbsp;
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>  
-                <br />
-                
-                {/* Table 3: Bottom Section */}
-                <table style={{ border: '0px', borderCollapse: 'collapse', width: '7.2in', tableLayout: 'fixed', margin: 'auto' }}>
-                    <tbody>
-                        <tr>
-                            <td colSpan="32" style={{ backgroundColor: 'gray', height: '0.25in' }}>
-                                &nbsp;
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="16" style={{ height: '0.4in', verticalAlign: 'bottom' }}>
-                                Email Address: __________________________
-                            </td>
-                            <td colSpan="16" style={{ height: '0.4in', verticalAlign: 'bottom' }}>
-                                Telephone/Cell Phone #: ___________________
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="10" style={{ height: '0.6in', fontSize: '90%', textAlign: 'center', verticalAlign: 'bottom' }}>
-                                ________________________<br />
-                                Signature of Faculty Member
-                            </td>
-                            <td colSpan="10" style={{ height: '0.6in', fontSize: '90%', textAlign: 'center', verticalAlign: 'bottom' }}>
-                                ________________________<br />
-                                Date Fully Accomplished
-                            </td>
-                            <td colSpan="12" style={{ height: '0.6in', fontSize: '90%', textAlign: 'center', verticalAlign: 'bottom' }}>
-                                ______________________________<br />
-                                Vacation Address
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="32" style={{ backgroundColor: 'white', height: '0.25in' }}>
-                                &nbsp;
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="32" style={{ backgroundColor: 'gray', height: '0.25in' }}>
-                                &nbsp;
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="32" style={{ height: '0.4in' }}>
-                                <b>DEADLINE OF SUBMISSION: ______________________________ </b>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colSpan="2" style={{ height: '0.4in' }}>
-                                &nbsp;
-                            </td>
-                            <td colSpan="30" style={{ height: '0.4in' }}>
-                                : Faculty<br />
-                                : HRMS<br />
-                                : FMS (2 copies) 1 photocopy
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-
-            </div>
+  /* ── Form content ── */
+  const renderFormContent = () => (
+    <>
+      {/* ══════════════════════ HEADER ══════════════════════ */}
+      <div style={{ position: 'relative', textAlign: 'center', marginBottom: '6px', minHeight: '90px' }}>
+        {/* Logo — absolutely positioned left, does NOT affect text centering */}
+        <img
+          src={logo}
+          alt="EARIST Logo"
+          style={{
+            height: '80px',
+            width: 'auto',
+            position: 'absolute',
+            left: '100px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+          }}
+        />
+        {/* Text centered relative to the full container width */}
+        <div style={{ lineHeight: '1.6', fontFamily: 'Arial, Helvetica, sans-serif', paddingTop: '4px' }}>
+          <div style={{ fontSize: '10px' }}>Republic of the Philippines</div>
+          <div style={{ fontSize: '13px', fontWeight: 'bold' }}>EULOGIO "AMANG" RODRIGUEZ</div>
+          <div style={{ fontSize: '13px', fontWeight: 'bold' }}>INSTITUTE OF SCIENCE AND TECHNOLOGY</div>
+          <div style={{ fontSize: '10px' }}>Nagtahan, Sampaloc, Manila</div>
         </div>
-    );
+      </div>
+
+      {/* ══════════════════════ TITLE ══════════════════════ */}
+      <div
+        style={{
+          textAlign: 'center',
+          fontSize: '13px',
+          fontWeight: 'bold',
+          textTransform: 'uppercase',
+          margin: '10px 0 4px',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+        }}
+      >
+        Faculty Clearance for 70 Days Proportional Vacation (PVP)
+      </div>
+      <div
+        style={{
+          textAlign: 'center',
+          fontSize: '10px',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          marginBottom: '14px',
+        }}
+      >
+        (___________ to ___________)
+      </div>
+
+      {/* ══════════════════════ CERTIFICATION TEXT ══════════════════════ */}
+      <table style={{ ...tbl, marginBottom: '10px' }}>
+        <tbody>
+          <tr>
+            <td
+              colSpan={5}
+              style={cell({
+                fontSize: '10px',
+                lineHeight: '1.8',
+                paddingBottom: '6px',
+              })}
+            >
+              This is to certify that due to the closing of{' '}
+              <strong>
+                <em>
+                  <u>School Year</u>
+                </em>
+              </strong>{' '}
+              __________
+            </td>
+          </tr>
+
+          {/* Name / Position / Department line */}
+          <tr>
+            <td style={cell({ textAlign: 'center', width: '33%' })}>
+              ______________________________
+            </td>
+            <td style={cell({ textAlign: 'center', width: '4%' })}>&nbsp;</td>
+            <td style={cell({ textAlign: 'center', width: '30%' })}>
+              ______________________________
+            </td>
+            <td style={cell({ textAlign: 'center', width: '4%' })}>of</td>
+            <td style={cell({ textAlign: 'center', width: '29%' })}>
+              ____________________________
+            </td>
+          </tr>
+          <tr>
+            <td style={cell({ textAlign: 'center', fontSize: '9px' })}>Name</td>
+            <td />
+            <td style={cell({ textAlign: 'center', fontSize: '9px' })}>Position</td>
+            <td />
+            <td style={cell({ textAlign: 'center', fontSize: '9px' })}>Department</td>
+          </tr>
+
+          <tr>
+            <td
+              colSpan={5}
+              style={cell({
+                fontSize: '10px',
+                lineHeight: '1.8',
+                paddingTop: '6px',
+              })}
+            >
+              of the Eulogio "Amang" Rodriguez Institute of Science and Technology, is cleared of
+              all accountabilities as herein enumerated insofar as the Institute is concerned as
+              of ____________________. This Faculty Clearance is for the{' '}
+              <strong>
+                <em>70 Days Proportional Vacation Pay (PVP)</em>
+              </strong>{' '}
+              salary claim only.{' '}
+              <strong>(TO BE ACCOMPLISHED IN 4 COPIES)</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ══════════════════════ SIGNATORIES TABLE ══════════════════════ */}
+      <table style={{ ...tbl, marginBottom: '10px' }}>
+        <colgroup>
+          <col style={{ width: '45%' }} />
+          <col style={{ width: '42%' }} />
+          <col style={{ width: '13%' }} />
+        </colgroup>
+        <tbody>
+          {/* Header */}
+          <tr style={{ height: '28px' }}>
+            <td style={cell(b(bAll, { textAlign: 'center', verticalAlign: 'middle', fontWeight: 'bold' }))}>
+              &nbsp;
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center', verticalAlign: 'middle', fontWeight: 'bold' }))}>
+              SIGNATURE
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center', verticalAlign: 'middle', fontWeight: 'bold' }))}>
+              DATE SIGNED
+            </td>
+          </tr>
+
+          {/* Row 1 */}
+          <tr>
+            <td style={cell(b(bAll, { verticalAlign: 'top', lineHeight: '1.5' }))}>
+              <strong>
+                1.&nbsp;&nbsp;&nbsp;As to Area/College requirements.<br />
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NBC 461/Research/Grade Sheets/<br />
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MR/SALN&amp;PDS/Liquidation
+              </strong>
+              <br /><br /><br />
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center', verticalAlign: 'bottom', lineHeight: '1.5' }))}>
+              <br /><br /><br />
+              _________________________________________<br />
+              <strong>COLLEGE DEAN</strong> (for Faculty Assigned in Colleges)<br />
+              <strong>DIRECTOR OF INSTRUCTION</strong> (for Gen. Ed. Faculty)<br />
+              <strong>ECC ADMINISTRATOR</strong> (for ECC Faculty)
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center' }))}>
+              &nbsp;
+            </td>
+          </tr>
+
+          {/* Row 2 */}
+          <tr>
+            <td style={cell(b(bAll, { verticalAlign: 'top' }))}>
+              <strong>2.&nbsp;&nbsp;&nbsp;Recommending Approval</strong>
+              <br /><br /><br /><br />
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center', verticalAlign: 'bottom', lineHeight: '1.5' }))}>
+              <br /><br /><br />
+              _________________________________________<br />
+              <strong>DR. ERIC C. MENDOZA</strong><br />
+              Vice President for Academic Affairs
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center' }))}>
+              &nbsp;
+            </td>
+          </tr>
+
+          {/* Row 3 */}
+          <tr>
+            <td style={cell(b(bAll, { verticalAlign: 'top' }))}>
+              <strong>3.&nbsp;&nbsp;&nbsp;Approved</strong>
+              <br /><br /><br /><br />
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center', verticalAlign: 'bottom', lineHeight: '1.5' }))}>
+              <br /><br /><br />
+              _________________________________________<br />
+              <strong>Engr. ROGELIO T. MAMARADLO</strong><br />
+              President
+            </td>
+            <td style={cell(b(bAll, { textAlign: 'center' }))}>
+              &nbsp;
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ══════════════════════ BOTTOM SECTION ══════════════════════ */}
+      <table style={{ ...tbl, marginTop: '6px' }}>
+        <colgroup>
+          <col style={{ width: '50%' }} />
+          <col style={{ width: '50%' }} />
+        </colgroup>
+        <tbody>
+          <tr style={{ height: '28px' }}>
+            <td style={cell({ verticalAlign: 'bottom' })}>
+              Email Address: __________________________
+            </td>
+            <td style={cell({ verticalAlign: 'bottom' })}>
+              Telephone/Cell Phone #: ___________________
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table style={{ ...tbl, marginTop: '8px' }}>
+        <colgroup>
+          <col style={{ width: '33%' }} />
+          <col style={{ width: '33%' }} />
+          <col style={{ width: '34%' }} />
+        </colgroup>
+        <tbody>
+          <tr style={{ height: '50px' }}>
+            <td style={cell({ textAlign: 'center', verticalAlign: 'bottom', fontSize: '9px' })}>
+              <div
+                style={{
+                  borderTop: '1px solid #000',
+                  width: '80%',
+                  margin: '0 auto',
+                  paddingTop: '3px',
+                }}
+              >
+                Signature of Faculty Member
+              </div>
+            </td>
+            <td style={cell({ textAlign: 'center', verticalAlign: 'bottom', fontSize: '9px' })}>
+              <div
+                style={{
+                  borderTop: '1px solid #000',
+                  width: '80%',
+                  margin: '0 auto',
+                  paddingTop: '3px',
+                }}
+              >
+                Date Fully Accomplished
+              </div>
+            </td>
+            <td style={cell({ textAlign: 'center', verticalAlign: 'bottom', fontSize: '9px' })}>
+              <div
+                style={{
+                  borderTop: '1px solid #000',
+                  width: '85%',
+                  margin: '0 auto',
+                  paddingTop: '3px',
+                }}
+              >
+                Vacation Address
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style={{ height: '12px' }} />
+
+      <div
+        style={{
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontSize: '10px',
+          fontWeight: 'bold',
+          marginBottom: '6px',
+        }}
+      >
+        DEADLINE OF SUBMISSION: ______________________________
+      </div>
+
+      <table style={tbl}>
+        <colgroup>
+          <col style={{ width: '6%' }} />
+          <col style={{ width: '94%' }} />
+        </colgroup>
+        <tbody>
+          <tr>
+            <td style={cell()}>:</td>
+            <td style={cell()}>Faculty</td>
+          </tr>
+          <tr>
+            <td style={cell()}>:</td>
+            <td style={cell()}>HRMS</td>
+          </tr>
+          <tr>
+            <td style={cell()}>:</td>
+            <td style={cell()}>FMS (2 copies) 1 photocopy</td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        bgcolor: '#ffffff',
+        position: 'relative',
+      }}
+    >
+      <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
+
+        {/* ══ VISIBLE FORM ══ */}
+        <div
+          ref={printRef}
+          id="faculty-clearance-70days-content"
+          style={{ ...formStyle, marginTop: '30px' }}
+        >
+          {renderFormContent()}
+        </div>
+
+        {/* ══ HIDDEN CAPTURE CONTAINER (A4-optimized) ══ */}
+        <div
+          ref={captureRef}
+          style={{
+            ...formStyle,
+            width: '794px',
+            position: 'absolute',
+            top: '-10000px',
+            left: '-10000px',
+            border: '1px solid #000',
+            padding: '8px',
+            backgroundColor: '#ffffff',
+            margin: '0',
+          }}
+        >
+          {renderFormContent()}
+        </div>
+      </Box>
+
+      {/* ══ Floating Action Buttons ══ */}
+      <Box
+        className="no-print forms-floating-actions"
+        sx={{
+          position: 'fixed',
+          bottom: '1in',
+          right: 30,
+          display: 'flex',
+          flexDirection: 'row',
+          gap: 2,
+          zIndex: 1000,
+        }}
+      >
+        <Zoom in style={{ transitionDelay: '0ms' }}>
+          <Tooltip title="Print Form" placement="top">
+            <Fab
+              aria-label="print"
+              onClick={printPage}
+              sx={{
+                bgcolor: '#6D2323',
+                '&:hover': { bgcolor: '#8a4747' },
+                width: 56,
+                height: 56,
+              }}
+            >
+              <PrintIcon sx={{ color: '#fff' }} />
+            </Fab>
+          </Tooltip>
+        </Zoom>
+
+        <Zoom in style={{ transitionDelay: '100ms' }}>
+          <Tooltip title="Download PDF" placement="top">
+            <Fab
+              aria-label="download"
+              onClick={downloadPDF}
+              sx={{
+                bgcolor: '#6D2323',
+                '&:hover': { bgcolor: '#8a4747' },
+                width: 56,
+                height: 56,
+              }}
+            >
+              <PictureAsPdfIcon sx={{ color: '#fff' }} />
+            </Fab>
+          </Tooltip>
+        </Zoom>
+      </Box>
+
+      <LoadingOverlay open={isGenerating} message="Generating Document..." />
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
 };
+
 export default FacultyClearance70Days;
