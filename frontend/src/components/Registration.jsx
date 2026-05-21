@@ -772,7 +772,6 @@ const Registration = () => {
     const { name, value } = e.target;
     setFormData((prev) => {
       const next = { ...prev };
-      // employmentCategory is now a type-config id (string) or ''
       next[name] = value;
       if (name === 'lastName')
         next.password = value.toUpperCase().replace(/\s+/g, '');
@@ -780,9 +779,16 @@ const Registration = () => {
     });
   };
 
+  // ── Strict validator for first & last name (min 2 chars, no dots) ─────────
   const isValidName = (n) => {
     if (!n || n.trim().length < 2 || n.trim().length > 50) return false;
     return /^[a-zA-Z\s'-]+$/.test(n.trim());
+  };
+
+  // ── Relaxed validator for middle name (allows initials like "M" or "M.") ──
+  const isValidMiddleName = (n) => {
+    if (!n || n.trim().length === 0 || n.trim().length > 50) return false;
+    return /^[a-zA-Z\s'.-]+$/.test(n.trim());
   };
 
   const handleRegister = async (e) => {
@@ -821,8 +827,9 @@ const Registration = () => {
       setSuccessMessage('');
       return;
     }
-    if (formData.middleName && !isValidName(formData.middleName)) {
-      setErrorMessage('Enter a valid middle name (2–50 letters).');
+    // ── Use relaxed validator for middle name ──────────────────────────────
+    if (formData.middleName && !isValidMiddleName(formData.middleName)) {
+      setErrorMessage('Enter a valid middle name or initial (e.g., M, M., Santos).');
       setSuccessMessage('');
       return;
     }
@@ -848,7 +855,6 @@ const Registration = () => {
         ...getAuthHeaders(),
         body: JSON.stringify({
           ...formData,
-          // Send the type-config id as employmentCategory so the backend can store it
           employmentCategory: formData.employmentCategory
             ? parseInt(formData.employmentCategory, 10)
             : '',
@@ -1479,7 +1485,7 @@ const Registration = () => {
                         label="Middle name"
                         fullWidth
                         size="small"
-                        placeholder="Santos"
+                        placeholder="e.g., Santos or M."
                         value={formData.middleName}
                         onChange={handleChanges}
                         InputProps={{
@@ -2139,4 +2145,4 @@ const Registration = () => {
   );
 };
 
-export default Registration;
+export default Registration;Trixi
