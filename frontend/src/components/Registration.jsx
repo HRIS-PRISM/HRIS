@@ -2145,4 +2145,4 @@ const Registration = () => {
   );
 };
 
-export default Registration;Trixi
+export default Registration;
