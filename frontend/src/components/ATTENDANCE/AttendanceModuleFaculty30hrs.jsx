@@ -814,13 +814,12 @@ import API_BASE_URL from '../../apiConfig';
         <TextField
           size="small"
           fullWidth
-          disabled={reviewLocked}
+          disabled={reviewLocked || isFurlough}
           value={local}
           onChange={(e) => setLocal(e.target.value)}
           onBlur={applyBlur}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); } }}
             placeholder={systemVal}
-            disabled={isFurlough}
             inputProps={{
               'aria-label': 'Regular time tardiness',
               sx: { fontFamily: T.recordFont, fontSize: '0.78rem', textAlign: 'center', py: 0.65 },
@@ -833,7 +832,7 @@ import API_BASE_URL from '../../apiConfig';
                       <IconButton
                         size="small"
                         aria-label="Use system calculation"
-                        disabled={isFurlough}
+                        disabled={isFurlough || reviewLocked}
                         onClick={() => { onCommit(null); setLocal(systemVal); }}
                         sx={{ p: 0.35, color: T.accentMid }}
                       >
