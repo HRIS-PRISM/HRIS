@@ -58,24 +58,13 @@ const fieldToAdjustmentType = (field = '') => {
 };
 
 // ─── Helper: write structured rows to attendance_adjustment_log ───────────────
-/**
- * @param {object} db
- * @param {object} req              express request (for req.user)
- * @param {object} opts
- * @param {string} opts.personID
- * @param {string} opts.date
- * @param {string} [opts.dayOfWeek]
- * @param {'INSERT'|'UPDATE'} opts.operationType
- * @param {string} [opts.remarks]
- * @param {{ field: string, before: string|null, after: string|null }[]} opts.changes
- */
-const writeAdjustmentLog = (db, req, { personID, date, dayOfWeek, operationType, remarks, changes }) => {
-  if (!Array.isArray(changes) || changes.length === 0) return;
+const writeAdjustmentLog = (db, req, { personID, date, dayOfWeek, operationType, remarks, autofillRemarks, changes }) => {
+    if (!Array.isArray(changes) || changes.length === 0) return;
 
   const approvedBy =
     (req.user && (req.user.employeeNumber || req.user.username)) || null;
 
-  const values = changes.map(({ field, before, after }) => [
+const values = changes.map(({ field, before, after }) => [
     String(personID),
     String(date),
     dayOfWeek || null,
@@ -84,14 +73,15 @@ const writeAdjustmentLog = (db, req, { personID, date, dayOfWeek, operationType,
     before || null,
     after  || null,
     operationType || 'UPDATE',
-    remarks || null,
+    remarks        || null,
+    autofillRemarks || null,
     approvedBy,
   ]);
 
-  const sql = `
+const sql = `
     INSERT INTO attendance_adjustment_log
       (personID, originalDate, dayOfWeek, fieldName, adjustmentType,
-       valueBefore, valueAfter, operationType, remarks, approvedBy)
+       valueBefore, valueAfter, operationType, remarks, autofill_remarks, approvedBy)
     VALUES ?
   `;
 
@@ -738,6 +728,7 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       ar.date,
       DAYNAME(ar.date) AS Day,
       ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+      ar.remarks, ar.autofill_remarks,
       ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
       p.*,
       ot.officialTimeIN,
@@ -1020,9 +1011,19 @@ router.post('/api/view-attendance-all-users', authenticateToken, (req, res) => {
   });
 });
 
-// ─── UPDATE records (Records-Only tab) — now writes remarks + adjustment log ──
+// ─── UPDATE records (Records-Only tab) ───────────────────────────────────────
+// FIX: remarks (global save reason) is now ONLY written to rows that actually
+// had field-level changes. Unchanged rows keep their existing remarks intact.
+// changedRowKeys is an optional array of "personID-date" strings sent by the
+// frontend to identify which rows were dirty. If not provided we fall back to
+// detecting changes by comparing old vs new values (safe default).
 router.put('/api/view-attendance', authenticateToken, (req, res) => {
-  const { records, remarks } = req.body;
+  const { records, remarks, changedRowKeys } = req.body;
+
+  // Build a Set for O(1) lookup — frontend sends "personID-date" strings
+  const changedSet = Array.isArray(changedRowKeys)
+    ? new Set(changedRowKeys)
+    : null;
 
   const updatePromises = records.map((record) => {
     const fetchQuery = `
@@ -1056,25 +1057,45 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
 
         const hasChanged = changes.length > 0;
 
+        // ── KEY FIX ──────────────────────────────────────────────────────────
+        // Only apply the global save-remarks to rows that actually changed.
+        // If the frontend supplied changedRowKeys, trust that set.
+        // Otherwise fall back to comparing old vs new (hasChanged).
+        const rowKey = `${record.personID}-${record.date}`;
+        const rowWasChanged = changedSet ? changedSet.has(rowKey) : hasChanged;
+
+        const remarksToWrite = rowWasChanged ? (remarks || null) : null;
+        // ─────────────────────────────────────────────────────────────────────
+
         const diffStr = changes
           .map(({ label, before, after }) =>
             `${label}: [${before || 'empty'} → ${after || 'empty'}]`
           )
           .join(' | ');
 
+        // autofill_remarks: use per-record value if provided, else preserve existing
+        const autofillRemarks =
+          record.autofill_remarks != null
+            ? String(record.autofill_remarks).trim() || null
+            : null;
+
         const updateQuery = `
           UPDATE attendancerecord
           SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
-              remarks = ?
+              remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
+              autofill_remarks = COALESCE(?, autofill_remarks)
           WHERE personID = ? AND date = ?
         `;
 
+        // remarks written with a conditional: only overwrite when remarksToWrite is non-null
         const params = [
           record.timeIN,
           record.breaktimeIN,
           record.breaktimeOUT,
           record.timeOUT,
-          remarks || null,
+          remarksToWrite,   // IS NOT NULL check
+          remarksToWrite,   // the actual value to write
+          autofillRemarks,
           record.personID,
           record.date,
         ];
@@ -1085,18 +1106,19 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
           if (hasChanged) {
             logAudit(
               req.user,
-              `Updated Attendance Record | ${record.date} | ${diffStr}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+              `Updated Attendance Record | ${record.date} | ${diffStr}${remarksToWrite ? ` | Remarks: ${remarksToWrite}` : ''}${autofillRemarks ? ` | AutoFill: ${autofillRemarks}` : ''}`,
               'Attendance Modification',
               record.date,
               record.personID,
             );
 
-            writeAdjustmentLog(db, req, {
-              personID:      record.personID,
-              date:          record.date,
-              dayOfWeek:     old.Day || record.Day || null,
-              operationType: 'UPDATE',
-              remarks,
+writeAdjustmentLog(db, req, {
+              personID:        record.personID,
+              date:            record.date,
+              dayOfWeek:       old.Day || record.Day || null,
+              operationType:   'UPDATE',
+              remarks:         remarksToWrite,
+              autofillRemarks: autofillRemarks,
               changes: changes.map(({ field, before, after }) => ({ field, before, after })),
             });
           }
@@ -1166,7 +1188,6 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
     overallRenderedOfficialTime,
     overallRenderedOfficialTimeTardiness,
     overallTotalOfficialSchedule,
-    // Finalized absence / half-day breakdown (computed by attendance modules)
     absentDays,
     halfDays,
     absentTime,
@@ -1276,14 +1297,11 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
 });
 
 // List absent dates across employees (for Absences Report)
-// Uses finalized absentDates saved by attendance modules (overall_attendance_record.absentDates).
 router.get('/api/overall_attendance_absences', authenticateToken, (req, res) => {
   const { from, to, limitDays } = req.query;
 
-  // Default window keeps response bounded for UI usage.
   const windowDays = Number(limitDays) > 0 ? Math.min(Number(limitDays), 366) : 120;
 
-  // If from/to provided, we still select by record overlap and filter per-date below.
   const query = `
     SELECT
       oar.personID,
@@ -1361,7 +1379,6 @@ router.get('/api/overall_attendance_absences', authenticateToken, (req, res) => 
         }
       }
 
-      // Deduplicate (same employee/date can appear across overlapping records)
       const seen = new Set();
       const unique = [];
       for (const a of absences) {
@@ -1393,7 +1410,6 @@ router.put(
       totalRenderedOvertime, totalRenderedOvertimeTardiness,
       overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
       overallTotalOfficialSchedule,
-      // Finalized absence / half-day breakdown (computed by attendance modules)
       absentDays,
       halfDays,
       absentTime,
@@ -1619,8 +1635,7 @@ router.get('/api/all-device-users', authenticateToken, (req, res) => {
   });
 });
 
-// Aggregated day counts per employee for a date range (fast path for "All Users" list).
-// Matches the grouping used by /api/all-attendance (one row per PersonID per calendar day).
+// Aggregated day counts per employee for a date range
 router.post('/api/device-attendance-summary', authenticateToken, (req, res) => {
   const { startDate, endDate } = req.body || {};
 
@@ -2383,6 +2398,7 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
       DAYNAME(ds.cal_date)                   AS Day,
       ar.id          AS recordId,
       ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+      ar.remarks, ar.autofill_remarks,
       ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
       p.firstName, p.lastName, p.middleName, p.agencyEmployeeNum,
       ot.officialTimeIN, ot.officialTimeOUT,
@@ -2431,13 +2447,21 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
   );
 });
 
-// ─── UPSERT full-month records — now writes remarks + adjustment log ──────────
+// ─── UPSERT full-month records ────────────────────────────────────────────────
+// FIX: remarks (global save reason) is ONLY written to rows that were actually
+// changed. changedDateKeys is an optional array of date strings sent by the
+// frontend. For rows NOT in that set, remarks is left untouched (CASE … ELSE).
 router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
-  const { records, remarks } = req.body;
+  const { records, remarks, changedDateKeys } = req.body;
 
   if (!Array.isArray(records) || records.length === 0) {
     return res.status(400).json({ error: 'records array is required.' });
   }
+
+  // Build Set for O(1) lookup
+  const changedSet = Array.isArray(changedDateKeys)
+    ? new Set(changedDateKeys)
+    : null;
 
   const isEmpty = (v) => !v || String(v).trim() === '';
 
@@ -2448,6 +2472,24 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
       const allEmpty =
         isEmpty(record.timeIN) && isEmpty(record.breaktimeIN) &&
         isEmpty(record.breaktimeOUT) && isEmpty(record.timeOUT);
+
+      // Per-record autofill_remarks
+      const autofillRemarks =
+        record.autofill_remarks != null
+          ? String(record.autofill_remarks).trim() || null
+          : null;
+
+      // ── Determine if this row should receive the global remarks ──────────
+      // For INSERT rows: always write remarks (they are new, admin initiated).
+      // For UPDATE rows: only write if date is in changedSet (or changedSet
+      // wasn't supplied, in which case we trust the record is in the batch
+      // because it was changed — full-month only sends changed rows).
+      const rowReceivesRemarks = record.isNew
+        ? true
+        : changedSet ? changedSet.has(record.date) : true;
+
+      const remarksToWrite = rowReceivesRemarks ? (remarks || null) : null;
+      // ────────────────────────────────────────────────────────────────────
 
       // ── INSERT path ───────────────────────────────────────────────────────
       if (record.isNew) {
@@ -2461,11 +2503,11 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         });
 
         if (existing) {
-          // Race-condition: row appeared between fetch and save — treat as update
           const updateSql = `
             UPDATE attendancerecord
             SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
-                remarks = ?
+                remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
+                autofill_remarks = COALESCE(?, autofill_remarks)
             WHERE id = ?
           `;
           await new Promise((resolve, reject) => {
@@ -2474,7 +2516,8 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
               [
                 record.timeIN || null, record.breaktimeIN || null,
                 record.breaktimeOUT || null, record.timeOUT || null,
-                remarks || null,
+                remarksToWrite, remarksToWrite,
+                autofillRemarks,
                 existing.id,
               ],
               (err) => { if (err) reject(err); else resolve(); },
@@ -2482,22 +2525,23 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
           });
           updated++;
           logAudit(req.user,
-            `Updated Attendance Record (full-month, race-condition) | ${record.date}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+            `Updated Attendance Record (full-month, race-condition) | ${record.date}${remarksToWrite ? ` | Remarks: ${remarksToWrite}` : ''}${autofillRemarks ? ` | AutoFill: ${autofillRemarks}` : ''}`,
             'Attendance Modification – Full View', record.date, record.personID);
 
           const changes = ['timeIN', 'breaktimeIN', 'breaktimeOUT', 'timeOUT']
             .filter((f) => record[f] && String(record[f]).trim() !== '')
             .map((f) => ({ field: f, before: '', after: record[f] }));
-          writeAdjustmentLog(db, req, {
+   writeAdjustmentLog(db, req, {
             personID: record.personID, date: record.date, dayOfWeek: record.Day,
-            operationType: 'UPDATE', remarks, changes,
+            operationType: 'UPDATE', remarks: remarksToWrite, autofillRemarks, changes,
           });
 
         } else {
           const insertSql = `
             INSERT INTO attendancerecord
-              (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT, remarks)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT,
+               remarks, autofill_remarks)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `;
           await new Promise((resolve, reject) => {
             db.query(
@@ -2506,22 +2550,23 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
                 record.personID, record.date, record.Day,
                 record.timeIN || null, record.breaktimeIN || null,
                 record.breaktimeOUT || null, record.timeOUT || null,
-                remarks || null,
+                remarksToWrite,
+                autofillRemarks,
               ],
               (err) => { if (err) reject(err); else resolve(); },
             );
           });
           inserted++;
           logAudit(req.user,
-            `Inserted New Attendance Record (full-month) | ${record.date}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+            `Inserted New Attendance Record (full-month) | ${record.date}${remarksToWrite ? ` | Remarks: ${remarksToWrite}` : ''}${autofillRemarks ? ` | AutoFill: ${autofillRemarks}` : ''}`,
             'Attendance Modification – Full View', record.date, record.personID);
 
           const changes = ['timeIN', 'breaktimeIN', 'breaktimeOUT', 'timeOUT']
             .filter((f) => record[f] && String(record[f]).trim() !== '')
             .map((f) => ({ field: f, before: null, after: record[f] }));
-          writeAdjustmentLog(db, req, {
+    writeAdjustmentLog(db, req, {
             personID: record.personID, date: record.date, dayOfWeek: record.Day,
-            operationType: 'INSERT', remarks, changes,
+            operationType: 'INSERT', remarks: remarksToWrite, autofillRemarks, changes,
           });
         }
 
@@ -2561,7 +2606,8 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         const updateSql = `
           UPDATE attendancerecord
           SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
-              remarks = ?
+              remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
+              autofill_remarks = COALESCE(?, autofill_remarks)
           WHERE personID = ? AND date = ?
         `;
         await new Promise((resolve, reject) => {
@@ -2570,7 +2616,8 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
             [
               record.timeIN || null, record.breaktimeIN || null,
               record.breaktimeOUT || null, record.timeOUT || null,
-              remarks || null,
+              remarksToWrite, remarksToWrite,
+              autofillRemarks,
               record.personID, record.date,
             ],
             (err) => { if (err) reject(err); else resolve(); },
@@ -2580,13 +2627,13 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
 
         if (diffStr) {
           logAudit(req.user,
-            `Updated Attendance Record (full-month) | ${record.date} | ${diffStr}${remarks ? ` | Remarks: ${remarks}` : ''}`,
+            `Updated Attendance Record (full-month) | ${record.date} | ${diffStr}${remarksToWrite ? ` | Remarks: ${remarksToWrite}` : ''}${autofillRemarks ? ` | AutoFill: ${autofillRemarks}` : ''}`,
             'Attendance Modification – Full View', record.date, record.personID);
 
-          writeAdjustmentLog(db, req, {
+       writeAdjustmentLog(db, req, {
             personID: record.personID, date: record.date,
             dayOfWeek: oldRow.Day || record.Day || null,
-            operationType: 'UPDATE', remarks, changes,
+            operationType: 'UPDATE', remarks: remarksToWrite, autofillRemarks, changes,
           });
         }
       }
@@ -2607,7 +2654,7 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── GET /api/attendance_adjustment — consumed by AttendanceAdjustmentReports ─
+// ─── GET /api/attendance_adjustment ──────────────────────────────────────────
 router.get('/api/attendance_adjustment', authenticateToken, (req, res) => {
   const { personID, dateFrom, dateTo } = req.query;
 
@@ -2622,7 +2669,8 @@ router.get('/api/attendance_adjustment', authenticateToken, (req, res) => {
       aal.valueBefore,
       aal.valueAfter,
       aal.operationType,
-      aal.remarks,
+ aal.remarks,
+      aal.autofill_remarks,
       aal.approvedBy,
       aal.adjustedAt,
       CONCAT_WS(' ', pt.firstName, pt.lastName)   AS employeeName,
