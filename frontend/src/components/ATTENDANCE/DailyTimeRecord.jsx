@@ -43,11 +43,18 @@ import {
   fetchDailyLateUndertime,
   formatLateUndertimeDisplay,
   resolveDtrLateUndertimeDisplay,
+  isDtrDateScheduledByOfficialTime,
+  isDtrHalfDayLateUndertimePending,
   parseHalfDayDatesSet,
   DTR_COMPUTED_LATE_UPDATE_EVENT,
   DTR_COMPUTED_LATE_STORAGE_KEY,
 } from '../../utils/dtrLateUndertimeFromOverall';
-import { parseSuggestedHalfDayDatesFromReview } from '../../utils/halfDayReview';
+import {
+  buildReviewByDate,
+  parseHalfDayReviewJson,
+  parseSuggestedHalfDayDatesFromReview,
+  MODULE_TYPES,
+} from '../../utils/halfDayReview';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -518,6 +525,10 @@ const DailyTimeRecord = () => {
   const [computedLateByDate, setComputedLateByDate] = useState({});
   const [halfDayDatesSet, setHalfDayDatesSet] = useState(() => new Set());
   const [suggestedHalfDayDatesSet, setSuggestedHalfDayDatesSet] = useState(() => new Set());
+  const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
+  const [computationModuleType, setComputationModuleType] = useState(
+    MODULE_TYPES.NON_TEACHING,
+  );
 
   // ── Anti-tamper state ──────────────────────────────────────────────────────
   const [originalRecords, setOriginalRecords] = useState([]);
@@ -905,16 +916,23 @@ const DailyTimeRecord = () => {
       setComputedLateByDate({});
       setHalfDayDatesSet(new Set());
       setSuggestedHalfDayDatesSet(new Set());
+      setHalfDayReviewByDate({});
+      setComputationModuleType(MODULE_TYPES.NON_TEACHING);
       return;
     }
-    const { byDate, halfDayDates, half_day_review } = await fetchDailyLateUndertime(
-      personID,
-      startDate,
-      endDate,
-    );
+    const {
+      byDate,
+      halfDayDates,
+      half_day_review,
+      computation_module_type,
+    } = await fetchDailyLateUndertime(personID, startDate, endDate);
     setComputedLateByDate(byDate || {});
     setHalfDayDatesSet(parseHalfDayDatesSet(halfDayDates));
     setSuggestedHalfDayDatesSet(parseSuggestedHalfDayDatesFromReview(half_day_review));
+    setHalfDayReviewByDate(buildReviewByDate(parseHalfDayReviewJson(half_day_review)));
+    setComputationModuleType(
+      computation_module_type || MODULE_TYPES.NON_TEACHING,
+    );
   }, [personID, startDate, endDate]);
 
   useEffect(() => {
@@ -1795,11 +1813,24 @@ const DailyTimeRecord = () => {
         ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
           (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
       );
+      const isNotScheduledDay = !isDtrDateScheduledByOfficialTime({
+        record,
+        officialTimesByDay: officialTimes,
+        fullDate,
+      });
+      const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
+        record,
+        fullDate,
+        reviewByDate: halfDayReviewByDate,
+        moduleType: computationModuleType,
+      });
       const { lateDisplay, undertimeDisplay } = resolveDtrLateUndertimeDisplay({
         computed,
         record,
         isExcludedDay,
         hasIncompletePunch,
+        isNotScheduledDay,
+        isPendingHalfDay,
       });
       return (
         <tr key={i}>

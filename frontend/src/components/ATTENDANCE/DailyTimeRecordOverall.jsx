@@ -73,8 +73,15 @@ import {
   fetchDailyLateUndertimeBatch,
   formatLateUndertimeDisplay,
   resolveDtrLateUndertimeDisplay,
+  isDtrDateScheduledByOfficialTime,
+  isDtrHalfDayLateUndertimePending,
   parseHalfDayDatesSet,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import {
+  buildReviewByDate,
+  parseHalfDayReviewJson,
+  MODULE_TYPES,
+} from '../../utils/halfDayReview';
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
   accent: '#6d2323',
@@ -582,6 +589,9 @@ const DailyTimeRecordFaculty = () => {
   const [batchOfficialTimesMap, setBatchOfficialTimesMap] = useState({});
   const [computedLateByEmployee, setComputedLateByEmployee] = useState({});
   const [halfDayDatesByEmployee, setHalfDayDatesByEmployee] = useState({});
+  const [halfDayReviewByEmployee, setHalfDayReviewByEmployee] = useState({});
+  const [computationModuleTypeByEmployee, setComputationModuleTypeByEmployee] =
+    useState({});
   const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
   const dtrRef = useRef(null);
 
@@ -1125,16 +1135,25 @@ const DailyTimeRecordFaculty = () => {
   const loadComputedLateForEmployee = useCallback(
     async (employeeNumber) => {
       if (!employeeNumber || !startDate || !endDate) return;
-      const { byDate, halfDayDates } = await fetchDailyLateUndertime(
-        employeeNumber,
-        startDate,
-        endDate,
-      );
+      const {
+        byDate,
+        halfDayDates,
+        half_day_review,
+        computation_module_type,
+      } = await fetchDailyLateUndertime(employeeNumber, startDate, endDate);
       const key = String(employeeNumber);
       setComputedLateByEmployee((prev) => ({ ...prev, [key]: byDate }));
       setHalfDayDatesByEmployee((prev) => ({
         ...prev,
         [key]: parseHalfDayDatesSet(halfDayDates),
+      }));
+      setHalfDayReviewByEmployee((prev) => ({
+        ...prev,
+        [key]: buildReviewByDate(parseHalfDayReviewJson(half_day_review)),
+      }));
+      setComputationModuleTypeByEmployee((prev) => ({
+        ...prev,
+        [key]: computation_module_type || MODULE_TYPES.NON_TEACHING,
       }));
     },
     [startDate, endDate],
@@ -1143,14 +1162,24 @@ const DailyTimeRecordFaculty = () => {
   const loadComputedLateBatch = useCallback(
     async (employeeNumbers) => {
       if (!startDate || !endDate || !employeeNumbers?.length) return;
-      const { byEmployee, halfDayDatesByEmployee: halfByEmp } =
-        await fetchDailyLateUndertimeBatch(employeeNumbers, startDate, endDate);
+      const {
+        byEmployee,
+        halfDayDatesByEmployee: halfByEmp,
+        halfDayReviewByEmployee: reviewByEmp,
+        computationModuleTypeByEmployee: modByEmp,
+      } = await fetchDailyLateUndertimeBatch(
+        employeeNumbers,
+        startDate,
+        endDate,
+      );
       const halfSets = {};
       Object.entries(halfByEmp || {}).forEach(([emp, str]) => {
         halfSets[emp] = parseHalfDayDatesSet(str);
       });
       setComputedLateByEmployee((prev) => ({ ...prev, ...byEmployee }));
       setHalfDayDatesByEmployee((prev) => ({ ...prev, ...halfSets }));
+      setHalfDayReviewByEmployee((prev) => ({ ...prev, ...reviewByEmp }));
+      setComputationModuleTypeByEmployee((prev) => ({ ...prev, ...modByEmp }));
     },
     [startDate, endDate],
   );
@@ -2912,7 +2941,12 @@ const DailyTimeRecordFaculty = () => {
     );
   };
 
-  const renderDTRRows = (sourceRecords, type, employeeNumber = null) =>
+  const renderDTRRows = (
+    sourceRecords,
+    type,
+    employeeNumber = null,
+    officialTimesForUser = {},
+  ) =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day = (i + 1).toString().padStart(2, '0');
       const record = sourceRecords.find((r) => recordMatchesDay(r, day));
@@ -2950,6 +2984,19 @@ const DailyTimeRecordFaculty = () => {
         ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
           (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
       );
+      const isNotScheduledDay = !isDtrDateScheduledByOfficialTime({
+        record,
+        officialTimesByDay: officialTimesForUser,
+        fullDate,
+      });
+      const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
+        record,
+        fullDate,
+        reviewByDate: halfDayReviewByEmployee[empKey] || {},
+        moduleType:
+          computationModuleTypeByEmployee[empKey] ||
+          MODULE_TYPES.NON_TEACHING,
+      });
       const { lateDisplay, undertimeDisplay } =
         type !== 'regular'
           ? { lateDisplay: '', undertimeDisplay: '' }
@@ -2962,6 +3009,8 @@ const DailyTimeRecordFaculty = () => {
               },
               isExcludedDay,
               hasIncompletePunch,
+              isNotScheduledDay,
+              isPendingHalfDay,
             });
       return (
         <tr key={i}>
@@ -3117,7 +3166,12 @@ const DailyTimeRecordFaculty = () => {
           <DTRColGroup />
           {renderDTRHeader(nameDisplay, dtrType, officialTimesForUser)}
           <tbody>
-            {renderDTRRows(sourceRecords, dtrType, employeeNumber)}
+            {renderDTRRows(
+              sourceRecords,
+              dtrType,
+              employeeNumber,
+              officialTimesForUser,
+            )}
             {renderDTRFooter()}
           </tbody>
         </table>

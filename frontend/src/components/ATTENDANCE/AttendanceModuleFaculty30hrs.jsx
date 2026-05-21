@@ -2397,6 +2397,7 @@ import API_BASE_URL from '../../apiConfig';
       </Fade>
     );
   };
-  
+
 
   export default AttendanceModuleFaculty;
+  
