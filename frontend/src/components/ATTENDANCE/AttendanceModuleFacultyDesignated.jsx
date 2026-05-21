@@ -5525,4 +5525,5 @@ const AttendanceModuleFacultyDesignated = () => {
   );
 };
 
+
 export default AttendanceModuleFacultyDesignated;
