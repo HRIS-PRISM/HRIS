@@ -635,7 +635,8 @@ const RecordsRow = memo(function RecordsRow({
           const baselineVal = baselineRecord?.[field] || '';
           const currentVal = record[field] || '';
           const origVal = autoFillMeta?.originalValues?.[field];
-          const showWas = baselineVal && baselineVal !== currentVal;
+          // FIX 3: suppress "was:" when row is auto-filled — "orig:" already covers it
+          const showWas = !isAutoFilled && baselineVal && baselineVal !== currentVal;
           return (
             <Box key={field}>
               <MemoTimeInput
@@ -754,7 +755,8 @@ const FullMonthRow = memo(function FullMonthRow({
           const baselineVal = baselineRow?.[field] || '';
           const currentVal = record[field] || '';
           const origVal = autoFillMeta?.originalValues?.[field];
-          const showWas = !record.isNew && baselineVal && baselineVal !== currentVal;
+          // FIX 3: suppress "was:" when row is auto-filled — "orig:" already covers it
+          const showWas = !record.isNew && !isAutoFilled && baselineVal && baselineVal !== currentVal;
           return (
             <Box key={field}>
               <MemoTimeInput
@@ -1233,7 +1235,6 @@ const AttendanceSearch = () => {
   const [fullModifiedRowKeys, setFullModifiedRowKeys] = useState(new Set());
 
   // ── Keyed baseline Maps — immune to array-index misalignment ──────────────
-  // Records key: `${personID}-${date}`   Full-month key: `${date}`
   const [baselineRecordsMap, setBaselineRecordsMap] = useState(new Map());
   const [baselineFullMap,    setBaselineFullMap]    = useState(new Map());
 
@@ -1321,13 +1322,25 @@ const AttendanceSearch = () => {
       if (recordsCacheRef.current.size > 20) { const firstKey = recordsCacheRef.current.keys().next().value; recordsCacheRef.current.delete(firstKey); }
       setRecords(fetched); setSavedRecords(deepClone(fetched));
       if (!preserveBaseline) {
-        // ── Fresh load: build keyed baseline Map, reset all session state ────
+        // ── Fresh load: build keyed baseline Map, reset session state ─────────
         const bm = new Map();
         fetched.forEach((r) => bm.set(`${r.personID}-${r.date}`, { ...r }));
         setBaselineRecordsMap(bm);
         setEverModifiedFields(new Set());
-        setAutoFilledRecordsRows(new Map());
         setModifiedRowKeys(new Set());
+
+        // FIX 1 & 2: Seed autoFilledRecordsRows from DB on fresh load so that
+        // rows with autofill_remarks are correctly marked as already auto-filled.
+        // This prevents the "Fill Official Schd." button from reappearing after
+        // a page reload and eliminates the doubled "was:" hint.
+        const autoFilledSeed = new Map();
+        fetched.forEach((r) => {
+          if (r.autofill_remarks) {
+            const key = `${r.personID}-${r.date}`;
+            autoFilledSeed.set(key, { remarks: r.autofill_remarks, originalValues: {} });
+          }
+        });
+        setAutoFilledRecordsRows(autoFilledSeed);
       } else {
         // ── Post-save / socket refresh: NEVER reset baseline or auto-fill Map.
         // Only add new entries from DB for rows that have autofill_remarks but
@@ -1384,12 +1397,23 @@ const AttendanceSearch = () => {
       if (fullCacheRef.current.size > 20) { const firstKey = fullCacheRef.current.keys().next().value; fullCacheRef.current.delete(firstKey); }
       setFullRecords(fetched); setSavedFullRecords(deepClone(fetched));
       if (!preserveBaseline) {
-        // ── Fresh load: build keyed baseline Map, reset all session state ────
+        // ── Fresh load: build keyed baseline Map, reset session state ─────────
         const bm = new Map();
         fetched.forEach((r) => bm.set(r.date, { ...r }));
         setBaselineFullMap(bm);
-        setAutoFilledFullRows(new Map());
         setFullModifiedRowKeys(new Set());
+
+        // FIX 1 & 2: Seed autoFilledFullRows from DB on fresh load so that
+        // rows with autofill_remarks are correctly marked as already auto-filled.
+        // This prevents the "Fill Official Schd." button from reappearing after
+        // a page reload and eliminates the doubled "was:" hint.
+        const autoFilledSeed = new Map();
+        fetched.forEach((r) => {
+          if (r.autofill_remarks) {
+            autoFilledSeed.set(r.date, { remarks: r.autofill_remarks, originalValues: {} });
+          }
+        });
+        setAutoFilledFullRows(autoFilledSeed);
       } else {
         // ── Post-save / socket refresh: NEVER reset baseline or auto-fill Map.
         setAutoFilledFullRows((prev) => {
@@ -1434,10 +1458,6 @@ const AttendanceSearch = () => {
   const activeTabRef = useRef(activeTab);
   useEffect(() => { fetchRecordsRef.current = fetchRecords; fetchFullRecordsRef.current = fetchFullRecords; activeTabRef.current = activeTab; });
 
-  // ── FIX: Real-time refresh — ALWAYS preserveBaseline: true.
-  // Background socket events (including the one fired by our own save) must
-  // NEVER reset baselineRecordsMap, autoFilledRecordsRows, or everModifiedFields.
-  // Those are intentional session-state that exist specifically to survive re-fetches.
   useAttendanceRealtimeRefresh(
     useCallback(() => {
       if (!personID || !startDate || !endDate) return;
@@ -1472,7 +1492,6 @@ const AttendanceSearch = () => {
     try {
       setLoading(true); setError(''); setSuccess('');
 
-      // Snapshot dirty-row keys BEFORE the fetch clobbers `records`
       const changedRowKeys = new Set();
       records.forEach((rec, i) => {
         if (isDirty(rec, savedRecords[i])) {
@@ -1480,7 +1499,6 @@ const AttendanceSearch = () => {
         }
       });
 
-      // Snapshot the everModified fields we want to carry forward
       const modSet = new Set(everModifiedFields);
       records.forEach((rec, i) => {
         EDITABLE_FIELDS.forEach((f) => {
@@ -1511,10 +1529,8 @@ const AttendanceSearch = () => {
       const newModifiedRowKeys = new Set(modifiedRowKeys);
       changedRowKeys.forEach((k) => newModifiedRowKeys.add(k));
 
-      // Re-fetch with preserveBaseline:true so "was:" hints and auto-fill badges survive
       await fetchRecords(false, { force: true, preserveBaseline: true });
 
-      // Apply the accumulated everModified set AFTER re-fetch so it isn't clobbered
       setEverModifiedFields(modSet);
       setModifiedRowKeys(newModifiedRowKeys);
     } catch (err) {
@@ -1535,7 +1551,6 @@ const AttendanceSearch = () => {
 
     const changedDateKeys = new Set(toSave.map((r) => r.date));
 
-    // Snapshot the fullEverModified fields we want to carry forward
     const modSet = new Set(fullEverModified);
     toSave.forEach((rec) => {
       EDITABLE_FIELDS.forEach((f) => {
@@ -1560,10 +1575,8 @@ const AttendanceSearch = () => {
       const newFullModifiedRowKeys = new Set(fullModifiedRowKeys);
       changedDateKeys.forEach((k) => newFullModifiedRowKeys.add(k));
 
-      // Re-fetch with preserveBaseline:true so "was:" hints and auto-fill badges survive
       await fetchFullRecords(false, { force: true, preserveBaseline: true });
 
-      // Apply the accumulated everModified set AFTER re-fetch so it isn't clobbered
       setFullEverModified(modSet);
       setFullModifiedRowKeys(newFullModifiedRowKeys);
     } catch (err) {
