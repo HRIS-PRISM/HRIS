@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
+  Button,
   Typography,
   Table,
   TableBody,
@@ -61,13 +62,51 @@ import {
   UnfoldLess,
   RestartAlt,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
+import {
+  ATTENDANCE_AUDIT_MODULES,
+  buildAuditPeriodLabel,
+  logAttendanceModuleAction,
+  logAttendanceHalfDayReview,
+} from '../../utils/moduleEmployeeSearchAudit';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import { computeAbsentDays } from './attendanceMetrics';
+import {
+  buildDailyLateUndertimeRows,
+  persistDailyLateUndertimeFromModule,
+  persistHalfDayReviewDailyLate,
+  fetchDailyLateUndertime,
+} from '../../utils/dtrLateUndertimeFromOverall';
+import {
+  MODULE_TYPES,
+  HALF_DAY_STATUS,
+  normalizeReviewDate,
+  parseHalfDayReviewJson,
+  buildReviewByDate,
+  buildHalfDayReviewArray,
+  migrateLegacyHalfDayReview,
+  getApprovedHalfDayDatesSet,
+  computeReviewAwareAbsenceBuckets,
+  getEffectiveTardinessFromReview,
+  getEffectiveTardinessFromApproved,
+  getRowHalfDayUiStatus,
+  hasHrHalfDayConfirmation,
+  getRowTotalRenderedDisplay,
+  getRowTotalTardinessDisplay,
+  resolveEntryRenderedTotal,
+  shouldZeroAmPmHalfDayColumns,
+} from '../../utils/halfDayReview';
+import HalfDayReviewDialog from './HalfDayReviewDialog';
+import {
+  HalfDayApproveHeaderCell,
+  HalfDayApproveBodyCell,
+  HalfDayApproveTotalsCell,
+  getHalfDayReviewRowChrome,
+} from './HalfDayApproveCheckboxCell';
 import {
   computeOfficialAwareAbsenceAndLate,
   listAbsentDatesFromDailyRows,
@@ -79,6 +118,10 @@ import {
   getOfficialSchedWorkSec,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
+  sumHmsDurationStrings,
+  computeLateTotalTimeFromTardiness,
+} from '../../utils/attendanceLateTotals';
+import {
   postAttendanceDevicePreflightNoSync,
   fetchAttendanceCalendarMaps,
   getLeaveStatusLabelForDate,
@@ -86,10 +129,14 @@ import {
 import { getAuthHeaders } from '../../utils/auth';
 import OverallAttendanceCompareModal from './OverallAttendanceCompareModal';
 import {
+  classifyOverallSave,
   mergeOverallPayload,
-  overallRecordsDiffer,
   OVERALL_COMPARE_FIELD_META,
 } from './overallAttendanceMerge';
+import {
+  applyFacultyPunchGatedBreaktimes,
+  isEmptyAttendancePunch,
+} from '../../utils/facultyBreaktimeFromPunches';
 
 /** Parse "01/01/2000 …" style times for duration math; seconds/ms stripped. */
 function parseAttendanceTimeOn2000(timeStr) {
@@ -162,7 +209,14 @@ function minutesFromOfficialScheduleRow(row) {
   const pickValidTime = (t) => {
     if (!t || typeof t !== 'string') return null;
     const s = t.trim();
-    if (!s || s === '00:00:00' || s === '00:00:00 AM' || s === '00:00:00 PM') return null;
+    if (
+      !s ||
+      s === '—' ||
+      s === '00:00:00' ||
+      s === '00:00:00 AM' ||
+      s === '00:00:00 PM'
+    )
+      return null;
     return s;
   };
 
@@ -171,15 +225,18 @@ function minutesFromOfficialScheduleRow(row) {
   if (!offIn || !offOut) return null;
 
   // Prefer official breaktimes; fall back to effective breaktime fields (already normalized in processing).
-  const brIn = pickValidTime(row.officialBreaktimeIN) ?? pickValidTime(row.breaktimeIN);
-  const brOut = pickValidTime(row.officialBreaktimeOUT) ?? pickValidTime(row.breaktimeOUT);
+  const brIn =
+    pickValidTime(row.officialBreaktimeIN) ?? pickValidTime(row.breaktimeIN);
+  const brOut =
+    pickValidTime(row.officialBreaktimeOUT) ?? pickValidTime(row.breaktimeOUT);
   if (!brIn || !brOut) return null;
 
   const startAM = parseAttendanceTimeOn2000(offIn);
   const endAM = parseAttendanceTimeOn2000(brIn);
   const startPM = parseAttendanceTimeOn2000(brOut);
   const endPM = parseAttendanceTimeOn2000(offOut);
-  if ([startAM, endAM, startPM, endPM].some((d) => Number.isNaN(d.getTime()))) return null;
+  if ([startAM, endAM, startPM, endPM].some((d) => Number.isNaN(d.getTime())))
+    return null;
 
   const amMs = Math.max(0, endAM - startAM);
   const pmMs = Math.max(0, endPM - startPM);
@@ -189,26 +246,56 @@ function minutesFromOfficialScheduleRow(row) {
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
-  accent:       '#6d2323',
-  accentDark:   '#5a1d1d',
-  accentMid:    '#8B4545',
-  accentFaint:  'rgba(109,35,35,0.06)',
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
   accentBorder: 'rgba(109,35,35,0.14)',
-  accentHover:  'rgba(109,35,35,0.10)',
-  rowOdd:       'rgba(109,35,35,0.025)',
-  rowHover:     'rgba(109,35,35,0.055)',
-  text:         '#1a1a1a',
-  muted:        '#6b6b6b',
-  faint:        '#a0a0a0',
-  surface:      '#ffffff',
-  divider:      'rgba(0,0,0,0.08)',
-  holiday:   { bg: 'rgba(245,124,0,0.10)', color: '#f57c00', border: 'rgba(245,124,0,0.35)' },
-  leave:     { bg: 'rgba(46,125,50,0.10)',  color: '#2e7d32', border: 'rgba(46,125,50,0.35)' },
-  suspended: { bg: 'rgba(211,47,47,0.10)',  color: '#d32f2f', border: 'rgba(211,47,47,0.35)' },
-  halfDay:   { bg: 'rgba(255,152,0,0.10)',  color: '#e65100', border: 'rgba(255,152,0,0.35)' },
-  absent:    { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.25)' },
-  rendered:  { bg: 'rgba(27,94,32,0.08)',   color: '#1b5e20', border: 'rgba(27,94,32,0.25)' },
-  tardiness: { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.25)' },
+  accentHover: 'rgba(109,35,35,0.10)',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+  recordFont:
+    "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  holiday: {
+    bg: 'rgba(245,124,0,0.10)',
+    color: '#f57c00',
+    border: 'rgba(245,124,0,0.35)',
+  },
+  leave: {
+    bg: 'rgba(46,125,50,0.10)',
+    color: '#2e7d32',
+    border: 'rgba(46,125,50,0.35)',
+  },
+  suspended: {
+    bg: 'rgba(211,47,47,0.10)',
+    color: '#d32f2f',
+    border: 'rgba(211,47,47,0.35)',
+  },
+  halfDay: {
+    bg: 'rgba(106,27,154,0.10)',
+    color: '#6a1b9a',
+    border: 'rgba(106,27,154,0.35)',
+  },
+  absent: {
+    bg: 'rgba(183,28,28,0.08)',
+    color: '#b71c1c',
+    border: 'rgba(183,28,28,0.25)',
+  },
+  rendered: {
+    bg: 'rgba(27,94,32,0.08)',
+    color: '#1b5e20',
+    border: 'rgba(27,94,32,0.25)',
+  },
+  tardiness: {
+    bg: 'rgba(183,28,28,0.08)',
+    color: '#b71c1c',
+    border: 'rgba(183,28,28,0.25)',
+  },
 };
 
 // ─── Shimmer keyframes ────────────────────────────────────────────────────
@@ -225,11 +312,15 @@ const shimmerKf = `
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box
     sx={{
-      width: w, height: h, borderRadius: r,
-      background: 'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
       backgroundSize: '800px 100%',
       animation: 'shimmer 1.6s infinite linear',
-      flexShrink: 0, ...sx,
+      flexShrink: 0,
+      ...sx,
     }}
   />
 );
@@ -237,42 +328,185 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
 const AttendanceDesignatedWireframe = () => (
   <>
     <style>{shimmerKf}</style>
-    <Box sx={{
-      py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
-      width: '100vw', maxWidth: '100%',
-      position: 'relative', left: '53%', transform: 'translateX(-51%)',
-      px: { xs: 2, sm: 3, md: 6 },
-    }}>
-      <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', animation: 'blink 2s ease-in-out infinite' }}>
-        <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
-          <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
-          <Box><Bone w={280} h={18} sx={{ mb: 1 }} /><Bone w={380} h={11} /></Box>
+    <Box
+      sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        mb: { xs: 1, md: 2 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '53%',
+        transform: 'translateX(-51%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '0.5px solid rgba(0,0,0,0.09)',
+          animation: 'blink 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            px: 4,
+            py: 3,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2.5,
+          }}
+        >
+          <Box
+            sx={{
+              width: 30,
+              height: 30,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.12)',
+            }}
+          />
+          <Box>
+            <Bone w={280} h={18} sx={{ mb: 1 }} />
+            <Bone w={380} h={11} />
+          </Box>
         </Box>
       </Box>
-      <Box sx={{ mb: 2, borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.1s infinite' }}>
-        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.25, minHeight: 42 }}>
-          <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.2)' }} />
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '0.5px solid rgba(0,0,0,0.09)',
+          bgcolor: '#fff',
+          animation: 'blink 2s ease-in-out 0.1s infinite',
+        }}
+      >
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1.25,
+            bgcolor: T.accentFaint,
+            borderBottom: `1px solid ${T.divider}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.25,
+            minHeight: 42,
+          }}
+        >
+          <Box
+            sx={{
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.2)',
+            }}
+          />
           <Bone w={180} h={12} />
         </Box>
         <Box sx={{ px: 2.5, py: 2.5 }}>
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            {[1, 2, 3].map((i) => <Box key={i} sx={{ flex: 1, height: 40, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }} />)}
+            {[1, 2, 3].map((i) => (
+              <Box
+                key={i}
+                sx={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: '8px',
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                }}
+              />
+            ))}
           </Box>
-          <Box sx={{ border: `2px dashed ${T.accentBorder}`, borderRadius: '8px', p: 3 }}>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-              {Array.from({ length: 12 }).map((_, i) => <Box key={i} sx={{ width: 64, height: 36, borderRadius: '6px', bgcolor: T.accentFaint }} />)}
+          <Box
+            sx={{
+              border: `2px dashed ${T.accentBorder}`,
+              borderRadius: '8px',
+              p: 3,
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 1,
+                justifyContent: 'center',
+              }}
+            >
+              {Array.from({ length: 12 }).map((_, i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    width: 64,
+                    height: 36,
+                    borderRadius: '6px',
+                    bgcolor: T.accentFaint,
+                  }}
+                />
+              ))}
             </Box>
           </Box>
         </Box>
       </Box>
-      <Box sx={{ borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff', animation: 'blink 2s ease-in-out 0.2s infinite' }}>
-        <Box sx={{ px: 2.5, py: 1.25, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2 }}>
-          {[100, 80, 80, 80].map((w, i) => <Box key={i} sx={{ height: 10, width: w, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.22)' }} />)}
+      <Box
+        sx={{
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '0.5px solid rgba(0,0,0,0.09)',
+          bgcolor: '#fff',
+          animation: 'blink 2s ease-in-out 0.2s infinite',
+        }}
+      >
+        <Box
+          sx={{
+            px: 2.5,
+            py: 1.25,
+            bgcolor: T.accent,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr 1fr',
+            gap: 2,
+          }}
+        >
+          {[100, 80, 80, 80].map((w, i) => (
+            <Box
+              key={i}
+              sx={{
+                height: 10,
+                width: w,
+                borderRadius: 3,
+                bgcolor: 'rgba(255,255,255,0.22)',
+              }}
+            />
+          ))}
         </Box>
         {[...Array(5)].map((_, i) => (
-          <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, alignItems: 'center', borderBottom: '1px solid rgba(0,0,0,0.05)', bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd }}>
-            <Bone w={120} h={12} /><Bone w={80} h={12} /><Bone w={80} h={12} />
-            <Box sx={{ width: 90, height: 24, borderRadius: '12px', bgcolor: T.accentFaint }} />
+          <Box
+            key={i}
+            sx={{
+              px: 2.5,
+              py: 2,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr 1fr',
+              gap: 2,
+              alignItems: 'center',
+              borderBottom: '1px solid rgba(0,0,0,0.05)',
+              bgcolor: i % 2 === 0 ? '#fff' : T.rowOdd,
+            }}
+          >
+            <Bone w={120} h={12} />
+            <Bone w={80} h={12} />
+            <Bone w={80} h={12} />
+            <Box
+              sx={{
+                width: 90,
+                height: 24,
+                borderRadius: '12px',
+                bgcolor: T.accentFaint,
+              }}
+            />
           </Box>
         ))}
       </Box>
@@ -290,46 +524,90 @@ const SectionCard = styled(Card)({
 });
 
 const PanelHeader = ({ icon: Icon, title, rightContent }) => (
-  <Box sx={{
-    px: 2.5, py: 1.5,
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    borderBottom: `1px solid ${T.divider}`,
-    bgcolor: T.accentFaint,
-  }}>
+  <Box
+    sx={{
+      px: 2.5,
+      py: 1.5,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: T.accentFaint,
+    }}
+  >
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
       <Icon sx={{ fontSize: 15, color: T.accent }} />
-      <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>{title}</Typography>
+      <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
+        {title}
+      </Typography>
     </Box>
     {rightContent}
   </Box>
 );
 
-const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
+const NativeInput = ({
+  value,
+  onChange,
+  type = 'text',
+  placeholder,
+  disabled,
+  icon,
+}) => (
   <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
     {icon && (
-      <Box sx={{ position: 'absolute', left: 10, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 10,
+          color: T.accentMid,
+          display: 'flex',
+          alignItems: 'center',
+          zIndex: 1,
+          pointerEvents: 'none',
+        }}
+      >
         {icon}
       </Box>
     )}
     <input
-      type={type} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      disabled={disabled}
       style={{
-        width: '100%', padding: icon ? '9px 13px 9px 34px' : '9px 13px',
-        borderRadius: '8px', border: `1px solid ${T.accentBorder}`,
-        fontSize: '0.875rem', outline: 'none', fontFamily: 'inherit',
-        boxSizing: 'border-box', transition: 'border-color 0.18s',
-        background: disabled ? '#f5f5f5' : '#fff', color: T.text,
+        width: '100%',
+        padding: icon ? '9px 13px 9px 34px' : '9px 13px',
+        borderRadius: '8px',
+        border: `1px solid ${T.accentBorder}`,
+        fontSize: '0.875rem',
+        outline: 'none',
+        fontFamily: 'inherit',
+        boxSizing: 'border-box',
+        transition: 'border-color 0.18s',
+        background: disabled ? '#f5f5f5' : '#fff',
+        color: T.text,
         cursor: disabled ? 'not-allowed' : 'text',
       }}
-      onFocus={(e) => { if (!disabled) { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`; } }}
-      onBlur={(e) => { e.target.style.borderColor = T.accentBorder; e.target.style.boxShadow = 'none'; }}
+      onFocus={(e) => {
+        if (!disabled) {
+          e.target.style.borderColor = T.accent;
+          e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`;
+        }
+      }}
+      onBlur={(e) => {
+        e.target.style.borderColor = T.accentBorder;
+        e.target.style.boxShadow = 'none';
+      }}
     />
   </Box>
 );
 
 const FieldInput = styled(TextField)({
   '& .MuiOutlinedInput-root': {
-    borderRadius: 8, fontSize: '0.875rem', backgroundColor: '#fff',
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
     '& fieldset': { borderColor: T.accentBorder },
     '&:hover fieldset': { borderColor: T.accent },
     '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
@@ -344,19 +622,28 @@ const formatFullNameForSearch = (fullName) => {
   const parts = cleaned.split(' ');
   const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
   let suffix = '';
-  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
+  if (suffixes.has(parts[parts.length - 1]?.toUpperCase()))
+    suffix = parts.pop();
   if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
   const firstName = parts[0];
   const lastName = parts[parts.length - 1];
-  const middleFormatted = parts.slice(1, parts.length - 1).map((m) => {
-    const mm = String(m).replace(/\./g, '');
-    return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
-  }).join(' ');
+  const middleFormatted = parts
+    .slice(1, parts.length - 1)
+    .map((m) => {
+      const mm = String(m).replace(/\./g, '');
+      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
+    })
+    .join(' ');
   const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
   return suffix ? `${base} ${suffix}` : base;
 };
 
-const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
+const EmployeeSearchField = ({
+  value,
+  onSelectEmployeeNumber,
+  onSearchQueryChange,
+  disabled = false,
+}) => {
   const [query, setQuery] = useState(value || '');
   const [debouncedQuery, setDebouncedQuery] = useState(value || '');
   const [results, setResults] = useState([]);
@@ -366,83 +653,198 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
   const containerRef = useRef(null);
   const abortRef = useRef(null);
 
-  useEffect(() => { setQuery(value || ''); setDebouncedQuery(value || ''); }, [value]);
   useEffect(() => {
-    const handleOutside = (event) => { if (!containerRef.current?.contains(event.target)) setOpen(false); };
+    setQuery(value || '');
+    setDebouncedQuery(value || '');
+  }, [value]);
+  useEffect(() => {
+    const handleOutside = (event) => {
+      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    };
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-  }, []);
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    },
+    [],
+  );
   useEffect(() => {
     if (!open) return;
     if (abortRef.current) abortRef.current.abort();
     const q = debouncedQuery.trim();
-    if (q.length < 2) { setResults([]); setLoading(false); return; }
+    if (q.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    axios.get(`${API_BASE_URL}/users/search`, {
-      params: { q },
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
-      signal: controller.signal,
-    })
-      .then((res) => { const list = Array.isArray(res.data) ? res.data : []; setResults(list.slice(0, 20)); })
-      .catch((err) => { if (err?.code === 'ERR_CANCELED') return; setResults([]); })
+    axios
+      .get(`${API_BASE_URL}/users/search`, {
+        params: { q },
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      })
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setResults(list.slice(0, 20));
+      })
+      .catch((err) => {
+        if (err?.code === 'ERR_CANCELED') return;
+        setResults([]);
+      })
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, [debouncedQuery, open]);
 
   const queueSearch = (nextValue) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { setDebouncedQuery(nextValue); setOpen(true); }, 220);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(nextValue);
+      setOpen(true);
+    }, 220);
   };
-  const handleInputChange = (e) => { const next = e.target.value; onSelectEmployeeNumber(next); setQuery(next); queueSearch(next); };
-  const handleSelect = (emp) => { const num = emp?.employeeNumber ? String(emp.employeeNumber) : ''; onSelectEmployeeNumber(num); setQuery(num); setDebouncedQuery(num); setOpen(false); };
-  const handleClear = () => { if (debounceRef.current) clearTimeout(debounceRef.current); if (abortRef.current) abortRef.current.abort(); setQuery(''); setDebouncedQuery(''); setResults([]); setOpen(false); onSelectEmployeeNumber(''); };
+  const handleInputChange = (e) => {
+    const next = e.target.value;
+    onSelectEmployeeNumber(next);
+    setQuery(next);
+    onSearchQueryChange?.(next.trim());
+    queueSearch(next);
+  };
+  const handleSelect = (emp) => {
+    const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
+    onSelectEmployeeNumber(num);
+    setQuery(num);
+    setDebouncedQuery(num);
+    setOpen(false);
+    onSearchQueryChange?.(query.trim());
+  };
+  const handleClear = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    setQuery('');
+    setDebouncedQuery('');
+    setResults([]);
+    setOpen(false);
+    onSearchQueryChange?.('');
+    onSelectEmployeeNumber('');
+  };
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
       <FieldInput
-        fullWidth size="small" value={query} onChange={handleInputChange} onFocus={() => setOpen(true)}
-        placeholder="Type name or employee number..." disabled={disabled} autoComplete="off"
+        fullWidth
+        size="small"
+        value={query}
+        onChange={handleInputChange}
+        onFocus={() => setOpen(true)}
+        placeholder="Type name or employee number..."
+        disabled={disabled}
+        autoComplete="off"
         inputProps={{ autoComplete: 'new-password' }}
         InputProps={{
-          startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment>,
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchOutlined sx={{ color: T.muted, fontSize: 16 }} />
+            </InputAdornment>
+          ),
           endAdornment: (
             <InputAdornment position="end">
-              {loading ? <CircularProgress size={14} sx={{ color: T.accent }} /> : query ? (
-                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}><CloseIcon sx={{ fontSize: 14, color: T.faint }} /></IconButton>
+              {loading ? (
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+              ) : query ? (
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <CloseIcon sx={{ fontSize: 14, color: T.faint }} />
+                </IconButton>
               ) : null}
             </InputAdornment>
           ),
         }}
       />
       {open && (
-        <Paper elevation={6} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1300, mt: 0.5, maxHeight: 280, overflow: 'auto', borderRadius: '10px', border: `1px solid ${T.accentBorder}` }}>
+        <Paper
+          elevation={6}
+          sx={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 1300,
+            mt: 0.5,
+            maxHeight: 280,
+            overflow: 'auto',
+            borderRadius: '10px',
+            border: `1px solid ${T.accentBorder}`,
+          }}
+        >
           {loading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 1,
+                py: 2.5,
+              }}
+            >
               <CircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
+                Searching...
+              </Typography>
             </Box>
           ) : results.length > 0 ? (
             <List dense disablePadding>
               {results.map((emp) => (
-                <ListItemButton key={emp.employeeNumber} onClick={() => handleSelect(emp)}
-                  sx={{ py: 1, px: 1.5, borderBottom: `1px solid ${T.divider}`, '&:hover': { bgcolor: T.accentFaint }, '&:last-child': { borderBottom: 'none' } }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                    <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{formatFullNameForSearch(emp.fullName)}</Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{emp.employeeNumber}</Typography>
+                <ListItemButton
+                  key={emp.employeeNumber}
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    '&:last-child': { borderBottom: 'none' },
+                  }}
+                >
+                  <Box
+                    sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.83rem',
+                        fontWeight: 700,
+                        color: T.text,
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {formatFullNameForSearch(emp.fullName)}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                      #{emp.employeeNumber}
+                    </Typography>
                   </Box>
                 </ListItemButton>
               ))}
             </List>
           ) : (
             <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
-                {query.trim().length >= 2 ? `No registered user found for "${query.trim()}"` : 'Type at least 2 characters to search users'}
+              <Typography
+                sx={{
+                  fontSize: '0.78rem',
+                  color: T.faint,
+                  fontStyle: 'italic',
+                }}
+              >
+                {query.trim().length >= 2
+                  ? `No registered user found for "${query.trim()}"`
+                  : 'Type at least 2 characters to search users'}
               </Typography>
             </Box>
           )}
@@ -453,29 +855,62 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
 };
 
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
-  <button onClick={onClick} disabled={disabled}
-    style={{ background: 'transparent', border: `1px solid ${color}40`, borderRadius: '8px', padding: '9px 18px', cursor: disabled ? 'default' : 'pointer', color, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 700, fontFamily: 'inherit', transition: 'background-color 0.15s, border-color 0.15s', whiteSpace: 'nowrap', opacity: disabled ? 0.5 : 1 }}
-    onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; } }}
-    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}>
-    {icon}{label}
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    style={{
+      background: 'transparent',
+      border: `1px solid ${color}40`,
+      borderRadius: '8px',
+      padding: '9px 18px',
+      cursor: disabled ? 'default' : 'pointer',
+      color,
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      fontSize: '0.85rem',
+      fontWeight: 700,
+      fontFamily: 'inherit',
+      transition: 'background-color 0.15s, border-color 0.15s',
+      whiteSpace: 'nowrap',
+      opacity: disabled ? 0.5 : 1,
+    }}
+    onMouseEnter={(e) => {
+      if (!disabled) {
+        e.currentTarget.style.backgroundColor = hoverBg;
+        e.currentTarget.style.borderColor = color;
+      }
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.backgroundColor = 'transparent';
+      e.currentTarget.style.borderColor = `${color}40`;
+    }}
+  >
+    {icon}
+    {label}
   </button>
 );
 
 // ─── Half-day helpers ─────────────────────────────────────────────────────
 const attendanceEmptyPunch = (v) =>
-  v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim().toUpperCase() === 'N/A';
+  v == null ||
+  String(v).trim() === '' ||
+  String(v).trim() === '—' ||
+  String(v).trim().toUpperCase() === 'N/A';
 
 const isHalfDayAttendanceRow = (row, fn) => {
   if (!row || fn(row.date)) return false;
   // Designated (40hrs) module: half-day depends on timeIN/timeOUT only.
-  const morning   = !attendanceEmptyPunch(row.timeIN);
+  const morning = !attendanceEmptyPunch(row.timeIN);
   const afternoon = !attendanceEmptyPunch(row.timeOUT);
   return morning !== afternoon;
 };
 
 // Designated (40hrs) module rule: ignore breaktime punches for absent/half-day.
 function hasNoPunchesTimeInOutOnly(row) {
-  return attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT);
+  return (
+    attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT)
+  );
 }
 function hasMorningPunchTimeInOnly(row) {
   return !attendanceEmptyPunch(row?.timeIN);
@@ -492,8 +927,11 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
   let lateShortfallSecTotal = 0;
 
   (Array.isArray(rows) ? rows : []).forEach((row) => {
-    const d = String(row?.date ?? '').trim().slice(0, 10);
-    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps)) return;
+    const d = String(row?.date ?? '')
+      .trim()
+      .slice(0, 10);
+    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
+      return;
     if (!isScheduledByOfficialTime(row)) return;
     const schedWorkSec = getOfficialSchedWorkSec(row);
     if (schedWorkSec == null) return;
@@ -523,7 +961,8 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     else lateShortfallSecTotal += deficit;
   });
 
-  const overallShortfallSecTotal = absentSecTotal + halfDayShortfallSecTotal + lateShortfallSecTotal;
+  const overallShortfallSecTotal =
+    absentSecTotal + halfDayShortfallSecTotal + lateShortfallSecTotal;
   return {
     absentDays,
     halfDays,
@@ -532,17 +971,24 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     lateShortfallSecTotal,
     overallShortfallSecTotal,
     absentTime: formatOfficialAttendanceSeconds(absentSecTotal),
-    halfDayShortfallTime: formatOfficialAttendanceSeconds(halfDayShortfallSecTotal),
+    halfDayShortfallTime: formatOfficialAttendanceSeconds(
+      halfDayShortfallSecTotal,
+    ),
     lateShortfallTime: formatOfficialAttendanceSeconds(lateShortfallSecTotal),
-    overallShortfallTime: formatOfficialAttendanceSeconds(overallShortfallSecTotal),
+    overallShortfallTime: formatOfficialAttendanceSeconds(
+      overallShortfallSecTotal,
+    ),
   };
 }
 
 function listHalfDayDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
   const dates = [];
   (Array.isArray(rows) ? rows : []).forEach((row) => {
-    const d = String(row?.date ?? '').trim().slice(0, 10);
-    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps)) return;
+    const d = String(row?.date ?? '')
+      .trim()
+      .slice(0, 10);
+    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
+      return;
     if (!isScheduledByOfficialTime(row)) return;
     if (getOfficialSchedWorkSec(row) == null) return;
     if (hasNoPunchesTimeInOutOnly(row)) return;
@@ -557,8 +1003,11 @@ function listHalfDayDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
 function listAbsentDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
   const dates = [];
   (Array.isArray(rows) ? rows : []).forEach((row) => {
-    const d = String(row?.date ?? '').trim().slice(0, 10);
-    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps)) return;
+    const d = String(row?.date ?? '')
+      .trim()
+      .slice(0, 10);
+    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
+      return;
     if (!isScheduledByOfficialTime(row)) return;
     if (getOfficialSchedWorkSec(row) == null) return;
     if (!hasNoPunchesTimeInOutOnly(row)) return;
@@ -569,12 +1018,26 @@ function listAbsentDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
 
 // ─── Status chip ──────────────────────────────────────────────────────────
 const StatusChip = ({ label }) => {
-  const styles = { 'WORK SUSPENDED': T.suspended, 'HOLIDAY': T.holiday, 'ON LEAVE': T.leave };
+  const styles = {
+    'WORK SUSPENDED': T.suspended,
+    HOLIDAY: T.holiday,
+    'ON LEAVE': T.leave,
+  };
   const s = styles[label] || {};
   return (
-    <Chip size="small" label={label}
-      sx={{ fontWeight: 700, fontSize: '0.6rem', height: 16, mt: 0.3,
-        bgcolor: s.bg, color: s.color, border: `1px solid ${s.border}` }} />
+    <Chip
+      size="small"
+      label={label}
+      sx={{
+        fontWeight: 700,
+        fontSize: '0.6rem',
+        height: 16,
+        mt: 0.3,
+        bgcolor: s.bg,
+        color: s.color,
+        border: `1px solid ${s.border}`,
+      }}
+    />
   );
 };
 
@@ -591,10 +1054,26 @@ const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
 
 // ─── Tab definitions ──────────────────────────────────────────────────────
 const VIEW_TABS = [
-  { key: 'regular',       label: 'Regular Time',  icon: <Schedule sx={{ fontSize: 14 }} /> },
-  { key: 'honorarium',    label: 'Honorarium',     icon: <Star sx={{ fontSize: 14 }} /> },
-  { key: 'serviceCredit', label: 'Service Credit', icon: <CreditScore sx={{ fontSize: 14 }} /> },
-  { key: 'overtime',      label: 'Overtime',       icon: <AccessTime sx={{ fontSize: 14 }} /> },
+  {
+    key: 'regular',
+    label: 'Regular Time',
+    icon: <Schedule sx={{ fontSize: 14 }} />,
+  },
+  {
+    key: 'honorarium',
+    label: 'Honorarium',
+    icon: <Star sx={{ fontSize: 14 }} />,
+  },
+  {
+    key: 'serviceCredit',
+    label: 'Service Credit',
+    icon: <CreditScore sx={{ fontSize: 14 }} />,
+  },
+  {
+    key: 'overtime',
+    label: 'Overtime',
+    icon: <AccessTime sx={{ fontSize: 14 }} />,
+  },
 ];
 
 // ─── Column definitions ───────────────────────────────────────────────────
@@ -602,79 +1081,322 @@ const VIEW_TABS = [
 // Regular tab column order matches NonTeaching: all punches, then AM/PM rendered & tardiness + total tardiness.
 const TAB_COLUMNS = {
   regular: [
-    { label: 'Date',                   key: 'date',                 minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                    key: 'day',                  minWidth: 118, group: 'meta',     colGroup: null },
-    { label: 'Time IN',                key: 'timeIN',               minWidth: 140, group: 'actual',   colGroup: 'morningDevice',        isGroupLeader: true },
-    { label: 'Official Time IN',       key: 'officialTimeIN',       minWidth: 130, group: 'official', colGroup: 'morningOfficial',      isGroupLeader: true },
-    { label: 'Breaktime IN',           key: 'breaktimeIN',          minWidth: 140, group: 'actual',   colGroup: 'breaktimeDevice',      isGroupLeader: true },
-    { label: 'Official Breaktime IN',  key: 'officialBreaktimeIN',  minWidth: 140, group: 'official', colGroup: 'breaktimeOfficial',    isGroupLeader: true },
-    { label: 'Breaktime OUT',          key: 'breaktimeOUT',         minWidth: 130, group: 'actual',   colGroup: 'afternoonBreakDevice', isGroupLeader: true },
-    { label: 'Time OUT',               key: 'timeOUT',              minWidth: 120, group: 'actual',   colGroup: 'timeOutDevice',        isGroupLeader: true },
-    { label: 'Official Breaktime OUT', key: 'officialBreaktimeOUT', minWidth: 140, group: 'official', colGroup: 'afternoonOfficial',    isGroupLeader: true },
-    { label: 'Official Time OUT',      key: 'officialTimeOUT',      minWidth: 130, group: 'official', colGroup: 'afternoonOfficial' },
-    { label: 'AM Rendered',            key: '_morningRendered',     minWidth: 130, group: 'calc',     colGroup: 'amRendered',           isGroupLeader: true },
-    { label: 'AM Tardiness',           key: '_morningTardiness',    minWidth: 130, group: 'tard',     colGroup: 'amTard',               isGroupLeader: true },
-    { label: 'PM Rendered',            key: '_afternoonRendered',   minWidth: 130, group: 'calc',     colGroup: 'pmRendered',           isGroupLeader: true },
-    { label: 'PM Tardiness',           key: '_afternoonTardiness',  minWidth: 130, group: 'tard',     colGroup: 'pmTard',               isGroupLeader: true },
-    { label: 'Total Tardiness',        key: '_totalTardiness',      minWidth: 130, group: 'tard',     colGroup: 'totalTard',            isGroupLeader: true },
+    {
+      label: 'Date',
+      key: 'date',
+      minWidth: 130,
+      group: 'meta',
+      colGroup: null,
+    },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
+    {
+      label: 'Time IN',
+      key: 'timeIN',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'morningDevice',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Time IN',
+      key: 'officialTimeIN',
+      minWidth: 130,
+      group: 'official',
+      colGroup: 'morningOfficial',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Breaktime IN',
+      key: 'breaktimeIN',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'breaktimeDevice',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Breaktime IN',
+      key: 'officialBreaktimeIN',
+      minWidth: 140,
+      group: 'official',
+      colGroup: 'breaktimeOfficial',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Breaktime OUT',
+      key: 'breaktimeOUT',
+      minWidth: 130,
+      group: 'actual',
+      colGroup: 'afternoonBreakDevice',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Time OUT',
+      key: 'timeOUT',
+      minWidth: 120,
+      group: 'actual',
+      colGroup: 'timeOutDevice',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Breaktime OUT',
+      key: 'officialBreaktimeOUT',
+      minWidth: 140,
+      group: 'official',
+      colGroup: 'afternoonOfficial',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Time OUT',
+      key: 'officialTimeOUT',
+      minWidth: 130,
+      group: 'official',
+      colGroup: 'afternoonOfficial',
+    },
+    {
+      label: 'AM Rendered',
+      key: '_morningRendered',
+      minWidth: 130,
+      group: 'calc',
+      colGroup: 'amRendered',
+      isGroupLeader: true,
+    },
+    {
+      label: 'AM Tardiness',
+      key: '_morningTardiness',
+      minWidth: 130,
+      group: 'tard',
+      colGroup: 'amTard',
+      isGroupLeader: true,
+    },
+    {
+      label: 'PM Rendered',
+      key: '_afternoonRendered',
+      minWidth: 130,
+      group: 'calc',
+      colGroup: 'pmRendered',
+      isGroupLeader: true,
+    },
+    {
+      label: 'PM Tardiness',
+      key: '_afternoonTardiness',
+      minWidth: 130,
+      group: 'tard',
+      colGroup: 'pmTard',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Total Rendered',
+      key: '_totalRendered',
+      minWidth: 130,
+      group: 'calc',
+      colGroup: 'totalRendered',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Total Tardiness',
+      key: '_totalTardiness',
+      minWidth: 130,
+      group: 'tard',
+      colGroup: 'totalTard',
+      isGroupLeader: true,
+    },
   ],
   honorarium: [
-    { label: 'Date',                         key: 'date',                      minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                          key: 'day',                       minWidth: 118, group: 'meta',     colGroup: null },
-    { label: 'Time IN',                      key: '_hnTimeIN',                 minWidth: 140, group: 'actual',   colGroup: 'hnTimes',    isGroupLeader: true },
-    { label: 'Time OUT',                     key: '_hnTimeOUT',                minWidth: 140, group: 'actual',   colGroup: 'hnTimes' },
-    { label: 'Official Honorarium Time IN',  key: 'officialHonorariumTimeIN',  minWidth: 180, group: 'official', colGroup: 'hnOfficial', isGroupLeader: true },
-    { label: 'Official Honorarium Time OUT', key: 'officialHonorariumTimeOUT', minWidth: 180, group: 'official', colGroup: 'hnOfficial' },
-    { label: 'Honorarium Rendered',          key: '_hnRendered',               minWidth: 140, group: 'calc',     colGroup: 'hnRendered', isGroupLeader: true },
-    { label: 'Honorarium Tardiness',         key: '_hnTardiness',              minWidth: 140, group: 'tard',     colGroup: 'hnTard',     isGroupLeader: true },
+    {
+      label: 'Date',
+      key: 'date',
+      minWidth: 130,
+      group: 'meta',
+      colGroup: null,
+    },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
+    {
+      label: 'Time IN',
+      key: '_hnTimeIN',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'hnTimes',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Time OUT',
+      key: '_hnTimeOUT',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'hnTimes',
+    },
+    {
+      label: 'Official Honorarium Time IN',
+      key: 'officialHonorariumTimeIN',
+      minWidth: 180,
+      group: 'official',
+      colGroup: 'hnOfficial',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Honorarium Time OUT',
+      key: 'officialHonorariumTimeOUT',
+      minWidth: 180,
+      group: 'official',
+      colGroup: 'hnOfficial',
+    },
+    {
+      label: 'Honorarium Rendered',
+      key: '_hnRendered',
+      minWidth: 140,
+      group: 'calc',
+      colGroup: 'hnRendered',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Honorarium Tardiness',
+      key: '_hnTardiness',
+      minWidth: 140,
+      group: 'tard',
+      colGroup: 'hnTard',
+      isGroupLeader: true,
+    },
   ],
   serviceCredit: [
-    { label: 'Date',                              key: 'date',                         minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                               key: 'day',                          minWidth: 118, group: 'meta',     colGroup: null },
-    { label: 'Time IN',                           key: '_scTimeIN',                    minWidth: 140, group: 'actual',   colGroup: 'scTimes',    isGroupLeader: true },
-    { label: 'Time OUT',                          key: '_scTimeOUT',                   minWidth: 140, group: 'actual',   colGroup: 'scTimes' },
-    { label: 'Official Service Credit Time IN',   key: 'officialServiceCreditTimeIN',  minWidth: 200, group: 'official', colGroup: 'scOfficial', isGroupLeader: true },
-    { label: 'Official Service Credit Time OUT',  key: 'officialServiceCreditTimeOUT', minWidth: 200, group: 'official', colGroup: 'scOfficial' },
-    { label: 'Service Credit Rendered',           key: '_scRendered',                  minWidth: 150, group: 'calc',     colGroup: 'scRendered', isGroupLeader: true },
-    { label: 'Service Credit Tardiness',          key: '_scTardiness',                 minWidth: 150, group: 'tard',     colGroup: 'scTard',     isGroupLeader: true },
+    {
+      label: 'Date',
+      key: 'date',
+      minWidth: 130,
+      group: 'meta',
+      colGroup: null,
+    },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
+    {
+      label: 'Time IN',
+      key: '_scTimeIN',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'scTimes',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Time OUT',
+      key: '_scTimeOUT',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'scTimes',
+    },
+    {
+      label: 'Official Service Credit Time IN',
+      key: 'officialServiceCreditTimeIN',
+      minWidth: 200,
+      group: 'official',
+      colGroup: 'scOfficial',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Service Credit Time OUT',
+      key: 'officialServiceCreditTimeOUT',
+      minWidth: 200,
+      group: 'official',
+      colGroup: 'scOfficial',
+    },
+    {
+      label: 'Service Credit Rendered',
+      key: '_scRendered',
+      minWidth: 150,
+      group: 'calc',
+      colGroup: 'scRendered',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Service Credit Tardiness',
+      key: '_scTardiness',
+      minWidth: 150,
+      group: 'tard',
+      colGroup: 'scTard',
+      isGroupLeader: true,
+    },
   ],
   overtime: [
-    { label: 'Date',                     key: 'date',               minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                      key: 'day',                minWidth: 118, group: 'meta',     colGroup: null },
-    { label: 'Time IN',                  key: '_otTimeIN',          minWidth: 140, group: 'actual',   colGroup: 'otTimes',    isGroupLeader: true },
-    { label: 'Time OUT',                 key: '_otTimeOUT',         minWidth: 140, group: 'actual',   colGroup: 'otTimes' },
-    { label: 'Official Overtime Time IN',  key: 'officialOverTimeIN',  minWidth: 170, group: 'official', colGroup: 'otOfficial', isGroupLeader: true },
-    { label: 'Official Overtime Time OUT', key: 'officialOverTimeOUT', minWidth: 170, group: 'official', colGroup: 'otOfficial' },
-    { label: 'Overtime Rendered',        key: '_otRendered',        minWidth: 140, group: 'calc',     colGroup: 'otRendered', isGroupLeader: true },
-    { label: 'Overtime Tardiness',       key: '_otTardiness',       minWidth: 140, group: 'tard',     colGroup: 'otTard',     isGroupLeader: true },
+    {
+      label: 'Date',
+      key: 'date',
+      minWidth: 130,
+      group: 'meta',
+      colGroup: null,
+    },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
+    {
+      label: 'Time IN',
+      key: '_otTimeIN',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'otTimes',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Time OUT',
+      key: '_otTimeOUT',
+      minWidth: 140,
+      group: 'actual',
+      colGroup: 'otTimes',
+    },
+    {
+      label: 'Official Overtime Time IN',
+      key: 'officialOverTimeIN',
+      minWidth: 170,
+      group: 'official',
+      colGroup: 'otOfficial',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Official Overtime Time OUT',
+      key: 'officialOverTimeOUT',
+      minWidth: 170,
+      group: 'official',
+      colGroup: 'otOfficial',
+    },
+    {
+      label: 'Overtime Rendered',
+      key: '_otRendered',
+      minWidth: 140,
+      group: 'calc',
+      colGroup: 'otRendered',
+      isGroupLeader: true,
+    },
+    {
+      label: 'Overtime Tardiness',
+      key: '_otTardiness',
+      minWidth: 140,
+      group: 'tard',
+      colGroup: 'otTard',
+      isGroupLeader: true,
+    },
   ],
 };
 
 const COL_GROUP_META = {
-  morningDevice:        { label: 'Time IN · device' },
-  morningOfficial:      { label: 'Time IN · official' },
-  breaktimeDevice:      { label: 'Break IN · device' },
-  breaktimeOfficial:    { label: 'Break IN · official' },
+  morningDevice: { label: 'Time IN · device' },
+  morningOfficial: { label: 'Time IN · official' },
+  breaktimeDevice: { label: 'Break IN · device' },
+  breaktimeOfficial: { label: 'Break IN · official' },
   afternoonBreakDevice: { label: 'Break OUT · device' },
-  timeOutDevice:        { label: 'Time OUT · device' },
-  afternoonOfficial:    { label: 'PM · official' },
-  amRendered:           { label: 'AM rendered' },
-  amTard:               { label: 'AM tardiness' },
-  pmRendered:           { label: 'PM rendered' },
-  pmTard:               { label: 'PM tardiness' },
-  totalTard:            { label: 'Total tardiness' },
-  hnTimes:              { label: 'Device times' },
-  hnOfficial:           { label: 'Official schedule' },
-  hnRendered:           { label: 'HN rendered' },
-  hnTard:               { label: 'HN tardiness' },
-  scTimes:              { label: 'Device times' },
-  scOfficial:           { label: 'Official schedule' },
-  scRendered:           { label: 'SC rendered' },
-  scTard:               { label: 'SC tardiness' },
-  otTimes:              { label: 'Device times' },
-  otOfficial:           { label: 'Official schedule' },
-  otRendered:           { label: 'OT rendered' },
-  otTard:               { label: 'OT tardiness' },
+  timeOutDevice: { label: 'Time OUT · device' },
+  afternoonOfficial: { label: 'PM · official' },
+  amRendered: { label: 'AM rendered' },
+  amTard: { label: 'AM tardiness' },
+  pmRendered: { label: 'PM rendered' },
+  pmTard: { label: 'PM tardiness' },
+  totalRendered: { label: 'Total rendered' },
+  totalTard: { label: 'Total tardiness' },
+  hnTimes: { label: 'Device times' },
+  hnOfficial: { label: 'Official schedule' },
+  hnRendered: { label: 'HN rendered' },
+  hnTard: { label: 'HN tardiness' },
+  scTimes: { label: 'Device times' },
+  scOfficial: { label: 'Official schedule' },
+  scRendered: { label: 'SC rendered' },
+  scTard: { label: 'SC tardiness' },
+  otTimes: { label: 'Device times' },
+  otOfficial: { label: 'Official schedule' },
+  otRendered: { label: 'OT rendered' },
+  otTard: { label: 'OT tardiness' },
 };
 
 // ─── Tardiness duration helpers (HR overrides on AM/PM tardiness) ───────
@@ -684,23 +1406,249 @@ const normalizeDurationInput = (raw) => {
   if (!s || s === '—') return null;
   const parts = s.split(':').map((p) => Number(String(p).trim()));
   if (parts.some((n) => Number.isNaN(n))) return null;
-  if (parts.length === 2) return `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}:00`;
-  if (parts.length >= 3) return `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}:${String(parts[2]).padStart(2, '0')}`;
+  if (parts.length === 2)
+    return `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}:00`;
+  if (parts.length >= 3)
+    return `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}:${String(parts[2]).padStart(2, '0')}`;
   return null;
 };
 
 const canonicalTardDisplay = (v) => {
   const n = normalizeDurationInput(v);
   if (n) return n;
-  if (v == null || v === '' || v === '—' || v === 'NaN:NaN:NaN') return '00:00:00';
+  if (v == null || v === '' || v === '—' || v === 'NaN:NaN:NaN')
+    return '00:00:00';
   return '00:00:00';
+};
+
+/** Return displayed value for a column, considering rendered & tardiness overrides. */
+const getDisplayedCellValue = (
+  row,
+  colKey,
+  isFurlough = false,
+  tardOverrides = null,
+  renderedOverridesLocal = null,
+  reviewByDate = null,
+) => {
+  const dateKey = row?.date;
+  const rendOverrides = renderedOverridesLocal || {};
+  const tardOverridesUsed = tardOverrides || {};
+  const d = normalizeReviewDate(dateKey);
+  const reviewEntry = reviewByDate?.[d];
+  const calendarMaps = null;
+  const zeroAmPmHalfDay = shouldZeroAmPmHalfDayColumns(
+    row,
+    reviewByDate,
+    MODULE_TYPES.DESIGNATED_40HRS,
+    calendarMaps,
+  );
+
+  if (
+    zeroAmPmHalfDay &&
+    (colKey === '_morningRendered' ||
+      colKey === '_afternoonRendered' ||
+      colKey === '_morningTardiness' ||
+      colKey === '_afternoonTardiness')
+  ) {
+    return '00:00:00';
+  }
+
+  if (colKey === '_totalRendered') {
+    return getRowTotalRenderedDisplay(
+      row,
+      reviewByDate,
+      MODULE_TYPES.DESIGNATED_40HRS,
+      isFurlough,
+    );
+  }
+
+  // Rendered overrides (editable)
+  if (colKey === '_morningRendered' || colKey === '_afternoonRendered') {
+    const part = colKey === '_morningRendered' ? 'morning' : 'afternoon';
+    if (
+      reviewEntry?.status === HALF_DAY_STATUS.APPROVED &&
+      hasHrHalfDayConfirmation(reviewEntry) &&
+      (reviewEntry.renderedMorning != null || reviewEntry.renderedAfternoon != null)
+    ) {
+      const hr =
+        part === 'morning'
+          ? reviewEntry.renderedMorning
+          : reviewEntry.renderedAfternoon;
+      if (hr != null && String(hr).trim() !== '') return hr;
+    }
+    const stored = rendOverrides?.[dateKey]?.[part];
+    if (stored != null && String(stored).trim() !== '') return stored;
+    return getCellValue(row, colKey, isFurlough, null, reviewByDate);
+  }
+
+  // Tardiness: prefer explicit tardiness override, else compute from rendered override if present
+  if (colKey === '_morningTardiness' || colKey === '_afternoonTardiness') {
+    const part = colKey === '_morningTardiness' ? 'morning' : 'afternoon';
+    const explicit = tardOverridesUsed?.[dateKey]?.[part];
+    if (explicit != null && String(explicit).trim() !== '') return explicit;
+
+    const renderedStored = rendOverrides?.[dateKey]?.[part];
+    if (renderedStored != null && String(renderedStored).trim() !== '') {
+      // derive tardiness = maxRendered - renderedStored
+      const maxKey =
+        part === 'morning'
+          ? 'formattedFacultyMaxRenderedTimeAM'
+          : 'formattedFacultyMaxRenderedTimePM';
+      const maxRendered = row?.[maxKey] || '00:00:00';
+      const diff =
+        parseAttendanceTimeOn2000(maxRendered) -
+        parseAttendanceTimeOn2000(renderedStored);
+      return formatOfficialAttendanceSeconds(
+        Math.max(0, Math.floor(diff / 1000)),
+      );
+    }
+    return getCellValue(row, colKey, isFurlough, null, reviewByDate);
+  }
+
+  if (colKey === '_totalTardiness') {
+    return getRowTotalTardinessDisplay(
+      row,
+      reviewByDate,
+      MODULE_TYPES.DESIGNATED_40HRS,
+      isFurlough,
+      addTimeHhMmOnly(
+        getDisplayedCellValue(
+          row,
+          '_morningTardiness',
+          isFurlough,
+          tardOverridesUsed,
+          rendOverrides,
+          reviewByDate,
+        ),
+        getDisplayedCellValue(
+          row,
+          '_afternoonTardiness',
+          isFurlough,
+          tardOverridesUsed,
+          rendOverrides,
+          reviewByDate,
+        ),
+      ),
+    );
+  }
+
+  // default: use original getter (honor tardinessOverrides where applicable)
+  return getCellValue(row, colKey, isFurlough, tardOverridesUsed, reviewByDate);
+};
+
+// Editable rendered cell (AM/PM) — allows HR to override rendered time.
+const EditableRenderedCell = ({
+  row,
+  part,
+  isFurlough,
+  isEven,
+  storedOverride,
+  onCommit,
+  onInvalid,
+}) => {
+  const colKey = part === 'morning' ? '_morningRendered' : '_afternoonRendered';
+  const systemVal = getCellValue(row, colKey, isFurlough, null) || '00:00:00';
+  const [local, setLocal] = React.useState(() => storedOverride ?? systemVal);
+  React.useEffect(() => {
+    setLocal(storedOverride ?? systemVal);
+  }, [row.date, storedOverride, systemVal]);
+
+  const baseBg = isEven ? '#fff' : T.rowOdd;
+  const cellBg = storedOverride ? alpha(T.rendered.color, 0.06) : baseBg;
+
+  const applyBlur = () => {
+    const trimmed = String(local).trim();
+    if (trimmed === '') {
+      onCommit(null);
+      setLocal(systemVal);
+      return;
+    }
+    const n = normalizeDurationInput(local);
+    if (!n) {
+      onInvalid('Use HH:MM or HH:MM:SS (e.g. 04:10 or 04:10:00).');
+      setLocal(storedOverride ?? systemVal);
+      return;
+    }
+    if (n === systemVal) onCommit(null);
+    else onCommit(n);
+    setLocal(n);
+  };
+
+  return (
+    <TableCell
+      sx={{
+        borderBottom: `1px solid ${T.divider}`,
+        borderRight: `1px solid ${T.divider}`,
+        px: 0.75,
+        py: 0.5,
+        verticalAlign: 'middle',
+        bgcolor: cellBg,
+        transition: 'background-color 0.12s',
+        'tr:hover &': { bgcolor: `${T.rowHover} !important` },
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 0.35,
+          minWidth: 96,
+        }}
+      >
+        <TextField
+          size="small"
+          fullWidth
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          onBlur={applyBlur}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.target.blur();
+          }}
+          placeholder={systemVal}
+          inputProps={{
+            'aria-label': part === 'morning' ? 'AM rendered' : 'PM rendered',
+            sx: {
+              fontFamily: T.recordFont,
+              fontSize: '0.78rem',
+              textAlign: 'center',
+              py: 0.65,
+            },
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 1,
+              bgcolor: '#fff',
+              fontSize: '0.78rem',
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: T.accentBorder,
+            },
+          }}
+        />
+        {storedOverride && (
+          <Typography
+            sx={{
+              fontSize: '0.58rem',
+              color: T.muted,
+              textAlign: 'center',
+              lineHeight: 1.2,
+            }}
+          >
+            System: {systemVal}
+          </Typography>
+        )}
+      </Box>
+    </TableCell>
+  );
 };
 
 const addTimeHhMmOnly = (a, b) => {
   const toSec = (t) => {
     if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
     const parts = String(t).split(':').map(Number);
-    if (parts.length < 2 || [parts[0], parts[1]].some((n) => Number.isNaN(n))) return 0;
+    if (parts.length < 2 || [parts[0], parts[1]].some((n) => Number.isNaN(n)))
+      return 0;
     return parts[0] * 3600 + parts[1] * 60;
   };
   const total = toSec(a) + toSec(b);
@@ -711,63 +1659,186 @@ const addTimeHhMmOnly = (a, b) => {
 
 // ─── getCellValue ─────────────────────────────────────────────────────────
 /** @param {Record<string, { morning?: string, afternoon?: string }> | null} [tardOverrides] HR edits for Regular Time AM/PM tardiness. */
-const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null) => {
+const getCellValue = (
+  row,
+  colKey,
+  isFurlough = false,
+  tardOverrides = null,
+  reviewByDate = null,
+) => {
   const NA = 'N/A';
-  const isNA = (v) => !v || v === '00:00:00 AM' || v === '00:00:00 PM' || v === '00:00:00';
+  const isNA = (v) =>
+    !v || v === '00:00:00 AM' || v === '00:00:00 PM' || v === '00:00:00';
   if (row?.date && tardOverrides?.[row.date]) {
     const e = tardOverrides[row.date];
-    if (colKey === '_morningTardiness' && e.morning != null && String(e.morning).trim() !== '') {
+    if (
+      colKey === '_morningTardiness' &&
+      e.morning != null &&
+      String(e.morning).trim() !== ''
+    ) {
       const n = normalizeDurationInput(e.morning);
       if (n) return n;
     }
-    if (colKey === '_afternoonTardiness' && e.afternoon != null && String(e.afternoon).trim() !== '') {
+    if (
+      colKey === '_afternoonTardiness' &&
+      e.afternoon != null &&
+      String(e.afternoon).trim() !== ''
+    ) {
       const n = normalizeDurationInput(e.afternoon);
       if (n) return n;
     }
   }
+  const zeroAmPmHalfDay = shouldZeroAmPmHalfDayColumns(
+    row,
+    reviewByDate,
+    MODULE_TYPES.DESIGNATED_40HRS,
+    null,
+  );
   switch (colKey) {
     case '_morningRendered':
-      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeAM || row.formattedFacultyMaxRenderedTimeAM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeAM;
-      return !row.officialTimeIN || row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeAM;
-    case '_morningTardiness':
-      if (isFurlough) return '00:00:00';
-      return !row.officialTimeIN || row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeAM : row.formattedfinalcalcFacultyAM;
+      if (zeroAmPmHalfDay) return '00:00:00';
+      if (isFurlough)
+        return !row.formattedFacultyMaxRenderedTimeAM ||
+          row.formattedFacultyMaxRenderedTimeAM === 'NaN:NaN:NaN'
+          ? '00:00:00'
+          : row.formattedFacultyMaxRenderedTimeAM;
+      return !row.officialTimeIN ||
+        row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN'
+        ? '00:00:00'
+        : row.formattedFacultyRenderedTimeAM;
+    case '_morningTardiness': {
+      if (zeroAmPmHalfDay || isFurlough) return '00:00:00';
+      const d = normalizeReviewDate(row?.date);
+      const entry = reviewByDate?.[d];
+      if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+        const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.DESIGNATED_40HRS);
+        if (eff?.morning) return eff.morning;
+      }
+      if (entry?.status === HALF_DAY_STATUS.APPROVED) {
+        const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.DESIGNATED_40HRS);
+        if (eff?.morning) return eff.morning;
+      }
+      return !row.officialTimeIN ||
+        row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimeAM
+        : row.formattedfinalcalcFacultyAM;
+    }
     case '_afternoonRendered':
-      if (isFurlough) return !row.formattedFacultyMaxRenderedTimePM || row.formattedFacultyMaxRenderedTimePM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimePM;
-      return !row.officialTimeOUT || !row.timeOUT || row.formattedFacultyRenderedTimePM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimePM;
-    case '_afternoonTardiness':
-      if (isFurlough) return '00:00:00';
-      return !row.officialTimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimePM : row.formattedfinalcalcFacultyPM;
+      if (zeroAmPmHalfDay) return '00:00:00';
+      if (isFurlough)
+        return !row.formattedFacultyMaxRenderedTimePM ||
+          row.formattedFacultyMaxRenderedTimePM === 'NaN:NaN:NaN'
+          ? '00:00:00'
+          : row.formattedFacultyMaxRenderedTimePM;
+      return !row.officialTimeOUT ||
+        !row.timeOUT ||
+        row.formattedFacultyRenderedTimePM === 'NaN:NaN:NaN'
+        ? '00:00:00'
+        : row.formattedFacultyRenderedTimePM;
+    case '_afternoonTardiness': {
+      if (zeroAmPmHalfDay || isFurlough) return '00:00:00';
+      const d = normalizeReviewDate(row?.date);
+      const entry = reviewByDate?.[d];
+      if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+        const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.DESIGNATED_40HRS);
+        if (eff?.afternoon) return eff.afternoon;
+      }
+      if (entry?.status === HALF_DAY_STATUS.APPROVED) {
+        const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.DESIGNATED_40HRS);
+        if (eff?.afternoon) return eff.afternoon;
+      }
+      return !row.officialTimeOUT ||
+        !row.timeOUT ||
+        row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimePM
+        : row.formattedfinalcalcFacultyPM;
+    }
+    case '_totalRendered':
+      return getRowTotalRenderedDisplay(
+        row,
+        reviewByDate,
+        MODULE_TYPES.DESIGNATED_40HRS,
+        isFurlough,
+      );
     case '_totalTardiness': {
       if (isFurlough) return '00:00:00';
-      const amStr = getCellValue(row, '_morningTardiness', isFurlough, tardOverrides);
-      const pmStr = getCellValue(row, '_afternoonTardiness', isFurlough, tardOverrides);
-      return addTimeHhMmOnly(amStr, pmStr);
+      return getRowTotalTardinessDisplay(
+        row,
+        reviewByDate,
+        MODULE_TYPES.DESIGNATED_40HRS,
+        isFurlough,
+        addTimeHhMmOnly(
+          getCellValue(row, '_morningTardiness', isFurlough, tardOverrides, reviewByDate),
+          getCellValue(row, '_afternoonTardiness', isFurlough, tardOverrides, reviewByDate),
+        ),
+      );
     }
-    case '_hnTimeIN':  return isNA(row.officialHonorariumTimeIN)  ? NA : row.timeIN;
-    case '_hnTimeOUT': return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
+    case '_hnTimeIN':
+      return isNA(row.officialHonorariumTimeIN) ? NA : row.timeIN;
+    case '_hnTimeOUT':
+      return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
     case '_hnRendered':
-      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeHN;
-      return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeHN;
+      if (isFurlough)
+        return !row.formattedFacultyMaxRenderedTimeHN ||
+          row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN'
+          ? '00:00:00'
+          : row.formattedFacultyMaxRenderedTimeHN;
+      return !row.officialTimeIN ||
+        !row.timeOUT ||
+        row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN'
+        ? '00:00:00'
+        : row.formattedFacultyRenderedTimeHN;
     case '_hnTardiness':
       if (isFurlough) return '00:00:00';
-      return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeHN : row.formattedfinalcalcFacultyHN;
-    case '_scTimeIN':  return isNA(row.officialServiceCreditTimeIN)  ? NA : row.timeIN;
-    case '_scTimeOUT': return isNA(row.officialServiceCreditTimeOUT) ? NA : row.timeOUT;
+      return !row.officialTimeIN ||
+        !row.timeOUT ||
+        row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimeHN
+        : row.formattedfinalcalcFacultyHN;
+    case '_scTimeIN':
+      return isNA(row.officialServiceCreditTimeIN) ? NA : row.timeIN;
+    case '_scTimeOUT':
+      return isNA(row.officialServiceCreditTimeOUT) ? NA : row.timeOUT;
     case '_scRendered':
-      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeSC;
-      return !row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeSC;
+      if (isFurlough)
+        return !row.formattedFacultyMaxRenderedTimeSC ||
+          row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN'
+          ? '00:00:00'
+          : row.formattedFacultyMaxRenderedTimeSC;
+      return !row.officialTimeSC ||
+        !row.timeOUT ||
+        row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN'
+        ? '00:00:00'
+        : row.formattedFacultyRenderedTimeSC;
     case '_scTardiness':
       if (isFurlough) return '00:00:00';
-      return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeSC : row.formattedfinalcalcFacultySC;
-    case '_otTimeIN':  return isNA(row.officialOverTimeIN)  ? NA : row.timeIN;
-    case '_otTimeOUT': return isNA(row.officialOverTimeOUT) ? NA : row.timeOUT;
+      return !row.officialTimeIN ||
+        !row.timeOUT ||
+        row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimeSC
+        : row.formattedfinalcalcFacultySC;
+    case '_otTimeIN':
+      return isNA(row.officialOverTimeIN) ? NA : row.timeIN;
+    case '_otTimeOUT':
+      return isNA(row.officialOverTimeOUT) ? NA : row.timeOUT;
     case '_otRendered':
-      if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeOT;
-      return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeOT;
+      if (isFurlough)
+        return !row.formattedFacultyMaxRenderedTimeOT ||
+          row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN'
+          ? '00:00:00'
+          : row.formattedFacultyMaxRenderedTimeOT;
+      return !row.officialTimeIN ||
+        !row.timeOUT ||
+        row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN'
+        ? '00:00:00'
+        : row.formattedFacultyRenderedTimeOT;
     case '_otTardiness':
       if (isFurlough) return '00:00:00';
-      return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeOT : row.formattedfinalcalcFacultyOT;
+      return !row.officialTimeIN ||
+        !row.timeOUT ||
+        row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimeOT
+        : row.formattedfinalcalcFacultyOT;
     case 'officialHonorariumTimeIN':
     case 'officialHonorariumTimeOUT':
     case 'officialServiceCreditTimeIN':
@@ -790,14 +1861,24 @@ const EditableTardinessCell = ({
   onCommit,
   onInvalid,
 }) => {
-  const colKey = part === 'morning' ? '_morningTardiness' : '_afternoonTardiness';
-  const systemVal = canonicalTardDisplay(getCellValue(row, colKey, isFurlough, null));
-  const [local, setLocal] = React.useState(() => canonicalTardDisplay(storedOverride ?? systemVal));
+  const colKey =
+    part === 'morning' ? '_morningTardiness' : '_afternoonTardiness';
+  const systemVal = canonicalTardDisplay(
+    getCellValue(row, colKey, isFurlough, null),
+  );
+  const [local, setLocal] = React.useState(() =>
+    canonicalTardDisplay(storedOverride ?? systemVal),
+  );
   React.useEffect(() => {
     setLocal(canonicalTardDisplay(storedOverride ?? systemVal));
   }, [row.date, storedOverride, systemVal]);
-  const normalizedStored = storedOverride != null && String(storedOverride).trim() !== '' ? normalizeDurationInput(storedOverride) : null;
-  const hasAdjusted = Boolean(normalizedStored && normalizedStored !== systemVal);
+  const normalizedStored =
+    storedOverride != null && String(storedOverride).trim() !== ''
+      ? normalizeDurationInput(storedOverride)
+      : null;
+  const hasAdjusted = Boolean(
+    normalizedStored && normalizedStored !== systemVal,
+  );
 
   const baseBg = isEven ? '#fff' : T.rowOdd;
   const cellBg = hasAdjusted ? alpha(T.tardiness.color, 0.06) : baseBg;
@@ -833,18 +1914,35 @@ const EditableTardinessCell = ({
         'tr:hover &': { bgcolor: `${T.rowHover} !important` },
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 0.35, minWidth: 96 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 0.35,
+          minWidth: 96,
+        }}
+      >
         <TextField
           size="small"
           fullWidth
           value={local}
           onChange={(e) => setLocal(e.target.value)}
           onBlur={applyBlur}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.target.blur();
+            }
+          }}
           placeholder={systemVal}
           inputProps={{
             'aria-label': part === 'morning' ? 'AM tardiness' : 'PM tardiness',
-            sx: { fontFamily: 'monospace', fontSize: '0.78rem', textAlign: 'center', py: 0.65 },
+            sx: {
+              fontFamily: T.recordFont,
+              fontSize: '0.78rem',
+              textAlign: 'center',
+              py: 0.65,
+            },
           }}
           InputProps={{
             endAdornment: (
@@ -853,7 +1951,10 @@ const EditableTardinessCell = ({
                   <IconButton
                     size="small"
                     aria-label="Use system calculation"
-                    onClick={() => { onCommit(null); setLocal(systemVal); }}
+                    onClick={() => {
+                      onCommit(null);
+                      setLocal(systemVal);
+                    }}
                     sx={{ p: 0.35, color: T.accentMid }}
                   >
                     <RestartAlt sx={{ fontSize: 17 }} />
@@ -863,12 +1964,25 @@ const EditableTardinessCell = ({
             ),
           }}
           sx={{
-            '& .MuiOutlinedInput-root': { borderRadius: 1, bgcolor: '#fff', fontSize: '0.78rem' },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 1,
+              bgcolor: '#fff',
+              fontSize: '0.78rem',
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: T.accentBorder,
+            },
           }}
         />
         {hasAdjusted && (
-          <Typography sx={{ fontSize: '0.58rem', color: T.muted, textAlign: 'center', lineHeight: 1.2 }}>
+          <Typography
+            sx={{
+              fontSize: '0.58rem',
+              color: T.muted,
+              textAlign: 'center',
+              lineHeight: 1.2,
+            }}
+          >
             System: {systemVal}
           </Typography>
         )}
@@ -878,69 +1992,170 @@ const EditableTardinessCell = ({
 };
 
 // ─── Floating Totals / Save Bar (unified NonTeaching style) ──────────────
-const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate, officialHoursPerDay }) => {
+const FloatingTotalsBar = ({
+  totals,
+  visible,
+  onSave,
+  saving,
+  startDate,
+  endDate,
+  officialHoursPerDay,
+}) => {
   const [expanded, setExpanded] = useState(true);
   if (!visible) return null;
 
   const allItems = [
-    { label: 'Absent Days',       value: String(Number.isFinite(Number(totals.absentDays)) ? Number(totals.absentDays) : 0), subtitle: totals.absentTime || '00:00:00', style: T.absent,    accent: true },
-    { label: 'Half Days',         value: String(Number.isFinite(Number(totals.halfDays))   ? Number(totals.halfDays)   : 0), subtitle: totals.halfDayShortfallTime || '00:00:00', style: T.halfDay,   accent: true },
-    { label: 'Late Total',        value: totals.lateTotalTime || '00:00:00',                                              style: T.tardiness, accent: true },
-    { label: 'Overall Rendered',  value: totals.overallRendered  || '00:00:00',                                              style: T.rendered,  accent: true },
-    { label: 'Overall Tardiness', value: formatTardinessAsDaysHoursWithHoursPerDay(totals.overallTardiness || '00:00:00', officialHoursPerDay), subtitle: totals.overallTardiness || '00:00:00', style: T.tardiness, accent: true },
-    { label: 'AM Rendered',       value: totals.morningRendered    || '00:00:00' },
-    { label: 'AM Tardiness',      value: totals.morningTardiness   || '00:00:00' },
-    { label: 'PM Rendered',       value: totals.afternoonRendered  || '00:00:00' },
-    { label: 'PM Tardiness',      value: totals.afternoonTardiness || '00:00:00' },
-    { label: 'HN Rendered',       value: totals.hnRendered         || '00:00:00' },
-    { label: 'HN Tardiness',      value: totals.hnTardiness        || '00:00:00' },
-    { label: 'SC Rendered',       value: totals.scRendered         || '00:00:00' },
-    { label: 'SC Tardiness',      value: totals.scTardiness        || '00:00:00' },
-    { label: 'OT Rendered',       value: totals.otRendered         || '00:00:00' },
-    { label: 'OT Tardiness',      value: totals.otTardiness        || '00:00:00' },
+    {
+      label: 'Absent Days',
+      value: String(
+        Number.isFinite(Number(totals.absentDays))
+          ? Number(totals.absentDays)
+          : 0,
+      ),
+      subtitle: totals.absentTime || '00:00:00',
+      style: T.absent,
+      accent: true,
+    },
+    {
+      label: 'Half Days',
+      value: String(
+        Number.isFinite(Number(totals.halfDays)) ? Number(totals.halfDays) : 0,
+      ),
+      subtitle: totals.halfDayShortfallTime || '00:00:00',
+      style: T.halfDay,
+      accent: true,
+    },
+    {
+      label: 'Late Total',
+      value: totals.lateTotalTime || '00:00:00',
+      style: T.tardiness,
+      accent: true,
+    },
+    {
+      label: 'Overall Rendered',
+      value: totals.overallRendered || '00:00:00',
+      style: T.rendered,
+      accent: true,
+    },
+    {
+      label: 'Overall Tardiness',
+      value: formatTardinessAsDaysHoursWithHoursPerDay(
+        totals.overallTardiness || '00:00:00',
+        officialHoursPerDay,
+      ),
+      subtitle: totals.overallTardiness || '00:00:00',
+      style: T.tardiness,
+      accent: true,
+    },
+    { label: 'AM Rendered', value: totals.morningRendered || '00:00:00' },
+    { label: 'AM Tardiness', value: totals.morningTardiness || '00:00:00' },
+    { label: 'PM Rendered', value: totals.afternoonRendered || '00:00:00' },
+    { label: 'PM Tardiness', value: totals.afternoonTardiness || '00:00:00' },
+    { label: 'HN Rendered', value: totals.hnRendered || '00:00:00' },
+    { label: 'HN Tardiness', value: totals.hnTardiness || '00:00:00' },
+    { label: 'SC Rendered', value: totals.scRendered || '00:00:00' },
+    { label: 'SC Tardiness', value: totals.scTardiness || '00:00:00' },
+    { label: 'OT Rendered', value: totals.otRendered || '00:00:00' },
+    { label: 'OT Tardiness', value: totals.otTardiness || '00:00:00' },
   ];
 
   return (
     <Box sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
-      <Paper elevation={8} sx={{
-        borderRadius: '12px', overflow: 'hidden', width: '100%', maxWidth: '100%',
-        border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 2,
-        boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
-      }}>
-        <Box onClick={() => setExpanded(p => !p)} sx={{
-          px: 2.5, py: 1.25, bgcolor: T.accentFaint,
-          borderBottom: `1px solid ${T.accentBorder}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          cursor: 'pointer', userSelect: 'none',
-        }}>
+      <Paper
+        elevation={8}
+        sx={{
+          borderRadius: '12px',
+          overflow: 'hidden',
+          width: '100%',
+          maxWidth: '100%',
+          border: `1px solid ${T.accentBorder}`,
+          bgcolor: '#fff',
+          mt: 2,
+          mb: 2,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+        }}
+      >
+        <Box
+          onClick={() => setExpanded((p) => !p)}
+          sx={{
+            px: 2.5,
+            py: 1.25,
+            bgcolor: T.accentFaint,
+            borderBottom: `1px solid ${T.accentBorder}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <WorkHistory sx={{ fontSize: 14, color: T.accent }} />
-            <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            <Typography
+              sx={{
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                color: T.accent,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+              }}
+            >
               Attendance Summary
             </Typography>
             {startDate && endDate && (
-              <Typography sx={{ fontSize: '0.67rem', color: T.muted, fontFamily: 'monospace' }}>
+              <Typography
+                sx={{
+                  fontSize: '0.67rem',
+                  color: T.muted,
+                  fontFamily: T.recordFont,
+                }}
+              >
                 {startDate} – {endDate}
               </Typography>
             )}
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Box
-              onClick={(e) => { e.stopPropagation(); if (!saving) onSave(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!saving) onSave();
+              }}
               sx={{
-                display: 'flex', alignItems: 'center', gap: 0.75,
-                px: 1.5, py: 0.6, borderRadius: '8px',
-                border: `1px solid ${T.accentBorder}`, bgcolor: '#fff',
-                cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
-                '&:hover': saving ? {} : { bgcolor: T.accentFaint, borderColor: T.accent },
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.75,
+                px: 1.5,
+                py: 0.6,
+                borderRadius: '8px',
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s',
+                '&:hover': saving
+                  ? {}
+                  : { bgcolor: T.accentFaint, borderColor: T.accent },
               }}
             >
-              {saving ? <CircularProgress size={14} thickness={5} sx={{ color: T.accent }} /> : <SaveAs sx={{ color: T.accent, fontSize: 16 }} />}
-              <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent }}>
+              {saving ? (
+                <CircularProgress
+                  size={14}
+                  thickness={5}
+                  sx={{ color: T.accent }}
+                />
+              ) : (
+                <SaveAs sx={{ color: T.accent, fontSize: 16 }} />
+              )}
+              <Typography
+                sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent }}
+              >
                 {saving ? 'Saving…' : 'Save to summary'}
               </Typography>
             </Box>
-            {expanded ? <ExpandMore sx={{ fontSize: 16, color: T.muted }} /> : <ExpandLess sx={{ fontSize: 16, color: T.muted }} />}
+            {expanded ? (
+              <ExpandMore sx={{ fontSize: 16, color: T.muted }} />
+            ) : (
+              <ExpandLess sx={{ fontSize: 16, color: T.muted }} />
+            )}
           </Box>
         </Box>
         <Collapse
@@ -954,7 +2169,8 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
         >
           <Box
             sx={{
-              px: 1.5, py: 1.25,
+              px: 1.5,
+              py: 1.25,
               width: '100%',
               maxWidth: '100%',
               minWidth: 0,
@@ -976,23 +2192,60 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
               }}
             >
               {allItems.map(({ label, value, style, accent, subtitle }) => (
-                <Box key={label} sx={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  px: 1.5, py: 0.75, borderRadius: '6px', flex: '0 0 auto',
-                  border: `1px solid ${accent ? style.border : T.divider}`,
-                  bgcolor: accent ? style.bg : '#fafafa', minWidth: 90,
-                }}>
-                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: accent ? style.color : T.faint, letterSpacing: '0.05em', textTransform: 'uppercase', mb: 0.2, whiteSpace: 'nowrap' }}>
+                <Box
+                  key={label}
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    px: 1.5,
+                    py: 0.75,
+                    borderRadius: '6px',
+                    flex: '0 0 auto',
+                    border: `1px solid ${accent ? style.border : T.divider}`,
+                    bgcolor: accent ? style.bg : '#fafafa',
+                    minWidth: 90,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: '0.6rem',
+                      fontWeight: 700,
+                      color: accent ? style.color : T.faint,
+                      letterSpacing: '0.05em',
+                      textTransform: 'uppercase',
+                      mb: 0.2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {label}
                   </Typography>
-                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: accent ? style.color : T.muted, fontFamily: 'monospace', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                  <Typography
+                    sx={{
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: accent ? style.color : T.muted,
+                      fontFamily: T.recordFont,
+                      lineHeight: 1.2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {value}
                   </Typography>
                   {subtitle != null && (
-                    <Typography sx={{
-                      fontFamily: 'monospace', fontWeight: 600, fontSize: '0.62rem',
-                      color: accent ? style.color : T.muted, opacity: 0.55, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap',
-                    }}>
+                    <Typography
+                      sx={{
+                        fontFamily: T.recordFont,
+                        fontWeight: 600,
+                        fontSize: '0.62rem',
+                        color: accent ? style.color : T.muted,
+                        opacity: 0.55,
+                        mt: 0.25,
+                        lineHeight: 1.2,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       {subtitle}
                     </Typography>
                   )}
@@ -1012,92 +2265,392 @@ const StickyScrollbar = ({ innerRef }) => {
   const ghostRef = useRef(null);
   const syncingRef = useRef(false);
   useEffect(() => {
-    const inner = innerRef.current, proxy = proxyRef.current, ghost = ghostRef.current;
+    const inner = innerRef.current,
+      proxy = proxyRef.current,
+      ghost = ghostRef.current;
     if (!inner || !proxy || !ghost) return;
-    const updateWidth = () => { ghost.style.width = inner.scrollWidth + 'px'; };
+    const updateWidth = () => {
+      ghost.style.width = inner.scrollWidth + 'px';
+    };
     const ro = new ResizeObserver(updateWidth);
     ro.observe(inner);
     updateWidth();
-    const onInnerScroll = () => { if (syncingRef.current) return; syncingRef.current = true; proxy.scrollLeft = inner.scrollLeft; syncingRef.current = false; };
-    const onProxyScroll = () => { if (syncingRef.current) return; syncingRef.current = true; inner.scrollLeft = proxy.scrollLeft; syncingRef.current = false; };
+    const onInnerScroll = () => {
+      if (syncingRef.current) return;
+      syncingRef.current = true;
+      proxy.scrollLeft = inner.scrollLeft;
+      syncingRef.current = false;
+    };
+    const onProxyScroll = () => {
+      if (syncingRef.current) return;
+      syncingRef.current = true;
+      inner.scrollLeft = proxy.scrollLeft;
+      syncingRef.current = false;
+    };
     inner.addEventListener('scroll', onInnerScroll);
     proxy.addEventListener('scroll', onProxyScroll);
-    return () => { inner.removeEventListener('scroll', onInnerScroll); proxy.removeEventListener('scroll', onProxyScroll); ro.disconnect(); };
+    return () => {
+      inner.removeEventListener('scroll', onInnerScroll);
+      proxy.removeEventListener('scroll', onProxyScroll);
+      ro.disconnect();
+    };
   }, [innerRef]);
   return (
-    <Box ref={proxyRef} sx={{ position: 'sticky', bottom: 0, left: 0, width: '100%', zIndex: 10, overflowX: 'auto', overflowY: 'hidden', height: 16, bgcolor: '#fff', borderTop: `1px solid ${T.divider}`, '&::-webkit-scrollbar': { height: 12 }, '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 }, '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4, '&:hover': { background: T.accent } } }}>
+    <Box
+      ref={proxyRef}
+      sx={{
+        position: 'sticky',
+        bottom: 0,
+        left: 0,
+        width: '100%',
+        zIndex: 10,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        height: 16,
+        bgcolor: '#fff',
+        borderTop: `1px solid ${T.divider}`,
+        '&::-webkit-scrollbar': { height: 12 },
+        '&::-webkit-scrollbar-track': {
+          background: T.accentFaint,
+          borderRadius: 4,
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: T.accentMid,
+          borderRadius: 4,
+          '&:hover': { background: T.accent },
+        },
+      }}
+    >
       <Box ref={ghostRef} sx={{ height: 1 }} />
     </Box>
   );
 };
 
 // ─── Styled Modal ─────────────────────────────────────────────────────────
-const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false, confirmLabel = null }) => {
+const StyledModal = ({
+  open,
+  onClose,
+  title,
+  message,
+  type = 'info',
+  onConfirm,
+  showCancel = false,
+  confirmLabel = null,
+}) => {
   const typeConfig = {
-    success: { icon: <CheckCircleIcon sx={{ fontSize: 26, color: '#2e7d32' }} />, avatarBg: 'rgba(46,125,50,0.12)', label: 'Success', labelColor: '#2e7d32' },
-    warning: { icon: <WarningIcon sx={{ fontSize: 26, color: '#92400e' }} />,      avatarBg: 'rgba(146,64,14,0.12)', label: 'Warning', labelColor: '#92400e' },
-    error:   { icon: <ErrorIcon sx={{ fontSize: 26, color: '#991b1b' }} />,        avatarBg: 'rgba(153,27,27,0.12)', label: 'Error',   labelColor: '#991b1b' },
-    info:    { icon: <InfoIcon sx={{ fontSize: 26, color: T.accent }} />,          avatarBg: T.accentFaint,          label: 'Notice',  labelColor: T.accent },
+    success: {
+      icon: <CheckCircleIcon sx={{ fontSize: 26, color: '#2e7d32' }} />,
+      avatarBg: 'rgba(46,125,50,0.12)',
+      label: 'Success',
+      labelColor: '#2e7d32',
+    },
+    warning: {
+      icon: <WarningIcon sx={{ fontSize: 26, color: '#92400e' }} />,
+      avatarBg: 'rgba(146,64,14,0.12)',
+      label: 'Warning',
+      labelColor: '#92400e',
+    },
+    error: {
+      icon: <ErrorIcon sx={{ fontSize: 26, color: '#991b1b' }} />,
+      avatarBg: 'rgba(153,27,27,0.12)',
+      label: 'Error',
+      labelColor: '#991b1b',
+    },
+    info: {
+      icon: <InfoIcon sx={{ fontSize: 26, color: T.accent }} />,
+      avatarBg: T.accentFaint,
+      label: 'Notice',
+      labelColor: T.accent,
+    },
   };
   const cfg = typeConfig[type] || typeConfig.info;
-  const lines = message.split('\n').map(l => l.trim()).filter(Boolean);
-  const isListItem = (l) => l.startsWith('•') || l.startsWith('-') || /^\d{5,}/.test(l) || /^Employee\s+\d/.test(l);
-  const isNote = (l) => /^(contact|please|this action|note:|important)/i.test(l);
+  const lines = message
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const isListItem = (l) =>
+    l.startsWith('•') ||
+    l.startsWith('-') ||
+    /^\d{5,}/.test(l) ||
+    /^Employee\s+\d/.test(l);
+  const isNote = (l) =>
+    /^(contact|please|this action|note:|important)/i.test(l);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: '12px', overflow: 'hidden', border: '0.5px solid rgba(0,0,0,0.09)', bgcolor: '#fff' } }}>
-      <Box sx={{ px: 3, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', position: 'relative', overflow: 'hidden' }}>
-        <Box sx={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`, pointerEvents: 'none' }} />
-        <IconButton size="small" onClick={onClose} sx={{ position: 'absolute', top: 12, right: 12, color: T.accent, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: T.accentFaint } }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '0.5px solid rgba(0,0,0,0.09)',
+          bgcolor: '#fff',
+        },
+      }}
+    >
+      <Box
+        sx={{
+          px: 3,
+          py: 3,
+          background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+          position: 'relative',
+          overflow: 'hidden',
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: -40,
+            right: -40,
+            width: 160,
+            height: 160,
+            borderRadius: '50%',
+            background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`,
+            pointerEvents: 'none',
+          }}
+        />
+        <IconButton
+          size="small"
+          onClick={onClose}
+          sx={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            color: T.accent,
+            opacity: 0.45,
+            '&:hover': { opacity: 1, bgcolor: T.accentFaint },
+          }}
+        >
           <CloseIcon fontSize="small" />
         </IconButton>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
-          <Avatar sx={{ bgcolor: cfg.avatarBg, width: 48, height: 48, border: `1px solid ${T.accentBorder}` }}>{cfg.icon}</Avatar>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
+          <Avatar
+            sx={{
+              bgcolor: cfg.avatarBg,
+              width: 48,
+              height: 48,
+              border: `1px solid ${T.accentBorder}`,
+            }}
+          >
+            {cfg.icon}
+          </Avatar>
           <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.4 }}>
-              <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: T.accent, lineHeight: 1.2 }}>{title}</Typography>
-              <Chip label={cfg.label} size="small" sx={{ bgcolor: alpha(cfg.labelColor, 0.1), color: cfg.labelColor, fontWeight: 700, fontSize: '0.62rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 18, borderRadius: '5px', border: `1px solid ${alpha(cfg.labelColor, 0.2)}` }} />
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.4 }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 800,
+                  fontSize: '1.05rem',
+                  color: T.accent,
+                  lineHeight: 1.2,
+                }}
+              >
+                {title}
+              </Typography>
+              <Chip
+                label={cfg.label}
+                size="small"
+                sx={{
+                  bgcolor: alpha(cfg.labelColor, 0.1),
+                  color: cfg.labelColor,
+                  fontWeight: 700,
+                  fontSize: '0.62rem',
+                  letterSpacing: '0.07em',
+                  textTransform: 'uppercase',
+                  height: 18,
+                  borderRadius: '5px',
+                  border: `1px solid ${alpha(cfg.labelColor, 0.2)}`,
+                }}
+              />
             </Box>
-            <Typography sx={{ fontSize: '0.74rem', color: T.faint, fontWeight: 500 }}>
-              {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            <Typography
+              sx={{ fontSize: '0.74rem', color: T.faint, fontWeight: 500 }}
+            >
+              {new Date().toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })}
             </Typography>
           </Box>
         </Box>
       </Box>
-      <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}`, borderBottom: `1px solid ${T.divider}` }}>
+      <Box
+        sx={{
+          px: 3,
+          py: 2.5,
+          borderTop: `1px solid ${T.divider}`,
+          borderBottom: `1px solid ${T.divider}`,
+        }}
+      >
         {lines.map((line, i) => {
           if (isListItem(line)) {
             const clean = line.replace(/^[•\-]\s*/, '');
             const [empPart, ...rest] = clean.split(':');
             return (
-              <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, px: 1.5, py: 1, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                <Box sx={{ width: 28, height: 28, borderRadius: '6px', flexShrink: 0, bgcolor: alpha(T.accent, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Person sx={{ fontSize: 14, color: T.accent, opacity: 0.7 }} />
+              <Box
+                key={i}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 1,
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: '8px',
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: '6px',
+                    flexShrink: 0,
+                    bgcolor: alpha(T.accent, 0.1),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Person
+                    sx={{ fontSize: 14, color: T.accent, opacity: 0.7 }}
+                  />
                 </Box>
                 <Box>
-                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{empPart?.trim()}</Typography>
-                  {rest.length > 0 && <Typography sx={{ fontSize: '0.74rem', color: T.muted, fontWeight: 500, mt: 0.1 }}>{rest.join(':').trim()}</Typography>}
+                  <Typography
+                    sx={{
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: T.text,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {empPart?.trim()}
+                  </Typography>
+                  {rest.length > 0 && (
+                    <Typography
+                      sx={{
+                        fontSize: '0.74rem',
+                        color: T.muted,
+                        fontWeight: 500,
+                        mt: 0.1,
+                      }}
+                    >
+                      {rest.join(':').trim()}
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             );
           }
           if (isNote(line)) {
             return (
-              <Box key={i} sx={{ mt: 1.5, px: 1.5, py: 1.25, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderLeft: `4px solid ${alpha(T.accent, 0.5)}`, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <InfoIcon sx={{ fontSize: 13, color: T.accent, opacity: 0.6, mt: 0.2, flexShrink: 0 }} />
-                <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontWeight: 600, lineHeight: 1.65 }}>{line}</Typography>
+              <Box
+                key={i}
+                sx={{
+                  mt: 1.5,
+                  px: 1.5,
+                  py: 1.25,
+                  borderRadius: '8px',
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  borderLeft: `4px solid ${alpha(T.accent, 0.5)}`,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1,
+                }}
+              >
+                <InfoIcon
+                  sx={{
+                    fontSize: 13,
+                    color: T.accent,
+                    opacity: 0.6,
+                    mt: 0.2,
+                    flexShrink: 0,
+                  }}
+                />
+                <Typography
+                  sx={{
+                    fontSize: '0.82rem',
+                    color: T.muted,
+                    fontWeight: 600,
+                    lineHeight: 1.65,
+                  }}
+                >
+                  {line}
+                </Typography>
               </Box>
             );
           }
-          return <Typography key={i} sx={{ fontSize: '0.88rem', color: T.muted, lineHeight: 1.8, fontWeight: 500, mb: i < lines.length - 1 ? 1 : 0 }}>{line}</Typography>;
+          return (
+            <Typography
+              key={i}
+              sx={{
+                fontSize: '0.88rem',
+                color: T.muted,
+                lineHeight: 1.8,
+                fontWeight: 500,
+                mb: i < lines.length - 1 ? 1 : 0,
+              }}
+            >
+              {line}
+            </Typography>
+          );
         })}
       </Box>
-      <Box sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-        {showCancel && <RowBtn icon={null} label="Cancel" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={onClose} />}
-        <button onClick={onConfirm || onClose}
-          style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 24px', fontWeight: 700, fontSize: '0.82rem', fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s' }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDark; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = T.accent; }}>
+      <Box
+        sx={{
+          px: 3,
+          py: 2,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: 1,
+        }}
+      >
+        {showCancel && (
+          <RowBtn
+            icon={null}
+            label="Cancel"
+            color={T.muted}
+            hoverBg="rgba(0,0,0,0.05)"
+            onClick={onClose}
+          />
+        )}
+        <button
+          onClick={onConfirm || onClose}
+          style={{
+            background: T.accent,
+            color: '#fff',
+            border: 'none',
+            borderRadius: '8px',
+            padding: '8px 24px',
+            fontWeight: 700,
+            fontSize: '0.82rem',
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = T.accentDark;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = T.accent;
+          }}
+        >
           {confirmLabel || (showCancel ? 'Confirm' : 'OK')}
         </button>
       </Box>
@@ -1109,15 +2662,16 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
 const AttendanceModuleFacultyDesignated = () => {
   const { settings } = useSystemSettings();
   const [employeeNumber, setEmployeeNumber] = useState('');
-  const [startDate, setStartDate]           = useState('');
-  const [endDate, setEndDate]               = useState('');
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [attendanceData, setAttendanceData] = useState([]);
-  const [loading, setLoading]               = useState(false);
-  const [saving, setSaving]                 = useState(false);
-  const [error, setError]                   = useState('');
-  const [pageLoading, setPageLoading]       = useState(true);
-  const [activeTab, setActiveTab]           = useState('regular');
-  const [showScrollTop, setShowScrollTop]   = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [pageLoading, setPageLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('regular');
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   // ── Collapsed column groups per tab ───────────────────────────────────
   const [collapsedGroups, setCollapsedGroups] = useState({
@@ -1135,50 +2689,122 @@ const AttendanceModuleFacultyDesignated = () => {
       pmTard: false,
       totalTard: false,
     },
-    honorarium:    { hnTimes: false, hnOfficial: true, hnRendered: false, hnTard: false },
-    serviceCredit: { scTimes: false, scOfficial: true, scRendered: false, scTard: false },
-    overtime:      { otTimes: false, otOfficial: true, otRendered: false, otTard: false },
+    honorarium: {
+      hnTimes: false,
+      hnOfficial: true,
+      hnRendered: false,
+      hnTard: false,
+    },
+    serviceCredit: {
+      scTimes: false,
+      scOfficial: true,
+      scRendered: false,
+      scTard: false,
+    },
+    overtime: {
+      otTimes: false,
+      otOfficial: true,
+      otRendered: false,
+      otTard: false,
+    },
   });
   const toggleColGroup = (tab, groupKey) =>
-    setCollapsedGroups(prev => ({ ...prev, [tab]: { ...prev[tab], [groupKey]: !prev[tab][groupKey] } }));
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [tab]: { ...prev[tab], [groupKey]: !prev[tab][groupKey] },
+    }));
 
   const [suspensionByDate, setSuspensionByDate] = useState({});
-  const [leaveByDate, setLeaveByDate]           = useState({});
-  const [holidayByDate, setHolidayByDate]       = useState({});
+  const [leaveByDate, setLeaveByDate] = useState({});
+  const [holidayByDate, setHolidayByDate] = useState({});
   const [tardinessOverrides, setTardinessOverrides] = useState({});
+  const [renderedOverrides, setRenderedOverrides] = useState({});
+  const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
+  const [halfDayReviewDialog, setHalfDayReviewDialog] = useState(null);
 
-  const navigate     = useNavigate();
-  const resultsRef   = useRef(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const resultsRef = useRef(null);
+  const submitInFlightRef = useRef(false);
 
-  const { hasAccess, loading: accessLoading } = usePageAccess('attendance-module-faculty-40hrs');
+  const { hasAccess, loading: accessLoading } = usePageAccess(
+    'attendance-module-faculty-40hrs',
+  );
 
   const currentYear = new Date().getFullYear();
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const months = [
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
   const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  const [snackbar, setSnackbar]                   = useState({ open: false, message: '', severity: 'success' });
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
   const [snackbarCountdown, setSnackbarCountdown] = useState(6);
-  const showSnackbar = (message, severity = 'success') => { setSnackbar({ open: true, message, severity }); setSnackbarCountdown(6); };
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbar({ open: true, message, severity });
+    setSnackbarCountdown(6);
+  };
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
-  const [modal, setModal] = useState({ open: false, title: '', message: '', type: 'info', onConfirm: null, showCancel: false, confirmLabel: null });
-  const showModal = (title, message, type = 'info', onConfirm = null, showCancel = false, confirmLabel = null) =>
-    setModal({ open: true, title, message, type, onConfirm, showCancel, confirmLabel });
-  const closeModal = () => setModal((p) => ({ ...p, open: false, confirmLabel: null }));
+  const [modal, setModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    type: 'info',
+    onConfirm: null,
+    showCancel: false,
+    confirmLabel: null,
+  });
+  const showModal = (
+    title,
+    message,
+    type = 'info',
+    onConfirm = null,
+    showCancel = false,
+    confirmLabel = null,
+  ) =>
+    setModal({
+      open: true,
+      title,
+      message,
+      type,
+      onConfirm,
+      showCancel,
+      confirmLabel,
+    });
+  const closeModal = () =>
+    setModal((p) => ({ ...p, open: false, confirmLabel: null }));
 
-  const [compareOpen, setCompareOpen]                 = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [pendingSavedOverall, setPendingSavedOverall] = useState(null);
   const [pendingProposedOverall, setPendingProposedOverall] = useState(null);
 
   useEffect(() => {
     let timer;
-    if (snackbar.open && snackbarCountdown > 0) timer = setInterval(() => setSnackbarCountdown(p => p - 1), 1000);
+    if (snackbar.open && snackbarCountdown > 0)
+      timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
     return () => clearInterval(timer);
   }, [snackbar.open, snackbarCountdown]);
 
-  useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
+  useEffect(() => {
+    if (!accessLoading) setPageLoading(false);
+  }, [accessLoading]);
 
   useEffect(() => {
     const en = localStorage.getItem('attendanceDesignatedEmployeeNumber');
@@ -1191,7 +2817,14 @@ const AttendanceModuleFacultyDesignated = () => {
 
   useEffect(() => {
     if (attendanceData.length > 0 && resultsRef.current)
-      setTimeout(() => resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+      setTimeout(
+        () =>
+          resultsRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          }),
+        300,
+      );
   }, [attendanceData]);
 
   useEffect(() => {
@@ -1200,21 +2833,66 @@ const AttendanceModuleFacultyDesignated = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    const s = location.state;
+    const en = s?.employeeNumber != null ? String(s.employeeNumber).trim() : '';
+    const sd = s?.startDate ? String(s.startDate).slice(0, 10) : '';
+    const ed = s?.endDate ? String(s.endDate).slice(0, 10) : '';
+    if (!en || !sd || !ed) return;
+
+    setEmployeeNumber(en);
+    setStartDate(sd);
+    setEndDate(ed);
+
+    const t = setTimeout(() => {
+      if (handleSubmitRef.current) handleSubmitRef.current();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [
+    location.state?.employeeNumber,
+    location.state?.startDate,
+    location.state?.endDate,
+  ]);
+
   const getStatusLabelForDate = useCallback(
-    (date) => getLeaveStatusLabelForDate(date, { suspensionByDate, holidayByDate, leaveByDate }),
+    (date) =>
+      getLeaveStatusLabelForDate(date, {
+        suspensionByDate,
+        holidayByDate,
+        leaveByDate,
+      }),
     [suspensionByDate, holidayByDate, leaveByDate],
   );
 
-  const commitTardinessOverride = useCallback((date, part, normalizedOrNull) => {
-    setTardinessOverrides((prev) => {
-      const row = attendanceData.find((r) => r.date === date);
-      if (!row) return prev;
-      const colKey = part === 'morning' ? '_morningTardiness' : '_afternoonTardiness';
-      const f = Boolean(getStatusLabelForDate(date));
-      const sys = canonicalTardDisplay(getCellValue(row, colKey, f, null));
+  const commitTardinessOverride = useCallback(
+    (date, part, normalizedOrNull) => {
+      setTardinessOverrides((prev) => {
+        const row = attendanceData.find((r) => r.date === date);
+        if (!row) return prev;
+        const colKey =
+          part === 'morning' ? '_morningTardiness' : '_afternoonTardiness';
+        const f = Boolean(getStatusLabelForDate(date));
+        const sys = canonicalTardDisplay(getCellValue(row, colKey, f, null));
+        const next = { ...prev };
+        const cur = { ...(next[date] || {}) };
+        if (normalizedOrNull == null || normalizedOrNull === sys) {
+          delete cur[part];
+        } else {
+          cur[part] = normalizedOrNull;
+        }
+        if (!cur.morning && !cur.afternoon) delete next[date];
+        else next[date] = cur;
+        return next;
+      });
+    },
+    [attendanceData, getStatusLabelForDate],
+  );
+
+  const commitRenderedOverride = useCallback((date, part, normalizedOrNull) => {
+    setRenderedOverrides((prev) => {
       const next = { ...prev };
       const cur = { ...(next[date] || {}) };
-      if (normalizedOrNull == null || normalizedOrNull === sys) {
+      if (normalizedOrNull == null) {
         delete cur[part];
       } else {
         cur[part] = normalizedOrNull;
@@ -1223,10 +2901,12 @@ const AttendanceModuleFacultyDesignated = () => {
       else next[date] = cur;
       return next;
     });
-  }, [attendanceData, getStatusLabelForDate]);
+  }, []);
 
   // ── handleSubmit — with pre-flight device check ──
   const handleSubmit = async () => {
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     localStorage.setItem('attendanceDesignatedEmployeeNumber', employeeNumber);
     localStorage.setItem('attendanceDesignatedStartDate', startDate);
     localStorage.setItem('attendanceDesignatedEndDate', endDate);
@@ -1234,135 +2914,311 @@ const AttendanceModuleFacultyDesignated = () => {
     setError('');
     try {
       const [deviceRows, maps] = await Promise.all([
-        postAttendanceDevicePreflightNoSync({ apiBaseUrl: API_BASE_URL, getAuthHeaders, personID: employeeNumber, startDate, endDate }),
-        fetchAttendanceCalendarMaps({ apiBaseUrl: API_BASE_URL, getAuthHeaders, startDate, endDate, personId: employeeNumber }),
+        postAttendanceDevicePreflightNoSync({
+          apiBaseUrl: API_BASE_URL,
+          getAuthHeaders,
+          personID: employeeNumber,
+          startDate,
+          endDate,
+        }),
+        fetchAttendanceCalendarMaps({
+          apiBaseUrl: API_BASE_URL,
+          getAuthHeaders,
+          startDate,
+          endDate,
+          personId: employeeNumber,
+        }),
       ]);
 
       if (deviceRows.length === 0) {
-        setAttendanceData([]); setTardinessOverrides({}); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
-        showModal('No Device Records Found', 'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.', 'warning',
-          () => { closeModal(); navigate('/view_attendance'); });
+        setAttendanceData([]);
+        setTardinessOverrides({});
+        setSuspensionByDate({});
+        setLeaveByDate({});
+        setHolidayByDate({});
+        showModal(
+          'No Device Records Found',
+          'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.',
+          'warning',
+          () => {
+            closeModal();
+            navigate('/view_attendance');
+          },
+        );
         return;
       }
 
-      const response = await axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
-        params: { personId: employeeNumber, startDate, endDate }, ...getAuthHeaders(),
-      });
+      const response = await axios.get(
+        `${API_BASE_URL}/attendance/api/attendance`,
+        {
+          params: { personId: employeeNumber, startDate, endDate },
+          ...getAuthHeaders(),
+        },
+      );
       const rawRows = Array.isArray(response.data) ? response.data : [];
 
       if (rawRows.length === 0) {
-        setAttendanceData([]); setTardinessOverrides({}); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
-        showModal('No Official Time Schedule',
+        setAttendanceData([]);
+        setTardinessOverrides({});
+        setSuspensionByDate({});
+        setLeaveByDate({});
+        setHolidayByDate({});
+        showModal(
+          'No Official Time Schedule',
           `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching Official Time Schedule exists for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`,
-          'warning', () => { closeModal(); navigate('/official_time'); });
+          'warning',
+          () => {
+            closeModal();
+            navigate('/official_time');
+          },
+        );
         return;
       }
 
       const processedData = rawRows.map((row) => {
         const {
-          timeIN, timeOUT, breaktimeIN, breaktimeOUT,
-          officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT,
-          officialHonorariumTimeIN, officialHonorariumTimeOUT,
-          officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-          officialOverTimeIN, officialOverTimeOUT,
+          timeIN,
+          timeOUT,
+          breaktimeIN,
+          breaktimeOUT,
+          officialBreaktimeIN,
+          officialBreaktimeOUT,
+          officialTimeIN,
+          officialTimeOUT,
+          officialHonorariumTimeIN,
+          officialHonorariumTimeOUT,
+          officialServiceCreditTimeIN,
+          officialServiceCreditTimeOUT,
+          officialOverTimeIN,
+          officialOverTimeOUT,
         } = row;
 
-        const isEmptyBreakTime = (t) => !t || t === '00:00:00 AM' || t === '00:00:00 PM' || t === '00:00:00';
+        const isEmptyPunch = (t) => isEmptyAttendancePunch(t);
 
-        let effectiveBreaktimeIN  = !isEmptyBreakTime(officialBreaktimeIN)  ? officialBreaktimeIN  : breaktimeIN;
-        let effectiveBreaktimeOUT = !isEmptyBreakTime(officialBreaktimeOUT) ? officialBreaktimeOUT : breaktimeOUT;
+        const {
+          noTimeIn: noAmPunch,
+          noTimeOut: noPmPunch,
+          scheduleBreakIn,
+          scheduleBreakOut,
+          effectiveBreaktimeIN,
+          effectiveBreaktimeOUT,
+          displayBreaktimeIN,
+          displayBreaktimeOUT,
+        } = applyFacultyPunchGatedBreaktimes({
+          timeIN,
+          timeOUT,
+          breaktimeIN,
+          breaktimeOUT,
+          officialBreaktimeIN,
+          officialBreaktimeOUT,
+        });
 
-        if (isEmptyBreakTime(effectiveBreaktimeIN) && isEmptyBreakTime(effectiveBreaktimeOUT)) {
-          effectiveBreaktimeIN = officialTimeOUT; effectiveBreaktimeOUT = officialTimeOUT;
-        } else if (isEmptyBreakTime(effectiveBreaktimeIN)) {
-          effectiveBreaktimeIN = effectiveBreaktimeOUT;
-        } else if (isEmptyBreakTime(effectiveBreaktimeOUT)) {
-          effectiveBreaktimeOUT = effectiveBreaktimeIN;
-        }
+        // Schedule-aware half-day detection: classify a lone timeIN based on the
+        // official break boundary rather than the field name alone.
+        const schedMidpoint = parseAttendanceTimeOn2000(
+          scheduleBreakIn ?? effectiveBreaktimeIN ?? officialBreaktimeIN,
+        );
+        const punchInTime = !noAmPunch
+          ? parseAttendanceTimeOn2000(timeIN)
+          : null;
+        const punchInIsPmSide =
+          punchInTime != null &&
+          !Number.isNaN(schedMidpoint.getTime()) &&
+          punchInTime >= schedMidpoint;
 
-        const isEmptyPunch = (t) => !t || t === '00:00:00 AM' || t === '00:00:00 PM' || t === '00:00:00';
-        const noAmPunch = isEmptyPunch(timeIN);
-        const noPmPunch = isEmptyPunch(timeOUT);
+        const pmSideLonePunch = !noAmPunch && noPmPunch && punchInIsPmSide;
+        const effectiveNoPmPunch = noPmPunch && !punchInIsPmSide;
 
-        const startOfficialTimeFacultyAM = parseAttendanceTimeOn2000(officialTimeIN);
-        const endOfficialTimeFacultyAM   = parseAttendanceTimeOn2000(effectiveBreaktimeIN);
-        const diffMsAMMax = endOfficialTimeFacultyAM - startOfficialTimeFacultyAM;
+        // ── HALF-DAY DETECTION ──────────────────────────────────────────────────
+        // A half-day means exactly one of the two anchors (timeIN / timeOUT) is
+        // present.  In that case we must NOT charge tardiness for the missing half;
+        // only the present half's shortfall is relevant.
+        const hasOnlyMorningPunch = !noAmPunch && noPmPunch && !punchInIsPmSide;
+        const hasOnlyAfternoonPunch =
+          pmSideLonePunch || (noAmPunch && !noPmPunch);
+        const isHalfDayRow = hasOnlyMorningPunch || hasOnlyAfternoonPunch;
 
-        const midnightFacultyAM = new Date(`01/01/2000 00:00:00 AM`);
-        let timeinfacultyAM, timeoutfacultyAM;
-        if (noAmPunch) {
-          timeinfacultyAM = midnightFacultyAM; timeoutfacultyAM = midnightFacultyAM;
-        } else {
-          const startDateFacultyAM = parseAttendanceTimeOn2000(timeIN);
-          const endDateFacultyAM   = parseAttendanceTimeOn2000(effectiveBreaktimeIN);
-          timeinfacultyAM = startDateFacultyAM > endOfficialTimeFacultyAM ? midnightFacultyAM
-            : startDateFacultyAM < startOfficialTimeFacultyAM ? startOfficialTimeFacultyAM : startDateFacultyAM;
-          timeoutfacultyAM = timeinfacultyAM === midnightFacultyAM ? midnightFacultyAM : endDateFacultyAM;
-        }
-        const diffMsAM = timeoutfacultyAM - timeinfacultyAM;
-        const formattedFacultyRenderedTimeAM    = formatDurationMsToHhMmSs(diffMsAM);
-        const formattedFacultyMaxRenderedTimeAM = formatDurationMsToHhMmSs(diffMsAMMax);
-        const tardAM = parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimeAM) - parseAttendanceTimeOn2000(formattedFacultyRenderedTimeAM);
-        const formattedfinalcalcFacultyAM = formatDurationMsToHhMmSs(tardAM);
+        // ── AM SEGMENT ──────────────────────────────────────────────────────────
+        let formattedFacultyRenderedTimeAM = '00:00:00';
+        let formattedFacultyMaxRenderedTimeAM = '00:00:00';
+        let formattedfinalcalcFacultyAM = '00:00:00';
 
-        const startOfficialTimeFacultyPM = parseAttendanceTimeOn2000(effectiveBreaktimeOUT);
-        const endOfficialTimeFacultyPM   = parseAttendanceTimeOn2000(officialTimeOUT);
-        const diffMsPMMax = endOfficialTimeFacultyPM - startOfficialTimeFacultyPM;
+        // Skip AM computation only for the PM-side lone timeIN case.
+        if (!pmSideLonePunch) {
+          const startOfficialTimeFacultyAM =
+            parseAttendanceTimeOn2000(officialTimeIN);
+          const endOfficialTimeFacultyAM = parseAttendanceTimeOn2000(
+            effectiveBreaktimeIN ?? scheduleBreakIn ?? officialBreaktimeIN,
+          );
+          const diffMsAMMax =
+            endOfficialTimeFacultyAM - startOfficialTimeFacultyAM;
+          formattedFacultyMaxRenderedTimeAM =
+            formatDurationMsToHhMmSs(diffMsAMMax);
 
-        const midnightFacultyPM = new Date(`01/01/2000 00:00:00 PM`);
-        let timeinfacultyPM, timeoutfacultyPM;
-        if (noPmPunch) {
-          timeoutfacultyPM = midnightFacultyPM; timeinfacultyPM = midnightFacultyPM;
-        } else {
-          const startDateFacultyPM = parseAttendanceTimeOn2000(effectiveBreaktimeOUT);
-          const endDateFacultyPM   = parseAttendanceTimeOn2000(timeOUT);
-          timeoutfacultyPM = endDateFacultyPM < startOfficialTimeFacultyPM ? midnightFacultyPM
-            : endDateFacultyPM > endOfficialTimeFacultyPM ? endOfficialTimeFacultyPM : endDateFacultyPM;
-          timeinfacultyPM = timeoutfacultyPM === midnightFacultyPM ? midnightFacultyPM : startDateFacultyPM;
-        }
-        const diffMsPM = timeoutfacultyPM - timeinfacultyPM;
-        const formattedFacultyRenderedTimePM    = formatDurationMsToHhMmSs(diffMsPM);
-        const formattedFacultyMaxRenderedTimePM = formatDurationMsToHhMmSs(diffMsPMMax);
-        const tardPM = parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimePM) - parseAttendanceTimeOn2000(formattedFacultyRenderedTimePM);
-        const formattedfinalcalcFacultyPM = formatDurationMsToHhMmSs(tardPM);
-
-        const calcSeg = (tIn, tOut, offIn, offOut) => {
-          const emptyIn = isEmptyPunch(tIn), emptyOut = isEmptyPunch(tOut);
-          if (emptyIn && emptyOut) {
-            const os = parseAttendanceTimeOn2000(offIn), oe = parseAttendanceTimeOn2000(offOut);
-            if (Number.isNaN(os.getTime()) || Number.isNaN(oe.getTime()) || oe <= os)
-              return { rendered: '00:00:00', maxRendered: '00:00:00', tardiness: '00:00:00' };
-            const offDiff  = oe - os;
-            const maxRendered = formatDurationMsToHhMmSs(offDiff);
-            return { rendered: '00:00:00', maxRendered, tardiness: maxRendered };
+          const midnightFacultyAM = new Date('01/01/2000 00:00:00 AM');
+          let timeinfacultyAM, timeoutfacultyAM;
+          if (noAmPunch) {
+            // Both punches absent → full absent row, not half-day; AM gets full tardiness.
+            timeinfacultyAM = midnightFacultyAM;
+            timeoutfacultyAM = midnightFacultyAM;
+          } else {
+            const startDateFacultyAM = parseAttendanceTimeOn2000(timeIN);
+            const endDateFacultyAM = parseAttendanceTimeOn2000(
+              effectiveBreaktimeIN ?? scheduleBreakIn ?? officialBreaktimeIN,
+            );
+            timeinfacultyAM =
+              startDateFacultyAM > endOfficialTimeFacultyAM
+                ? midnightFacultyAM
+                : startDateFacultyAM < startOfficialTimeFacultyAM
+                  ? startOfficialTimeFacultyAM
+                  : startDateFacultyAM;
+            timeoutfacultyAM =
+              timeinfacultyAM === midnightFacultyAM
+                ? midnightFacultyAM
+                : endDateFacultyAM;
           }
-          const s = parseAttendanceTimeOn2000(tIn), e = parseAttendanceTimeOn2000(tOut);
-          const os = parseAttendanceTimeOn2000(offIn), oe = parseAttendanceTimeOn2000(offOut);
-          const mid = new Date(`01/01/2000 00:00:00 AM`);
+          const diffMsAM = timeoutfacultyAM - timeinfacultyAM;
+          formattedFacultyRenderedTimeAM = formatDurationMsToHhMmSs(diffMsAM);
+          const tardAM =
+            parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimeAM) -
+            parseAttendanceTimeOn2000(formattedFacultyRenderedTimeAM);
+          formattedfinalcalcFacultyAM = formatDurationMsToHhMmSs(tardAM);
+        }
+
+        // ── PM SEGMENT ──────────────────────────────────────────────────────────
+        let formattedFacultyRenderedTimePM = '00:00:00';
+        let formattedFacultyMaxRenderedTimePM = '00:00:00';
+        let formattedfinalcalcFacultyPM = '00:00:00';
+
+        // Skip PM computation entirely when the employee only punched IN (AM half-day).
+        if (!hasOnlyMorningPunch) {
+          const startOfficialTimeFacultyPM = parseAttendanceTimeOn2000(
+            effectiveBreaktimeOUT ??
+              scheduleBreakOut ??
+              officialBreaktimeOUT,
+          );
+          const endOfficialTimeFacultyPM =
+            parseAttendanceTimeOn2000(officialTimeOUT);
+          const diffMsPMMax =
+            endOfficialTimeFacultyPM - startOfficialTimeFacultyPM;
+          formattedFacultyMaxRenderedTimePM =
+            formatDurationMsToHhMmSs(diffMsPMMax);
+
+          const midnightFacultyPM = new Date('01/01/2000 00:00:00 PM');
+          let timeinfacultyPM, timeoutfacultyPM;
+          if (effectiveNoPmPunch) {
+            // Both absent → full absent row; PM gets full tardiness.
+            timeoutfacultyPM = midnightFacultyPM;
+            timeinfacultyPM = midnightFacultyPM;
+          } else {
+            const startDateFacultyPM = parseAttendanceTimeOn2000(
+              effectiveBreaktimeOUT ??
+                scheduleBreakOut ??
+                officialBreaktimeOUT,
+            );
+            const endDateFacultyPM = parseAttendanceTimeOn2000(timeOUT);
+            timeoutfacultyPM =
+              endDateFacultyPM < startOfficialTimeFacultyPM
+                ? midnightFacultyPM
+                : endDateFacultyPM > endOfficialTimeFacultyPM
+                  ? endOfficialTimeFacultyPM
+                  : endDateFacultyPM;
+            timeinfacultyPM =
+              timeoutfacultyPM === midnightFacultyPM
+                ? midnightFacultyPM
+                : startDateFacultyPM;
+          }
+          const diffMsPM = timeoutfacultyPM - timeinfacultyPM;
+          formattedFacultyRenderedTimePM = formatDurationMsToHhMmSs(diffMsPM);
+          const tardPM =
+            parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimePM) -
+            parseAttendanceTimeOn2000(formattedFacultyRenderedTimePM);
+          formattedfinalcalcFacultyPM = formatDurationMsToHhMmSs(tardPM);
+        }
+
+        // ── HONORARIUM / SERVICE CREDIT / OVERTIME SEGMENTS ─────────────────────
+        const calcSeg = (tIn, tOut, offIn, offOut) => {
+          const emptyIn = isEmptyPunch(tIn),
+            emptyOut = isEmptyPunch(tOut);
+          if (emptyIn && emptyOut) {
+            const os = parseAttendanceTimeOn2000(offIn),
+              oe = parseAttendanceTimeOn2000(offOut);
+            if (
+              Number.isNaN(os.getTime()) ||
+              Number.isNaN(oe.getTime()) ||
+              oe <= os
+            )
+              return {
+                rendered: '00:00:00',
+                maxRendered: '00:00:00',
+                tardiness: '00:00:00',
+              };
+            const offDiff = oe - os;
+            const maxRendered = formatDurationMsToHhMmSs(offDiff);
+            return {
+              rendered: '00:00:00',
+              maxRendered,
+              tardiness: maxRendered,
+            };
+          }
+          const s = parseAttendanceTimeOn2000(tIn),
+            e = parseAttendanceTimeOn2000(tOut);
+          const os = parseAttendanceTimeOn2000(offIn),
+            oe = parseAttendanceTimeOn2000(offOut);
+          const mid = new Date('01/01/2000 00:00:00 AM');
           const si = e < os || s > oe ? mid : s < os ? os : s;
           const ei = si === mid ? mid : e < os ? mid : e < oe ? e : oe;
           const diff = ei - si;
-          const rendered  = formatDurationMsToHhMmSs(diff);
-          const offDiff   = oe - os;
+          const rendered = formatDurationMsToHhMmSs(diff);
+          const offDiff = oe - os;
           const maxRendered = formatDurationMsToHhMmSs(offDiff);
-          const tard = parseAttendanceTimeOn2000(maxRendered) - parseAttendanceTimeOn2000(rendered);
+          const tard =
+            parseAttendanceTimeOn2000(maxRendered) -
+            parseAttendanceTimeOn2000(rendered);
           const tardiness = formatDurationMsToHhMmSs(tard);
           return { rendered, maxRendered, tardiness };
         };
 
-        const hn = calcSeg(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
-        const sc = calcSeg(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
-        const ot = calcSeg(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
+        const hn = calcSeg(
+          timeIN,
+          timeOUT,
+          officialHonorariumTimeIN,
+          officialHonorariumTimeOUT,
+        );
+        const sc = calcSeg(
+          timeIN,
+          timeOUT,
+          officialServiceCreditTimeIN,
+          officialServiceCreditTimeOUT,
+        );
+        const ot = calcSeg(
+          timeIN,
+          timeOUT,
+          officialOverTimeIN,
+          officialOverTimeOUT,
+        );
 
         return {
           ...row,
-          breaktimeIN: effectiveBreaktimeIN,
-          breaktimeOUT: effectiveBreaktimeOUT,
-          formattedFacultyRenderedTimeAM,    formattedFacultyMaxRenderedTimeAM, formattedfinalcalcFacultyAM,
-          formattedFacultyRenderedTimePM,    formattedFacultyMaxRenderedTimePM, formattedfinalcalcFacultyPM,
-          formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
-          formattedFacultyRenderedTimeSC: sc.rendered,  formattedFacultyMaxRenderedTimeSC: sc.maxRendered, formattedfinalcalcFacultySC: sc.tardiness,
-          formattedFacultyRenderedTimeOT: ot.rendered,  formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
+          breaktimeIN: displayBreaktimeIN,
+          breaktimeOUT: displayBreaktimeOUT,
+          lateTotal: formattedfinalcalcFacultyAM,
+          undertimeTotal: formattedfinalcalcFacultyPM,
+          formattedFacultyRenderedTimeAM,
+          formattedFacultyMaxRenderedTimeAM,
+          formattedfinalcalcFacultyAM,
+          formattedFacultyRenderedTimePM,
+          formattedFacultyMaxRenderedTimePM,
+          formattedfinalcalcFacultyPM,
+          formattedFacultyRenderedTimeHN: hn.rendered,
+          formattedFacultyMaxRenderedTimeHN: hn.maxRendered,
+          formattedfinalcalcFacultyHN: hn.tardiness,
+          formattedFacultyRenderedTimeSC: sc.rendered,
+          formattedFacultyMaxRenderedTimeSC: sc.maxRendered,
+          formattedfinalcalcFacultySC: sc.tardiness,
+          formattedFacultyRenderedTimeOT: ot.rendered,
+          formattedFacultyMaxRenderedTimeOT: ot.maxRendered,
+          formattedfinalcalcFacultyOT: ot.tardiness,
         };
       });
 
@@ -1371,11 +3227,90 @@ const AttendanceModuleFacultyDesignated = () => {
       setHolidayByDate(maps.holidayByDate);
       setTardinessOverrides({});
       setAttendanceData(processedData);
+
+      const calendarMaps = {
+        suspensionByDate: maps.suspensionByDate,
+        holidayByDate: maps.holidayByDate,
+        leaveByDate: maps.leaveByDate,
+      };
+      let reviewMap = {};
+      try {
+        const stored = await fetchDailyLateUndertime(employeeNumber, startDate, endDate);
+        reviewMap = migrateLegacyHalfDayReview(
+          buildReviewByDate(parseHalfDayReviewJson(stored.half_day_review)),
+          stored.halfDayDates,
+          processedData,
+          MODULE_TYPES.DESIGNATED_40HRS,
+          calendarMaps,
+        );
+      } catch {
+        reviewMap = migrateLegacyHalfDayReview(
+          {},
+          '',
+          processedData,
+          MODULE_TYPES.DESIGNATED_40HRS,
+          calendarMaps,
+        );
+      }
+      setHalfDayReviewByDate(reviewMap);
+      const approvedSet = getApprovedHalfDayDatesSet(reviewMap);
+      persistDailyLateUndertimeFromModule({
+        personID: employeeNumber,
+        startDate,
+        endDate,
+        moduleType: 'DESIGNATED_40HRS',
+        rows: buildDailyLateUndertimeRows(
+          processedData,
+          approvedSet,
+          reviewMap,
+          MODULE_TYPES.DESIGNATED_40HRS,
+        ),
+        halfDayDates: [...approvedSet].join(', '),
+        half_day_review: buildHalfDayReviewArray(reviewMap),
+      });
+
+      const parseLateToSeconds = (t) => {
+        if (!t || t === 'NaN:NaN:NaN' || t === '—' || t === 'N/A') return 0;
+        const parts = String(t).split(':').map(Number);
+        if (parts.length < 2 || [parts[0], parts[1]].some(Number.isNaN)) return 0;
+        return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+      };
+      const totalLateSec = processedData.reduce(
+        (sum, row) => sum + parseLateToSeconds(row.lateTotal),
+        0,
+      );
+      const th = Math.floor(totalLateSec / 3600);
+      const tm = Math.floor((totalLateSec % 3600) / 60);
+      const ts = totalLateSec % 60;
+      const totalLateLabel = `${String(th).padStart(2, '0')}:${String(tm).padStart(2, '0')}:${String(ts).padStart(2, '0')}`;
+
+      logAttendanceModuleAction({
+        module: 'Attendance Module (Faculty Designated)',
+        auditButton: 'Search Records',
+        targetEmployeeNumber: employeeNumber,
+        targetEmployeeName: processedData[0]?.username || null,
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: buildAuditPeriodLabel({
+          selectedMonth,
+          monthNames: months,
+          selectedYear,
+          startDate,
+          endDate,
+        }),
+        searchQuery: employeeSearchQuery.trim() || employeeNumber,
+        daysCalculated: processedData.length,
+        totalLate: totalLateLabel,
+      });
     } catch (err) {
       console.error('Error fetching attendance data:', err);
       const msg = 'Failed to fetch attendance data. Please try again.';
-      setError(msg); showSnackbar(msg, 'error');
-    } finally { setLoading(false); }
+      setError(msg);
+      showSnackbar(msg, 'error');
+    } finally {
+      submitInFlightRef.current = false;
+      setLoading(false);
+    }
   };
 
   // ── Totals ─────────────────────────────────────────────────────────────────
@@ -1387,44 +3322,140 @@ const AttendanceModuleFacultyDesignated = () => {
       if (parts.length >= 2 && parts.slice(0, 2).every((n) => !isNaN(n)))
         total += parts[0] * 3600 + parts[1] * 60;
     });
-    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60);
+    const h = Math.floor(total / 3600),
+      m = Math.floor((total % 3600) / 60);
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
   }, []);
 
   const addTimes = useCallback((a, b) => {
     const parse = (t) => {
       const [h, m] = (t || '00:00:00').split(':').map(Number);
-      const hh = Number.isFinite(h) ? h : 0, mm = Number.isFinite(m) ? m : 0;
+      const hh = Number.isFinite(h) ? h : 0,
+        mm = Number.isFinite(m) ? m : 0;
       return hh * 3600 + mm * 60;
     };
     const total = parse(a) + parse(b);
-    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60);
+    const h = Math.floor(total / 3600),
+      m = Math.floor((total % 3600) / 60);
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
   }, []);
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    const buckets = computeOfficialAwareAbsenceAndLate_TimeInOutOnly(attendanceData, calendarMaps);
-    const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',    Boolean(getStatusLabelForDate(r.date)))));
-    const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',   Boolean(getStatusLabelForDate(r.date)), tardinessOverrides)));
-    const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonRendered',  Boolean(getStatusLabelForDate(r.date)))));
-    const afternoonTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonTardiness', Boolean(getStatusLabelForDate(r.date)), tardinessOverrides)));
-    const overallRendered    = addTimes(morningRendered, afternoonRendered);
-    const overallTardiness   = addTimes(morningTardiness, afternoonTardiness);
-    const overallSec = parseOfficialTimeToSeconds(overallTardiness);
-    const lateTotalTime =
-      overallSec != null
-        ? formatOfficialAttendanceSeconds(
-            Math.max(0, overallSec - buckets.absentSecTotal - buckets.halfDayShortfallSecTotal),
-          )
-        : (buckets.lateShortfallTime || '00:00:00');
-    const hnRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_hnRendered',  Boolean(getStatusLabelForDate(r.date)))));
-    const hnTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date)))));
-    const scRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_scRendered',  Boolean(getStatusLabelForDate(r.date)))));
-    const scTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date)))));
-    const otRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_otRendered',  Boolean(getStatusLabelForDate(r.date)))));
-    const otTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date)))));
+    const buckets = computeReviewAwareAbsenceBuckets(
+      attendanceData,
+      halfDayReviewByDate,
+      calendarMaps,
+      MODULE_TYPES.DESIGNATED_40HRS,
+    );
+    const morningRendered = sumTime(
+      attendanceData.map((r) =>
+        getDisplayedCellValue(
+          r,
+          '_morningRendered',
+          Boolean(getStatusLabelForDate(r.date)),
+          tardinessOverrides,
+          renderedOverrides,
+          halfDayReviewByDate,
+        ),
+      ),
+    );
+    const morningTardiness = sumTime(
+      attendanceData.map((r) =>
+        getDisplayedCellValue(
+          r,
+          '_morningTardiness',
+          Boolean(getStatusLabelForDate(r.date)),
+          tardinessOverrides,
+          renderedOverrides,
+          halfDayReviewByDate,
+        ),
+      ),
+    );
+    const afternoonRendered = sumTime(
+      attendanceData.map((r) =>
+        getDisplayedCellValue(
+          r,
+          '_afternoonRendered',
+          Boolean(getStatusLabelForDate(r.date)),
+          tardinessOverrides,
+          renderedOverrides,
+          halfDayReviewByDate,
+        ),
+      ),
+    );
+    const afternoonTardiness = sumTime(
+      attendanceData.map((r) =>
+        getDisplayedCellValue(
+          r,
+          '_afternoonTardiness',
+          Boolean(getStatusLabelForDate(r.date)),
+          tardinessOverrides,
+          renderedOverrides,
+          halfDayReviewByDate,
+        ),
+      ),
+    );
+    const totalRendered = sumTime(
+      attendanceData.map((r) =>
+        getDisplayedCellValue(
+          r,
+          '_totalRendered',
+          Boolean(getStatusLabelForDate(r.date)),
+          tardinessOverrides,
+          renderedOverrides,
+          halfDayReviewByDate,
+        ),
+      ),
+    );
+    const overallRendered = addTimes(morningRendered, afternoonRendered);
+    const overallTardiness = sumHmsDurationStrings(
+      attendanceData.map((r) =>
+        getDisplayedCellValue(
+          r,
+          '_totalTardiness',
+          Boolean(getStatusLabelForDate(r.date)),
+          tardinessOverrides,
+          renderedOverrides,
+          halfDayReviewByDate,
+        ),
+      ),
+    );
+    const lateTotalTime = computeLateTotalTimeFromTardiness(
+      overallTardiness,
+      buckets,
+    );
+    const hnRendered = sumTime(
+      attendanceData.map((r) =>
+        getCellValue(r, '_hnRendered', Boolean(getStatusLabelForDate(r.date))),
+      ),
+    );
+    const hnTardiness = sumTime(
+      attendanceData.map((r) =>
+        getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date))),
+      ),
+    );
+    const scRendered = sumTime(
+      attendanceData.map((r) =>
+        getCellValue(r, '_scRendered', Boolean(getStatusLabelForDate(r.date))),
+      ),
+    );
+    const scTardiness = sumTime(
+      attendanceData.map((r) =>
+        getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date))),
+      ),
+    );
+    const otRendered = sumTime(
+      attendanceData.map((r) =>
+        getCellValue(r, '_otRendered', Boolean(getStatusLabelForDate(r.date))),
+      ),
+    );
+    const otTardiness = sumTime(
+      attendanceData.map((r) =>
+        getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date))),
+      ),
+    );
     return {
       absentDays: buckets.absentDays,
       halfDays: buckets.halfDays,
@@ -1435,7 +3466,8 @@ const AttendanceModuleFacultyDesignated = () => {
       morningTardiness,
       afternoonRendered,
       afternoonTardiness,
-      overallRendered,
+      totalRendered,
+      overallRendered: totalRendered || overallRendered,
       overallTardiness,
       hnRendered,
       hnTardiness,
@@ -1444,45 +3476,143 @@ const AttendanceModuleFacultyDesignated = () => {
       otRendered,
       otTardiness,
     };
-  }, [attendanceData, sumTime, addTimes, getStatusLabelForDate, leaveByDate, holidayByDate, suspensionByDate, tardinessOverrides]);
+  }, [
+    attendanceData,
+    sumTime,
+    addTimes,
+    getStatusLabelForDate,
+    leaveByDate,
+    holidayByDate,
+    suspensionByDate,
+    tardinessOverrides,
+    renderedOverrides,
+    halfDayReviewByDate,
+  ]);
 
   const officialHoursPerDay = React.useMemo(() => {
     // For this 40hrs designated module: expected 10 hours/day, but prefer deriving from official schedule times.
     const defaultMinutes = 10 * 60;
-    const scheduledRows = attendanceData.filter((r) => isScheduledByOfficialTime(r));
+    const scheduledRows = attendanceData.filter((r) =>
+      isScheduledByOfficialTime(r),
+    );
     const derivedMinutes =
-      scheduledRows.map(minutesFromOfficialScheduleRow).find((m) => Number.isFinite(m) && m > 0) ?? null;
+      scheduledRows
+        .map(minutesFromOfficialScheduleRow)
+        .find((m) => Number.isFinite(m) && m > 0) ?? null;
     const minutes = derivedMinutes ?? defaultMinutes;
     return minutes / 60;
   }, [attendanceData]);
 
-  const isAbsentAttendanceRow = useCallback((row) => {
-    const d = String(row?.date ?? '').slice(0, 10);
-    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
-    if (!isScheduledByOfficialTime(row)) return false;
-    return hasNoPunchesTimeInOutOnly(row);
-  }, [suspensionByDate, holidayByDate, leaveByDate]);
+  const isAbsentAttendanceRow = useCallback(
+    (row) => {
+      const d = String(row?.date ?? '').slice(0, 10);
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
+      if (!isScheduledByOfficialTime(row)) return false;
+      return hasNoPunchesTimeInOutOnly(row);
+    },
+    [suspensionByDate, holidayByDate, leaveByDate],
+  );
 
-  const isHalfDayByOfficialRules = useCallback((row) => {
-    const d = String(row?.date ?? '').slice(0, 10);
-    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
-    if (!isScheduledByOfficialTime(row)) return false;
-    if (hasNoPunchesTimeInOutOnly(row)) return false;
-    const morning = hasMorningPunchTimeInOnly(row);
-    const afternoon = hasAfternoonPunchTimeOutOnly(row);
-    return morning !== afternoon;
-  }, [suspensionByDate, holidayByDate, leaveByDate]);
+  const getHalfDayUiStatus = useCallback(
+    (row) => {
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      return getRowHalfDayUiStatus(
+        row,
+        halfDayReviewByDate,
+        MODULE_TYPES.DESIGNATED_40HRS,
+        calendarMaps,
+      );
+    },
+    [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
+  );
+
+  const commitHalfDayReview = useCallback(
+    (entry) => {
+      const d = normalizeReviewDate(entry?.date);
+      if (!d) return;
+      setHalfDayReviewByDate((prev) => {
+        const next = { ...prev, [d]: entry };
+        void persistHalfDayReviewDailyLate({
+          personID: employeeNumber,
+          startDate,
+          endDate,
+          moduleType: MODULE_TYPES.DESIGNATED_40HRS,
+          attendanceData,
+          reviewByDate: next,
+        });
+        return next;
+      });
+      setTardinessOverrides((prev) => {
+        const next = { ...prev };
+        delete next[d];
+        return next;
+      });
+      if (entry.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
+        const total = resolveEntryRenderedTotal(entry, MODULE_TYPES.DESIGNATED_40HRS);
+        setRenderedOverrides((prev) => ({
+          ...prev,
+          [d]: {
+            total: total || undefined,
+            morning: entry.renderedMorning || undefined,
+            afternoon: entry.renderedAfternoon || undefined,
+          },
+        }));
+      }
+      logAttendanceHalfDayReview({
+        module: ATTENDANCE_AUDIT_MODULES.FACULTY_DESIGNATED,
+        entry,
+        computationModuleType: MODULE_TYPES.DESIGNATED_40HRS,
+        targetEmployeeNumber: employeeNumber,
+        targetUsername: attendanceData[0]?.username || null,
+        periodStart: startDate,
+        periodEnd: endDate,
+      });
+    },
+    [employeeNumber, startDate, endDate, attendanceData],
+  );
+
+  const openHalfDayDialog = useCallback((row, mode) => {
+    setHalfDayReviewDialog({ row, mode });
+  }, []);
+
+  useEffect(() => {
+    if (!employeeNumber || !startDate || !endDate || !attendanceData.length) return;
+    const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
+    persistDailyLateUndertimeFromModule({
+      personID: employeeNumber,
+      startDate,
+      endDate,
+      moduleType: 'DESIGNATED_40HRS',
+      rows: buildDailyLateUndertimeRows(
+        attendanceData,
+        approvedSet,
+        halfDayReviewByDate,
+        MODULE_TYPES.DESIGNATED_40HRS,
+      ),
+      halfDayDates: [...approvedSet].join(', '),
+      half_day_review: buildHalfDayReviewArray(halfDayReviewByDate),
+    });
+  }, [halfDayReviewByDate, attendanceData, employeeNumber, startDate, endDate]);
 
   // Kept for compatibility
   const getTabTotalsValues = (tab) => {
     switch (tab) {
-      case 'regular':      return [totals.morningRendered, totals.morningTardiness, totals.afternoonRendered, totals.afternoonTardiness];
-      case 'honorarium':   return [totals.hnRendered, totals.hnTardiness];
-      case 'serviceCredit':return [totals.scRendered, totals.scTardiness];
-      case 'overtime':     return [totals.otRendered, totals.otTardiness];
-      default:             return [];
+      case 'regular':
+        return [
+          totals.morningRendered,
+          totals.morningTardiness,
+          totals.afternoonRendered,
+          totals.afternoonTardiness,
+        ];
+      case 'honorarium':
+        return [totals.hnRendered, totals.hnTardiness];
+      case 'serviceCredit':
+        return [totals.scRendered, totals.scTardiness];
+      case 'overtime':
+        return [totals.otRendered, totals.otTardiness];
+      default:
+        return [];
     }
   };
 
@@ -1492,49 +3622,69 @@ const AttendanceModuleFacultyDesignated = () => {
     if (en) localStorage.setItem('employeeNumber', en);
     if (startDate) localStorage.setItem('startDate', startDate);
     if (endDate) localStorage.setItem('endDate', endDate);
-    navigate('/attendance_summary', { state: { employeeNumber: en, startDate, endDate } });
+    navigate('/attendance_summary', {
+      state: { employeeNumber: en, startDate, endDate },
+    });
   }, [employeeNumber, startDate, endDate, navigate]);
 
-  const buildOverallRecordPayload = () => ({
+  const buildOverallRecordPayload = () => {
+    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+    const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
+    const dailyRows = buildDailyLateUndertimeRows(
+      attendanceData,
+      approvedSet,
+      halfDayReviewByDate,
+      MODULE_TYPES.DESIGNATED_40HRS,
+    );
+    return {
     ...(function computeAbsentHalfBuckets() {
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-      const c = computeOfficialAwareAbsenceAndLate_TimeInOutOnly(attendanceData, calendarMaps);
-      const absentList = listAbsentDatesFromDailyRows_TimeInOutOnly(attendanceData, calendarMaps);
-      const halfList = listHalfDayDatesFromDailyRows_TimeInOutOnly(attendanceData, calendarMaps);
-      const overallSec = parseOfficialTimeToSeconds(totals?.overallTardiness);
-      const lateTotalTime =
-        overallSec != null
-          ? formatOfficialAttendanceSeconds(
-              Math.max(0, overallSec - c.absentSecTotal - c.halfDayShortfallSecTotal),
-            )
-          : (c.lateShortfallTime || '00:00:00');
+      const c = computeReviewAwareAbsenceBuckets(
+        attendanceData,
+        halfDayReviewByDate,
+        calendarMaps,
+        MODULE_TYPES.DESIGNATED_40HRS,
+      );
+      const absentList = listAbsentDatesFromDailyRows_TimeInOutOnly(
+        attendanceData,
+        calendarMaps,
+      );
       return {
         absentDays: c.absentDays,
         halfDays: c.halfDays,
-        lateTotalTime,
+        lateTotalTime: totals.lateTotalTime || '00:00:00',
         absentTime: c.absentTime,
         halfDayShortfallTime: c.halfDayShortfallTime,
         absentDates: absentList.join(', '),
-        halfDayDates: halfList.join(', '),
+        halfDayDates: [...approvedSet].join(', '),
+        half_day_review: buildHalfDayReviewArray(halfDayReviewByDate),
       };
     })(),
-    personID: employeeNumber, startDate, endDate,
-    totalRenderedTimeMorning:             totals.morningRendered,
-    totalRenderedTimeMorningTardiness:    totals.morningTardiness,
-    totalRenderedTimeAfternoon:           totals.afternoonRendered,
-    totalRenderedTimeAfternoonTardiness:  totals.afternoonTardiness,
-    totalRenderedHonorarium:              totals.hnRendered,
-    totalRenderedHonorariumTardiness:     totals.hnTardiness,
-    totalRenderedServiceCredit:           totals.scRendered,
-    totalRenderedServiceCreditTardiness:  totals.scTardiness,
-    totalRenderedOvertime:                totals.otRendered,
-    totalRenderedOvertimeTardiness:       totals.otTardiness,
-    overallRenderedOfficialTime:          totals.overallRendered,
+    personID: employeeNumber,
+    startDate,
+    endDate,
+    totalRenderedTimeMorning: totals.morningRendered,
+    totalRenderedTimeMorningTardiness: totals.morningTardiness,
+    totalRenderedTimeAfternoon: totals.afternoonRendered,
+    totalRenderedTimeAfternoonTardiness: totals.afternoonTardiness,
+    totalRenderedHonorarium: totals.hnRendered,
+    totalRenderedHonorariumTardiness: totals.hnTardiness,
+    totalRenderedServiceCredit: totals.scRendered,
+    totalRenderedServiceCreditTardiness: totals.scTardiness,
+    totalRenderedOvertime: totals.otRendered,
+    totalRenderedOvertimeTardiness: totals.otTardiness,
+    overallRenderedOfficialTime: totals.overallRendered,
     overallRenderedOfficialTimeTardiness: totals.overallTardiness,
-  });
+    daily_late_undertime: dailyRows,
+    computation_module_type: 'DESIGNATED_40HRS',
+  };
+  };
 
   const putMergedOverall = async (mergedPayload, recordId) => {
-    await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${recordId}`, mergedPayload, getAuthHeaders());
+    await axios.put(
+      `${API_BASE_URL}/attendance/api/overall_attendance_record/${recordId}`,
+      mergedPayload,
+      getAuthHeaders(),
+    );
     showSnackbar('Attendance summary updated from your choices.', 'success');
     navigateToOverallAttendanceSummary();
   };
@@ -1543,18 +3693,45 @@ const AttendanceModuleFacultyDesignated = () => {
     const record = buildOverallRecordPayload();
     setSaving(true);
     try {
-      const dup = await axios.get(`${API_BASE_URL}/attendance/api/overall_attendance_record`, {
-        params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders(),
-      });
+      const dup = await axios.get(
+        `${API_BASE_URL}/attendance/api/overall_attendance_record`,
+        {
+          params: { personID: employeeNumber, startDate, endDate },
+          ...getAuthHeaders(),
+        },
+      );
       const existingList = dup.data?.data || [];
-      if (existingList.length) {
-        const existing = existingList[0];
-        if (!overallRecordsDiffer(existing, record)) {
-          showModal('Duplicate attendance summary',
-            `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
-            'info', () => { closeModal(); navigateToOverallAttendanceSummary(); }, true, 'Continue to summary');
-          return;
-        }
+      const { action, existing } = classifyOverallSave(existingList, startDate, endDate, record);
+      if (action === 'fill-stub' && existing?.id) {
+        await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
+        showSnackbar('Attendance summary saved.', 'success');
+        await persistDailyLateUndertimeFromModule({
+          personID: employeeNumber,
+          startDate,
+          endDate,
+          moduleType: 'DESIGNATED_40HRS',
+          rows: record.daily_late_undertime,
+          halfDayDates: record.halfDayDates,
+          half_day_review: record.half_day_review,
+        });
+        navigateToOverallAttendanceSummary();
+        return;
+      }
+      if (action === 'duplicate-info') {
+        showModal(
+          'Duplicate attendance summary',
+          `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
+          'info',
+          () => {
+            closeModal();
+            navigateToOverallAttendanceSummary();
+          },
+          true,
+          'Continue to summary',
+        );
+        return;
+      }
+      if (action === 'compare' && existing) {
         setPendingSavedOverall(existing);
         setPendingProposedOverall(record);
         setCompareOpen(true);
@@ -1562,83 +3739,156 @@ const AttendanceModuleFacultyDesignated = () => {
       }
     } catch (e) {
       console.error('Duplicate-check failed:', e);
-      showModal('Verification Failed', 'Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.', 'error');
+      showModal(
+        'Verification Failed',
+        'Could not verify existing records. Saving has been aborted.\n\nPlease try again or contact your administrator.',
+        'error',
+      );
       return;
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
 
     setSaving(true);
     try {
-      const response = await axios.post(`${API_BASE_URL}/attendance/api/overall_attendance`, record, getAuthHeaders());
-      showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
+      const response = await axios.post(
+        `${API_BASE_URL}/attendance/api/overall_attendance`,
+        record,
+        getAuthHeaders(),
+      );
+      showSnackbar(
+        response.data.message || 'Attendance record saved successfully!',
+        'success',
+      );
+      await persistDailyLateUndertimeFromModule({
+        personID: employeeNumber,
+        startDate,
+        endDate,
+        moduleType: 'DESIGNATED_40HRS',
+        rows: record.daily_late_undertime,
+        halfDayDates: record.halfDayDates,
+        half_day_review: record.half_day_review,
+      });
       navigateToOverallAttendanceSummary();
     } catch (err) {
       console.error('Error saving overall attendance:', err);
       showSnackbar('Failed to save attendance record.', 'error');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSubmitRef = useRef(handleSubmit);
-  useEffect(() => { handleSubmitRef.current = handleSubmit; });
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  });
 
   useAttendanceRealtimeRefresh(
     useCallback(() => {
       if (!employeeNumber || !startDate || !endDate) return;
       handleSubmitRef.current();
     }, [employeeNumber, startDate, endDate]),
-    { personId: employeeNumber, startDate, endDate, requireDateRange: true, matchMode: 'strict' },
+    {
+      personId: employeeNumber,
+      startDate,
+      endDate,
+      requireDateRange: true,
+      matchMode: 'strict',
+    },
   );
 
-  const handleCompareClose = () => { setCompareOpen(false); setPendingSavedOverall(null); setPendingProposedOverall(null); };
+  const handleCompareClose = () => {
+    setCompareOpen(false);
+    setPendingSavedOverall(null);
+    setPendingProposedOverall(null);
+  };
   const handleCompareConfirm = async (choices) => {
-    if (!pendingSavedOverall?.id || !pendingProposedOverall) { handleCompareClose(); return; }
-    setCompareOpen(false); setSaving(true);
+    if (!pendingSavedOverall?.id || !pendingProposedOverall) {
+      handleCompareClose();
+      return;
+    }
+    setCompareOpen(false);
+    setSaving(true);
     try {
-      const merged = mergeOverallPayload({ savedRow: pendingSavedOverall, proposed: pendingProposedOverall, choices, personID: employeeNumber, startDate, endDate });
+      const merged = mergeOverallPayload({
+        savedRow: pendingSavedOverall,
+        proposed: pendingProposedOverall,
+        choices,
+        personID: employeeNumber,
+        startDate,
+        endDate,
+      });
       await putMergedOverall(merged, pendingSavedOverall.id);
+      await persistDailyLateUndertimeFromModule({
+        personID: employeeNumber,
+        startDate,
+        endDate,
+        moduleType: 'DESIGNATED_40HRS',
+        rows: merged.daily_late_undertime ?? pendingProposedOverall.daily_late_undertime,
+        halfDayDates: merged.halfDayDates,
+        half_day_review: merged.half_day_review,
+      });
     } catch (err) {
       console.error('Error updating overall attendance:', err);
-      showSnackbar(err.response?.data?.message || 'Failed to update attendance record.', 'error');
-    } finally { setSaving(false); setPendingSavedOverall(null); setPendingProposedOverall(null); }
+      showSnackbar(
+        err.response?.data?.message || 'Failed to update attendance record.',
+        'error',
+      );
+    } finally {
+      setSaving(false);
+      setPendingSavedOverall(null);
+      setPendingProposedOverall(null);
+    }
   };
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
   };
 
   const handleClearFilters = () => {
-    setEmployeeNumber(''); setStartDate(''); setEndDate('');
-    setAttendanceData([]); setError(''); setSelectedMonth(null);
+    setEmployeeNumber('');
+    setStartDate('');
+    setEndDate('');
+    setAttendanceData([]);
+    setError('');
+    setSelectedMonth(null);
     setTardinessOverrides({});
-    setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
+    setSuspensionByDate({});
+    setLeaveByDate({});
+    setHolidayByDate({});
   };
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   if (pageLoading || accessLoading) return <AttendanceDesignatedWireframe />;
-  if (hasAccess === false) return (
-    <AccessDenied
-      title="Access Denied"
-      message="You do not have permission to access Attendance Module for Faculty (40 hours/Designated). Contact your administrator to request access."
-      returnPath="/admin-home"
-      returnButtonText="Return to Home"
-    />
-  );
+  if (hasAccess === false)
+    return (
+      <AccessDenied
+        title="Access Denied"
+        message="You do not have permission to access Attendance Module for Faculty (40 hours/Designated). Contact your administrator to request access."
+        returnPath="/admin-home"
+        returnButtonText="Return to Home"
+      />
+    );
 
   // ─────────────────────────────────────────────────────────────────────────
   // COLUMN VISIBILITY
   // Single flat header row. Collapsed groups render ONE narrow placeholder
   // cell (the leader cell). Expanded groups render all member columns.
   // ─────────────────────────────────────────────────────────────────────────
-  const allColumns   = TAB_COLUMNS[activeTab];
+  const allColumns = TAB_COLUMNS[activeTab];
   const curCollapsed = collapsedGroups[activeTab] || {};
 
   const columnSlots = allColumns.reduce((acc, col) => {
     const g = col.colGroup;
-    if (!g) { acc.push({ col, isCollapsedPlaceholder: false }); return acc; }
+    if (!g) {
+      acc.push({ col, isCollapsedPlaceholder: false });
+      return acc;
+    }
     const collapsed = !!curCollapsed[g];
     if (collapsed) {
       if (col.isGroupLeader) acc.push({ col, isCollapsedPlaceholder: true });
@@ -1652,6 +3902,7 @@ const AttendanceModuleFacultyDesignated = () => {
   const buildTableHead = () => (
     <TableHead>
       <TableRow>
+        <HalfDayApproveHeaderCell themeT={T} />
         {columnSlots.map(({ col, isCollapsedPlaceholder }) => {
           const g = col.colGroup;
           const groupLabel = g ? COL_GROUP_META[g]?.label || g : null;
@@ -1662,11 +3913,17 @@ const AttendanceModuleFacultyDesignated = () => {
                 key={col.key + '_ph'}
                 onClick={() => toggleColGroup(activeTab, g)}
                 sx={{
-                  position: 'sticky', top: 0, zIndex: 3,
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 3,
                   bgcolor: '#b07070',
-                  px: 0.75, py: 1,
-                  minWidth: 36, width: 36, maxWidth: 36,
-                  cursor: 'pointer', textAlign: 'center',
+                  px: 0.75,
+                  py: 1,
+                  minWidth: 36,
+                  width: 36,
+                  maxWidth: 36,
+                  cursor: 'pointer',
+                  textAlign: 'center',
                   borderBottom: `2px solid ${T.accentBorder}`,
                   borderRight: `1px solid rgba(255,255,255,0.2)`,
                   verticalAlign: 'middle',
@@ -1674,15 +3931,29 @@ const AttendanceModuleFacultyDesignated = () => {
                   transition: 'background-color 0.15s',
                 }}
               >
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 0.3,
+                  }}
+                >
                   <UnfoldMore sx={{ fontSize: 13, color: '#fff' }} />
-                  <Typography sx={{
-                    fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)',
-                    writingMode: 'vertical-rl', textOrientation: 'mixed',
-                    transform: 'rotate(180deg)',
-                    letterSpacing: '0.04em', textTransform: 'uppercase',
-                    maxHeight: 80, overflow: 'hidden',
-                  }}>
+                  <Typography
+                    sx={{
+                      fontSize: '0.52rem',
+                      fontWeight: 700,
+                      color: 'rgba(255,255,255,0.9)',
+                      writingMode: 'vertical-rl',
+                      textOrientation: 'mixed',
+                      transform: 'rotate(180deg)',
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      maxHeight: 80,
+                      overflow: 'hidden',
+                    }}
+                  >
                     {groupLabel}
                   </Typography>
                 </Box>
@@ -1695,11 +3966,16 @@ const AttendanceModuleFacultyDesignated = () => {
             <TableCell
               key={col.key + '_h'}
               sx={{
-                position: 'sticky', top: 0, zIndex: 3,
+                position: 'sticky',
+                top: 0,
+                zIndex: 3,
                 bgcolor: T.accent,
-                fontWeight: 700, fontSize: '0.65rem',
-                letterSpacing: '0.05em', textTransform: 'uppercase',
-                color: '#fff', textAlign: 'center',
+                fontWeight: 700,
+                fontSize: '0.65rem',
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                color: '#fff',
+                textAlign: 'center',
                 px: 1.5,
                 pt: isLeader ? 0.5 : 1,
                 pb: 1,
@@ -1714,17 +3990,34 @@ const AttendanceModuleFacultyDesignated = () => {
                 <Box
                   onClick={() => toggleColGroup(activeTab, g)}
                   sx={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.4,
-                    mb: 0.6, cursor: 'pointer',
-                    px: 0.75, py: 0.2, borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 0.4,
+                    mb: 0.6,
+                    cursor: 'pointer',
+                    px: 0.75,
+                    py: 0.2,
+                    borderRadius: '4px',
                     bgcolor: 'rgba(255,255,255,0.14)',
                     border: '1px solid rgba(255,255,255,0.25)',
                     transition: 'background-color 0.15s',
                     '&:hover': { bgcolor: 'rgba(255,255,255,0.24)' },
                   }}
                 >
-                  <UnfoldLess sx={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }} />
-                  <Typography sx={{ fontSize: '0.57rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                  <UnfoldLess
+                    sx={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }}
+                  />
+                  <Typography
+                    sx={{
+                      fontSize: '0.57rem',
+                      fontWeight: 700,
+                      color: 'rgba(255,255,255,0.9)',
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {groupLabel} · hide
                   </Typography>
                 </Box>
@@ -1739,68 +4032,148 @@ const AttendanceModuleFacultyDesignated = () => {
 
   // ── Cell builder ──────────────────────────────────────────────────────
   const buildCell = (content, group, isEven) => (
-    <TableCell sx={{
-      borderBottom: `1px solid ${T.divider}`,
-      borderRight: `1px solid ${T.divider}`,
-      px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'center',
-      color: group === 'official' ? T.faint : T.text,
-      fontWeight: group === 'official' ? 400 : 500,
-      fontSize: group === 'official' ? '0.75rem' : '0.8rem',
-      fontFamily: 'monospace',
-      bgcolor: isEven ? '#fff' : T.rowOdd,
-      transition: 'background-color 0.12s',
-      'tr:hover &': { bgcolor: `${T.rowHover} !important` },
-    }}>
-      {typeof content === 'string' ? normalizeBadHhMmSsDisplay(content) : content}
+    <TableCell
+      sx={{
+        borderBottom: `1px solid ${T.divider}`,
+        borderRight: `1px solid ${T.divider}`,
+        px: 1.5,
+        py: 0.9,
+        whiteSpace: 'nowrap',
+        textAlign: 'center',
+        color: group === 'official' ? T.faint : T.text,
+        fontWeight: group === 'official' ? 400 : 500,
+        fontSize: group === 'official' ? '0.75rem' : '0.8rem',
+        fontFamily: T.recordFont,
+        bgcolor: isEven ? '#fff' : T.rowOdd,
+        transition: 'background-color 0.12s',
+        'tr:hover &': { bgcolor: `${T.rowHover} !important` },
+      }}
+    >
+      {typeof content === 'string'
+        ? normalizeBadHhMmSsDisplay(content)
+        : content}
     </TableCell>
   );
 
   // ── Collapsed placeholder body cell ───────────────────────────────────
   const buildCollapsedCell = (isEven) => (
-    <TableCell sx={{
-      minWidth: 36, width: 36, maxWidth: 36,
-      bgcolor: isEven ? 'rgba(109,35,35,0.03)' : 'rgba(109,35,35,0.06)',
-      borderBottom: `1px solid ${T.divider}`,
-      borderRight: `1px solid ${T.divider}`,
-      p: 0,
-    }} />
+    <TableCell
+      sx={{
+        minWidth: 36,
+        width: 36,
+        maxWidth: 36,
+        bgcolor: isEven ? 'rgba(109,35,35,0.03)' : 'rgba(109,35,35,0.06)',
+        borderBottom: `1px solid ${T.divider}`,
+        borderRight: `1px solid ${T.divider}`,
+        p: 0,
+      }}
+    />
   );
 
   // ── Totals row ────────────────────────────────────────────────────────
   /** @param {{ renderedColKey?: string, tardColKey?: string }} [opts] — pin totals to visible columns when groups are expanded. */
   const renderTotalsRow = (label, renderedVal, tardinessVal, opts = {}) => {
     const { renderedColKey, tardColKey } = opts;
-    const renderedKeys  = columnSlots.filter(s => !s.isCollapsedPlaceholder && s.col.group === 'calc').map(s => s.col.key);
-    const tardinessKeys = columnSlots.filter(s => !s.isCollapsedPlaceholder && s.col.group === 'tard').map(s => s.col.key);
-    const nonCalcCount  = columnSlots.filter(s => s.isCollapsedPlaceholder || (s.col.group !== 'calc' && s.col.group !== 'tard')).length;
+    const renderedKeys = columnSlots
+      .filter((s) => !s.isCollapsedPlaceholder && s.col.group === 'calc')
+      .map((s) => s.col.key);
+    const tardinessKeys = columnSlots
+      .filter((s) => !s.isCollapsedPlaceholder && s.col.group === 'tard')
+      .map((s) => s.col.key);
+    const nonCalcCount = columnSlots.filter(
+      (s) =>
+        s.isCollapsedPlaceholder ||
+        (s.col.group !== 'calc' && s.col.group !== 'tard'),
+    ).length;
 
-    const targetRenderedKey = renderedColKey || renderedKeys[renderedKeys.length - 1];
-    const targetTardKey     = tardColKey     || tardinessKeys[tardinessKeys.length - 1];
+    const targetRenderedKey =
+      renderedColKey || renderedKeys[renderedKeys.length - 1];
+    const targetTardKey = tardColKey || tardinessKeys[tardinessKeys.length - 1];
 
     return (
-      <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accentBorder}` }}>
+      <TableRow
+        sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accentBorder}` }}
+      >
+        <HalfDayApproveTotalsCell themeT={T} />
         {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }, ci) => {
-          if (ci === 0) return (
-            <TableCell key={col.key + '_tl'} colSpan={nonCalcCount}
-              sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.faint, textAlign: 'right', pr: 2.5, py: 1.25, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              {label}
-            </TableCell>
-          );
+          if (ci === 0)
+            return (
+              <TableCell
+                key={col.key + '_tl'}
+                colSpan={nonCalcCount}
+                sx={{
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  color: T.faint,
+                  textAlign: 'right',
+                  pr: 2.5,
+                  py: 1.25,
+                  borderBottom: 'none',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {label}
+              </TableCell>
+            );
           if (ci < nonCalcCount) return null;
           if (isCp) return null;
-          const showRendered  = col.group === 'calc' && targetRenderedKey && col.key === targetRenderedKey;
-          const showTardiness = col.group === 'tard' && targetTardKey && col.key === targetTardKey;
-          if (showRendered) return (
-            <TableCell key={col.key + '_tr'} sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
-              {renderedVal || '00:00:00'}
+          const showRendered =
+            col.group === 'calc' &&
+            targetRenderedKey &&
+            col.key === targetRenderedKey;
+          const showTardiness =
+            col.group === 'tard' && targetTardKey && col.key === targetTardKey;
+          if (showRendered)
+            return (
+              <TableCell
+                key={col.key + '_tr'}
+                sx={{
+                  fontFamily: T.recordFont,
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  textAlign: 'center',
+                  py: 1.25,
+                  borderBottom: 'none',
+                  color: T.rendered.color,
+                  bgcolor: T.rendered.bg,
+                }}
+              >
+                {renderedVal || '00:00:00'}
+              </TableCell>
+            );
+          if (showTardiness)
+            return (
+              <TableCell
+                key={col.key + '_tt'}
+                sx={{
+                  fontFamily: T.recordFont,
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  textAlign: 'center',
+                  py: 1.25,
+                  borderBottom: 'none',
+                  color: T.tardiness.color,
+                  bgcolor: T.tardiness.bg,
+                }}
+              >
+                {tardinessVal || '00:00:00'}
+              </TableCell>
+            );
+          return (
+            <TableCell
+              key={col.key + '_td'}
+              sx={{
+                borderBottom: 'none',
+                bgcolor: '#fafafa',
+                textAlign: 'center',
+                color: T.faint,
+                fontSize: '0.75rem',
+              }}
+            >
+              —
             </TableCell>
           );
-          if (showTardiness) return (
-            <TableCell key={col.key + '_tt'} sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
-              {tardinessVal || '00:00:00'}
-            </TableCell>
-          );
-          return <TableCell key={col.key + '_td'} sx={{ borderBottom: 'none', bgcolor: '#fafafa', textAlign: 'center', color: T.faint, fontSize: '0.75rem' }}>—</TableCell>;
         })}
       </TableRow>
     );
@@ -1811,26 +4184,122 @@ const AttendanceModuleFacultyDesignated = () => {
     const groups = [];
     cols.forEach((col) => {
       const last = groups[groups.length - 1];
-      if (last && last.group === col.group && !col.dividerBefore) { last.span++; }
-      else { groups.push({ label: col.group, span: 1, group: col.group, dividerBefore: col.dividerBefore }); }
+      if (last && last.group === col.group && !col.dividerBefore) {
+        last.span++;
+      } else {
+        groups.push({
+          label: col.group,
+          span: 1,
+          group: col.group,
+          dividerBefore: col.dividerBefore,
+        });
+      }
     });
-    const groupLabels = { meta: '', actual: 'Employee Device Records', official: 'Official Schedule', calc: 'Rendered', tard: 'Tardiness' };
+    const groupLabels = {
+      meta: '',
+      actual: 'Employee Device Records',
+      official: 'Official Schedule',
+      calc: 'Rendered',
+      tard: 'Tardiness',
+    };
     return groups.map((g) => ({ ...g, label: groupLabels[g.group] || '' }));
   };
-  const hBg  = (g) => g === 'actual' ? alpha(T.accent, 0.12) : g === 'official' ? alpha(T.accent, 0.05) : g === 'calc' ? 'rgba(21,128,61,0.09)' : g === 'tard' ? 'rgba(153,27,27,0.09)' : alpha(T.accent, 0.03);
-  const hBg2 = (g) => g === 'actual' ? alpha(T.accent, 0.08) : g === 'official' ? alpha(T.accent, 0.03) : g === 'calc' ? 'rgba(21,128,61,0.06)' : g === 'tard' ? 'rgba(153,27,27,0.06)' : alpha(T.accent, 0.02);
+  const hBg = (g) =>
+    g === 'actual'
+      ? alpha(T.accent, 0.12)
+      : g === 'official'
+        ? alpha(T.accent, 0.05)
+        : g === 'calc'
+          ? 'rgba(21,128,61,0.09)'
+          : g === 'tard'
+            ? 'rgba(153,27,27,0.09)'
+            : alpha(T.accent, 0.03);
+  const hBg2 = (g) =>
+    g === 'actual'
+      ? alpha(T.accent, 0.08)
+      : g === 'official'
+        ? alpha(T.accent, 0.03)
+        : g === 'calc'
+          ? 'rgba(21,128,61,0.06)'
+          : g === 'tard'
+            ? 'rgba(153,27,27,0.06)'
+            : alpha(T.accent, 0.02);
   const buildTwoRowHead = (cols) => {
     const spans = buildGroupSpans(cols);
     return (
       <TableHead>
         <TableRow>
           {spans.map(({ label, span, group, dividerBefore }, gi) => (
-            <TableCell key={gi} colSpan={span} sx={{ textAlign: 'center', fontWeight: 700, fontSize: '0.62rem', letterSpacing: '0.07em', textTransform: 'uppercase', py: 0.85, px: 1.75, whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 3, borderBottom: `1px solid ${T.accentBorder}`, borderLeft: dividerBefore ? `2px solid ${alpha(T.accent, 0.3)}` : 'none', bgcolor: hBg(group), color: group === 'actual' ? T.accent : group === 'calc' ? '#166534' : group === 'tard' ? '#991b1b' : 'transparent' }}>{label}</TableCell>
+            <TableCell
+              key={gi}
+              colSpan={span}
+              sx={{
+                textAlign: 'center',
+                fontWeight: 700,
+                fontSize: '0.62rem',
+                letterSpacing: '0.07em',
+                textTransform: 'uppercase',
+                py: 0.85,
+                px: 1.75,
+                whiteSpace: 'nowrap',
+                position: 'sticky',
+                top: 0,
+                zIndex: 3,
+                borderBottom: `1px solid ${T.accentBorder}`,
+                borderLeft: dividerBefore
+                  ? `2px solid ${alpha(T.accent, 0.3)}`
+                  : 'none',
+                bgcolor: hBg(group),
+                color:
+                  group === 'actual'
+                    ? T.accent
+                    : group === 'calc'
+                      ? '#166534'
+                      : group === 'tard'
+                        ? '#991b1b'
+                        : 'transparent',
+              }}
+            >
+              {label}
+            </TableCell>
           ))}
         </TableRow>
         <TableRow>
           {cols.map(({ label, minWidth, group, dividerBefore }) => (
-            <TableCell key={label} sx={{ minWidth: minWidth || 120, textAlign: 'center', position: 'sticky', top: 32, zIndex: 2, fontSize: '0.65rem', fontWeight: 700, py: 0.85, px: 1.75, whiteSpace: 'nowrap', letterSpacing: '0.06em', textTransform: 'uppercase', borderBottom: `2px solid ${alpha(T.accent, 0.25)}`, borderLeft: dividerBefore ? `2px solid ${alpha(T.accent, 0.3)}` : 'none', color: '#fff', background: group === 'actual' ? T.accent : group === 'calc' ? '#166534' : group === 'tard' ? '#991b1b' : group === 'official' ? T.accentMid : T.accentDark }}>{label}</TableCell>
+            <TableCell
+              key={label}
+              sx={{
+                minWidth: minWidth || 120,
+                textAlign: 'center',
+                position: 'sticky',
+                top: 32,
+                zIndex: 2,
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                py: 0.85,
+                px: 1.75,
+                whiteSpace: 'nowrap',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                borderBottom: `2px solid ${alpha(T.accent, 0.25)}`,
+                borderLeft: dividerBefore
+                  ? `2px solid ${alpha(T.accent, 0.3)}`
+                  : 'none',
+                color: '#fff',
+                background:
+                  group === 'actual'
+                    ? T.accent
+                    : group === 'calc'
+                      ? '#166534'
+                      : group === 'tard'
+                        ? '#991b1b'
+                        : group === 'official'
+                          ? T.accentMid
+                          : T.accentDark,
+              }}
+            >
+              {label}
+            </TableCell>
           ))}
         </TableRow>
       </TableHead>
@@ -1842,22 +4311,59 @@ const AttendanceModuleFacultyDesignated = () => {
   // ─────────────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={400}>
-      <Box sx={{
-        py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: 0,
-        width: '100vw', maxWidth: '100%',
-        position: 'relative', left: '53%', transform: 'translateX(-51%)',
-        px: { xs: 2, sm: 3, md: 6 },
-        pb: attendanceData.length > 0 ? '160px' : undefined,
-      }}>
+      <Box
+        sx={{
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          mb: 0,
+          width: '100vw',
+          maxWidth: '100%',
+          position: 'relative',
+          left: '53%',
+          transform: 'translateX(-51%)',
+          px: { xs: 2, sm: 3, md: 6 },
+          pb: attendanceData.length > 0 ? '160px' : undefined,
+        }}
+      >
         <style>{shimmerKf}</style>
 
-        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
-          <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
-            sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={6000}
+          onClose={handleCloseSnackbar}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={handleCloseSnackbar}
+            severity={snackbar.severity}
+            variant="filled"
+            sx={{
+              width: '100%',
+              fontWeight: 600,
+              backgroundColor:
+                snackbar.severity === 'success' ? '#4caf50' : undefined,
+              color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+              '& .MuiAlert-icon': {
+                color: snackbar.severity === 'success' ? '#ffffff' : undefined,
+              },
+            }}
+          >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <span>{snackbar.message}</span>
               {snackbar.open && snackbarCountdown > 0 && (
-                <Chip label={`${snackbarCountdown}s`} size="small" sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }} />
+                <Chip
+                  label={`${snackbarCountdown}s`}
+                  size="small"
+                  sx={{
+                    backgroundColor:
+                      snackbar.severity === 'success'
+                        ? 'rgba(255,255,255,0.3)'
+                        : undefined,
+                    color:
+                      snackbar.severity === 'success' ? '#ffffff' : undefined,
+                    fontWeight: 700,
+                  }}
+                />
               )}
             </Box>
           </Alert>
@@ -1867,26 +4373,136 @@ const AttendanceModuleFacultyDesignated = () => {
 
         {/* Page Header */}
         <SectionCard sx={{ mb: 2 }}>
-          <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
-            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
-            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+          <Box
+            sx={{
+              px: 4,
+              py: 3,
+              background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <Box
+              sx={{
+                position: 'absolute',
+                top: -50,
+                right: -50,
+                width: 200,
+                height: 200,
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: -30,
+                left: '30%',
+                width: 150,
+                height: 150,
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)',
+              }}
+            />
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2.5,
+                position: 'relative',
+                zIndex: 1,
+              }}
+            >
               <WorkHistory sx={{ fontSize: 30, color: T.accent }} />
               <Box>
-                <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>Attendance Records (40hrs / Designated)</Typography>
-                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>40hrs · Designated Faculty · Generate and review attendance records</Typography>
+                <Typography
+                  sx={{
+                    fontSize: '1.2rem',
+                    fontWeight: 900,
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    mb: 0.25,
+                  }}
+                >
+                  Attendance Records (40hrs / Designated)
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.78rem',
+                    color: T.accentMid,
+                    fontWeight: 600,
+                  }}
+                >
+                  40hrs · Designated Faculty · Generate and review attendance
+                  records
+                </Typography>
               </Box>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
-              <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
-                <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+                position: 'relative',
+                zIndex: 1,
+              }}
+            >
+              <Box
+                sx={{
+                  px: 2,
+                  py: 0.6,
+                  borderRadius: 5,
+                  bgcolor: alpha('#4caf50', 0.12),
+                  border: '1px solid rgba(76,175,80,0.25)',
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.72rem',
+                    color: '#2e7d32',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                  }}
+                >
                   <CheckCircleIcon sx={{ fontSize: 12 }} /> 40hrs | Designated
                 </Typography>
               </Box>
-              <button onClick={handleSubmit} disabled={!employeeNumber || !startDate || !endDate}
-                style={{ background: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '8px', padding: '7px 10px', cursor: (!employeeNumber || !startDate || !endDate) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '5px', color: T.accent, fontSize: '0.75rem', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s', opacity: (!employeeNumber || !startDate || !endDate) ? 0.5 : 1 }}
-                onMouseEnter={e => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14); }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08); }}>
+              <button
+                onClick={handleSubmit}
+                disabled={!employeeNumber || !startDate || !endDate}
+                style={{
+                  background: alpha(T.accent, 0.08),
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '8px',
+                  padding: '7px 10px',
+                  cursor:
+                    !employeeNumber || !startDate || !endDate
+                      ? 'not-allowed'
+                      : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  color: T.accent,
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  fontFamily: 'inherit',
+                  transition: 'all 0.15s',
+                  opacity: !employeeNumber || !startDate || !endDate ? 0.5 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = alpha(T.accent, 0.14);
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = alpha(T.accent, 0.08);
+                }}
+              >
                 <Refresh sx={{ fontSize: 15 }} /> Refresh
               </button>
             </Box>
@@ -1894,7 +4510,13 @@ const AttendanceModuleFacultyDesignated = () => {
         </SectionCard>
 
         <Collapse in={!!error}>
-          <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{error}</Alert>
+          <Alert
+            severity="error"
+            onClose={() => setError('')}
+            sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}
+          >
+            {error}
+          </Alert>
         </Collapse>
 
         {/* Controls */}
@@ -1903,58 +4525,219 @@ const AttendanceModuleFacultyDesignated = () => {
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
             <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
               <Box sx={{ flex: 1, minWidth: 160 }}>
-                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Employee Number</Typography>
-                <EmployeeSearchField value={employeeNumber} onSelectEmployeeNumber={setEmployeeNumber} />
+                <Typography
+                  sx={{
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    mb: 0.6,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Employee Number
+                </Typography>
+                <EmployeeSearchField
+                  value={employeeNumber}
+                  onSearchQueryChange={setEmployeeSearchQuery}
+                  onSelectEmployeeNumber={setEmployeeNumber}
+                />
               </Box>
               {[
-                { label: 'Start Date', value: startDate, onChange: (e) => setStartDate(e.target.value), type: 'date' },
-                { label: 'End Date',   value: endDate,   onChange: (e) => setEndDate(e.target.value),   type: 'date' },
+                {
+                  label: 'Start Date',
+                  value: startDate,
+                  onChange: (e) => setStartDate(e.target.value),
+                  type: 'date',
+                },
+                {
+                  label: 'End Date',
+                  value: endDate,
+                  onChange: (e) => setEndDate(e.target.value),
+                  type: 'date',
+                },
               ].map(({ label, value, onChange, type }) => (
                 <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</Typography>
-                  <NativeInput type={type} value={value} onChange={onChange} icon={<CalendarToday sx={{ fontSize: 15 }} />} />
+                  <Typography
+                    sx={{
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      color: T.accent,
+                      mb: 0.6,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {label}
+                  </Typography>
+                  <NativeInput
+                    type={type}
+                    value={value}
+                    onChange={onChange}
+                    icon={<CalendarToday sx={{ fontSize: 15 }} />}
+                  />
                 </Box>
               ))}
             </Box>
             <Box sx={{ height: 1, bgcolor: T.divider, mb: 2 }} />
-            <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Typography
+              sx={{
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                color: T.accent,
+                mb: 1.25,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.75,
+              }}
+            >
               <FilterList sx={{ fontSize: 13 }} /> Quick Date Selection
             </Typography>
-            <Box sx={{ p: 2.5, borderRadius: 2, border: `2px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
+            <Box
+              sx={{
+                p: 2.5,
+                borderRadius: 2,
+                border: `2px dashed ${T.accentBorder}`,
+                bgcolor: T.accentFaint,
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  alignItems: { xs: 'flex-start', sm: 'center' },
+                  justifyContent: 'space-between',
+                  gap: 2,
+                  mb: 2,
+                }}
+              >
                 <Box>
-                  <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent, mb: 0.3 }}>Select Entire Month</Typography>
-                  <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>Choose a year, then click any month to set the date range</Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      color: T.accent,
+                      mb: 0.3,
+                    }}
+                  >
+                    Select Entire Month
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                    Choose a year, then click any month to set the date range
+                  </Typography>
                 </Box>
                 <FormControl sx={{ minWidth: 130 }} size="small">
-                  <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Year</InputLabel>
-                  <Select value={selectedYear} label="Year"
-                    onChange={(e) => { setSelectedYear(e.target.value); setSelectedMonth(null); showSnackbar('Year changed — please click a month to load records.', 'info'); }}
-                    sx={{ bgcolor: '#fff', borderRadius: 2, fontWeight: 600, fontSize: '0.85rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder } }}>
-                    {yearOptions.map(y => <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>{y}</MenuItem>)}
+                  <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                    Year
+                  </InputLabel>
+                  <Select
+                    value={selectedYear}
+                    label="Year"
+                    onChange={(e) => {
+                      setSelectedYear(e.target.value);
+                      setSelectedMonth(null);
+                      showSnackbar(
+                        'Year changed — please click a month to load records.',
+                        'info',
+                      );
+                    }}
+                    sx={{
+                      bgcolor: '#fff',
+                      borderRadius: 2,
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: T.accentBorder,
+                      },
+                    }}
+                  >
+                    {yearOptions.map((y) => (
+                      <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>
+                        {y}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Box>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, justifyContent: 'center' }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 0.75,
+                  justifyContent: 'center',
+                }}
+              >
                 {months.map((month, index) => {
                   const sel = selectedMonth === index;
                   return (
-                    <button key={month} onClick={() => handleMonthClick(index)}
-                      style={{ background: sel ? T.accent : '#fff', border: `1px solid ${sel ? T.accent : T.accentBorder}`, borderRadius: '6px', padding: '7px 14px', cursor: 'pointer', color: sel ? '#fff' : T.accent, fontSize: '0.75rem', fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s ease', boxShadow: sel ? `0 2px 8px ${alpha(T.accent, 0.25)}` : 'none', letterSpacing: '0.04em' }}
-                      onMouseEnter={e => { if (!sel) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = T.accent; } }}
-                      onMouseLeave={e => { if (!sel) { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = T.accentBorder; } }}>
+                    <button
+                      key={month}
+                      onClick={() => handleMonthClick(index)}
+                      style={{
+                        background: sel ? T.accent : '#fff',
+                        border: `1px solid ${sel ? T.accent : T.accentBorder}`,
+                        borderRadius: '6px',
+                        padding: '7px 14px',
+                        cursor: 'pointer',
+                        color: sel ? '#fff' : T.accent,
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        fontFamily: 'inherit',
+                        transition: 'all 0.15s ease',
+                        boxShadow: sel
+                          ? `0 2px 8px ${alpha(T.accent, 0.25)}`
+                          : 'none',
+                        letterSpacing: '0.04em',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!sel) {
+                          e.currentTarget.style.backgroundColor = T.accentFaint;
+                          e.currentTarget.style.borderColor = T.accent;
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!sel) {
+                          e.currentTarget.style.backgroundColor = '#fff';
+                          e.currentTarget.style.borderColor = T.accentBorder;
+                        }
+                      }}
+                    >
                       {month}
                     </button>
                   );
                 })}
               </Box>
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
-              <RowBtn icon={<Clear sx={{ fontSize: 13 }} />} label="Clear All Filters" color="#C62828" hoverBg="rgba(198,40,40,0.08)" onClick={handleClearFilters} />
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                mt: 2,
+                flexWrap: 'wrap',
+                gap: 1,
+              }}
+            >
               <RowBtn
-                icon={loading ? <CircularProgress size={12} sx={{ color: T.accent }} /> : <Search sx={{ fontSize: 13 }} />}
+                icon={<Clear sx={{ fontSize: 13 }} />}
+                label="Clear All Filters"
+                color="#C62828"
+                hoverBg="rgba(198,40,40,0.08)"
+                onClick={handleClearFilters}
+              />
+              <RowBtn
+                icon={
+                  loading ? (
+                    <CircularProgress size={12} sx={{ color: T.accent }} />
+                  ) : (
+                    <Search sx={{ fontSize: 13 }} />
+                  )
+                }
                 label={loading ? 'Loading…' : 'Search Records'}
-                color={T.accent} hoverBg={T.accentFaint}
+                color={T.accent}
+                hoverBg={T.accentFaint}
                 disabled={!employeeNumber || !startDate || !endDate || loading}
                 onClick={handleSubmit}
               />
@@ -1971,10 +4754,27 @@ const AttendanceModuleFacultyDesignated = () => {
                 title={`Records for ${employeeNumber}`}
                 rightContent={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>{startDate} → {endDate}</Typography>
-                    <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
-                      <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>
-                        {attendanceData.length} {attendanceData.length === 1 ? 'record' : 'records'}
+                    <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                      {startDate} → {endDate}
+                    </Typography>
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 0.3,
+                        borderRadius: 5,
+                        bgcolor: alpha(T.accent, 0.1),
+                        border: `1px solid ${alpha(T.accent, 0.18)}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: '0.72rem',
+                          color: T.accent,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {attendanceData.length}{' '}
+                        {attendanceData.length === 1 ? 'record' : 'records'}
                       </Typography>
                     </Box>
                   </Box>
@@ -1983,13 +4783,51 @@ const AttendanceModuleFacultyDesignated = () => {
 
               {/* Tab switcher */}
               <Box sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
-                <Box sx={{ display: 'flex', border: `1px solid ${T.accentBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    border: `1px solid ${T.accentBorder}`,
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                  }}
+                >
                   {VIEW_TABS.map(({ key, label, icon }, i, arr) => (
-                    <button key={key} onClick={() => setActiveTab(key)}
-                      style={{ flex: 1, border: 'none', borderRight: i < arr.length - 1 ? `1px solid ${T.accentBorder}` : 'none', borderRadius: 0, padding: '8px 12px', cursor: 'pointer', background: activeTab === key ? T.accent : 'transparent', color: activeTab === key ? '#fff' : T.accent, fontSize: '0.78rem', fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.15s ease' }}
-                      onMouseEnter={e => { if (activeTab !== key) e.currentTarget.style.backgroundColor = T.accentFaint; }}
-                      onMouseLeave={e => { if (activeTab !== key) e.currentTarget.style.backgroundColor = 'transparent'; }}>
-                      {icon}{label}
+                    <button
+                      key={key}
+                      onClick={() => setActiveTab(key)}
+                      style={{
+                        flex: 1,
+                        border: 'none',
+                        borderRight:
+                          i < arr.length - 1
+                            ? `1px solid ${T.accentBorder}`
+                            : 'none',
+                        borderRadius: 0,
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        background:
+                          activeTab === key ? T.accent : 'transparent',
+                        color: activeTab === key ? '#fff' : T.accent,
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        fontFamily: 'inherit',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '5px',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (activeTab !== key)
+                          e.currentTarget.style.backgroundColor = T.accentFaint;
+                      }}
+                      onMouseLeave={(e) => {
+                        if (activeTab !== key)
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      {icon}
+                      {label}
                     </button>
                   ))}
                 </Box>
@@ -1997,187 +4835,624 @@ const AttendanceModuleFacultyDesignated = () => {
 
               {/* Table */}
               <Box sx={{ px: 2.5, pb: 2.5 }}>
-                <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
+                <Box
+                  sx={{
+                    position: 'relative',
+                    borderRadius: '8px',
+                    border: `1px solid ${T.accentBorder}`,
+                    overflow: 'hidden',
+                  }}
+                >
                   <Box
-                    sx={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 500, scrollbarWidth: 'thin', '&::-webkit-scrollbar': { height: 6, width: 6 }, '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 }, '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 } }}>
-                    <Table sx={{ minWidth: columnSlots.reduce((s, { col, isCollapsedPlaceholder: cp }) => s + (cp ? 36 : (col.minWidth || 100)), 0), borderCollapse: 'collapse' }}>
+                    sx={{
+                      overflowX: 'auto',
+                      overflowY: 'auto',
+                      maxHeight: 500,
+                      scrollbarWidth: 'thin',
+                      '&::-webkit-scrollbar': { height: 6, width: 6 },
+                      '&::-webkit-scrollbar-track': {
+                        background: T.accentFaint,
+                        borderRadius: 4,
+                      },
+                      '&::-webkit-scrollbar-thumb': {
+                        background: T.accentMid,
+                        borderRadius: 4,
+                      },
+                    }}
+                  >
+                    <Table
+                      sx={{
+                        minWidth: columnSlots.reduce(
+                          (s, { col, isCollapsedPlaceholder: cp }) =>
+                            s + (cp ? 36 : col.minWidth || 100),
+                          0,
+                        ),
+                        borderCollapse: 'collapse',
+                      }}
+                    >
                       {buildTableHead()}
                       <TableBody>
                         {attendanceData.map((row, index) => {
                           const statusLabel = getStatusLabelForDate(row.date);
-                          const isFurlough  = Boolean(statusLabel);
-                          const isEven      = index % 2 === 0;
+                          const isFurlough = Boolean(statusLabel);
+                          const isEven = index % 2 === 0;
                           const rowIsAbsent = isAbsentAttendanceRow(row);
-                          const isHalfDay   = !rowIsAbsent && isHalfDayByOfficialRules(row);
+                          const halfUi = !rowIsAbsent ? getHalfDayUiStatus(row) : null;
+                          const halfDayChrome = halfUi
+                            ? getHalfDayReviewRowChrome(halfUi, T)
+                            : null;
                           const rowBg = rowIsAbsent
                             ? alpha('#b71c1c', 0.08)
-                            : isHalfDay
-                              ? alpha('#ff9800', 0.10)
-                              : undefined;
+                            : halfDayChrome?.rowBg;
                           const rowBorder = rowIsAbsent
                             ? `3px solid ${alpha('#b71c1c', 0.55)}`
-                            : isHalfDay
-                              ? `3px solid ${alpha('#ff9800', 0.55)}`
-                              : `3px solid transparent`;
+                            : halfDayChrome?.rowBorder ?? '3px solid transparent';
 
                           return (
                             <TableRow
                               key={row.date || index}
                               sx={{
-                                '&:hover td': { bgcolor: `${T.rowHover} !important` },
-                                ...(rowBg ? { '& td': { bgcolor: `${rowBg} !important` } } : {}),
+                                '&:hover td': {
+                                  bgcolor: `${T.rowHover} !important`,
+                                },
+                                ...(rowBg
+                                  ? {
+                                      '& td': {
+                                        bgcolor: `${rowBg} !important`,
+                                      },
+                                    }
+                                  : {}),
                               }}
                             >
-                              {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }) => {
-                                if (isCp) return <React.Fragment key={col.key + '_cp'}>{buildCollapsedCell(isEven)}</React.Fragment>;
+                              <HalfDayApproveBodyCell
+                                row={row}
+                                halfUi={halfUi}
+                                isEven={isEven}
+                                themeT={T}
+                                rowBorder={rowBorder}
+                                onApproveClick={(r) => openHalfDayDialog(r, 'approve')}
+                                onRejectClick={(r) => openHalfDayDialog(r, 'reject')}
+                              />
+                              {columnSlots.map(
+                                ({ col, isCollapsedPlaceholder: isCp }) => {
+                                  if (isCp)
+                                    return (
+                                      <React.Fragment key={col.key + '_cp'}>
+                                        {buildCollapsedCell(isEven)}
+                                      </React.Fragment>
+                                    );
 
-                                if (col.key === 'date') return (
-                                  <TableCell key={col.key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, borderRight: `1px solid ${T.divider}`, borderLeft: rowBorder, px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'left', transition: 'background-color 0.12s' }}>
-                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.25 }}>
-                                      <span>{row.date}</span>
-                                      {statusLabel && <StatusChip label={statusLabel} />}
-                                      {!statusLabel && (rowIsAbsent || isHalfDay) && (
-                                        <Chip
-                                          size="small"
-                                          label={rowIsAbsent ? 'Absent' : 'Half day'}
+                                  if (col.key === 'date')
+                                    return (
+                                      <TableCell
+                                        key={col.key}
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          fontWeight: 600,
+                                          color: T.text,
+                                          bgcolor: isEven ? '#fff' : T.rowOdd,
+                                          borderBottom: `1px solid ${T.divider}`,
+                                          borderRight: `1px solid ${T.divider}`,
+                                          px: 1.5,
+                                          py: 0.9,
+                                          whiteSpace: 'nowrap',
+                                          textAlign: 'left',
+                                          transition: 'background-color 0.12s',
+                                        }}
+                                      >
+                                        <Box
                                           sx={{
-                                            fontWeight: 800,
-                                            fontSize: '0.6rem',
-                                            height: 16,
-                                            mt: 0.3,
-                                            bgcolor: rowIsAbsent ? alpha('#b71c1c', 0.12) : T.halfDay.bg,
-                                            color: rowIsAbsent ? '#b71c1c' : T.halfDay.color,
-                                            border: `1px solid ${rowIsAbsent ? alpha('#b71c1c', 0.35) : T.halfDay.border}`,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'flex-start',
+                                            gap: 0.25,
                                           }}
-                                        />
-                                      )}
-                                    </Box>
-                                  </TableCell>
-                                );
+                                        >
+                                          <span>{row.date}</span>
+                                          {statusLabel && (
+                                            <StatusChip label={statusLabel} />
+                                          )}
+                                          {!statusLabel && rowIsAbsent && (
+                                            <Chip size="small" label="Absent" sx={{ fontWeight: 800, fontSize: '0.6rem', height: 16, mt: 0.3, bgcolor: alpha('#b71c1c', 0.12), color: '#b71c1c', border: `1px solid ${alpha('#b71c1c', 0.35)}` }} />
+                                          )}
+                                          {!statusLabel && !rowIsAbsent && halfUi === 'suggested' && (
+                                            <Chip size="small" label="Half day — for review" sx={{ fontWeight: 800, fontSize: '0.58rem', height: 16, mt: 0.3, bgcolor: T.halfDay.bg, color: T.halfDay.color, border: `1px solid ${T.halfDay.border}` }} />
+                                          )}
+                                          {!statusLabel && !rowIsAbsent && halfUi === 'approved' && (
+                                            <Chip size="small" label="Half day — confirmed" sx={{ fontWeight: 800, fontSize: '0.58rem', height: 16, mt: 0.3, bgcolor: T.halfDay.bg, color: T.halfDay.color, border: `1px solid ${T.halfDay.border}` }} />
+                                          )}
+                                          {!statusLabel && !rowIsAbsent && halfUi === 'rejected' && (
+                                            <Chip size="small" label="Not half day" sx={{ fontWeight: 800, fontSize: '0.58rem', height: 16, mt: 0.3, bgcolor: alpha(T.accent, 0.1), color: T.accent, border: `1px solid ${T.accentBorder}` }} />
+                                          )}
+                                        </Box>
+                                      </TableCell>
+                                    );
 
-                                if (col.key === 'day') return (
-                                  <TableCell key={col.key} sx={{ fontSize: '0.8rem', color: T.muted, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, borderRight: `1px solid ${T.divider}`, px: 1.5, py: 0.9, textAlign: 'center', transition: 'background-color 0.12s' }}>
-                                    {row.day}
-                                  </TableCell>
-                                );
+                                  if (col.key === 'day')
+                                    return (
+                                      <TableCell
+                                        key={col.key}
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          color: T.muted,
+                                          bgcolor: isEven ? '#fff' : T.rowOdd,
+                                          borderBottom: `1px solid ${T.divider}`,
+                                          borderRight: `1px solid ${T.divider}`,
+                                          px: 1.5,
+                                          py: 0.9,
+                                          textAlign: 'center',
+                                          transition: 'background-color 0.12s',
+                                        }}
+                                      >
+                                        {row.day}
+                                      </TableCell>
+                                    );
 
-                                if (activeTab === 'regular' && (col.key === '_morningTardiness' || col.key === '_afternoonTardiness')) {
-                                  const part = col.key === '_morningTardiness' ? 'morning' : 'afternoon';
+                                  if (
+                                    activeTab === 'regular' &&
+                                    (col.key === '_morningRendered' ||
+                                      col.key === '_afternoonRendered')
+                                  ) {
+                                    const part =
+                                      col.key === '_morningRendered'
+                                        ? 'morning'
+                                        : 'afternoon';
+                                    return (
+                                      <EditableRenderedCell
+                                        key={col.key}
+                                        row={row}
+                                        part={part}
+                                        isFurlough={isFurlough}
+                                        isEven={isEven}
+                                        storedOverride={
+                                          renderedOverrides[row.date]?.[part]
+                                        }
+                                        onCommit={(v) =>
+                                          commitRenderedOverride(
+                                            row.date,
+                                            part,
+                                            v,
+                                          )
+                                        }
+                                        onInvalid={(msg) =>
+                                          showSnackbar(msg, 'error')
+                                        }
+                                      />
+                                    );
+                                  }
+
+                                  if (
+                                    activeTab === 'regular' &&
+                                    (col.key === '_morningTardiness' ||
+                                      col.key === '_afternoonTardiness')
+                                  ) {
+                                    const part =
+                                      col.key === '_morningTardiness'
+                                        ? 'morning'
+                                        : 'afternoon';
+                                    return (
+                                      <EditableTardinessCell
+                                        key={col.key}
+                                        row={row}
+                                        part={part}
+                                        isFurlough={isFurlough}
+                                        isEven={isEven}
+                                        storedOverride={
+                                          tardinessOverrides[row.date]?.[part]
+                                        }
+                                        onCommit={(v) =>
+                                          commitTardinessOverride(
+                                            row.date,
+                                            part,
+                                            v,
+                                          )
+                                        }
+                                        onInvalid={(msg) =>
+                                          showSnackbar(msg, 'error')
+                                        }
+                                      />
+                                    );
+                                  }
+
                                   return (
-                                    <EditableTardinessCell
-                                      key={col.key}
-                                      row={row}
-                                      part={part}
-                                      isFurlough={isFurlough}
-                                      isEven={isEven}
-                                      storedOverride={tardinessOverrides[row.date]?.[part]}
-                                      onCommit={(v) => commitTardinessOverride(row.date, part, v)}
-                                      onInvalid={(msg) => showSnackbar(msg, 'error')}
-                                    />
+                                    <React.Fragment key={col.key}>
+                                      {buildCell(
+                                        getDisplayedCellValue(
+                                          row,
+                                          col.key,
+                                          isFurlough,
+                                          activeTab === 'regular'
+                                            ? tardinessOverrides
+                                            : null,
+                                          renderedOverrides,
+                                          halfDayReviewByDate,
+                                        ),
+                                        col.group,
+                                        isEven,
+                                      )}
+                                    </React.Fragment>
                                   );
-                                }
-
-                                return (
-                                  <React.Fragment key={col.key}>
-                                    {buildCell(getCellValue(row, col.key, isFurlough, activeTab === 'regular' ? tardinessOverrides : null), col.group, isEven)}
-                                  </React.Fragment>
-                                );
-                              })}
+                                },
+                              )}
                             </TableRow>
                           );
                         })}
 
                         {/* Totals rows */}
-                        {activeTab === 'regular' && <>
-                          {renderTotalsRow(`Morning total (${startDate} – ${endDate})`, totals.morningRendered, totals.morningTardiness, { renderedColKey: '_morningRendered', tardColKey: '_morningTardiness' })}
-                          {renderTotalsRow(`Afternoon total (${startDate} – ${endDate})`, totals.afternoonRendered, totals.afternoonTardiness, { renderedColKey: '_afternoonRendered', tardColKey: '_afternoonTardiness' })}
-                          {/* Overall row */}
-                          {(() => {
-                            const calcSlots  = columnSlots.filter(s => !s.isCollapsedPlaceholder && (s.col.group === 'calc' || s.col.group === 'tard'));
-                            const nonCalcCnt = columnSlots.length - calcSlots.length;
-                            const visCalcKeys = calcSlots.filter((x) => x.col.group === 'calc').map((x) => x.col.key);
-                            const visTardKeys = calcSlots.filter((x) => x.col.group === 'tard').map((x) => x.col.key);
-                            const overallRenderedKey = visCalcKeys.includes('_afternoonRendered') ? '_afternoonRendered'
-                              : visCalcKeys.includes('_morningRendered') ? '_morningRendered'
-                                : visCalcKeys[visCalcKeys.length - 1] ?? null;
-                            const overallTardKey = visTardKeys.includes('_totalTardiness') ? '_totalTardiness'
-                              : visTardKeys[visTardKeys.length - 1] ?? null;
-                            const showRenderedInLabel = !overallRenderedKey;
-                            const showTardInLabel = !overallTardKey;
-                            return (
-                              <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accent}` }}>
-                                <TableCell colSpan={nonCalcCnt} sx={{ fontSize: '0.72rem', fontWeight: 800, color: T.accent, textAlign: 'right', pr: 2.5, py: 1.5, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
-                                    <span>Overall rendered time ({startDate} – {endDate})</span>
-                                    {(showRenderedInLabel || showTardInLabel) && (
-                                      <Box sx={{ textAlign: 'right' }}>
-                                        {showRenderedInLabel && (
-                                          <Typography sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.88rem', color: T.rendered.color }}>
-                                            {totals.overallRendered || '00:00:00'} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>rendered</Typography>
+                        {activeTab === 'regular' && (
+                          <>
+                            {renderTotalsRow(
+                              `Morning total (${startDate} – ${endDate})`,
+                              totals.morningRendered,
+                              totals.morningTardiness,
+                              {
+                                renderedColKey: '_morningRendered',
+                                tardColKey: '_morningTardiness',
+                              },
+                            )}
+                            {renderTotalsRow(
+                              `Afternoon total (${startDate} – ${endDate})`,
+                              totals.afternoonRendered,
+                              totals.afternoonTardiness,
+                              {
+                                renderedColKey: '_afternoonRendered',
+                                tardColKey: '_afternoonTardiness',
+                              },
+                            )}
+                            {/* Overall row */}
+                            {(() => {
+                              const calcSlots = columnSlots.filter(
+                                (s) =>
+                                  !s.isCollapsedPlaceholder &&
+                                  (s.col.group === 'calc' ||
+                                    s.col.group === 'tard'),
+                              );
+                              const nonCalcCnt =
+                                1 + columnSlots.length - calcSlots.length;
+                              const visCalcKeys = calcSlots
+                                .filter((x) => x.col.group === 'calc')
+                                .map((x) => x.col.key);
+                              const visTardKeys = calcSlots
+                                .filter((x) => x.col.group === 'tard')
+                                .map((x) => x.col.key);
+                              const overallRenderedKey = visCalcKeys.includes(
+                                '_totalRendered',
+                              )
+                                ? '_totalRendered'
+                                : visCalcKeys.includes('_afternoonRendered')
+                                  ? '_afternoonRendered'
+                                  : visCalcKeys.includes('_morningRendered')
+                                    ? '_morningRendered'
+                                    : (visCalcKeys[visCalcKeys.length - 1] ??
+                                      null);
+                              const overallTardKey = visTardKeys.includes(
+                                '_totalTardiness',
+                              )
+                                ? '_totalTardiness'
+                                : (visTardKeys[visTardKeys.length - 1] ?? null);
+                              const showRenderedInLabel = !overallRenderedKey;
+                              const showTardInLabel = !overallTardKey;
+                              return (
+                                <TableRow
+                                  sx={{
+                                    bgcolor: '#fafafa',
+                                    borderTop: `2px solid ${T.accent}`,
+                                  }}
+                                >
+                                  <HalfDayApproveTotalsCell themeT={T} />
+                                  <TableCell
+                                    colSpan={nonCalcCnt - 1}
+                                    sx={{
+                                      fontSize: '0.72rem',
+                                      fontWeight: 800,
+                                      color: T.accent,
+                                      textAlign: 'right',
+                                      pr: 2.5,
+                                      py: 1.5,
+                                      borderBottom: 'none',
+                                      letterSpacing: '0.04em',
+                                      textTransform: 'uppercase',
+                                    }}
+                                  >
+                                    <Box
+                                      sx={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'flex-end',
+                                        gap: 0.5,
+                                      }}
+                                    >
+                                      <span>
+                                        Overall rendered time ({startDate} –{' '}
+                                        {endDate})
+                                      </span>
+                                      {(showRenderedInLabel ||
+                                        showTardInLabel) && (
+                                        <Box sx={{ textAlign: 'right' }}>
+                                          {showRenderedInLabel && (
+                                            <Typography
+                                              sx={{
+                                                fontFamily: T.recordFont,
+                                                fontWeight: 900,
+                                                fontSize: '0.88rem',
+                                                color: T.rendered.color,
+                                              }}
+                                            >
+                                              {(overallRenderedKey === '_totalRendered'
+                                                ? totals.totalRendered
+                                                : totals.overallRendered) ||
+                                                '00:00:00'}{' '}
+                                              <Typography
+                                                component="span"
+                                                sx={{
+                                                  color: T.faint,
+                                                  fontWeight: 600,
+                                                  fontSize: '0.65rem',
+                                                  textTransform: 'none',
+                                                }}
+                                              >
+                                                rendered
+                                              </Typography>
+                                            </Typography>
+                                          )}
+                                          {showTardInLabel && (
+                                            <Typography
+                                              sx={{
+                                                fontFamily: T.recordFont,
+                                                fontWeight: 800,
+                                                fontSize: '0.8rem',
+                                                color: T.tardiness.color,
+                                              }}
+                                            >
+                                              {formatTardinessAsDaysHoursWithHoursPerDay(
+                                                totals.overallTardiness ||
+                                                  '00:00:00',
+                                                officialHoursPerDay,
+                                              )}{' '}
+                                              <Typography
+                                                component="span"
+                                                sx={{
+                                                  color: T.faint,
+                                                  fontWeight: 600,
+                                                  fontSize: '0.65rem',
+                                                  textTransform: 'none',
+                                                }}
+                                              >
+                                                (
+                                                {totals.overallTardiness ||
+                                                  '00:00:00'}
+                                                )
+                                              </Typography>
+                                            </Typography>
+                                          )}
+                                        </Box>
+                                      )}
+                                    </Box>
+                                  </TableCell>
+                                  {calcSlots.map((s) => {
+                                    const isOverallRendered =
+                                      overallRenderedKey &&
+                                      s.col.group === 'calc' &&
+                                      s.col.key === overallRenderedKey;
+                                    const isOverallTardiness =
+                                      overallTardKey &&
+                                      s.col.group === 'tard' &&
+                                      s.col.key === overallTardKey;
+                                    if (isOverallRendered)
+                                      return (
+                                        <TableCell
+                                          key={s.col.key}
+                                          sx={{
+                                            fontFamily: T.recordFont,
+                                            fontWeight: 900,
+                                            fontSize: '0.95rem',
+                                            textAlign: 'center',
+                                            py: 1.5,
+                                            borderBottom: 'none',
+                                            color: T.rendered.color,
+                                            bgcolor: T.rendered.bg,
+                                          }}
+                                        >
+                                          {(overallRenderedKey === '_totalRendered'
+                                            ? totals.totalRendered
+                                            : totals.overallRendered) || '00:00:00'}
+                                        </TableCell>
+                                      );
+                                    if (isOverallTardiness)
+                                      return (
+                                        <TableCell
+                                          key={s.col.key}
+                                          sx={{
+                                            textAlign: 'center',
+                                            py: 1.5,
+                                            borderBottom: 'none',
+                                            color: T.tardiness.color,
+                                            bgcolor: T.tardiness.bg,
+                                          }}
+                                        >
+                                          <Typography
+                                            sx={{
+                                              fontFamily: T.recordFont,
+                                              fontWeight: 900,
+                                              fontSize: '0.95rem',
+                                            }}
+                                          >
+                                            {formatTardinessAsDaysHoursWithHoursPerDay(
+                                              totals.overallTardiness ||
+                                                '00:00:00',
+                                              officialHoursPerDay,
+                                            )}
                                           </Typography>
-                                        )}
-                                        {showTardInLabel && (
-                                          <Typography sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.8rem', color: T.tardiness.color }}>
-                                            {formatTardinessAsDaysHoursWithHoursPerDay(totals.overallTardiness || '00:00:00', officialHoursPerDay)} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>({totals.overallTardiness || '00:00:00'})</Typography>
+                                          <Typography
+                                            sx={{
+                                              fontFamily: T.recordFont,
+                                              fontWeight: 600,
+                                              fontSize: '0.7rem',
+                                              opacity: 0.55,
+                                            }}
+                                          >
+                                            {totals.overallTardiness ||
+                                              '00:00:00'}
                                           </Typography>
-                                        )}
-                                      </Box>
-                                    )}
-                                  </Box>
-                                </TableCell>
-                                {calcSlots.map((s) => {
-                                  const isOverallRendered = overallRenderedKey && s.col.group === 'calc' && s.col.key === overallRenderedKey;
-                                  const isOverallTardiness = overallTardKey && s.col.group === 'tard' && s.col.key === overallTardKey;
-                                  if (isOverallRendered) return (
-                                    <TableCell key={s.col.key} sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem', textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
-                                      {totals.overallRendered || '00:00:00'}
-                                    </TableCell>
-                                  );
-                                  if (isOverallTardiness) return (
-                                    <TableCell key={s.col.key} sx={{ textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
-                                      <Typography sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem' }}>{formatTardinessAsDaysHoursWithHoursPerDay(totals.overallTardiness || '00:00:00', officialHoursPerDay)}</Typography>
-                                      <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.7rem', opacity: 0.55 }}>{totals.overallTardiness || '00:00:00'}</Typography>
-                                    </TableCell>
-                                  );
-                                  return <TableCell key={s.col.key} sx={{ borderBottom: 'none', bgcolor: '#fafafa', textAlign: 'center', color: T.faint }}>—</TableCell>;
-                                })}
-                              </TableRow>
+                                        </TableCell>
+                                      );
+                                    return (
+                                      <TableCell
+                                        key={s.col.key}
+                                        sx={{
+                                          borderBottom: 'none',
+                                          bgcolor: '#fafafa',
+                                          textAlign: 'center',
+                                          color: T.faint,
+                                        }}
+                                      >
+                                        —
+                                      </TableCell>
+                                    );
+                                  })}
+                                </TableRow>
+                              );
+                            })()}
+                          </>
+                        )}
+
+                        {activeTab !== 'regular' &&
+                          (() => {
+                            const rendMap = {
+                              honorarium: totals.hnRendered,
+                              serviceCredit: totals.scRendered,
+                              overtime: totals.otRendered,
+                            };
+                            const tardMap = {
+                              honorarium: totals.hnTardiness,
+                              serviceCredit: totals.scTardiness,
+                              overtime: totals.otTardiness,
+                            };
+                            const keyMap = {
+                              honorarium: {
+                                renderedColKey: '_hnRendered',
+                                tardColKey: '_hnTardiness',
+                              },
+                              serviceCredit: {
+                                renderedColKey: '_scRendered',
+                                tardColKey: '_scTardiness',
+                              },
+                              overtime: {
+                                renderedColKey: '_otRendered',
+                                tardColKey: '_otTardiness',
+                              },
+                            };
+                            return renderTotalsRow(
+                              `Overall rendered time (${startDate} – ${endDate})`,
+                              rendMap[activeTab],
+                              tardMap[activeTab],
+                              keyMap[activeTab],
                             );
                           })()}
-                        </>}
-
-                        {activeTab !== 'regular' && (() => {
-                          const rendMap = { honorarium: totals.hnRendered,  serviceCredit: totals.scRendered,  overtime: totals.otRendered  };
-                          const tardMap = { honorarium: totals.hnTardiness, serviceCredit: totals.scTardiness, overtime: totals.otTardiness };
-                          const keyMap = {
-                            honorarium:    { renderedColKey: '_hnRendered', tardColKey: '_hnTardiness' },
-                            serviceCredit: { renderedColKey: '_scRendered', tardColKey: '_scTardiness' },
-                            overtime:      { renderedColKey: '_otRendered', tardColKey: '_otTardiness' },
-                          };
-                          return renderTotalsRow(`Overall rendered time (${startDate} – ${endDate})`, rendMap[activeTab], tardMap[activeTab], keyMap[activeTab]);
-                        })()}
                       </TableBody>
                     </Table>
                   </Box>
                 </Box>
 
                 {/* Legend */}
-                <Box sx={{ pt: 1.5, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Box
+                  sx={{
+                    pt: 1.5,
+                    display: 'flex',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                  }}
+                >
                   {[
-                    { swatch: { bgcolor: T.holiday.bg,  border: `1px solid ${T.holiday.border}` },   label: 'Holiday' },
-                    { swatch: { bgcolor: T.leave.bg,    border: `1px solid ${T.leave.border}` },     label: 'On leave' },
-                    { swatch: { bgcolor: T.suspended.bg,border: `1px solid ${T.suspended.border}` }, label: 'Work suspended' },
-                    { swatch: { bgcolor: alpha('#b71c1c', 0.08), border: `1px solid ${alpha('#b71c1c', 0.55)}` }, label: 'Absent highlight' },
-                    { swatch: { bgcolor: alpha('#ff9800', 0.10), border: `1px solid ${alpha('#ff9800', 0.55)}` }, label: 'Half day highlight' },
-                    { swatch: { bgcolor: T.halfDay.bg,  border: `1px solid ${T.halfDay.border}` },   label: 'Half day' },
-                    { swatch: { bgcolor: T.rendered.bg, border: `1px solid ${T.rendered.border}` },  label: 'Rendered totals' },
-                    { swatch: { bgcolor: T.tardiness.bg,border: `1px solid ${T.tardiness.border}` }, label: 'Tardiness totals' },
-                    { swatch: { bgcolor: 'rgba(109,35,35,0.08)', border: `1px solid ${T.accentBorder}` }, label: 'Regular Time: AM/PM tardiness is system-calculated and editable (↻ restores system)' },
-                    { swatch: { bgcolor: '#b07070', border: `1px solid ${T.accentBorder}` }, label: 'Group headers: click hide to collapse a column group, or the narrow strip to expand' },
+                    {
+                      swatch: {
+                        bgcolor: T.holiday.bg,
+                        border: `1px solid ${T.holiday.border}`,
+                      },
+                      label: 'Holiday',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: T.leave.bg,
+                        border: `1px solid ${T.leave.border}`,
+                      },
+                      label: 'On leave',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: T.suspended.bg,
+                        border: `1px solid ${T.suspended.border}`,
+                      },
+                      label: 'Work suspended',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: alpha('#b71c1c', 0.08),
+                        border: `1px solid ${alpha('#b71c1c', 0.55)}`,
+                      },
+                      label: 'Absent highlight',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: T.halfDay.bg,
+                        border: `1px solid ${T.halfDay.border}`,
+                      },
+                      label: 'Half day highlight',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: T.halfDay.bg,
+                        border: `1px solid ${T.halfDay.border}`,
+                      },
+                      label: 'Half day',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: T.rendered.bg,
+                        border: `1px solid ${T.rendered.border}`,
+                      },
+                      label: 'Rendered totals',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: T.tardiness.bg,
+                        border: `1px solid ${T.tardiness.border}`,
+                      },
+                      label: 'Tardiness totals',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: 'rgba(109,35,35,0.08)',
+                        border: `1px solid ${T.accentBorder}`,
+                      },
+                      label:
+                        'Regular Time: AM/PM tardiness is system-calculated and editable (↻ restores system)',
+                    },
+                    {
+                      swatch: {
+                        bgcolor: '#b07070',
+                        border: `1px solid ${T.accentBorder}`,
+                      },
+                      label:
+                        'Group headers: click hide to collapse a column group, or the narrow strip to expand',
+                    },
                   ].map((item, i) => (
-                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
-                      <Box sx={{ width: 10, height: 10, borderRadius: '2px', ...item.swatch }} />
-                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
+                    <Box
+                      key={i}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}
+                    >
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '2px',
+                          ...item.swatch,
+                        }}
+                      />
+                      <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                        {item.label}
+                      </Typography>
                     </Box>
                   ))}
                 </Box>
@@ -2196,7 +5471,26 @@ const AttendanceModuleFacultyDesignated = () => {
           officialHoursPerDay={officialHoursPerDay}
         />
 
-        <StyledModal open={modal.open} onClose={closeModal} title={modal.title} message={modal.message} type={modal.type} onConfirm={modal.onConfirm} showCancel={modal.showCancel} confirmLabel={modal.confirmLabel} />
+        <StyledModal
+          open={modal.open}
+          onClose={closeModal}
+          title={modal.title}
+          message={modal.message}
+          type={modal.type}
+          onConfirm={modal.onConfirm}
+          showCancel={modal.showCancel}
+          confirmLabel={modal.confirmLabel}
+        />
+
+        <HalfDayReviewDialog
+          open={Boolean(halfDayReviewDialog)}
+          mode={halfDayReviewDialog?.mode}
+          row={halfDayReviewDialog?.row}
+          moduleType={MODULE_TYPES.DESIGNATED_40HRS}
+          themeT={T}
+          onClose={() => setHalfDayReviewDialog(null)}
+          onConfirm={commitHalfDayReview}
+        />
 
         <OverallAttendanceCompareModal
           open={compareOpen}
@@ -2209,9 +5503,20 @@ const AttendanceModuleFacultyDesignated = () => {
         />
 
         <Zoom in={showScrollTop}>
-          <Fab size="small"
-            sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }}
-            onClick={scrollToTop}>
+          <Fab
+            size="small"
+            sx={{
+              position: 'fixed',
+              bottom: 24,
+              right: 45,
+              zIndex: 1000,
+              bgcolor: T.accent,
+              color: '#fff',
+              '&:hover': { bgcolor: T.accentDark },
+              boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
+            }}
+            onClick={scrollToTop}
+          >
             <KeyboardArrowUp />
           </Fab>
         </Zoom>

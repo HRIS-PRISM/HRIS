@@ -4,6 +4,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import API_BASE_URL from "../../apiConfig";
+import {
+  logOfficialTimeAdd,
+  logOfficialTimeEdit,
+  logOfficialTimeSearch,
+} from "../../utils/moduleEmployeeSearchAudit";
 import React, {
   useState,
   useEffect,
@@ -1296,6 +1301,21 @@ const getAuthHeaders = () => ({
   },
 });
 
+const countUniqueSchedules = (rows) => {
+  const keys = new Set();
+  for (const r of rows || []) {
+    const s = normalizeDateStr(r?.startDate);
+    const e = normalizeDateStr(r?.endDate);
+    if (s && e) keys.add(`${s}|${e}`);
+  }
+  return keys.size;
+};
+
+const officialTimeGetConfig = (skipAudit = false) => ({
+  ...getAuthHeaders(),
+  ...(skipAudit ? { params: { skipAudit: "1" } } : {}),
+});
+
 const formatDateOnly = (val) => {
   if (!val) return "—";
   const s = String(val).split("T")[0];
@@ -2043,12 +2063,16 @@ const OfficialTimeForm = () => {
       setLoading(true);
       setHasSearched(true);
       try {
-        const res = await axios.get(`${API_BASE_URL}/officialtimetable/${id}`, getAuthHeaders());
+        const res = await axios.get(
+          `${API_BASE_URL}/officialtimetable/${id}`,
+          officialTimeGetConfig(true),
+        );
         const data = res.data.length > 0 ? res.data : buildDefaultRecords(id);
         stampServerRecords(data);
         setRecords(deepClone(data));
-        setFound(res.data.length > 0);
-        if (res.data.length > 0) {
+        const hadExisting = res.data.length > 0;
+        setFound(hadExisting);
+        if (hadExisting) {
           const byKey = new Map();
           for (const r of res.data) {
             const key = `${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
@@ -2061,6 +2085,12 @@ const OfficialTimeForm = () => {
           );
           if (sorted.length > 0) setActiveScheduleKey(sorted[0].key);
         }
+        logOfficialTimeSearch({
+          targetEmployeeNumber: id,
+          targetName: emp?.name || String(emp.employeeNumber || id),
+          scheduleCount: countUniqueSchedules(res.data),
+          hadExisting,
+        });
       } catch (err) {
         console.error("Error fetching records:", err);
         showToast("Error fetching records.");
@@ -2087,7 +2117,10 @@ const OfficialTimeForm = () => {
     if (!employeeID) return;
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, getAuthHeaders());
+      const res = await axios.get(
+        `${API_BASE_URL}/officialtimetable/${employeeID}`,
+        officialTimeGetConfig(true),
+      );
       const fresh = res.data.length > 0 ? res.data : buildDefaultRecords(employeeID);
       stampServerRecords(fresh);
       setRecords(deepClone(fresh));
@@ -2200,7 +2233,17 @@ const OfficialTimeForm = () => {
       setLastSaved(new Date());
       showToast("Official time saved successfully.");
       setShowScheduleModal(false);
-      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, getAuthHeaders());
+      logOfficialTimeAdd({
+        targetEmployeeNumber: employeeID,
+        targetName: selectedEmployee?.name || employeeID,
+        periodStart: draftStartDate,
+        periodEnd: draftEndDate,
+        academicYear: academicYearForBackend,
+      });
+      const res = await axios.get(
+        `${API_BASE_URL}/officialtimetable/${employeeID}`,
+        officialTimeGetConfig(true),
+      );
       const allRows = res.data || [];
       stampServerRecords(allRows);
       setRecords(deepClone(allRows));
@@ -2222,7 +2265,7 @@ const OfficialTimeForm = () => {
     }
   }, [
     employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate,
-    draftStatus, modalRecords, showToast, stampServerRecords,
+    draftStatus, modalRecords, showToast, stampServerRecords, selectedEmployee,
   ]);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2275,10 +2318,19 @@ const OfficialTimeForm = () => {
         getAuthHeaders(),
       );
       showToast("Schedule updated successfully.");
+      logOfficialTimeEdit({
+        targetEmployeeNumber: employeeID,
+        targetName: selectedEmployee?.name || employeeID,
+        periodStart: normalizeDateStr(viewScheduleInfo.startDate),
+        periodEnd: newEndDate || normalizeDateStr(viewScheduleInfo.endDate),
+      });
       setIsEditingViewSchedule(false);
       setEditViewRecords([]);
       setEditViewEndDate("");
-      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, getAuthHeaders());
+      const res = await axios.get(
+        `${API_BASE_URL}/officialtimetable/${employeeID}`,
+        officialTimeGetConfig(true),
+      );
       const allRows = res.data || [];
       stampServerRecords(allRows);
       setRecords(deepClone(allRows));
@@ -2304,7 +2356,7 @@ const OfficialTimeForm = () => {
     } finally {
       setEditViewSaving(false);
     }
-  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords]);
+  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords, selectedEmployee]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // UPLOAD
@@ -2361,7 +2413,7 @@ const OfficialTimeForm = () => {
         const uploadedEmpId = String(response.data.records[0]?.employeeID || "").trim();
         if (uploadedEmpId && uploadedEmpId === employeeID) {
           const refreshed = await axios
-            .get(`${API_BASE_URL}/officialtimetable/${uploadedEmpId}`, getAuthHeaders())
+            .get(`${API_BASE_URL}/officialtimetable/${uploadedEmpId}`, officialTimeGetConfig(true))
             .catch(() => null);
           if (refreshed?.data?.length > 0) {
             stampServerRecords(refreshed.data);

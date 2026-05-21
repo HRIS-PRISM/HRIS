@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { notifyAttendanceChanged } = require('../socket/socketService');
+const { logAudit } = require('../middleware/auth');
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -19,33 +20,49 @@ function authenticateToken(req, res, next) {
   });
 }
 
-function logAudit(
-  user,
-  action,
-  tableName,
-  recordId,
-  targetEmployeeNumber = null,
-) {
-  const auditQuery = `
-    INSERT INTO audit_log (employeeNumber, action, table_name, record_id, targetEmployeeNumber, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-  `;
+/** One audit per explicit module button (search, DTR, device fetch, etc.). */
+function logAttendanceModuleButton(req, opts = {}) {
+  const {
+    module = 'Attendance Device',
+    button,
+    targetEmployeeNumber = null,
+    targetName = null,
+    periodStart = null,
+    periodEnd = null,
+    monthLabel = null,
+    searchQuery = null,
+    extra = null,
+  } = opts;
+  if (!button) return;
 
-  const employeeNumber =
-    user && typeof user === 'object' && user.employeeNumber
-      ? user.employeeNumber
-      : user || null;
+  const recordId =
+    periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : null;
 
-  db.query(
-    auditQuery,
-    [employeeNumber, action, tableName, recordId, targetEmployeeNumber],
-    (err) => {
-      if (err) {
-        console.error('Error inserting audit log:', err);
-      }
-    },
+  const details = {
+    button,
+    actor_employeeNumber: req.user?.employeeNumber ?? null,
+    target_employeeNumber: targetEmployeeNumber,
+    target_name: targetName,
+    period_start: periodStart,
+    period_end: periodEnd,
+    month_label: monthLabel,
+    search_query: searchQuery || null,
+    when: new Date().toISOString(),
+    ...(extra && typeof extra === 'object' ? extra : {}),
+  };
+
+  logAudit(
+    req.user,
+    button,
+    module,
+    recordId,
+    targetEmployeeNumber,
+    details,
   );
 }
+
+const logAttendanceDeviceButton = (req, opts) =>
+  logAttendanceModuleButton(req, { ...opts, module: opts.module || 'Attendance Device' });
 
 // ─── Helper: derive human-readable adjustment type from DB field name ─────────
 const fieldToAdjustmentType = (field = '') => {
@@ -190,6 +207,75 @@ const determineSpecialType = (attendanceTime, officialTimeData) => {
   return { type: 'UNCATEGORIZED', isSpecial: true };
 };
 
+// POST: one audit row per module search button (tardiness / month calculation)
+router.post('/api/module-search-audit', authenticateToken, (req, res) => {
+  const {
+    module,
+    auditButton,
+    targetEmployeeNumber,
+    targetEmployeeName,
+    periodStart,
+    periodEnd,
+    monthLabel,
+    searchQuery,
+    daysCalculated,
+    totalLate,
+    halfDayDate,
+    halfDayStatus,
+    computationModuleType,
+    renderedTotal,
+    tardinessTotal,
+    halfDayNote,
+    targetUsername,
+    auditEvent,
+    recordsCount,
+    rowsChanged,
+    changesSummary,
+    saveRemarks,
+    viewType,
+  } = req.body || {};
+
+  if (!module || !auditButton || !targetEmployeeNumber) {
+    return res.status(400).json({
+      error: 'module, auditButton, and targetEmployeeNumber are required',
+    });
+  }
+
+  try {
+    logAttendanceModuleButton(req, {
+      module,
+      button: auditButton,
+      targetEmployeeNumber: String(targetEmployeeNumber),
+      targetName: targetUsername || targetEmployeeName || null,
+      periodStart: periodStart || null,
+      periodEnd: periodEnd || null,
+      monthLabel: monthLabel || null,
+      searchQuery: searchQuery || null,
+      extra: {
+        days_calculated: daysCalculated ?? null,
+        total_late: totalLate ?? null,
+        half_day_date: halfDayDate || null,
+        half_day_status: halfDayStatus || null,
+        computation_module_type: computationModuleType || null,
+        rendered_total: renderedTotal || null,
+        tardiness_total: tardinessTotal || null,
+        half_day_note: halfDayNote || null,
+        target_username: targetUsername || targetEmployeeName || null,
+        audit_event: auditEvent || null,
+        records_count: recordsCount ?? null,
+        rows_changed: rowsChanged ?? null,
+        changes_summary: changesSummary || null,
+        save_remarks: saveRemarks || null,
+        view_type: viewType || null,
+      },
+    });
+  } catch (e) {
+    console.error('module-search-audit error:', e);
+  }
+
+  res.json({ ok: true });
+});
+
 // Endpoint to fetch attendance records
 router.get('/api/attendance', authenticateToken, (req, res) => {
   const { personId, startDate, endDate } = req.query;
@@ -261,13 +347,6 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
     db.query(leaveGapSql, [personId, startDate, endDate], (err2, leaveRows) => {
       if (err2) {
         console.error('Error fetching leave-only attendance rows:', err2);
-        logAudit(
-          req.user,
-          `Viewed Attendance Records`,
-          'Attendance Module (Non-Teaching/30hrs/40hrs)',
-          `${startDate} to ${endDate}`,
-          personId,
-        );
         return res.json(results || []);
       }
 
@@ -420,13 +499,6 @@ router.get('/api/attendance', authenticateToken, (req, res) => {
           normDate(a.date).localeCompare(normDate(b.date)),
         );
 
-        logAudit(
-          req.user,
-          `Viewed Attendance Records`,
-          'Attendance Module (Non-Teaching/30hrs/40hrs)',
-          `${startDate} to ${endDate}`,
-          personId,
-        );
         res.json(merged);
       });
     });
@@ -513,14 +585,6 @@ router.post('/api/attendance', authenticateToken, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    logAudit(
-      req.user,
-      `Searched Attendance Record State`,
-      'Attendance State',
-      `${startDate} to ${endDate}`,
-      personID,
-    );
-
     const records = results.map((record) => {
       const date = new Date(record.AttendanceDateTime);
       const options = {
@@ -571,13 +635,16 @@ router.post('/api/send-to-dtr', authenticateToken, async (req, res) => {
       });
     }
 
-    logAudit(
-      req.user,
-      'send-to-dtr',
-      'Device Attendance Records',
-      `${startDate} && ${endDate}`,
-      personID,
-    );
+    if (req.body.auditButton) {
+      logAttendanceDeviceButton(req, {
+        button: req.body.auditButton,
+        targetEmployeeNumber: personID,
+        targetName: req.body.targetEmployeeName || null,
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: req.body.monthLabel || null,
+      });
+    }
 
     res.json({
       success: true,
@@ -623,19 +690,22 @@ router.post('/api/bulk-send-to-dtr', authenticateToken, async (req, res) => {
         success: recordCount > 0,
       });
 
-      if (recordCount > 0) {
-        logAudit(
-          req.user,
-          'bulk-send-to-dtr',
-          'Device Attendance Records',
-          `${startDate} && ${endDate}`,
-          personID,
-        );
-      }
     }
 
     const successCount = results.filter((r) => r.success).length;
     const totalRecords = results.reduce((sum, r) => sum + r.recordCount, 0);
+
+    if (req.body.auditButton) {
+      logAttendanceDeviceButton(req, {
+        button: req.body.auditButton,
+        targetEmployeeNumber: null,
+        targetName: `${successCount} of ${userIDs.length} selected`,
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: req.body.monthLabel || null,
+        extra: { selected_user_ids: userIDs, success_count: successCount },
+      });
+    }
 
     res.json({
       success: true,
@@ -765,14 +835,10 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
   `;
 
   db.query(query, [personID, startDate, endDate, personID, startDate, endDate], (err, results) => {
-    if (err) return res.status(500).send(err);
-    logAudit(
-      req.user,
-      `Viewed DTR Records`,
-      'Daily Time Record Overall',
-      `${startDate} to ${endDate}`,
-      personID,
-    );
+    if (err) {
+      console.error('view-attendance error:', err.message || err);
+      return res.status(500).json({ error: err.message || 'Failed to fetch attendance records' });
+    }
     res.send(results);
   });
 });
@@ -1169,6 +1235,242 @@ router.get('/api/dtr', authenticateToken, (req, res) => {
   });
 });
 
+// ─── Daily late/undertime on overall_attendance_record (DTR source of truth) ───
+const normalizeYmd = (value) => {
+  if (value == null || value === '') return '';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return s.split('T')[0] || '';
+};
+
+const parseDailyLateUndertimeJson = (raw) => {
+  if (raw == null || raw === '') return {};
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(arr)) return {};
+    const byDate = {};
+    arr.forEach((r) => {
+      const d = normalizeYmd(r.date);
+      if (!d) return;
+      byDate[d] = {
+        lateTotal: r.lateTotal || '00:00:00',
+        undertimeTotal: r.undertimeTotal || '00:00:00',
+      };
+    });
+    return byDate;
+  } catch {
+    return {};
+  }
+};
+
+const serializeDailyLateRows = (rows) => {
+  const list = Array.isArray(rows) ? rows : [];
+  return JSON.stringify(
+    list.map((r) => ({
+      date: normalizeYmd(r.date),
+      lateTotal: String(r.lateTotal || '00:00:00').trim(),
+      undertimeTotal: String(r.undertimeTotal || '00:00:00').trim(),
+    })).filter((r) => r.date),
+  );
+};
+
+const serializeHalfDayReview = (raw) => {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (!t) return null;
+    try {
+      JSON.parse(t);
+      return t;
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(raw)) return null;
+  return JSON.stringify(raw);
+};
+
+const findOverallByExactPeriod = (personID, startDate, endDate) =>
+  new Promise((resolve, reject) => {
+    db.query(
+      `SELECT id FROM overall_attendance_record
+       WHERE personID = ? AND startDate = ? AND endDate = ? LIMIT 1`,
+      [String(personID), normalizeYmd(startDate), normalizeYmd(endDate)],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows?.[0]?.id ?? null);
+      },
+    );
+  });
+
+// Upsert daily late/undertime when attendance module loads (no full save required)
+router.put(
+  '/api/overall_attendance_record/daily-late-undertime',
+  authenticateToken,
+  async (req, res) => {
+    const {
+      personID,
+      startDate,
+      endDate,
+      moduleType,
+      rows,
+      halfDayDates,
+      half_day_review,
+    } = req.body;
+
+    if (!personID || !startDate || !endDate || !Array.isArray(rows)) {
+      return res.status(400).json({
+        error: 'personID, startDate, endDate, and rows array are required',
+      });
+    }
+
+    const pid = String(personID).trim();
+    const sd = normalizeYmd(startDate);
+    const ed = normalizeYmd(endDate);
+    const json = serializeDailyLateRows(rows);
+    const halfDates =
+      halfDayDates != null && String(halfDayDates).trim() !== ''
+        ? String(halfDayDates).trim()
+        : null;
+    const modType = moduleType ? String(moduleType) : null;
+    const reviewJson = serializeHalfDayReview(half_day_review);
+
+    try {
+      const existingId = await findOverallByExactPeriod(pid, sd, ed);
+      if (existingId) {
+        await new Promise((resolve, reject) => {
+          db.query(
+            `UPDATE overall_attendance_record SET
+              daily_late_undertime = ?,
+              computation_module_type = ?,
+              halfDayDates = COALESCE(?, halfDayDates),
+              half_day_review = COALESCE(?, half_day_review)
+             WHERE id = ?`,
+            [json, modType, halfDates, reviewJson, existingId],
+            (err, result) => {
+              if (err) reject(err);
+              else resolve(result);
+            },
+          );
+        });
+        notifyAttendanceChanged('overall-daily-late-updated', {
+          scope: 'overall_attendance_record',
+          personID: pid,
+          startDate: sd,
+          endDate: ed,
+        });
+        return res.json({ ok: true, id: existingId, created: false });
+      }
+
+      const insertResult = await new Promise((resolve, reject) => {
+        db.query(
+          `INSERT INTO overall_attendance_record (
+            personID, startDate, endDate,
+            daily_late_undertime, computation_module_type, halfDayDates, half_day_review
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [pid, sd, ed, json, modType, halfDates, reviewJson],
+          (err, result) => {
+            if (err) reject(err);
+            else resolve(result);
+          },
+        );
+      });
+      notifyAttendanceChanged('overall-daily-late-created', {
+        scope: 'overall_attendance_record',
+        personID: pid,
+        startDate: sd,
+        endDate: ed,
+      });
+      return res.json({
+        ok: true,
+        id: insertResult.insertId,
+        created: true,
+      });
+    } catch (err) {
+      console.error('daily-late-undertime upsert error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+const DAILY_LATE_BATCH_CHUNK = 150;
+
+router.post(
+  '/api/overall_attendance_record/daily-late-undertime/batch',
+  authenticateToken,
+  (req, res) => {
+    const { startDate, endDate, employeeNumbers } = req.body;
+    const sd = normalizeYmd(startDate);
+    const ed = normalizeYmd(endDate);
+    if (!sd || !ed) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const ids = Array.isArray(employeeNumbers)
+      ? [...new Set(employeeNumbers.map((n) => String(n).trim()).filter(Boolean))]
+      : [];
+
+    if (ids.length === 0) {
+      return res.json({ periodStart: sd, periodEnd: ed, byEmployee: {}, halfDayDatesByEmployee: {} });
+    }
+
+    const byEmployee = {};
+    const halfDayDatesByEmployee = {};
+    const metaByEmployee = {};
+    ids.forEach((id) => {
+      byEmployee[id] = {};
+    });
+
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += DAILY_LATE_BATCH_CHUNK) {
+      chunks.push(ids.slice(i, i + DAILY_LATE_BATCH_CHUNK));
+    }
+
+    const runChunk = (chunk) =>
+      new Promise((resolve, reject) => {
+        const placeholders = chunk.map(() => '?').join(',');
+        db.query(
+          `SELECT personID, daily_late_undertime, halfDayDates, half_day_review, computation_module_type
+           FROM overall_attendance_record
+           WHERE startDate = ? AND endDate = ?
+             AND personID IN (${placeholders})`,
+          [sd, ed, ...chunk],
+          (err, rows) => {
+            if (err) return reject(err);
+            (rows || []).forEach((r) => {
+              const emp = String(r.personID).trim();
+              if (!emp) return;
+              Object.assign(byEmployee[emp], parseDailyLateUndertimeJson(r.daily_late_undertime));
+              if (r.halfDayDates) {
+                halfDayDatesByEmployee[emp] = String(r.halfDayDates);
+              }
+              metaByEmployee[emp] = {
+                half_day_review: r.half_day_review,
+                computation_module_type: r.computation_module_type,
+              };
+            });
+            resolve();
+          },
+        );
+      });
+
+    Promise.all(chunks.map(runChunk))
+      .then(() =>
+        res.json({
+          periodStart: sd,
+          periodEnd: ed,
+          byEmployee,
+          halfDayDatesByEmployee,
+          metaByEmployee,
+        }),
+      )
+      .catch((err) => {
+        console.error('daily-late-undertime batch error:', err);
+        res.status(500).json({ error: err.message });
+      });
+  },
+);
+
 // Insert overall attendance record
 router.post('/api/overall_attendance', authenticateToken, (req, res) => {
   const {
@@ -1195,7 +1497,18 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
     lateTotalTime,
     absentDates,
     halfDayDates,
+    daily_late_undertime,
+    computation_module_type,
+    half_day_review,
   } = req.body;
+
+  const dailyJson =
+    daily_late_undertime != null
+      ? typeof daily_late_undertime === 'string'
+        ? daily_late_undertime
+        : serializeDailyLateRows(daily_late_undertime)
+      : null;
+  const reviewJson = serializeHalfDayReview(half_day_review);
 
   const query = `
     INSERT INTO overall_attendance_record (
@@ -1210,8 +1523,9 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       absentDays, halfDays,
       absentTime, halfDayShortfallTime,
       lateTotalTime,
-      absentDates, halfDayDates
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      absentDates, halfDayDates,
+      daily_late_undertime, computation_module_type, half_day_review
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   db.query(
@@ -1232,6 +1546,9 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       lateTotalTime ?? null,
       absentDates ?? null,
       halfDayDates ?? null,
+      dailyJson,
+      computation_module_type ?? null,
+      reviewJson,
     ],
     (error, results) => {
       if (error) {
@@ -1273,22 +1590,15 @@ router.get('/api/overall_attendance_record', authenticateToken, (req, res) => {
       department_assignment.employeeNumber = overall_attendance_record.personID
     WHERE
       overall_attendance_record.personID = ?
-      AND overall_attendance_record.startDate >= ?
-      AND overall_attendance_record.endDate <= ?
+      AND overall_attendance_record.startDate <= ?
+      AND overall_attendance_record.endDate >= ?
   `;
 
-  db.query(query, [personID, startDate, endDate], (error, results) => {
+  db.query(query, [personID, endDate, startDate], (error, results) => {
     if (error) {
       console.error('Error Fetching data:', error);
       return res.status(500).json({ message: 'Database error', error });
     }
-    logAudit(
-      req.user,
-      `Search Overall Attendance Record`,
-      'Attendance Summary',
-      `${startDate} to ${endDate}`,
-      personID,
-    );
     res.status(200).json({
       message: 'Overall attendance record fetched successfully',
       data: results,
@@ -1417,9 +1727,20 @@ router.put(
       lateTotalTime,
       absentDates,
       halfDayDates,
+      daily_late_undertime,
+      computation_module_type,
+      half_day_review,
     } = req.body;
 
     const { id } = req.params;
+
+    const dailyJson =
+      daily_late_undertime != null
+        ? typeof daily_late_undertime === 'string'
+          ? daily_late_undertime
+          : serializeDailyLateRows(daily_late_undertime)
+        : null;
+    const reviewJson = serializeHalfDayReview(half_day_review);
 
     const checkQuery = `SELECT * FROM overall_attendance_record WHERE personID = ? AND startDate = ? AND endDate = ? AND id != ?`;
 
@@ -1453,7 +1774,10 @@ router.put(
       absentDays = ?, halfDays = ?,
       absentTime = ?, halfDayShortfallTime = ?,
       lateTotalTime = ?,
-      absentDates = ?, halfDayDates = ?
+      absentDates = ?, halfDayDates = ?,
+      daily_late_undertime = COALESCE(?, daily_late_undertime),
+      computation_module_type = COALESCE(?, computation_module_type),
+      half_day_review = COALESCE(?, half_day_review)
       WHERE id = ?
     `;
 
@@ -1475,6 +1799,9 @@ router.put(
             lateTotalTime ?? null,
             absentDates ?? null,
             halfDayDates ?? null,
+            dailyJson,
+            computation_module_type ?? null,
+            reviewJson,
             id,
           ],
           (error, results) => {
@@ -1630,7 +1957,6 @@ router.get('/api/all-device-users', authenticateToken, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    logAudit(req.user, 'view', 'Device Users List', null, null);
     res.json(results);
   });
 });
@@ -1667,13 +1993,6 @@ router.post('/api/device-attendance-summary', authenticateToken, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    logAudit(
-      req.user,
-      'view',
-      'Device Attendance Summary',
-      `${startDate} to ${endDate}`,
-      null,
-    );
     res.json(results);
   });
 });
@@ -1710,14 +2029,6 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         console.error('Error fetching attendance:', err);
         return res.status(500).json({ error: err.message });
       }
-
-      logAudit(
-        req.user,
-        `Searched Attendance Device Records`,
-        'Attendance Device',
-        `${startDate} to ${endDate}`,
-        personID,
-      );
 
       const convertToManilaTime = (timestamp) => {
         if (!timestamp) return null;
@@ -1820,7 +2131,6 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                   (err) => {
                     if (err) { console.error('Error auto-saving record:', err); reject(err); }
                     else {
-                      logAudit(req.user, `Auto-Saved New Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
                       savedCount++;
                       resolve();
                     }
@@ -1857,7 +2167,6 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                     (err) => {
                       if (err) { console.error('Error updating record:', err); reject(err); }
                       else {
-                        logAudit(req.user, `Auto-Updated Existing Attendance Record`, 'Attendance Device', record.Date, record.PersonID);
                         updatedCount++;
                         resolve();
                       }
@@ -1878,6 +2187,44 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         }
       } catch (saveError) {
         console.error('Error auto-saving records:', saveError);
+      }
+
+      const syncTargetName =
+        req.body.targetEmployeeName ||
+        results[0]?.PersonName ||
+        records[0]?.PersonName ||
+        null;
+
+      if (req.body.auditButton) {
+        logAttendanceDeviceButton(req, {
+          button: req.body.auditButton,
+          targetEmployeeNumber: personID,
+          targetName: syncTargetName,
+          periodStart: startDate,
+          periodEnd: endDate,
+          monthLabel: req.body.monthLabel || null,
+          searchQuery: req.body.searchQuery || null,
+          extra: {
+            records_loaded: records.length,
+            device_saved: savedCount,
+            device_updated: updatedCount,
+          },
+        });
+      } else if (
+        syncDeviceToRecords &&
+        (savedCount > 0 || updatedCount > 0)
+      ) {
+        logAttendanceDeviceButton(req, {
+          button: 'Auto-synced device records',
+          targetEmployeeNumber: personID,
+          targetName: syncTargetName,
+          periodStart: startDate,
+          periodEnd: endDate,
+          extra: {
+            device_saved: savedCount,
+            device_updated: updatedCount,
+          },
+        });
       }
 
       const normYmd = (d) => {
@@ -2258,7 +2605,6 @@ router.get('/api/suspensions', authenticateToken, (req, res) => {
     });
 
     const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(req.user, 'view', 'SUSPENSIONS', `range ${startDate} to ${endDate}`, requestedBy);
     notifyAttendanceChanged('suspensions-fetched', { scope: 'suspensions', startDate, endDate, requestedBy });
 
     return res.json({ success: true, count: Object.keys(byDate).length, byDate });
@@ -2307,8 +2653,6 @@ router.get('/api/leaves', authenticateToken, (req, res) => {
     });
 
     const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
-    const scopeNote = employeeKey ? ` employee ${employeeKey}` : '';
-    logAudit(req.user, 'view', 'LEAVES', `range ${startDate} to ${endDate}${scopeNote}`, requestedBy);
     notifyAttendanceChanged('leaves-fetched', { scope: 'leaves', startDate, endDate, personId: employeeKey || undefined, requestedBy });
 
     return res.json({ success: true, count: Object.keys(byDate).length, byDate });
@@ -2369,7 +2713,6 @@ router.get('/api/holiday', authenticateToken, (req, res) => {
     });
 
     const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';
-    logAudit(req.user, 'view', 'HOLIDAYS', `range ${startDate} to ${endDate}`, requestedBy);
     notifyAttendanceChanged('holidays-fetched', { scope: 'holiday', startDate, endDate, requestedBy });
 
     return res.json({ success: true, count: Object.keys(byDate).length, byDate });
@@ -2424,14 +2767,6 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
         console.error('view-attendance-full error:', err);
         return res.status(500).json({ error: err.message });
       }
-
-      logAudit(
-        req.user,
-        'Viewed Full-Month Attendance (all days)',
-        'Attendance Modification – Full View',
-        `${startDate} to ${endDate}`,
-        personID,
-      );
 
       const tagged = results.map((row) => ({
         ...row,

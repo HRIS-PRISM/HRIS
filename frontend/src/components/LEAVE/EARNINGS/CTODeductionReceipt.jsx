@@ -683,10 +683,6 @@ const CTODeductionReceipt = ({
     }finally{setSalaryOnlySubmitting(false);}
   };
 
-  if(!attendanceData?.summary)return null;
-  const hasAnything=absentDays>0||tardDays>0||absenceFullyDeducted||tardinessFullyDeducted||(empCatAllowsCto&&ctoBal>0)||scBuffer>0||halfDayRows.length>0;
-  if(!hasAnything&&!balLoading)return null;
-
   // ── Derived display helpers ─────────────────────────────────────────────────
   const showAbsence=absentDays>0;
   const showTardiness=tardDays>0;
@@ -766,6 +762,10 @@ const CTODeductionReceipt = ({
 
   const slipAfterDotColor=(after)=>after<0?T.balBad:Math.abs(after)<1e-9?"#f59e0b":T.balOk;
   const slipAfterTextColor=(after)=>after<0?T.balBad:Math.abs(after)<1e-9?"#92400e":T.balOk;
+
+  if(!attendanceData?.summary)return null;
+  const hasAnything=absentDays>0||tardDays>0||absenceFullyDeducted||tardinessFullyDeducted||(empCatAllowsCto&&ctoBal>0)||scBuffer>0||halfDayRows.length>0;
+  if(!hasAnything&&!balLoading)return null;
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (

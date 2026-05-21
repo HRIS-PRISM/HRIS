@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 
 // GET Dashboard Statistics
 router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
@@ -59,9 +59,6 @@ router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       ]);
     stats.recentAnnouncements = announcements[0].total;
 
-    // Log audit
-    logAudit(req.user, 'View', 'dashboard_stats', null, null);
-
     res.json(stats);
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
@@ -100,7 +97,6 @@ router.get(
         });
       }
 
-      logAudit(req.user, 'View', 'attendance_overview', null, null);
       res.json(data);
     } catch (error) {
       console.error('Error fetching attendance overview:', error);
@@ -126,7 +122,6 @@ router.get(
       ORDER BY employeeCount DESC
     `);
 
-      logAudit(req.user, 'View', 'department_distribution', null, null);
       res.json(results);
     } catch (error) {
       console.error('Error fetching department distribution:', error);
@@ -168,7 +163,6 @@ router.get('/api/dashboard/leave-stats', authenticateToken, async (req, res) => 
         (rejected[0]?.count || 0),
     };
 
-    logAudit(req.user, 'View', 'leave_stats', null, null);
     res.json(stats);
   } catch (error) {
     console.error('Error fetching leave stats:', error);
@@ -200,7 +194,6 @@ router.get(
         [parseInt(limit)]
       );
 
-      logAudit(req.user, 'View', 'recent_activities', null, null);
       res.json(activities);
     } catch (error) {
       console.error('Error fetching recent activities:', error);
@@ -241,7 +234,6 @@ router.get(
         latestPeriod: latestPayroll[0] || null,
       };
 
-      logAudit(req.user, 'View', 'payroll_summary', null, null);
       res.json(summary);
     } catch (error) {
       console.error('Error fetching payroll summary:', error);
@@ -287,7 +279,6 @@ router.get(
         });
       }
 
-      logAudit(req.user, 'View', 'monthly_attendance', null, null);
       res.json(data);
     } catch (error) {
       console.error('Error fetching monthly attendance:', error);
@@ -327,7 +318,6 @@ router.get(
         });
       }
 
-      logAudit(req.user, 'View', 'employee_growth', null, null);
       res.json(data);
     } catch (error) {
       console.error('Error fetching employee growth:', error);
@@ -390,7 +380,6 @@ router.get(
         );
       stats.lastPayroll = lastPayroll[0] || null;
 
-      logAudit(req.user, 'View', 'employee_stats', null, employeeNumber);
       res.json(stats);
     } catch (error) {
       console.error('Error fetching employee stats:', error);

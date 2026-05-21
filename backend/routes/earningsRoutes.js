@@ -393,7 +393,6 @@ const express = require("express");
   // Option A: roll-forward remaining from earlier rows into the target period row,
   // creating a target snapshot row if missing.
   const rollForwardLeaveBalance = async ({
-    req,
     employeeNumber,
     leaveCode,
     periodYear,
@@ -446,23 +445,6 @@ const express = require("express");
 
     let target = findTargetRow(latestRows, year, month);
 
-    const actorEmpNum = getActorEmployeeNumber(req);
-    const auditDetails = {
-      mode: "roll-forward",
-      employeeNumber,
-      leave_code: leaveCode,
-      from_period: prev
-        ? {
-            id: prev.id,
-            period_year: prev.period_year,
-            period_semester: prev.period_semester,
-            remaining_hours: prev.remaining_hours,
-          }
-        : null,
-      to_period: { period_year: year, period_semester: String(month) },
-      carried_hours: carryHours,
-    };
-
     if (!target) {
       // Create target period row that absorbs the carry as carried_forward_hours
       const insertedId = await new Promise((resolve) => {
@@ -483,16 +465,7 @@ const express = require("express");
         );
       });
       if (insertedId) {
-        try {
-          logAudit(
-            { employeeNumber: actorEmpNum },
-            `Roll forward leave balance (${carryHours} hrs)`,
-            "leave_assignment",
-            insertedId,
-            employeeNumber,
-            auditDetails,
-          );
-        } catch (e) {}
+        // Automatic prep before earnings deduct/approve — not a separate user action; omit audit_log noise.
         target = { id: insertedId };
       }
     } else {
@@ -524,16 +497,6 @@ const express = require("express");
           () => resolve(),
         );
       });
-      try {
-        logAudit(
-          { employeeNumber: actorEmpNum },
-          `Roll forward leave balance (${carryHours} hrs)`,
-          "leave_assignment",
-          target.id,
-          employeeNumber,
-          auditDetails,
-        );
-      } catch (e) {}
     }
 
     return target;
@@ -897,7 +860,16 @@ const express = require("express");
     return { actionSuffix: "", notes: null };
   };
 
-  const auditEarning = (req, action, type, id, oldStatus, newStatus, payload = {}) => {
+  const auditEarning = (
+    req,
+    action,
+    type,
+    id,
+    oldStatus,
+    newStatus,
+    payload = {},
+    auditExtras = null,
+  ) => {
     const actor = getActorEmployeeNumber(req);
     const targetEmployeeNumber = (() => {
       const raw =
@@ -917,10 +889,16 @@ const express = require("express");
     const isTardinessLeaveAction =
       String(type || "").toLowerCase() === "leave" &&
       (payloadEntryType === "TARDINESS_DEDUCTION" || /\btardiness\b/i.test(String(action || "")));
+    const extras =
+      auditExtras && typeof auditExtras === "object" ? auditExtras : {};
 
     if (!isTardinessLeaveAction && !isScCtoDeductionPayload(type, payload)) {
       // Store also in earnings_audit_log (dedicated earnings audit trail)
       const { actionSuffix, notes } = getEarningsAuditMeta(type, payload);
+      const txNote =
+        typeof extras.transaction_message === "string"
+          ? extras.transaction_message.trim()
+          : "";
       insertEarningsAuditLog(
         type,
         id,
@@ -928,7 +906,7 @@ const express = require("express");
         oldStatus,
         newStatus,
         actor,
-        notes,
+        txNote || notes,
         { ...payload, targetEmployeeNumber },
       );
     }
@@ -941,6 +919,7 @@ const express = require("express");
         old_status: oldStatus,
         new_status: newStatus,
         payload,
+        ...extras,
       });
     } catch (e) {
       details = JSON.stringify({
@@ -1769,7 +1748,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
       try {
         const beforeHrs = await getLeaveRemainingHours(employeeNumber, leave_code);
         await rollForwardLeaveBalance({
-          req,
           employeeNumber,
           leaveCode: leave_code,
           periodYear: py,
@@ -1804,24 +1782,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           period_year: py,
           period_month: pm,
         });
-        auditEarning(
-          req,
-          "applied tardiness leave deduction",
-          "leave",
-          null,
-          null,
-          "approved",
-          {
-            employee_number: employeeNumber,
-            leave_code,
-            earned_hours: hrs,
-            period_year: py,
-            period_month: pm,
-            entry_type: normalizedEntry,
-            remarks: remarks || null,
-            ledger_only: true,
-          },
-        );
         const actorEmpNum = getActorEmployeeNumber(req);
         const [actorName, targetName] = await Promise.all([
           getEmployeeFullName(actorEmpNum),
@@ -1843,6 +1803,25 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           `${txMessageBase}. ` +
           `Balance updated: ${beforeHrs.toFixed(3)} hrs → ${afterHrs.toFixed(3)} hrs (−${deductedHrs.toFixed(3)} hrs).`;
         await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
+        auditEarning(
+          req,
+          "applied tardiness leave deduction",
+          "leave",
+          null,
+          null,
+          "approved",
+          {
+            employee_number: employeeNumber,
+            leave_code,
+            earned_hours: hrs,
+            period_year: py,
+            period_month: pm,
+            entry_type: normalizedEntry,
+            remarks: remarks || null,
+            ledger_only: true,
+          },
+          { transaction_message: txMessage },
+        );
         res.status(201).json({
           id: null,
           employee_number: employeeNumber,
@@ -1898,15 +1877,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           remarks: remarks || null,
           leave_earning_id: result.insertId,
         };
-        auditEarning(
-          req,
-          "created leave earnings",
-          "leave",
-          result.insertId,
-          null,
-          "pending",
-          earningPayload,
-        );
 
         (async () => {
           const actorEmpNum = getActorEmployeeNumber(req);
@@ -1926,6 +1896,16 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             periodYear: period_year,
             periodMonth: parseInt(period_month),
           });
+          auditEarning(
+            req,
+            "created leave earnings",
+            "leave",
+            result.insertId,
+            null,
+            "pending",
+            earningPayload,
+            { transaction_message: txMessage },
+          );
           await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
         })();
 
@@ -2031,7 +2011,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             const beforeBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
             // Roll-forward first so the target period row reflects prior remaining balance
             await rollForwardLeaveBalance({
-              req,
               employeeNumber: rec.employee_number,
               leaveCode: rec.leave_code,
               periodYear: rec.period_year,
@@ -2066,7 +2045,40 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
                 });
               }
 
-              auditEarning(req, "approved leave earnings", "leave", parseInt(id), rec.earn_status, "approved", rec);
+              const actorEmpNum = getActorEmployeeNumber(req);
+              const [actorName, targetName] = await Promise.all([
+                getEmployeeFullName(actorEmpNum),
+                getEmployeeFullName(rec.employee_number),
+              ]);
+              const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+              const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
+              const txMessageBase = buildEarningsTransactionMessage({
+                actionLabel: "approved",
+                actorDisplay,
+                targetDisplay,
+                earningTypeLabel: "leave earnings",
+                hoursValue: toNum(rec.earned_hours),
+                leaveCode: rec.leave_code,
+                periodYear: rec.period_year,
+                periodMonth: rec.period_month,
+              });
+              const afterBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
+              const delta = toNum(rec.earned_hours);
+              const txMessage =
+                `${txMessageBase}. ` +
+                `Balance updated: ${beforeBalHrs.toFixed(3)} hrs → ${afterBalHrs.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
+
+              auditEarning(
+                req,
+                "approved leave earnings",
+                "leave",
+                parseInt(id),
+                rec.earn_status,
+                "approved",
+                rec,
+                { transaction_message: txMessage },
+              );
+              await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
 
               // Notify clients (LeaveAssignment listens to this) so totals refresh immediately.
               try {
@@ -2094,31 +2106,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
                 earning_id: parseInt(id, 10),
               });
 
-              (async () => {
-                const actorEmpNum = getActorEmployeeNumber(req);
-                const [actorName, targetName] = await Promise.all([
-                  getEmployeeFullName(actorEmpNum),
-                  getEmployeeFullName(rec.employee_number),
-                ]);
-                const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-                const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
-                const txMessageBase = buildEarningsTransactionMessage({
-                  actionLabel: "approved",
-                  actorDisplay,
-                  targetDisplay,
-                  earningTypeLabel: "leave earnings",
-                  hoursValue: toNum(rec.earned_hours),
-                  leaveCode: rec.leave_code,
-                  periodYear: rec.period_year,
-                  periodMonth: rec.period_month,
-                });
-                const afterBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
-                const delta = toNum(rec.earned_hours); // may be + or -
-                const txMessage =
-                  `${txMessageBase}. ` +
-                  `Balance updated: ${beforeBalHrs.toFixed(3)} hrs → ${afterBalHrs.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
-                await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-              })();
               db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
             };
 
@@ -2676,17 +2663,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           } catch (e) {
             console.error("[earnings] SC direct deduction finalize:", e.message);
           }
-          auditEarning(req, "applied service credit balance deduction", "sc", null, null, "approved", {
-            employee_number: employeeNumber,
-            employeeNumber,
-            sc_type,
-            earned_hours: earnedHrs,
-            period_year,
-            period_month: pm,
-            entry_type: entry_type_val,
-            remarks: remarks || null,
-            ledger_only: true,
-          });
           const actorEmpNum = getActorEmployeeNumber(req);
           const [actorName, targetName] = await Promise.all([
             getEmployeeFullName(actorEmpNum),
@@ -2706,6 +2682,17 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           const dd = -meta.applyHrs;
           const withBal = `${txMessageBase}. Balance updated: ${b0.toFixed(3)} hrs → ${b1.toFixed(3)} hrs (${dd >= 0 ? "+" : "−"}${Math.abs(dd).toFixed(3)} hrs).`;
           await insertTransactionLog(employeeNumber, withBal, actorEmpNum);
+          auditEarning(req, "applied service credit balance deduction", "sc", null, null, "approved", {
+            employee_number: employeeNumber,
+            employeeNumber,
+            sc_type,
+            earned_hours: earnedHrs,
+            period_year,
+            period_month: pm,
+            entry_type: entry_type_val,
+            remarks: remarks || null,
+            ledger_only: true,
+          }, { transaction_message: withBal });
           emitEarningsChanged("approved", {
             module: "sc",
             employeeNumber: String(employeeNumber),
@@ -2743,14 +2730,14 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
       entry_type_val, remarks || null, emp_category_snapshot ? JSON.stringify(emp_category_snapshot) : null, req.user?.username || null
     ], (err, result) => {
       if (err) return res.status(500).json({ error: "Failed to create SC earning" });
-      auditEarning(req, "created service credit earnings", "sc", result.insertId, null, "pending", {
+      const scCreatePayload = {
         employeeNumber,
         sc_type,
         earnedHrs,
         period_year,
         period_month: parseInt(period_month),
         sc_earning_id: result.insertId,
-      });
+      };
       (async () => {
         const actorEmpNum = getActorEmployeeNumber(req);
         const [actorName, targetName] = await Promise.all([
@@ -2766,6 +2753,16 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           periodYear: period_year,
           periodMonth: parseInt(period_month),
         });
+        auditEarning(
+          req,
+          "created service credit earnings",
+          "sc",
+          result.insertId,
+          null,
+          "pending",
+          scCreatePayload,
+          { transaction_message: txMessage },
+        );
         await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
       })();
       emitEarningsChanged("created", {
@@ -2840,7 +2837,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
               } catch (e) {
                 console.error("[earnings] leave_salary_shortfall (SC approve):", e.message);
               }
-              auditEarning(req, "approved service credit earnings", "sc", parseInt(id), rec.earn_status, "approved", rec);
               const actorEmpNum = getActorEmployeeNumber(req);
               const [actorName, targetName] = await Promise.all([
                 getEmployeeFullName(actorEmpNum),
@@ -2862,6 +2858,16 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
                 b0 != null && b1 != null && dd != null
                   ? `${txMessageBase}. Balance updated: ${b0.toFixed(3)} hrs → ${b1.toFixed(3)} hrs (${dd >= 0 ? "+" : "−"}${Math.abs(dd).toFixed(3)} hrs).`
                   : txMessageBase;
+              auditEarning(
+                req,
+                "approved service credit earnings",
+                "sc",
+                parseInt(id),
+                rec.earn_status,
+                "approved",
+                rec,
+                { transaction_message: withBal },
+              );
               await insertTransactionLog(rec.employee_number, withBal, actorEmpNum);
               emitEarningsChanged("approved", {
                 module: "sc",
@@ -3444,16 +3450,6 @@ const earnedHrs = toNum(earned_hours || ot_hours);
           } catch (e) {
             console.error("[earnings] CTO direct deduction finalize:", e.message);
           }
-          auditEarning(req, "applied CTO balance deduction", "cto", null, null, "approved", {
-            employee_number: employeeNumber,
-            employeeNumber,
-            earned_hours: earnedHrs,
-            period_year,
-            period_month: pm,
-            entry_type: entry_type_val,
-            remarks: remarks || null,
-            ledger_only: true,
-          });
           const actorEmpNum = getActorEmployeeNumber(req);
           const [actorName, targetName] = await Promise.all([
             getEmployeeFullName(actorEmpNum),
@@ -3471,6 +3467,16 @@ const earnedHrs = toNum(earned_hours || ot_hours);
           const afterBal = await getCtoRemainingHoursTotal(employeeNumber);
           const withBal = `${txMessageBase}. Balance updated: ${meta.totalRemBefore.toFixed(3)} hrs → ${toNum(afterBal).toFixed(3)} hrs (−${meta.applyHrs.toFixed(3)} hrs, CTO ledger).`;
           await insertTransactionLog(employeeNumber, withBal, actorEmpNum);
+          auditEarning(req, "applied CTO balance deduction", "cto", null, null, "approved", {
+            employee_number: employeeNumber,
+            employeeNumber,
+            earned_hours: earnedHrs,
+            period_year,
+            period_month: pm,
+            entry_type: entry_type_val,
+            remarks: remarks || null,
+            ledger_only: true,
+          }, { transaction_message: withBal });
           emitEarningsChanged("approved", {
             module: "cto",
             employeeNumber: String(employeeNumber),
@@ -3508,13 +3514,13 @@ const earnedHrs = toNum(earned_hours || ot_hours);
       entry_type_val, remarks || null, emp_category_snapshot ? JSON.stringify(emp_category_snapshot) : null, req.user?.username || null
     ], (err, result) => {
       if (err) return res.status(500).json({ error: "Failed to create CTO earning" });
-      auditEarning(req, "created cto earnings", "cto", result.insertId, null, "pending", {
+      const ctoCreatePayload = {
         employeeNumber,
         earnedHrs,
         period_year,
         period_month: parseInt(period_month),
         cto_earning_id: result.insertId,
-      });
+      };
       (async () => {
         const actorEmpNum = getActorEmployeeNumber(req);
         const [actorName, targetName] = await Promise.all([
@@ -3530,6 +3536,16 @@ const earnedHrs = toNum(earned_hours || ot_hours);
           periodYear: period_year,
           periodMonth: parseInt(period_month),
         });
+        auditEarning(
+          req,
+          "created cto earnings",
+          "cto",
+          result.insertId,
+          null,
+          "pending",
+          ctoCreatePayload,
+          { transaction_message: txMessage },
+        );
         await insertTransactionLog(employeeNumber, txMessage, actorEmpNum);
       })();
       emitEarningsChanged("created", {
@@ -3600,7 +3616,6 @@ const earnedHrs = toNum(earned_hours || ot_hours);
                 } catch (e) {
                   console.error("[earnings] leave_salary_shortfall (CTO approve):", e.message);
                 }
-                auditEarning(req, "approved cto earnings", "cto", parseInt(id), rec.earn_status, "approved", rec);
                 const actorEmpNum = getActorEmployeeNumber(req);
                 const [actorName, targetName] = await Promise.all([
                   getEmployeeFullName(actorEmpNum),
@@ -3618,6 +3633,16 @@ const earnedHrs = toNum(earned_hours || ot_hours);
                 const afterBal = await getCtoRemainingHoursTotal(rec.employee_number);
                 const txMessage =
                   `${txMessageBase}. Balance updated: ${meta.totalRemBefore.toFixed(3)} hrs → ${toNum(afterBal).toFixed(3)} hrs (−${meta.applyHrs.toFixed(3)} hrs, CTO ledger).`;
+                auditEarning(
+                  req,
+                  "approved cto earnings",
+                  "cto",
+                  parseInt(id),
+                  rec.earn_status,
+                  "approved",
+                  rec,
+                  { transaction_message: txMessage },
+                );
                 await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
                 emitEarningsChanged("approved", {
                   module: "cto",
@@ -3648,7 +3673,6 @@ const earnedHrs = toNum(earned_hours || ot_hours);
 
             const afterInsert = () => {
               (async () => {
-                auditEarning(req, "approved cto earnings", "cto", parseInt(id), rec.earn_status, "approved", rec);
                 const actorEmpNum = getActorEmployeeNumber(req);
                 const [actorName, targetName] = await Promise.all([
                   getEmployeeFullName(actorEmpNum),
@@ -3666,6 +3690,16 @@ const earnedHrs = toNum(earned_hours || ot_hours);
                 const delta = earnedHrs;
                 const txMessage =
                   `${txMessageBase}. Balance updated: ${balBefore.toFixed(3)} hrs → ${r1.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
+                auditEarning(
+                  req,
+                  "approved cto earnings",
+                  "cto",
+                  parseInt(id),
+                  rec.earn_status,
+                  "approved",
+                  rec,
+                  { transaction_message: txMessage },
+                );
                 await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
                 emitEarningsChanged("approved", {
                   module: "cto",

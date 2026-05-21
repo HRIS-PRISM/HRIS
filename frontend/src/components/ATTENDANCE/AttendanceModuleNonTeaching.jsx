@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
+  Button,
   Typography,
   Table,
   TableBody,
@@ -65,9 +66,45 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
+import {
+  ATTENDANCE_AUDIT_MODULES,
+  buildAuditPeriodLabel,
+  logAttendanceModuleAction,
+  logAttendanceHalfDayReview,
+} from '../../utils/moduleEmployeeSearchAudit';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import { computeAbsentDays } from './attendanceMetrics';
+import {
+  buildDailyLateUndertimeRows,
+  persistDailyLateUndertimeFromModule,
+  persistHalfDayReviewDailyLate,
+  fetchDailyLateUndertime,
+} from '../../utils/dtrLateUndertimeFromOverall';
+import {
+  MODULE_TYPES,
+  HALF_DAY_STATUS,
+  normalizeReviewDate,
+  parseHalfDayReviewJson,
+  buildReviewByDate,
+  buildHalfDayReviewArray,
+  migrateLegacyHalfDayReview,
+  getApprovedHalfDayDatesSet,
+  computeReviewAwareAbsenceBuckets,
+  getEffectiveTardinessFromReview,
+  getEffectiveTardinessFromApproved,
+  getRowHalfDayUiStatus,
+  getRowTotalRenderedDisplay,
+  getRowTotalTardinessDisplay,
+  shouldZeroAmPmHalfDayColumns,
+} from '../../utils/halfDayReview';
+import HalfDayReviewDialog from './HalfDayReviewDialog';
+import {
+  HalfDayApproveHeaderCell,
+  HalfDayApproveBodyCell,
+  HalfDayApproveTotalsCell,
+  getHalfDayReviewRowChrome,
+} from './HalfDayApproveCheckboxCell';
 import {
   computeOfficialAwareAbsenceAndLate,
   listAbsentDatesFromDailyRows,
@@ -81,14 +118,18 @@ import {
   hasAfternoonPunch,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
+  sumHmsDurationStrings,
+  computeLateTotalTimeFromTardiness,
+} from '../../utils/attendanceLateTotals';
+import {
   postAttendanceDevicePreflightNoSync,
   fetchAttendanceCalendarMaps,
   getLeaveStatusLabelForDate,
 } from './attendanceLeaveIntegration';
 import OverallAttendanceCompareModal from './OverallAttendanceCompareModal';
 import {
+  classifyOverallSave,
   mergeOverallPayload,
-  overallRecordsDiffer,
   OVERALL_COMPARE_FIELD_META,
 } from './overallAttendanceMerge';
 
@@ -107,10 +148,12 @@ const T = {
   faint:        '#a0a0a0',
   surface:      '#ffffff',
   divider:      'rgba(0,0,0,0.08)',
+  recordFont:
+    "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
   holiday:      { bg: 'rgba(245,124,0,0.10)', color: '#f57c00', border: 'rgba(245,124,0,0.35)' },
   leave:        { bg: 'rgba(46,125,50,0.10)',  color: '#2e7d32', border: 'rgba(46,125,50,0.35)' },
   suspended:    { bg: 'rgba(211,47,47,0.10)',  color: '#d32f2f', border: 'rgba(211,47,47,0.35)' },
-  halfDay:      { bg: 'rgba(255,152,0,0.10)',  color: '#e65100', border: 'rgba(255,152,0,0.35)' },
+  halfDay:      { bg: 'rgba(106,27,154,0.10)', color: '#6a1b9a', border: 'rgba(106,27,154,0.35)' },
   absent:       { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.25)' },
   rendered:     { bg: 'rgba(27,94,32,0.08)',   color: '#1b5e20', border: 'rgba(27,94,32,0.25)' },
   tardiness:    { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.25)' },
@@ -274,7 +317,12 @@ const formatFullNameForSearch = (fullName) => {
   return suffix ? `${base} ${suffix}` : base;
 };
 
-const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
+const EmployeeSearchField = ({
+  value,
+  onSelectEmployeeNumber,
+  onSearchQueryChange,
+  disabled = false,
+}) => {
   const [query, setQuery] = useState(value || '');
   const [debouncedQuery, setDebouncedQuery] = useState(value || '');
   const [results, setResults] = useState([]);
@@ -317,9 +365,31 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => { setDebouncedQuery(nextValue); setOpen(true); }, 220);
   };
-  const handleInputChange = (e) => { const next = e.target.value; onSelectEmployeeNumber(next); setQuery(next); queueSearch(next); };
-  const handleSelect = (emp) => { const num = emp?.employeeNumber ? String(emp.employeeNumber) : ''; onSelectEmployeeNumber(num); setQuery(num); setDebouncedQuery(num); setOpen(false); };
-  const handleClear = () => { if (debounceRef.current) clearTimeout(debounceRef.current); if (abortRef.current) abortRef.current.abort(); setQuery(''); setDebouncedQuery(''); setResults([]); setOpen(false); onSelectEmployeeNumber(''); };
+  const handleInputChange = (e) => {
+    const next = e.target.value;
+    onSelectEmployeeNumber(next);
+    setQuery(next);
+    onSearchQueryChange?.(next.trim());
+    queueSearch(next);
+  };
+  const handleSelect = (emp) => {
+    const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
+    onSelectEmployeeNumber(num);
+    setQuery(num);
+    setDebouncedQuery(num);
+    setOpen(false);
+    onSearchQueryChange?.(query.trim());
+  };
+  const handleClear = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    setQuery('');
+    setDebouncedQuery('');
+    setResults([]);
+    setOpen(false);
+    onSearchQueryChange?.('');
+    onSelectEmployeeNumber('');
+  };
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
@@ -405,6 +475,7 @@ const TAB_COLUMNS = {
     { label: 'AM Tardiness',           key: '_morningTardiness',    minWidth: 110, group: 'tard',     colGroup: 'amTard',               isGroupLeader: true },
     { label: 'PM Rendered',            key: '_afternoonRendered',   minWidth: 110, group: 'calc',     colGroup: 'pmRendered',           isGroupLeader: true },
     { label: 'PM Tardiness',           key: '_afternoonTardiness',  minWidth: 110, group: 'tard',     colGroup: 'pmTard',               isGroupLeader: true },
+    { label: 'Total Rendered',         key: '_totalRendered',       minWidth: 110, group: 'calc',     colGroup: 'totalRendered',        isGroupLeader: true },
     { label: 'Total Tardiness',        key: '_totalTardiness',      minWidth: 110, group: 'tard',     colGroup: 'totalTard',            isGroupLeader: true },
   ],
   honorarium: [
@@ -451,6 +522,7 @@ const COL_GROUP_META = {
   amTard:               { label: 'AM tardiness' },
   pmRendered:           { label: 'PM rendered' },
   pmTard:               { label: 'PM tardiness' },
+  totalRendered:        { label: 'Total rendered' },
   totalTard:            { label: 'Total tardiness' },
   hnTimes:              { label: 'Device times' },
   hnOfficial:           { label: 'Official schedule' },
@@ -487,7 +559,8 @@ const canonicalTardDisplay = (v) => {
 
 // ─── getCellValue ─────────────────────────────────────────────────────────
 /** @param {Record<string, { morning?: string, afternoon?: string }> | null} [tardOverrides] HR edits for Regular Time AM/PM tardiness. */
-const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null) => {
+/** @param {Record<string, object> | null} [reviewByDate] Half-day HR review. */
+const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, reviewByDate = null) => {
   const NA = 'N/A';
   const isNA = (v) => !v || v === '00:00:00 AM' || v === '00:00:00 PM' || v === '00:00:00';
   if (row?.date && tardOverrides?.[row.date]) {
@@ -501,24 +574,69 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null) => 
       if (n) return n;
     }
   }
+  const zeroAmPmHalfDay = shouldZeroAmPmHalfDayColumns(
+    row,
+    reviewByDate,
+    MODULE_TYPES.NON_TEACHING,
+    null,
+  );
+
   switch (colKey) {
     case '_morningRendered':
+      if (zeroAmPmHalfDay) return '00:00:00';
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeAM || row.formattedFacultyMaxRenderedTimeAM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimeAM;
       return !row.officialTimeIN || !row.breaktimeIN || row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimeAM;
-    case '_morningTardiness':
-      if (isFurlough) return '00:00:00';
+    case '_morningTardiness': {
+      if (zeroAmPmHalfDay || isFurlough) return '00:00:00';
+      const d = normalizeReviewDate(row?.date);
+      const entry = reviewByDate?.[d];
+      if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+        const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.NON_TEACHING);
+        if (eff?.morning) return eff.morning;
+      }
+      if (entry?.status === HALF_DAY_STATUS.APPROVED) {
+        const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.NON_TEACHING);
+        if (eff?.morning) return eff.morning;
+      }
       return !row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeAM : row.formattedfinalcalcFacultyAM;
+    }
+    case '_totalRendered':
+      return getRowTotalRenderedDisplay(
+        row,
+        reviewByDate,
+        MODULE_TYPES.NON_TEACHING,
+        isFurlough,
+      );
     case '_afternoonRendered':
+      if (zeroAmPmHalfDay) return '00:00:00';
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimePM || row.formattedFacultyMaxRenderedTimePM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyMaxRenderedTimePM;
       return !row.officialBreaktimeOUT || !row.timeOUT || row.formattedFacultyRenderedTimePM === 'NaN:NaN:NaN' ? '00:00:00' : row.formattedFacultyRenderedTimePM;
-    case '_afternoonTardiness':
-      if (isFurlough) return '00:00:00';
+    case '_afternoonTardiness': {
+      if (zeroAmPmHalfDay || isFurlough) return '00:00:00';
+      const d = normalizeReviewDate(row?.date);
+      const entry = reviewByDate?.[d];
+      if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+        const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.NON_TEACHING);
+        if (eff?.afternoon) return eff.afternoon;
+      }
+      if (entry?.status === HALF_DAY_STATUS.APPROVED) {
+        const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.NON_TEACHING);
+        if (eff?.afternoon) return eff.afternoon;
+      }
       return !row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimePM : row.formattedfinalcalcFacultyPM;
+    }
     case '_totalTardiness': {
       if (isFurlough) return '00:00:00';
-      const amStr = getCellValue(row, '_morningTardiness', isFurlough, tardOverrides);
-      const pmStr = getCellValue(row, '_afternoonTardiness', isFurlough, tardOverrides);
-      return addTimeHhMmOnly(amStr, pmStr);
+      return getRowTotalTardinessDisplay(
+        row,
+        reviewByDate,
+        MODULE_TYPES.NON_TEACHING,
+        isFurlough,
+        addTimeHhMmOnly(
+          getCellValue(row, '_morningTardiness', isFurlough, tardOverrides, reviewByDate),
+          getCellValue(row, '_afternoonTardiness', isFurlough, tardOverrides, reviewByDate),
+        ),
+      );
     }
     case '_hnTimeIN':  return isNA(row.officialHonorariumTimeIN)  ? NA : row.timeIN;
     case '_hnTimeOUT': return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
@@ -642,7 +760,7 @@ const EditableTardinessCell = ({
           placeholder={systemVal}
           inputProps={{
             'aria-label': part === 'morning' ? 'AM tardiness' : 'PM tardiness',
-            sx: { fontFamily: 'monospace', fontSize: '0.78rem', textAlign: 'center', py: 0.65 },
+            sx: { fontFamily: T.recordFont, fontSize: '0.78rem', textAlign: 'center', py: 0.65 },
           }}
           InputProps={{
             endAdornment: (
@@ -728,7 +846,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
               Attendance Summary
             </Typography>
             {startDate && endDate && (
-              <Typography sx={{ fontSize: '0.67rem', color: T.muted, fontFamily: 'monospace' }}>
+              <Typography sx={{ fontSize: '0.67rem', color: T.muted, fontFamily: T.recordFont }}>
                 {startDate} – {endDate}
               </Typography>
             )}
@@ -793,12 +911,12 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
                   <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: accent ? style.color : T.faint, letterSpacing: '0.05em', textTransform: 'uppercase', mb: 0.2, whiteSpace: 'nowrap' }}>
                     {label}
                   </Typography>
-                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: accent ? style.color : T.muted, fontFamily: 'monospace', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: accent ? style.color : T.muted, fontFamily: T.recordFont, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                     {value}
                   </Typography>
                   {subtitle != null && (
                     <Typography sx={{
-                      fontFamily: 'monospace', fontWeight: 600, fontSize: '0.62rem',
+                      fontFamily: T.recordFont, fontWeight: 600, fontSize: '0.62rem',
                       color: accent ? style.color : T.muted, opacity: 0.55, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap',
                     }}>
                       {subtitle}
@@ -892,6 +1010,7 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
 const AttendanceModuleNonTeachingStaff = () => {
   const { settings }          = useSystemSettings();
   const [employeeNumber, setEmployeeNumber] = useState('');
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
   const [startDate, setStartDate]           = useState('');
   const [endDate, setEndDate]               = useState('');
   const [attendanceData, setAttendanceData] = useState([]);
@@ -904,6 +1023,8 @@ const AttendanceModuleNonTeachingStaff = () => {
 
   /** Per-date HR overrides for AM/PM tardiness (Regular Time); cleared on new search. */
   const [tardinessOverrides, setTardinessOverrides] = useState({});
+  const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
+  const [halfDayReviewDialog, setHalfDayReviewDialog] = useState(null);
 
   const [collapsedGroups, setCollapsedGroups] = useState({
     regular: {
@@ -1078,8 +1199,24 @@ const AttendanceModuleNonTeachingStaff = () => {
         const hn = calcSegment(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
         const sc = calcSegment(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
         const ot = calcSegment(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
+        const parseTardiness = (t) => {
+          if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
+          const parts = (t || '00:00:00').split(':').map(Number);
+          const h = parts[0] || 0;
+          const m = parts[1] || 0;
+          if (Number.isNaN(h) || Number.isNaN(m)) return 0;
+          return h * 3600 + m * 60;
+        };
+        const totalTardinessSeconds =
+          parseTardiness(am.tardiness) + parseTardiness(pm.tardiness);
+        const h = Math.floor(totalTardinessSeconds / 3600);
+        const m = Math.floor((totalTardinessSeconds % 3600) / 60);
+        const s = totalTardinessSeconds % 60;
+        const lateTotal = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '00')}`;
         return {
           ...row,
+          lateTotal,
+          undertimeTotal: row._undertimeTotal || '00:00:00',
           formattedFacultyRenderedTimeAM: am.rendered,  formattedFacultyMaxRenderedTimeAM: am.maxRendered, formattedfinalcalcFacultyAM: am.tardiness,
           formattedFacultyRenderedTimePM: pm.rendered,  formattedFacultyMaxRenderedTimePM: pm.maxRendered, formattedfinalcalcFacultyPM: pm.tardiness,
           formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
@@ -1092,6 +1229,80 @@ const AttendanceModuleNonTeachingStaff = () => {
       setHolidayByDate(maps.holidayByDate);
       setTardinessOverrides({});
       setAttendanceData(processedData);
+      const calendarMaps = {
+        suspensionByDate: maps.suspensionByDate,
+        holidayByDate: maps.holidayByDate,
+        leaveByDate: maps.leaveByDate,
+      };
+      let reviewMap = {};
+      try {
+        const stored = await fetchDailyLateUndertime(employeeNumber, startDate, endDate);
+        reviewMap = migrateLegacyHalfDayReview(
+          buildReviewByDate(parseHalfDayReviewJson(stored.half_day_review)),
+          stored.halfDayDates,
+          processedData,
+          MODULE_TYPES.NON_TEACHING,
+          calendarMaps,
+        );
+      } catch {
+        reviewMap = migrateLegacyHalfDayReview(
+          {},
+          '',
+          processedData,
+          MODULE_TYPES.NON_TEACHING,
+          calendarMaps,
+        );
+      }
+      setHalfDayReviewByDate(reviewMap);
+      const approvedSet = getApprovedHalfDayDatesSet(reviewMap);
+      persistDailyLateUndertimeFromModule({
+        personID: employeeNumber,
+        startDate,
+        endDate,
+        moduleType: 'NON_TEACHING',
+        rows: buildDailyLateUndertimeRows(
+          processedData,
+          approvedSet,
+          reviewMap,
+          MODULE_TYPES.NON_TEACHING,
+        ),
+        halfDayDates: [...approvedSet].join(', '),
+        half_day_review: buildHalfDayReviewArray(reviewMap),
+      });
+
+      const parseLateToSeconds = (t) => {
+        if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
+        const parts = String(t).split(':').map(Number);
+        if (parts.length < 2 || [parts[0], parts[1]].some(Number.isNaN)) return 0;
+        return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+      };
+      const totalLateSec = processedData.reduce(
+        (sum, row) => sum + parseLateToSeconds(row.lateTotal),
+        0,
+      );
+      const th = Math.floor(totalLateSec / 3600);
+      const tm = Math.floor((totalLateSec % 3600) / 60);
+      const ts = totalLateSec % 60;
+      const totalLateLabel = `${String(th).padStart(2, '0')}:${String(tm).padStart(2, '0')}:${String(ts).padStart(2, '0')}`;
+
+      logAttendanceModuleAction({
+        module: 'Attendance Module (Non-Teaching)',
+        auditButton: 'Search Records',
+        targetEmployeeNumber: employeeNumber,
+        targetEmployeeName: processedData[0]?.username || null,
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: buildAuditPeriodLabel({
+          selectedMonth,
+          monthNames: months,
+          selectedYear,
+          startDate,
+          endDate,
+        }),
+        searchQuery: employeeSearchQuery.trim() || employeeNumber,
+        daysCalculated: processedData.length,
+        totalLate: totalLateLabel,
+      });
     } catch (err) {
       console.error('Error fetching attendance data:', err);
       const msg = 'Failed to fetch attendance data. Please try again.';
@@ -1121,27 +1332,41 @@ const AttendanceModuleNonTeachingStaff = () => {
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    const buckets = computeOfficialAwareAbsenceAndLate(attendanceData, calendarMaps);
+    const buckets = computeReviewAwareAbsenceBuckets(
+      attendanceData,
+      halfDayReviewByDate,
+      calendarMaps,
+      MODULE_TYPES.NON_TEACHING,
+    );
     const ov = tardinessOverrides;
-    const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',    Boolean(getStatusLabelForDate(r.date)), ov)));
-    const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',   Boolean(getStatusLabelForDate(r.date)), ov)));
-    const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonRendered',  Boolean(getStatusLabelForDate(r.date)), ov)));
-    const afternoonTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonTardiness', Boolean(getStatusLabelForDate(r.date)), ov)));
+    const rv = halfDayReviewByDate;
+    const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',    Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',   Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const totalRendered      = sumTime(attendanceData.map(r => getCellValue(r, '_totalRendered',      Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const afternoonTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     const overallRendered    = addTimes(morningRendered,  afternoonRendered);
-    const overallTardiness   = addTimes(morningTardiness, afternoonTardiness);
-    const overallSec = parseOfficialTimeToSeconds(overallTardiness);
-    const lateTotalTime =
-      overallSec != null
-        ? formatOfficialAttendanceSeconds(
-            Math.max(0, overallSec - buckets.absentSecTotal - buckets.halfDayShortfallSecTotal),
-          )
-        : (buckets.lateShortfallTime || '00:00:00');
-    const hnRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_hnRendered',  Boolean(getStatusLabelForDate(r.date)), ov)));
-    const hnTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date)), ov)));
-    const scRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_scRendered',  Boolean(getStatusLabelForDate(r.date)), ov)));
-    const scTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date)), ov)));
-    const otRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_otRendered',  Boolean(getStatusLabelForDate(r.date)), ov)));
-    const otTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date)), ov)));
+    const overallTardiness = sumHmsDurationStrings(
+      attendanceData.map((r) =>
+        getCellValue(
+          r,
+          '_totalTardiness',
+          Boolean(getStatusLabelForDate(r.date)),
+          ov,
+          rv,
+        ),
+      ),
+    );
+    const lateTotalTime = computeLateTotalTimeFromTardiness(
+      overallTardiness,
+      buckets,
+    );
+    const hnRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_hnRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const hnTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const scRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_scRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const scTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const otRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_otRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
+    const otTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     return {
       absentDays: buckets.absentDays,
       halfDays: buckets.halfDays,
@@ -1152,7 +1377,8 @@ const AttendanceModuleNonTeachingStaff = () => {
       morningTardiness,
       afternoonRendered,
       afternoonTardiness,
-      overallRendered,
+      totalRendered,
+      overallRendered: totalRendered || overallRendered,
       overallTardiness,
       hnRendered,
       hnTardiness,
@@ -1161,7 +1387,7 @@ const AttendanceModuleNonTeachingStaff = () => {
       otRendered,
       otTardiness,
     };
-  }, [attendanceData, sumTime, addTimes, getStatusLabelForDate, leaveByDate, holidayByDate, suspensionByDate, tardinessOverrides]);
+  }, [attendanceData, sumTime, addTimes, getStatusLabelForDate, leaveByDate, holidayByDate, suspensionByDate, tardinessOverrides, halfDayReviewByDate]);
 
   const isAbsentAttendanceRow = useCallback((row) => {
     const d = String(row?.date ?? '').slice(0, 10);
@@ -1171,16 +1397,70 @@ const AttendanceModuleNonTeachingStaff = () => {
     return hasNoPunches(row);
   }, [suspensionByDate, holidayByDate, leaveByDate]);
 
-  const isHalfDayByOfficialRules = useCallback((row) => {
-    const d = String(row?.date ?? '').slice(0, 10);
-    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
-    if (!isScheduledByOfficialTime(row)) return false;
-    if (hasNoPunches(row)) return false;
-    const morning = hasMorningPunch(row);
-    const afternoon = hasAfternoonPunch(row);
-    return morning !== afternoon;
-  }, [suspensionByDate, holidayByDate, leaveByDate]);
+  const getHalfDayUiStatus = useCallback(
+    (row) => {
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      return getRowHalfDayUiStatus(row, halfDayReviewByDate, MODULE_TYPES.NON_TEACHING, calendarMaps);
+    },
+    [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
+  );
+
+  const commitHalfDayReview = useCallback(
+    (entry) => {
+      const d = normalizeReviewDate(entry?.date);
+      if (!d) return;
+      setHalfDayReviewByDate((prev) => {
+        const next = { ...prev, [d]: entry };
+        void persistHalfDayReviewDailyLate({
+          personID: employeeNumber,
+          startDate,
+          endDate,
+          moduleType: MODULE_TYPES.NON_TEACHING,
+          attendanceData,
+          reviewByDate: next,
+        });
+        return next;
+      });
+      setTardinessOverrides((prev) => {
+        const next = { ...prev };
+        delete next[d];
+        return next;
+      });
+      logAttendanceHalfDayReview({
+        module: ATTENDANCE_AUDIT_MODULES.NON_TEACHING,
+        entry,
+        computationModuleType: MODULE_TYPES.NON_TEACHING,
+        targetEmployeeNumber: employeeNumber,
+        targetUsername: attendanceData[0]?.username || null,
+        periodStart: startDate,
+        periodEnd: endDate,
+      });
+    },
+    [employeeNumber, startDate, endDate, attendanceData],
+  );
+
+  const openHalfDayDialog = useCallback((row, mode) => {
+    setHalfDayReviewDialog({ row, mode });
+  }, []);
+
+  useEffect(() => {
+    if (!employeeNumber || !startDate || !endDate || !attendanceData.length) return;
+    const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
+    persistDailyLateUndertimeFromModule({
+      personID: employeeNumber,
+      startDate,
+      endDate,
+      moduleType: 'NON_TEACHING',
+      rows: buildDailyLateUndertimeRows(
+        attendanceData,
+        approvedSet,
+        halfDayReviewByDate,
+        MODULE_TYPES.NON_TEACHING,
+      ),
+      halfDayDates: [...approvedSet].join(', '),
+      half_day_review: buildHalfDayReviewArray(halfDayReviewByDate),
+    });
+  }, [halfDayReviewByDate, attendanceData, employeeNumber, startDate, endDate]);
 
   const navigateToOverallAttendanceSummary = useCallback(() => {
     const en = String(employeeNumber ?? '').trim();
@@ -1190,27 +1470,33 @@ const AttendanceModuleNonTeachingStaff = () => {
     navigate('/attendance_summary', { state: { employeeNumber: en, startDate, endDate } });
   }, [employeeNumber, startDate, endDate, navigate]);
 
-  const buildOverallRecordPayload = () => ({
+  const buildOverallRecordPayload = () => {
+    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+    const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
+    const dailyRows = buildDailyLateUndertimeRows(
+      attendanceData,
+      approvedSet,
+      halfDayReviewByDate,
+      MODULE_TYPES.NON_TEACHING,
+    );
+    return {
     ...(function computeAbsentHalfBuckets() {
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-      const c = computeOfficialAwareAbsenceAndLate(attendanceData, calendarMaps);
+      const c = computeReviewAwareAbsenceBuckets(
+        attendanceData,
+        halfDayReviewByDate,
+        calendarMaps,
+        MODULE_TYPES.NON_TEACHING,
+      );
       const absentList = listAbsentDatesFromDailyRows(attendanceData, calendarMaps);
-      const halfList = listHalfDayDatesFromDailyRows(attendanceData, calendarMaps);
-      const overallSec = parseOfficialTimeToSeconds(totals?.overallTardiness);
-      const lateTotalTime =
-        overallSec != null
-          ? formatOfficialAttendanceSeconds(
-              Math.max(0, overallSec - c.absentSecTotal - c.halfDayShortfallSecTotal),
-            )
-          : (c.lateShortfallTime || '00:00:00');
       return {
         absentDays: c.absentDays,
         halfDays: c.halfDays,
-        lateTotalTime,
+        lateTotalTime: totals.lateTotalTime || '00:00:00',
         absentTime: c.absentTime,
         halfDayShortfallTime: c.halfDayShortfallTime,
         absentDates: absentList.join(', '),
-        halfDayDates: halfList.join(', '),
+        halfDayDates: [...approvedSet].join(', '),
+        half_day_review: buildHalfDayReviewArray(halfDayReviewByDate),
       };
     })(),
     personID: employeeNumber, startDate, endDate,
@@ -1226,7 +1512,10 @@ const AttendanceModuleNonTeachingStaff = () => {
     totalRenderedOvertimeTardiness:       totals.otTardiness,
     overallRenderedOfficialTime:          totals.overallRendered,
     overallRenderedOfficialTimeTardiness: totals.overallTardiness,
-  });
+    daily_late_undertime: dailyRows,
+    computation_module_type: 'NON_TEACHING',
+  };
+  };
 
   const putMergedOverall = async (mergedPayload, recordId) => {
     await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${recordId}`, mergedPayload, getAuthHeaders());
@@ -1240,13 +1529,28 @@ const AttendanceModuleNonTeachingStaff = () => {
     try {
       const dup = await axios.get(`${API_BASE_URL}/attendance/api/overall_attendance_record`, { params: { personID: employeeNumber, startDate, endDate }, ...getAuthHeaders() });
       const existingList = dup.data?.data || [];
-      if (existingList.length) {
-        const existing = existingList[0];
-        if (!overallRecordsDiffer(existing, record)) {
-          showModal('Duplicate attendance summary', `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`, 'info',
-            () => { closeModal(); navigateToOverallAttendanceSummary(); }, true, 'Continue to summary');
-          return;
-        }
+      const { action, existing } = classifyOverallSave(existingList, startDate, endDate, record);
+      if (action === 'fill-stub' && existing?.id) {
+        await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
+        showSnackbar('Attendance summary saved.', 'success');
+        await persistDailyLateUndertimeFromModule({
+          personID: employeeNumber,
+          startDate,
+          endDate,
+          moduleType: 'NON_TEACHING',
+          rows: record.daily_late_undertime,
+          halfDayDates: record.halfDayDates,
+          half_day_review: record.half_day_review,
+        });
+        navigateToOverallAttendanceSummary();
+        return;
+      }
+      if (action === 'duplicate-info') {
+        showModal('Duplicate attendance summary', `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`, 'info',
+          () => { closeModal(); navigateToOverallAttendanceSummary(); }, true, 'Continue to summary');
+        return;
+      }
+      if (action === 'compare' && existing) {
         setPendingSavedOverall(existing);
         setPendingProposedOverall(record);
         setCompareOpen(true);
@@ -1261,6 +1565,15 @@ const AttendanceModuleNonTeachingStaff = () => {
     try {
       const response = await axios.post(`${API_BASE_URL}/attendance/api/overall_attendance`, record, getAuthHeaders());
       showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
+      await persistDailyLateUndertimeFromModule({
+        personID: employeeNumber,
+        startDate,
+        endDate,
+        moduleType: 'NON_TEACHING',
+        rows: record.daily_late_undertime,
+        halfDayDates: record.halfDayDates,
+        half_day_review: record.half_day_review,
+      });
       navigateToOverallAttendanceSummary();
     } catch (err) {
       console.error('Error saving overall attendance:', err);
@@ -1286,6 +1599,15 @@ const AttendanceModuleNonTeachingStaff = () => {
     try {
       const merged = mergeOverallPayload({ savedRow: pendingSavedOverall, proposed: pendingProposedOverall, choices, personID: employeeNumber, startDate, endDate });
       await putMergedOverall(merged, pendingSavedOverall.id);
+      await persistDailyLateUndertimeFromModule({
+        personID: employeeNumber,
+        startDate,
+        endDate,
+        moduleType: 'NON_TEACHING',
+        rows: merged.daily_late_undertime ?? pendingProposedOverall.daily_late_undertime,
+        halfDayDates: merged.halfDayDates,
+        half_day_review: merged.half_day_review,
+      });
     } catch (err) {
       console.error('Error updating overall attendance:', err);
       showSnackbar(err.response?.data?.message || 'Failed to update attendance record.', 'error');
@@ -1332,6 +1654,7 @@ const AttendanceModuleNonTeachingStaff = () => {
   const buildTableHead = () => (
     <TableHead>
       <TableRow>
+        <HalfDayApproveHeaderCell themeT={T} />
         {columnSlots.map(({ col, isCollapsedPlaceholder }) => {
           const g = col.colGroup;
           const groupLabel = g ? COL_GROUP_META[g]?.label || g : null;
@@ -1426,7 +1749,7 @@ const AttendanceModuleNonTeachingStaff = () => {
       color: group === 'official' ? T.faint : T.text,
       fontWeight: group === 'official' ? 400 : 500,
       fontSize: group === 'official' ? '0.75rem' : '0.8rem',
-      fontFamily: 'monospace',
+      fontFamily: T.recordFont,
       bgcolor: isEven ? '#fff' : T.rowOdd,
       transition: 'background-color 0.12s',
       'tr:hover &': { bgcolor: `${T.rowHover} !important` },
@@ -1456,6 +1779,7 @@ const AttendanceModuleNonTeachingStaff = () => {
 
     return (
       <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accentBorder}` }}>
+        <HalfDayApproveTotalsCell themeT={T} />
         {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }, ci) => {
           if (ci === 0) return (
             <TableCell key={col.key + '_tl'} colSpan={nonCalcCount}
@@ -1468,12 +1792,12 @@ const AttendanceModuleNonTeachingStaff = () => {
           const showRendered  = col.group === 'calc' && targetRenderedKey && col.key === targetRenderedKey;
           const showTardiness = col.group === 'tard' && targetTardKey && col.key === targetTardKey;
           if (showRendered) return (
-            <TableCell key={col.key + '_tr'} sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
+            <TableCell key={col.key + '_tr'} sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
               {renderedVal || '00:00:00'}
             </TableCell>
           );
           if (showTardiness) return (
-            <TableCell key={col.key + '_tt'} sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
+            <TableCell key={col.key + '_tt'} sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
               {tardinessVal || '00:00:00'}
             </TableCell>
           );
@@ -1550,7 +1874,11 @@ const AttendanceModuleNonTeachingStaff = () => {
             <Box sx={{ display: 'flex', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
               <Box sx={{ flex: 1, minWidth: 160 }}>
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Employee Number</Typography>
-                <EmployeeSearchField value={employeeNumber} onSelectEmployeeNumber={setEmployeeNumber} />
+                <EmployeeSearchField
+                  value={employeeNumber}
+                  onSearchQueryChange={setEmployeeSearchQuery}
+                  onSelectEmployeeNumber={setEmployeeNumber}
+                />
               </Box>
               <Box sx={{ flex: 1, minWidth: 160 }}>
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Start Date</Typography>
@@ -1653,17 +1981,16 @@ const AttendanceModuleNonTeachingStaff = () => {
                           const isFurlough  = Boolean(statusLabel);
                           const isEven      = index % 2 === 0;
                           const rowIsAbsent = isAbsentAttendanceRow(row);
-                          const isHalfDay   = !rowIsAbsent && isHalfDayByOfficialRules(row);
+                          const halfUi = !rowIsAbsent ? getHalfDayUiStatus(row) : null;
+                          const halfDayChrome = halfUi
+                            ? getHalfDayReviewRowChrome(halfUi, T)
+                            : null;
                           const rowBg = rowIsAbsent
                             ? alpha('#b71c1c', 0.08)
-                            : isHalfDay
-                              ? alpha('#ff9800', 0.10)
-                              : undefined;
+                            : halfDayChrome?.rowBg;
                           const rowBorder = rowIsAbsent
                             ? `3px solid ${alpha('#b71c1c', 0.55)}`
-                            : isHalfDay
-                              ? `3px solid ${alpha('#ff9800', 0.55)}`
-                              : `3px solid transparent`;
+                            : halfDayChrome?.rowBorder ?? '3px solid transparent';
 
                           return (
                             <TableRow
@@ -1673,28 +2000,34 @@ const AttendanceModuleNonTeachingStaff = () => {
                                 ...(rowBg ? { '& td': { bgcolor: `${rowBg} !important` } } : {}),
                               }}
                             >
+                              <HalfDayApproveBodyCell
+                                row={row}
+                                halfUi={halfUi}
+                                isEven={isEven}
+                                themeT={T}
+                                rowBorder={rowBorder}
+                                onApproveClick={(r) => openHalfDayDialog(r, 'approve')}
+                                onRejectClick={(r) => openHalfDayDialog(r, 'reject')}
+                              />
                               {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }) => {
                                 if (isCp) return <React.Fragment key={col.key + '_cp'}>{buildCollapsedCell(isEven)}</React.Fragment>;
 
                                 if (col.key === 'date') return (
-                                  <TableCell key={col.key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, borderRight: `1px solid ${T.divider}`, borderLeft: rowBorder, px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'left', transition: 'background-color 0.12s' }}>
+                                  <TableCell key={col.key} sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, bgcolor: isEven ? '#fff' : T.rowOdd, borderBottom: `1px solid ${T.divider}`, borderRight: `1px solid ${T.divider}`, px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'left', transition: 'background-color 0.12s' }}>
                                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.25 }}>
                                       <span>{row.date}</span>
                                       {statusLabel && <StatusChip label={statusLabel} />}
-                                      {!statusLabel && (rowIsAbsent || isHalfDay) && (
-                                        <Chip
-                                          size="small"
-                                          label={rowIsAbsent ? 'Absent' : 'Half day'}
-                                          sx={{
-                                            fontWeight: 800,
-                                            fontSize: '0.6rem',
-                                            height: 16,
-                                            mt: 0.3,
-                                            bgcolor: rowIsAbsent ? alpha('#b71c1c', 0.12) : T.halfDay.bg,
-                                            color: rowIsAbsent ? '#b71c1c' : T.halfDay.color,
-                                            border: `1px solid ${rowIsAbsent ? alpha('#b71c1c', 0.35) : T.halfDay.border}`,
-                                          }}
-                                        />
+                                      {!statusLabel && rowIsAbsent && (
+                                        <Chip size="small" label="Absent" sx={{ fontWeight: 800, fontSize: '0.6rem', height: 16, mt: 0.3, bgcolor: alpha('#b71c1c', 0.12), color: '#b71c1c', border: `1px solid ${alpha('#b71c1c', 0.35)}` }} />
+                                      )}
+                                      {!statusLabel && !rowIsAbsent && halfUi === 'suggested' && (
+                                        <Chip size="small" label="Half day — for review" sx={{ fontWeight: 800, fontSize: '0.58rem', height: 16, mt: 0.3, bgcolor: T.halfDay.bg, color: T.halfDay.color, border: `1px solid ${T.halfDay.border}` }} />
+                                      )}
+                                      {!statusLabel && !rowIsAbsent && halfUi === 'approved' && (
+                                        <Chip size="small" label="Half day — confirmed" sx={{ fontWeight: 800, fontSize: '0.58rem', height: 16, mt: 0.3, bgcolor: T.halfDay.bg, color: T.halfDay.color, border: `1px solid ${T.halfDay.border}` }} />
+                                      )}
+                                      {!statusLabel && !rowIsAbsent && halfUi === 'rejected' && (
+                                        <Chip size="small" label="Not half day" sx={{ fontWeight: 800, fontSize: '0.58rem', height: 16, mt: 0.3, bgcolor: alpha(T.accent, 0.1), color: T.accent, border: `1px solid ${T.accentBorder}` }} />
                                       )}
                                     </Box>
                                   </TableCell>
@@ -1724,7 +2057,7 @@ const AttendanceModuleNonTeachingStaff = () => {
 
                                 return (
                                   <React.Fragment key={col.key}>
-                                    {buildCell(getCellValue(row, col.key, isFurlough, activeTab === 'regular' ? tardinessOverrides : null), col.group, isEven)}
+                                    {buildCell(getCellValue(row, col.key, isFurlough, activeTab === 'regular' ? tardinessOverrides : null, halfDayReviewByDate), col.group, isEven)}
                                   </React.Fragment>
                                 );
                               })}
@@ -1739,30 +2072,35 @@ const AttendanceModuleNonTeachingStaff = () => {
                           {/* Overall row */}
                           {(() => {
                             const calcSlots  = columnSlots.filter(s => !s.isCollapsedPlaceholder && (s.col.group === 'calc' || s.col.group === 'tard'));
-                            const nonCalcCnt = columnSlots.length - calcSlots.length;
+                            const nonCalcCnt = 1 + columnSlots.length - calcSlots.length;
                             const visCalcKeys = calcSlots.filter((x) => x.col.group === 'calc').map((x) => x.col.key);
                             const visTardKeys = calcSlots.filter((x) => x.col.group === 'tard').map((x) => x.col.key);
-                            const overallRenderedKey = visCalcKeys.includes('_afternoonRendered') ? '_afternoonRendered'
-                              : visCalcKeys.includes('_morningRendered') ? '_morningRendered'
-                                : visCalcKeys[visCalcKeys.length - 1] ?? null;
+                            const overallRenderedKey = visCalcKeys.includes('_totalRendered')
+                              ? '_totalRendered'
+                              : visCalcKeys.includes('_afternoonRendered')
+                                ? '_afternoonRendered'
+                                : visCalcKeys.includes('_morningRendered')
+                                  ? '_morningRendered'
+                                  : visCalcKeys[visCalcKeys.length - 1] ?? null;
                             const overallTardKey = visTardKeys.includes('_totalTardiness') ? '_totalTardiness'
                               : visTardKeys[visTardKeys.length - 1] ?? null;
                             const showRenderedInLabel = !overallRenderedKey;
                             const showTardInLabel = !overallTardKey;
                             return (
                               <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accent}` }}>
-                                <TableCell colSpan={nonCalcCnt} sx={{ fontSize: '0.72rem', fontWeight: 800, color: T.accent, textAlign: 'right', pr: 2.5, py: 1.5, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                                <HalfDayApproveTotalsCell themeT={T} />
+                                <TableCell colSpan={nonCalcCnt - 1} sx={{ fontSize: '0.72rem', fontWeight: 800, color: T.accent, textAlign: 'right', pr: 2.5, py: 1.5, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
                                     <span>Overall rendered time ({startDate} – {endDate})</span>
                                     {(showRenderedInLabel || showTardInLabel) && (
                                       <Box sx={{ textAlign: 'right' }}>
                                         {showRenderedInLabel && (
-                                          <Typography sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.88rem', color: T.rendered.color }}>
-                                            {totals.overallRendered || '00:00:00'} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>rendered</Typography>
+                                          <Typography sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.88rem', color: T.rendered.color }}>
+                                            {(overallRenderedKey === '_totalRendered' ? totals.totalRendered : totals.overallRendered) || '00:00:00'} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>rendered</Typography>
                                           </Typography>
                                         )}
                                         {showTardInLabel && (
-                                          <Typography sx={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.8rem', color: T.tardiness.color }}>
+                                          <Typography sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.8rem', color: T.tardiness.color }}>
                                             {formatTardinessAsDaysHours(totals.overallTardiness || '00:00:00')} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>({totals.overallTardiness || '00:00:00'})</Typography>
                                           </Typography>
                                         )}
@@ -1774,14 +2112,14 @@ const AttendanceModuleNonTeachingStaff = () => {
                                   const isOverallRendered = overallRenderedKey && s.col.group === 'calc' && s.col.key === overallRenderedKey;
                                   const isOverallTardiness = overallTardKey && s.col.group === 'tard' && s.col.key === overallTardKey;
                                   if (isOverallRendered) return (
-                                    <TableCell key={s.col.key} sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem', textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
-                                      {totals.overallRendered || '00:00:00'}
+                                    <TableCell key={s.col.key} sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.95rem', textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
+                                      {(overallRenderedKey === '_totalRendered' ? totals.totalRendered : totals.overallRendered) || '00:00:00'}
                                     </TableCell>
                                   );
                                   if (isOverallTardiness) return (
                                     <TableCell key={s.col.key} sx={{ textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
-                                      <Typography sx={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.95rem' }}>{formatTardinessAsDaysHours(totals.overallTardiness || '00:00:00')}</Typography>
-                                      <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.7rem', opacity: 0.55 }}>{totals.overallTardiness || '00:00:00'}</Typography>
+                                      <Typography sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.95rem' }}>{formatTardinessAsDaysHours(totals.overallTardiness || '00:00:00')}</Typography>
+                                      <Typography sx={{ fontFamily: T.recordFont, fontWeight: 600, fontSize: '0.7rem', opacity: 0.55 }}>{totals.overallTardiness || '00:00:00'}</Typography>
                                     </TableCell>
                                   );
                                   return <TableCell key={s.col.key} sx={{ borderBottom: 'none', bgcolor: '#fafafa', textAlign: 'center', color: T.faint }}>—</TableCell>;
@@ -1813,7 +2151,7 @@ const AttendanceModuleNonTeachingStaff = () => {
                     { swatch: { bgcolor: T.leave.bg,    border: `1px solid ${T.leave.border}` },     label: 'On leave' },
                     { swatch: { bgcolor: T.suspended.bg,border: `1px solid ${T.suspended.border}` }, label: 'Work suspended' },
                     { swatch: { bgcolor: alpha('#b71c1c', 0.08), border: `1px solid ${alpha('#b71c1c', 0.55)}` }, label: 'Absent highlight' },
-                    { swatch: { bgcolor: alpha('#ff9800', 0.10), border: `1px solid ${alpha('#ff9800', 0.55)}` }, label: 'Half day highlight' },
+                    { swatch: { bgcolor: T.halfDay.bg, border: `1px solid ${T.halfDay.border}` }, label: 'Half day highlight' },
                     { swatch: { bgcolor: T.halfDay.bg,  border: `1px solid ${T.halfDay.border}` },   label: 'Half day' },
                     { swatch: { bgcolor: T.rendered.bg, border: `1px solid ${T.rendered.border}` },  label: 'Rendered totals' },
                     { swatch: { bgcolor: T.tardiness.bg,border: `1px solid ${T.tardiness.border}` }, label: 'Tardiness totals' },
@@ -1836,6 +2174,16 @@ const AttendanceModuleNonTeachingStaff = () => {
         <StyledModal open={modal.open} onClose={closeModal} title={modal.title} message={modal.message} type={modal.type} onConfirm={modal.onConfirm} showCancel={modal.showCancel} confirmLabel={modal.confirmLabel} />
 
         <OverallAttendanceCompareModal open={compareOpen} onClose={handleCompareClose} onConfirm={handleCompareConfirm} savedRow={pendingSavedOverall} proposedRecord={pendingProposedOverall} fields={OVERALL_COMPARE_FIELD_META} title="Compare saved summary vs new totals" />
+
+        <HalfDayReviewDialog
+          open={Boolean(halfDayReviewDialog)}
+          mode={halfDayReviewDialog?.mode}
+          row={halfDayReviewDialog?.row}
+          moduleType={MODULE_TYPES.NON_TEACHING}
+          themeT={T}
+          onClose={() => setHalfDayReviewDialog(null)}
+          onConfirm={commitHalfDayReview}
+        />
 
         <Zoom in={showScrollTop}>
           <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={scrollToTop}>

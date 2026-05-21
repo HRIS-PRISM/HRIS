@@ -64,6 +64,59 @@ const auditSc = async ({ req, action, recordId, targetEmployeeNumber, details })
     );
   } catch {}
 };
+
+/** Always mirror balance changes to transaction_table + audit_log (same pattern as leave_assignment). */
+const logScBalanceChange = async ({
+  req,
+  targetEmp,
+  recordId,
+  action,
+  period_year,
+  period_month,
+  balBeforeRem,
+  balAfterRem,
+  details = {},
+}) => {
+  const actorEmp = getActorEmpNum(req);
+  const emp = String(targetEmp || "").trim();
+  if (!emp) return;
+  const [actorName, targetName] = await Promise.all([
+    getEmployeeFullName(actorEmp),
+    getEmployeeFullName(emp),
+  ]);
+  const actorDisplay = formatUserDisplayName(actorEmp, actorName);
+  const targetDisplay = formatUserDisplayName(emp, targetName);
+  const hasBal =
+    balBeforeRem != null &&
+    balAfterRem != null &&
+    Number.isFinite(Number(balBeforeRem)) &&
+    Number.isFinite(Number(balAfterRem));
+  const b0 = hasBal ? toNum(balBeforeRem) : null;
+  const b1 = hasBal ? toNum(balAfterRem) : null;
+  const delta = hasBal ? b1 - b0 : null;
+  const balPart = hasBal
+    ? ` Balance updated: ${b0.toFixed(3)} hrs → ${b1.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`
+    : "";
+  const msg = `${actorDisplay} ${action} Service Credit for ${targetDisplay} (record #${recordId}) for period ${fmtPeriod(period_year, period_month)}.${balPart}`;
+  await insertTransactionLog(emp, msg);
+  await auditSc({
+    req,
+    action,
+    recordId,
+    targetEmployeeNumber: emp,
+    details: {
+      ...details,
+      transaction_message: msg,
+      ...(hasBal
+        ? {
+            balance_before_remaining: b0,
+            balance_after_remaining: b1,
+            balance_delta_remaining: delta,
+          }
+        : {}),
+    },
+  });
+};
  
 // ─── GET /ot-types ────────────────────────────────────────────────────────────
 router.get('/ot-types', (req, res) => {
@@ -175,93 +228,129 @@ router.post('/service_credit', authenticateToken, requireAdmin, (req, res) => {
     emp_category_snapshot || null,
   ];
 
-  db.query(q, values, (err, result) => {
+  db.query(q, values, async (err, result) => {
     if (err) {
       console.error('service_credit POST error:', err);
       return res.status(500).json({ error: err.message });
     }
 
-    (async () => {
-      const emp = String(employeeNumber || "").trim();
-      const earned = toNum(earned_hours);
-      const actorEmp = getActorEmpNum(req);
-      const [actorName, targetName] = await Promise.all([
-        getEmployeeFullName(actorEmp),
-        getEmployeeFullName(emp),
-      ]);
-      const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-      const targetDisplay = formatUserDisplayName(emp, targetName);
-      const msg = `${actorDisplay} assigned Service Credit (${earned.toFixed(3)} hrs) to ${targetDisplay} for period ${fmtPeriod(period_year, period_month)}.`;
-      await insertTransactionLog(emp, msg);
-      await auditSc({
+    const newId = result.insertId;
+    const emp = String(employeeNumber || "").trim();
+    const earned = toNum(earned_hours);
+    const rem = toNum(remaining_hours ?? earned_hours);
+
+    try {
+      const balBefore = Math.max(0, rem - earned);
+      await logScBalanceChange({
         req,
-        action: "Create",
-        recordId: result.insertId,
-        targetEmployeeNumber: emp,
+        targetEmp: emp,
+        recordId: newId,
+        action: "assigned",
+        period_year,
+        period_month,
+        balBeforeRem: balBefore,
+        balAfterRem: rem,
         details: {
           employeeNumber: emp,
           sc_type,
-          earned_hours,
+          earned_hours: earned,
           period_year,
           period_month,
           remarks,
+          source: "service_credit_create",
         },
       });
-    })();
-
-    res.json({ id: result.insertId, ...req.body });
+      res.json({ id: newId, ...req.body });
+    } catch (e) {
+      console.error("[service_credit] POST audit:", e.message);
+      res.status(500).json({ error: "Service credit saved but failed to write audit log" });
+    }
   });
 });
  
 // ─── PUT /service_credit/:id ──────────────────────────────────────────────────
+// Append-only ledger snapshot (do not UPDATE in place — running balance reads latest id).
 router.put('/service_credit/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { earned_hours, total_ot_hours, used_hours, remarks, sc_type } = req.body;
-  const rem = Math.max(0, (parseFloat(earned_hours) || 0) - (parseFloat(used_hours) || 0));
- 
-  db.query(
-    `UPDATE service_credit
-     SET earned_hours   = ?,
-         total_ot_hours = ?,
-         remaining_hours= ?,
-         used_hours     = ?,
-         remarks        = ?,
-         sc_type        = COALESCE(?, sc_type)
-     WHERE id = ?`,
-    [
-      parseFloat(earned_hours)    || 0,
-      parseFloat(total_ot_hours)  || 0,
-      rem,
-      parseFloat(used_hours)      || 0,
-      remarks                     || null,
-      sc_type                     || null,
-      id,
-    ],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
-      (async () => {
-        const actorEmp = getActorEmpNum(req);
-        const targetEmp = String(req.body.employeeNumber || req.body.employee_number || "").trim();
-        const [actorName, targetName] = await Promise.all([
-          getEmployeeFullName(actorEmp),
-          getEmployeeFullName(targetEmp),
-        ]);
-        const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-        const targetDisplay = formatUserDisplayName(targetEmp, targetName);
-        const msg = `${actorDisplay} updated Service Credit (record #${id}) for ${targetDisplay} for period ${fmtPeriod(req.body.period_year, req.body.period_month)}.`;
-        await insertTransactionLog(targetEmp, msg);
-        await auditSc({
-          req,
-          action: "Update",
-          recordId: id,
-          targetEmployeeNumber: targetEmp || null,
-          details: { id, earned_hours, total_ot_hours, used_hours, remarks, sc_type, remaining_hours: rem },
-        });
-      })();
-      res.json({ id, ...req.body, remaining_hours: rem });
-    }
-  );
+
+  db.query('SELECT * FROM service_credit WHERE id = ?', [id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+
+    const rec = rows[0];
+    const emp = rec.employeeNumber;
+    const scTypeEff = sc_type || rec.sc_type || 'non_commutative';
+    const snapEarned = toNum(earned_hours);
+    const snapUsed = toNum(used_hours);
+    const snapRem = Math.max(0, snapEarned - snapUsed);
+    const ledgerRemark = [`service_credit_manual_adjust:source_row_${id}`, remarks]
+      .filter(Boolean)
+      .join(' · ');
+
+    getServiceCreditRunningTotals(emp, scTypeEff, (errSum, cur) => {
+      if (errSum) return res.status(500).json({ error: errSum.message });
+      const balBefore = cur.remaining;
+
+      db.query(
+        `INSERT INTO service_credit
+          (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
+           earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          emp,
+          scTypeEff,
+          toNum(rec.ot_hours_regular),
+          toNum(rec.ot_hours_holiday),
+          toNum(rec.ot_hours_night_diff),
+          toNum(total_ot_hours),
+          snapEarned,
+          snapRem,
+          snapUsed,
+          rec.period_year,
+          rec.period_month,
+          ledgerRemark,
+          rec.emp_category_snapshot || null,
+        ],
+        async (errIns, insRes) => {
+          if (errIns) return res.status(500).json({ error: errIns.message });
+          const newId = insRes.insertId;
+          try {
+            await logScBalanceChange({
+              req,
+              targetEmp: emp,
+              recordId: newId,
+              action: "updated",
+              period_year: rec.period_year,
+              period_month: rec.period_month,
+              balBeforeRem: balBefore,
+              balAfterRem: snapRem,
+              details: {
+                source_service_credit_id: id,
+                service_credit_id: newId,
+                earned_hours: snapEarned,
+                used_hours: snapUsed,
+                remaining_hours: snapRem,
+                total_ot_hours: toNum(total_ot_hours),
+                sc_type: scTypeEff,
+                remarks,
+              },
+            });
+            res.json({
+              id: newId,
+              ...req.body,
+              employeeNumber: emp,
+              sc_type: scTypeEff,
+              remaining_hours: snapRem,
+            });
+          } catch (e) {
+            console.error("[service_credit] PUT audit:", e.message);
+            res.status(500).json({ error: "Ledger updated but failed to write audit log" });
+          }
+        },
+      );
+    });
+  });
 });
  
 // ─── DELETE /service_credit/:id ───────────────────────────────────────────────
@@ -269,29 +358,27 @@ router.delete('/service_credit/:id', authenticateToken, requireAdmin, (req, res)
   const id = req.params.id;
   db.query('SELECT employeeNumber FROM service_credit WHERE id = ? LIMIT 1', [id], (e0, rows0) => {
     const emp = !e0 && rows0 && rows0[0] ? rows0[0].employeeNumber : null;
-    db.query('DELETE FROM service_credit WHERE id = ?', [id], (err, r) => {
+    db.query('DELETE FROM service_credit WHERE id = ?', [id], async (err, r) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!r.affectedRows) return res.status(404).json({ error: 'Not found' });
-    (async () => {
-      const actorEmp = getActorEmpNum(req);
-      const targetEmp = String(emp || "").trim();
-      const [actorName, targetName] = await Promise.all([
-        getEmployeeFullName(actorEmp),
-        getEmployeeFullName(targetEmp),
-      ]);
-      const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-      const targetDisplay = formatUserDisplayName(targetEmp, targetName);
-      const msg = `${actorDisplay} deleted Service Credit (record #${id}) for ${targetDisplay}.`;
-      await insertTransactionLog(targetEmp, msg);
-      await auditSc({
+    const targetEmp = String(emp || "").trim();
+    try {
+      await logScBalanceChange({
         req,
-        action: "Delete",
+        targetEmp,
         recordId: id,
-        targetEmployeeNumber: targetEmp,
-        details: { id },
+        action: "deleted",
+        period_year: null,
+        period_month: null,
+        balBeforeRem: null,
+        balAfterRem: null,
+        details: { id, source: "service_credit_delete" },
       });
-    })();
-    res.json({ message: 'Deleted' });
+      res.json({ message: 'Deleted' });
+    } catch (e) {
+      console.error("[service_credit] DELETE audit:", e.message);
+      res.status(500).json({ error: "Record deleted but failed to write audit log" });
+    }
     });
   });
 });
@@ -350,28 +437,27 @@ router.post('/service_credit/:id/action', authenticateToken, requireAdmin, (req,
           );
 
           (async () => {
-            const actorEmp = getActorEmpNum(req);
-            const [actorName, targetName] = await Promise.all([
-              getEmployeeFullName(actorEmp),
-              getEmployeeFullName(emp),
-            ]);
-            const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-            const targetDisplay = formatUserDisplayName(emp, targetName);
-            const msg = `${actorDisplay} applied Service Credit action "${action}" (${toNum(apply).toFixed(3)} hrs) to ${targetDisplay} (source #${id} → snapshot #${newScId}) for period ${fmtPeriod(rec.period_year, rec.period_month)}.`;
-            await insertTransactionLog(emp, msg);
-            await auditSc({
-              req,
-              action: "Action",
-              recordId: newScId,
-              targetEmployeeNumber: emp,
-              details: {
-                source_service_credit_id: id,
-                service_credit_id: newScId,
-                action,
-                hours_applied: apply,
-                target_leave_code: targetLeaveCode || null,
-              },
-            });
+            try {
+              await logScBalanceChange({
+                req,
+                targetEmp: emp,
+                recordId: newScId,
+                action: `applied action "${action}" (${toNum(apply).toFixed(3)} hrs deducted)`,
+                period_year: rec.period_year,
+                period_month: rec.period_month,
+                balBeforeRem: totalRem,
+                balAfterRem: snapRem,
+                details: {
+                  source_service_credit_id: id,
+                  service_credit_id: newScId,
+                  action,
+                  hours_applied: apply,
+                  target_leave_code: targetLeaveCode || null,
+                },
+              });
+            } catch (e) {
+              console.error("[service_credit] action audit:", e.message);
+            }
           })();
 
           if ((action === 'convert_to_sl' || action === 'convert_to_vl') && targetLeaveCode) {
@@ -514,15 +600,41 @@ router.post('/service_credit/:id/commute', (req, res) => {
                 () => {}
               );
 
-              res.json({
-                message: 'Service Credit transferred to commutation',
-                commutation_id: insResult.insertId,
-                service_credit_id: newScId,
-                employeeNumber: emp,
-                commuted_hours: remHrs,
-                commuted_days: commutedDays,
-                status: 0,
-              });
+              (async () => {
+                try {
+                  await logScBalanceChange({
+                    req,
+                    targetEmp: emp,
+                    recordId: newScId,
+                    action: `transferred to commutation (${toNum(remHrs).toFixed(3)} hrs)`,
+                    period_year: rec.period_year,
+                    period_month: rec.period_month,
+                    balBeforeRem: remHrs,
+                    balAfterRem: snapRem,
+                    details: {
+                      source_service_credit_id: id,
+                      service_credit_id: newScId,
+                      commutation_id: insResult.insertId,
+                      commuted_hours: remHrs,
+                      commuted_days: commutedDays,
+                    },
+                  });
+                  res.json({
+                    message: 'Service Credit transferred to commutation',
+                    commutation_id: insResult.insertId,
+                    service_credit_id: newScId,
+                    employeeNumber: emp,
+                    commuted_hours: remHrs,
+                    commuted_days: commutedDays,
+                    status: 0,
+                  });
+                } catch (e) {
+                  console.error("[service_credit] commute audit:", e.message);
+                  res.status(500).json({
+                    error: 'Commutation recorded but failed to write audit log',
+                  });
+                }
+              })();
             }
           );
         }

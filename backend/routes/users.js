@@ -1230,13 +1230,6 @@ router.get('/users/search', authenticateToken, (req, res) => {
         return res.status(500).json({ error: 'Failed to search users' });
       }
 
-      // Log audit
-      try {
-        logAudit(req.user, 'Search', 'users', null, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
-
       res.status(200).json(results);
     });
   } catch (err) {
@@ -1244,6 +1237,53 @@ router.get('/users/search', authenticateToken, (req, res) => {
     res.status(500).json({ error: 'Failed to search users' });
   }
 });
+
+// POST: Module-scoped employee search audit (on select, not autocomplete typing)
+router.post(
+  '/users/module-employee-search-audit',
+  authenticateToken,
+  (req, res) => {
+    const {
+      module,
+      action = 'Select employee',
+      targetEmployeeNumber,
+      targetName,
+      searchQuery,
+      periodLabel,
+    } = req.body || {};
+
+    if (!module || !targetEmployeeNumber) {
+      return res
+        .status(400)
+        .json({ error: 'module and targetEmployeeNumber are required' });
+    }
+
+    try {
+      const details = {
+        button: action,
+        actor_employeeNumber: req.user?.employeeNumber ?? null,
+        target_employeeNumber: String(targetEmployeeNumber),
+        target_name: targetName || null,
+        search_query: searchQuery || null,
+        month_label: periodLabel || null,
+        when: new Date().toISOString(),
+      };
+
+      logAudit(
+        req.user,
+        action,
+        String(module),
+        searchQuery || null,
+        String(targetEmployeeNumber),
+        details,
+      );
+    } catch (e) {
+      console.error('Module employee search audit error:', e);
+    }
+
+    res.json({ ok: true });
+  },
+);
 
 // GET SINGLE USER WITH PAGE ACCESS
 router.get('/users/:employeeNumber', authenticateToken, async (req, res) => {

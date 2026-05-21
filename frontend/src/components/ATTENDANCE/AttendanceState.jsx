@@ -1,7 +1,7 @@
 import API_BASE_URL from "../../apiConfig";
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from "react";
 import axios from "axios";
-import { useSocket } from "../../contexts/SocketContext";
+import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
 import {
   Box,
   Typography,
@@ -37,11 +37,14 @@ import {
   Assignment,
 } from "@mui/icons-material";
 import { Grid } from "@mui/material";
-import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
+import {
+  buildAuditPeriodLabel,
+  logAttendanceStateView,
+} from "../../utils/moduleEmployeeSearchAudit";
 import {
   Paper,
   List,
@@ -294,8 +297,160 @@ const toISODateFromRecord = (rawDate) => {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 };
 
+const recordSortTimestamp = (record) => {
+  const [month, day, year] = String(record?.Date || "").split("/");
+  if (month && day && year) {
+    const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${record?.Time || "00:00:00"}`;
+    const ts = new Date(iso).getTime();
+    if (!Number.isNaN(ts)) return ts;
+  }
+  const fallback = new Date(`${record?.Date || ""} ${record?.Time || ""}`).getTime();
+  return Number.isNaN(fallback) ? 0 : fallback;
+};
+
+const enrichAttendanceRecords = (rows) =>
+  rows.map((record, index) => {
+    const iso = toISODateFromRecord(record?.Date);
+    const sortTs = recordSortTimestamp(record);
+    const dateForLabel = iso ? new Date(`${iso}T12:00:00`) : null;
+    const dateLabel =
+      dateForLabel && !Number.isNaN(dateForLabel.getTime())
+        ? dateForLabel.toLocaleDateString("en-US", {
+            weekday: "short",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          })
+        : String(record?.Date || "");
+    return {
+      ...record,
+      _isoDate: iso,
+      _sortTs: sortTs,
+      _dateLabel: dateLabel,
+      _rowKey: `${record?.PersonID ?? ""}|${record?.Date ?? ""}|${record?.Time ?? ""}|${record?.AttendanceState ?? ""}|${index}`,
+    };
+  });
+
+// ─── Memoized table row ────────────────────────────────────────────────────
+const AttendanceStateRow = React.memo(function AttendanceStateRow({
+  record,
+  rowIndex,
+  expanded,
+  onToggle,
+}) {
+  const state = record.AttendanceState;
+  const stateColor = getAttendanceColor(state);
+  return (
+    <>
+      <Box
+        onClick={onToggle}
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
+          px: 2.5,
+          py: 1.5,
+          gap: 2,
+          alignItems: "center",
+          bgcolor: rowIndex % 2 === 0 ? "#fff" : T.rowOdd,
+          borderBottom: `1px solid ${T.divider}`,
+          cursor: "pointer",
+          transition: "background 0.12s",
+          "&:hover": { bgcolor: T.rowHover },
+          "&:last-child": { borderBottom: "none" },
+        }}
+      >
+        <Typography sx={{ fontWeight: 600, fontSize: "0.82rem", color: T.text }}>
+          {record._dateLabel}
+        </Typography>
+        <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontWeight: 500 }}>
+          {record.Time}
+        </Typography>
+        <Box
+          sx={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 0.6,
+            px: 1.25,
+            py: 0.4,
+            borderRadius: "12px",
+            bgcolor: alpha(stateColor, 0.1),
+            border: `1px solid ${alpha(stateColor, 0.25)}`,
+          }}
+        >
+          {getAttendanceIcon(state)}
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: stateColor }}>
+            {getAttendanceLabel(state)}
+          </Typography>
+        </Box>
+        <RowBtn
+          icon={
+            expanded ? (
+              <KeyboardArrowUp sx={{ fontSize: 13 }} />
+            ) : (
+              <KeyboardArrowDown sx={{ fontSize: 13 }} />
+            )
+          }
+          label={expanded ? "Collapse" : "Details"}
+          color={T.accent}
+          hoverBg={T.accentFaint}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        />
+      </Box>
+      {expanded && (
+        <Box sx={{ px: 2.5, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>
+          <Typography
+            sx={{
+              fontSize: "0.7rem",
+              fontWeight: 700,
+              color: T.accent,
+              mb: 1.25,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            Record Details
+          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+            {[
+              { label: "Employee ID", value: record.PersonID },
+              { label: "Date", value: record.Date },
+              { label: "Time", value: record.Time },
+              { label: "Status", value: getAttendanceLabel(state) },
+            ].map(({ label, value }) => (
+              <Box key={label}>
+                <Typography
+                  sx={{
+                    fontSize: "0.68rem",
+                    color: T.faint,
+                    mb: 0.3,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  {label}
+                </Typography>
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>
+                  {value}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </>
+  );
+});
+
 // ─── Employee search field ─────────────────────────────────────────────────
-const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }) => {
+const EmployeeSearchField = ({
+  value,
+  onSelectEmployeeNumber,
+  onSelectEmployee,
+  disabled = false,
+}) => {
   const [query, setQuery]               = useState(value || "");
   const [debouncedQuery, setDebouncedQuery] = useState(value || "");
   const [results, setResults]           = useState([]);
@@ -352,6 +507,7 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
   const handleSelect = (emp) => {
     const num = getEmployeeIdentifier(emp) || "";
     onSelectEmployeeNumber(num);
+    onSelectEmployee?.(emp || null);
     setQuery(num);
     setDebouncedQuery(num);
     setOpen(false);
@@ -361,6 +517,7 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
     if (abortRef.current) abortRef.current.abort();
     setQuery(""); setDebouncedQuery(""); setResults([]); setOpen(false);
     onSelectEmployeeNumber("");
+    onSelectEmployee?.(null);
   };
 
   return (
@@ -436,10 +593,8 @@ const EmployeeSearchField = ({ value, onSelectEmployeeNumber, disabled = false }
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const AllAttendanceRecord = () => {
-  const { socket, connected } = useSocket();
-  const { settings } = useSystemSettings();
-
   const [personID, setPersonID]           = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [startDate, setStartDate]         = useState("");
   const [endDate, setEndDate]             = useState("");
   const [records, setRecords]             = useState([]);
@@ -457,8 +612,9 @@ const AllAttendanceRecord = () => {
 
   const fetchRecordsRef       = useRef(null);
   const requestControllerRef  = useRef(null);
+  const loadingRequestIdRef   = useRef(0);
+  const isLoadingFetchRef     = useRef(false);
   const queryCacheRef         = useRef(new Map());
-  const socketRefreshTimeout  = useRef(null);
 
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -483,26 +639,73 @@ const AllAttendanceRecord = () => {
     },
   });
 
-  const fetchRecords = async (showLoading = true, { force = false } = {}) => {
-    if (!personID || !startDate || !endDate) return;
+  const getStateTargetUsername = useCallback(() => {
+    const u = selectedEmployee?.username;
+    if (u) return String(u).trim();
+    return String(personID || "").trim();
+  }, [selectedEmployee, personID]);
+
+  const getStateMonthLabel = useCallback(
+    () =>
+      buildAuditPeriodLabel({
+        selectedMonth,
+        monthNames: monthsShort,
+        selectedYear,
+        startDate,
+        endDate,
+      }),
+    [selectedMonth, selectedYear, startDate, endDate],
+  );
+
+  const auditStateView = useCallback(
+    (recordsCount) => {
+      const targetId = String(personID || "").trim();
+      if (!targetId || !startDate || !endDate) return;
+      logAttendanceStateView({
+        targetEmployeeNumber: targetId,
+        targetUsername: getStateTargetUsername(),
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: getStateMonthLabel(),
+        recordsCount,
+      });
+    },
+    [personID, startDate, endDate, getStateTargetUsername, getStateMonthLabel],
+  );
+
+  const fetchRecords = useCallback(async (
+    showLoading = true,
+    { force = false } = {},
+  ) => {
+    if (!personID || !startDate || !endDate) return null;
     const normalizedID = String(personID || "").trim();
     const queryKey = `${normalizedID}|${startDate}|${endDate}`;
 
     setExpandedRow(null);
 
     if (!force && queryCacheRef.current.has(queryKey)) {
-      setRecords(queryCacheRef.current.get(queryKey) || []);
-      setLoading(false);
-      return;
+      const cached = queryCacheRef.current.get(queryKey) || [];
+      startTransition(() => setRecords(cached));
+      if (showLoading) {
+        setLoading(false);
+        setSuccessOverlayOpen(true);
+      }
+      return cached.length;
     }
 
+    let loadingRequestId = 0;
     if (showLoading) {
+      loadingRequestId = ++loadingRequestIdRef.current;
+      isLoadingFetchRef.current = true;
       setLoading(true);
       setSuccessOverlayOpen(false);
+      if (requestControllerRef.current) requestControllerRef.current.abort();
+    } else if (isLoadingFetchRef.current) {
+      return null;
     }
+
     setError("");
 
-    if (requestControllerRef.current) requestControllerRef.current.abort();
     const controller = new AbortController();
     requestControllerRef.current = controller;
 
@@ -519,17 +722,16 @@ const AllAttendanceRecord = () => {
           startDate: adjustedStart.toISOString().substring(0, 10),
           endDate: adjustedEnd.toISOString().substring(0, 10),
         },
-        { ...getAuthHeaders(), signal: controller.signal }
+        { ...getAuthHeaders(), signal: controller.signal },
       );
 
-      const filteredData = response.data.filter((record) => {
-        const dateParts = record.Date.split("/");
-        if (dateParts.length === 3) {
-          const recordDate = `${dateParts[2]}-${dateParts[0].padStart(2, "0")}-${dateParts[1].padStart(2, "0")}`;
-          return recordDate >= startDate && recordDate <= endDate;
-        }
-        return false;
-      });
+      const raw = Array.isArray(response.data) ? response.data : [];
+      const filteredData = enrichAttendanceRecords(
+        raw.filter((record) => {
+          const iso = toISODateFromRecord(record?.Date);
+          return iso && iso >= startDate && iso <= endDate;
+        }),
+      );
 
       queryCacheRef.current.set(queryKey, filteredData);
       if (queryCacheRef.current.size > 20) {
@@ -537,45 +739,43 @@ const AllAttendanceRecord = () => {
         queryCacheRef.current.delete(firstKey);
       }
 
-      setRecords(filteredData);
+      startTransition(() => setRecords(filteredData));
       if (showLoading) setSuccessOverlayOpen(true);
+      return filteredData.length;
     } catch (err) {
-      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return null;
       console.error("Error fetching attendance records:", err);
       setError("Failed to fetch attendance records");
+      return null;
     } finally {
-      if (showLoading && requestControllerRef.current === controller) setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchRecordsRef.current = fetchRecords; });
-
-  // Socket live-update
-  useEffect(() => {
-    if (!socket || !connected) return;
-    const handleAttendanceChanged = (payload) => {
-      const changedIDs = Array.isArray(payload?.personIDs)
-        ? payload.personIDs
-        : payload?.personID ? [payload.personID] : [];
-      const currentID = String(personID || "").trim();
-      if (currentID && changedIDs.length > 0 && !changedIDs.map(String).includes(currentID)) return;
-      if (personID && startDate && endDate && hasSearched) {
-        if (socketRefreshTimeout.current) clearTimeout(socketRefreshTimeout.current);
-        socketRefreshTimeout.current = setTimeout(() => {
-          fetchRecordsRef.current?.(false, { force: true });
-        }, 250);
+      if (showLoading && loadingRequestId === loadingRequestIdRef.current) {
+        isLoadingFetchRef.current = false;
+        setLoading(false);
       }
-    };
-    socket.on("attendanceChanged", handleAttendanceChanged);
-    return () => {
-      socket.off("attendanceChanged", handleAttendanceChanged);
-      if (socketRefreshTimeout.current) clearTimeout(socketRefreshTimeout.current);
-    };
-  }, [socket, connected, personID, startDate, endDate, hasSearched]);
+    }
+  }, [personID, startDate, endDate]);
+
+  useEffect(() => {
+    fetchRecordsRef.current = fetchRecords;
+  }, [fetchRecords]);
+
+  useAttendanceRealtimeRefresh(
+    useCallback(() => {
+      if (!hasSearched || !personID || !startDate || !endDate) return;
+      fetchRecordsRef.current?.(false, { force: true });
+    }, [hasSearched, personID, startDate, endDate]),
+    {
+      personId: personID,
+      startDate,
+      endDate,
+      requireDateRange: true,
+      matchMode: "strict",
+      debounceMs: 250,
+    },
+  );
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
-    if (socketRefreshTimeout.current) clearTimeout(socketRefreshTimeout.current);
   }, []);
 
   const handleMonthClick = (monthIndex) => {
@@ -619,13 +819,17 @@ const AllAttendanceRecord = () => {
     }
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!personID || !startDate || !endDate) {
       setError("Please enter an employee number and select a period.");
       return;
     }
+    setError("");
     setHasSearched(true);
-    fetchRecords(true);
+    const count = await fetchRecords(true, { force: true });
+    if (count > 0) {
+      auditStateView(count);
+    }
   };
 
   const handleSort      = () => setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -633,23 +837,11 @@ const AllAttendanceRecord = () => {
 
   const filteredRecords = useMemo(() => {
     const visibleRecords = recordDateFilter
-      ? records.filter((record) => toISODateFromRecord(record?.Date) === recordDateFilter)
+      ? records.filter((record) => record._isoDate === recordDateFilter)
       : records;
-
-    const toTimestamp = (record) => {
-      const [month, day, year] = String(record?.Date || "").split("/");
-      if (month && day && year) {
-        const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${record?.Time || "00:00:00"}`;
-        const ts = new Date(iso).getTime();
-        if (!Number.isNaN(ts)) return ts;
-      }
-      const fallback = new Date(`${record?.Date || ""} ${record?.Time || ""}`).getTime();
-      return Number.isNaN(fallback) ? 0 : fallback;
-    };
     return [...visibleRecords].sort((a, b) => {
-      const dateA = toTimestamp(a);
-      const dateB = toTimestamp(b);
-      return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
+      const diff = (a._sortTs ?? 0) - (b._sortTs ?? 0);
+      return sortOrder === "asc" ? diff : -diff;
     });
   }, [records, sortOrder, recordDateFilter]);
 
@@ -765,9 +957,11 @@ const AllAttendanceRecord = () => {
             value={personID}
             onSelectEmployeeNumber={(next) => {
               setPersonID(next);
+              if (!next) setSelectedEmployee(null);
               setHasSearched(false);
               setRecords([]);
             }}
+            onSelectEmployee={setSelectedEmployee}
           />
         </Box>
         <AccentButton
@@ -986,112 +1180,64 @@ const AllAttendanceRecord = () => {
                       </Typography>
                     </Box>
                   ) : (
-                    <Fade in timeout={100}>
-                      <Box>
-                        {/* Column headers */}
-                        <Box
-                          sx={{
-                            display: "grid",
-                            gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
-                            px: 2.5, py: 1.25,
-                            bgcolor: T.accent, gap: 2,
-                            position: "sticky", top: 0, zIndex: 2,
-                          }}
-                        >
-                          {[
-                            { label: "DATE", sortable: true },
-                            { label: "TIME" },
-                            { label: "STATUS" },
-                            { label: "DETAILS" },
-                          ].map(({ label, sortable }) => (
-                            <Typography
-                              key={label}
-                              onClick={sortable ? handleSort : undefined}
-                              sx={{
-                                color: "#fff", fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.07em",
-                                cursor: sortable ? "pointer" : "default",
-                                display: "flex", alignItems: "center", gap: 0.5,
-                                userSelect: "none",
-                                "&:hover": sortable ? { opacity: 0.8 } : {},
-                              }}
-                            >
-                              {label}
-                              {sortable && (sortOrder === "asc"
-                                ? <KeyboardArrowUp sx={{ fontSize: 14 }} />
-                                : <KeyboardArrowDown sx={{ fontSize: 14 }} />
-                              )}
-                            </Typography>
-                          ))}
-                        </Box>
-
-                        {/* Rows */}
-                        {filteredRecords.map((record, idx) => (
-                          <React.Fragment key={idx}>
-                            <Box
-                              onClick={() => handleRowExpand(idx)}
-                              sx={{
-                                display: "grid",
-                                gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
-                                px: 2.5, py: 1.5, gap: 2,
-                                alignItems: "center",
-                                bgcolor: idx % 2 === 0 ? "#fff" : T.rowOdd,
-                                borderBottom: `1px solid ${T.divider}`,
-                                cursor: "pointer",
-                                transition: "background 0.12s",
-                                "&:hover": { bgcolor: T.rowHover },
-                                "&:last-child": { borderBottom: "none" },
-                              }}
-                            >
-                              {/* Date */}
-                              <Typography sx={{ fontWeight: 600, fontSize: "0.82rem", color: T.text }}>
-                                {new Date(record.Date).toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
-                              </Typography>
-                              {/* Time */}
-                              <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontWeight: 500 }}>
-                                {record.Time}
-                              </Typography>
-                              {/* Status chip */}
-                              <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, px: 1.25, py: 0.4, borderRadius: "12px", bgcolor: alpha(getAttendanceColor(record.AttendanceState), 0.1), border: `1px solid ${alpha(getAttendanceColor(record.AttendanceState), 0.25)}` }}>
-                                {getAttendanceIcon(record.AttendanceState)}
-                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: getAttendanceColor(record.AttendanceState) }}>
-                                  {getAttendanceLabel(record.AttendanceState)}
-                                </Typography>
-                              </Box>
-                              {/* Expand */}
-                              <RowBtn
-                                icon={expandedRow === idx ? <KeyboardArrowUp sx={{ fontSize: 13 }} /> : <KeyboardArrowDown sx={{ fontSize: 13 }} />}
-                                label={expandedRow === idx ? "Collapse" : "Details"}
-                                color={T.accent}
-                                hoverBg={T.accentFaint}
-                                onClick={(e) => { e.stopPropagation(); handleRowExpand(idx); }}
-                              />
-                            </Box>
-
-                            {/* Expanded row */}
-                            {expandedRow === idx && (
-                              <Box sx={{ px: 2.5, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>
-                                <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent, mb: 1.25, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                                  Record Details
-                                </Typography>
-                                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                                  {[
-                                    { label: "Employee ID", value: record.PersonID },
-                                    { label: "Date",        value: record.Date },
-                                    { label: "Time",        value: record.Time },
-                                    { label: "Status",      value: getAttendanceLabel(record.AttendanceState) },
-                                  ].map(({ label, value }) => (
-                                    <Box key={label}>
-                                      <Typography sx={{ fontSize: "0.68rem", color: T.faint, mb: 0.3, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</Typography>
-                                      <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>{value}</Typography>
-                                    </Box>
-                                  ))}
-                                </Box>
-                              </Box>
-                            )}
-                          </React.Fragment>
+                    <Box>
+                      {/* Column headers */}
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
+                          px: 2.5,
+                          py: 1.25,
+                          bgcolor: T.accent,
+                          gap: 2,
+                          position: "sticky",
+                          top: 0,
+                          zIndex: 2,
+                        }}
+                      >
+                        {[
+                          { label: "DATE", sortable: true },
+                          { label: "TIME" },
+                          { label: "STATUS" },
+                          { label: "DETAILS" },
+                        ].map(({ label, sortable }) => (
+                          <Typography
+                            key={label}
+                            onClick={sortable ? handleSort : undefined}
+                            sx={{
+                              color: "#fff",
+                              fontSize: "0.6rem",
+                              fontWeight: 700,
+                              letterSpacing: "0.07em",
+                              cursor: sortable ? "pointer" : "default",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                              userSelect: "none",
+                              "&:hover": sortable ? { opacity: 0.8 } : {},
+                            }}
+                          >
+                            {label}
+                            {sortable &&
+                              (sortOrder === "asc" ? (
+                                <KeyboardArrowUp sx={{ fontSize: 14 }} />
+                              ) : (
+                                <KeyboardArrowDown sx={{ fontSize: 14 }} />
+                              ))}
+                          </Typography>
                         ))}
                       </Box>
-                    </Fade>
+
+                      {filteredRecords.map((record, idx) => (
+                        <AttendanceStateRow
+                          key={record._rowKey}
+                          record={record}
+                          rowIndex={idx}
+                          expanded={expandedRow === idx}
+                          onToggle={() => handleRowExpand(idx)}
+                        />
+                      ))}
+                    </Box>
                   )}
                 </Box>
 
@@ -1133,7 +1279,12 @@ const AllAttendanceRecord = () => {
         </Zoom>
 
         {/* Unified loading & success overlays — matches AttendanceUserState */}
-        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+        <LoadingOverlay
+          open={loading}
+          message="Fetching attendance records…"
+          showDelayMs={0}
+          minVisibleMs={0}
+        />
         <SuccessfulOverlay
           open={successOverlayOpen}
           onClose={() => setSuccessOverlayOpen(false)}

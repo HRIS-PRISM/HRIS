@@ -180,6 +180,80 @@ const getScEmployeeLedgerSummary = (records) => {
   );
 };
 
+const normalizeScPeriodMonth = (month) => {
+  if (month == null || month === "") return "";
+  const n = parseInt(month, 10);
+  return Number.isFinite(n) && n >= 1 && n <= 12 ? String(n) : String(month).trim();
+};
+
+const scPeriodKey = (year, month) =>
+  `${parseInt(year, 10) || 0}|${normalizeScPeriodMonth(month)}`;
+
+/** Latest ledger row per employee + period + sc_type (append-only DB; one logical row in UI). */
+const latestScRecordsByPeriod = (records, scType = "non_commutative") => {
+  const byKey = new Map();
+  for (const r of records || []) {
+    if (!r) continue;
+    if (String(r.sc_type || "non_commutative") !== scType) continue;
+    const key = scPeriodKey(r.period_year, r.period_month);
+    const prev = byKey.get(key);
+    if (!prev || toNum(r.id) > toNum(prev.id)) byKey.set(key, r);
+  }
+  return [...byKey.values()];
+};
+
+const findLatestScForPeriod = (records, employeeNumber, periodYear, periodMonth, scType = "non_commutative") => {
+  const emp = String(employeeNumber || "").trim();
+  if (!emp) return null;
+  const key = scPeriodKey(periodYear, periodMonth);
+  const matches = latestScRecordsByPeriod(
+    (records || []).filter((r) => String(r.employeeNumber) === emp),
+    scType,
+  );
+  return matches.find((r) => scPeriodKey(r.period_year, r.period_month) === key) || null;
+};
+
+/** Per-month: one ledger row per month. No month: update existing SC for employee/year (no new rows). */
+const isPerMonthScTracking = (periodMonth) => Boolean(normalizeScPeriodMonth(periodMonth));
+
+const findScSaveTarget = (
+  records,
+  employeeNumber,
+  periodYear,
+  periodMonth,
+  scType = "non_commutative",
+) => {
+  const emp = String(employeeNumber || "").trim();
+  if (!emp) return null;
+  const py = parseInt(periodYear, 10) || 0;
+
+  if (isPerMonthScTracking(periodMonth)) {
+    return findLatestScForPeriod(records, emp, py, periodMonth, scType);
+  }
+
+  const chain = (records || []).filter(
+    (r) =>
+      String(r.employeeNumber) === emp &&
+      String(r.sc_type || "non_commutative") === scType,
+  );
+  if (!chain.length) return null;
+
+  const noMonthForYear = chain.filter(
+    (r) =>
+      !normalizeScPeriodMonth(r.period_month) && toNum(r.period_year) === py,
+  );
+  if (noMonthForYear.length) {
+    return [...noMonthForYear].sort((a, b) => toNum(b.id) - toNum(a.id))[0];
+  }
+
+  const sameYear = chain.filter((r) => toNum(r.period_year) === py);
+  const pool = sameYear.length ? sameYear : chain;
+  return [...pool].sort((a, b) => toNum(b.id) - toNum(a.id))[0];
+};
+
+const getOtFieldFromValues = (otValues, otTypes, key, index) =>
+  toNum(otValues[key] ?? otValues[otTypes[index]?.id]);
+
 const computeSCFromOT = (otHours, empCatData) => {
   const ot = toNum(otHours);
   if (!empCatData) return ot;
@@ -885,7 +959,12 @@ const ServiceCredit = () => {
       }
       acc[num].records.push(r);
     });
-    return Object.values(acc).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+    return Object.values(acc)
+      .map((grp) => ({
+        ...grp,
+        displayRecords: latestScRecordsByPeriod(grp.records),
+      }))
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
   }, [filteredRecords, getEmployeeInfo, buildDisplayName]);
 
   const paginatedGroups = useMemo(() => {
@@ -894,47 +973,111 @@ const ServiceCredit = () => {
   }, [groupedByEmployee, recordsPage, rowsPerPage]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
+  const perMonthTracking = isPerMonthScTracking(periodMonth);
+
+  const existingPeriodRecord = useMemo(() => {
+    const empNum = selectedEmployee?.employeeNumber?.toString().trim();
+    if (!empNum) return null;
+    return findScSaveTarget(scRecords, empNum, periodYear, periodMonth);
+  }, [scRecords, selectedEmployee, periodYear, periodMonth]);
+
   const handleAddSC = async () => {
     const empNum = selectedEmployee?.employeeNumber?.toString().trim();
     if (!empNum) { setError("Please select an employee"); return; }
     if (computedSC.total <= 0) { setError("OT hours must be > 0 to compute SC"); return; }
 
+    const py = parseInt(periodYear, 10) || new Date().getFullYear();
+    const pm = periodMonth || null;
+    const scType = "non_commutative";
+    const otRegular = getOtFieldFromValues(otValues, otTypes, "regular", 0);
+    const otHoliday = getOtFieldFromValues(otValues, otTypes, "holiday", 1);
+    const otNight = getOtFieldFromValues(otValues, otTypes, "night_diff", 2);
+    const catSnapshot = JSON.stringify({
+      label: selectedEmpCatData?.label || "",
+      is30hrs: selectedEmpCatData?.is30hrs || false,
+      is40hrs: selectedEmpCatData?.is40hrs || false,
+      isTempo: selectedEmpCatData?.isTempo || false,
+      isDesignated: selectedEmpCatData?.isDesignated || false,
+    });
+
     setLoading(true); setError("");
     try {
       const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const existing = findScSaveTarget(scRecords, empNum, py, pm, scType);
 
-      await axios.post(
-        `${API_BASE_URL}/api/service-credits/service_credit`,
-        {
-          employeeNumber:      empNum,
-          sc_type:             "non_commutative",
-          ot_hours_regular:    toNum(otValues["regular"]    || otValues[otTypes[0]?.id]),
-          ot_hours_holiday:    toNum(otValues["holiday"]    || otValues[otTypes[1]?.id]),
-          ot_hours_night_diff: toNum(otValues["night_diff"] || otValues[otTypes[2]?.id]),
-          total_ot_hours:      computedSC.totalOT,
-          earned_hours:        computedSC.total,
-          remaining_hours:     computedSC.total,
-          used_hours:          0,
-          period_year:         parseInt(periodYear, 10) || new Date().getFullYear(),
-          period_month:        periodMonth || null,
-          remarks:             otRemarks || null,
-          emp_category_snapshot: JSON.stringify({
-            label:        selectedEmpCatData?.label || "",
-            is30hrs:      selectedEmpCatData?.is30hrs || false,
-            is40hrs:      selectedEmpCatData?.is40hrs || false,
-            isTempo:      selectedEmpCatData?.isTempo || false,
-            isDesignated: selectedEmpCatData?.isDesignated || false,
-          }),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      if (existing?.id) {
+        const chainRecs = scRecords.filter(
+          (r) =>
+            String(r.employeeNumber) === empNum &&
+            String(r.sc_type || "non_commutative") === scType,
+        );
+        const chain = getScEmployeeLedgerSummary(chainRecs);
+        const usedHours = Math.max(0, chain.earnedForColor - chain.remaining);
+        const addEarned = computedSC.total;
+        const mergedRemarks = [existing.remarks, otRemarks].filter(Boolean).join(" · ").trim() || null;
+
+        await axios.put(
+          `${API_BASE_URL}/api/service-credits/service_credit/${existing.id}`,
+          {
+            sc_type: scType,
+            ot_hours_regular: toNum(existing.ot_hours_regular) + otRegular,
+            ot_hours_holiday: toNum(existing.ot_hours_holiday) + otHoliday,
+            ot_hours_night_diff: toNum(existing.ot_hours_night_diff) + otNight,
+            total_ot_hours: toNum(existing.total_ot_hours) + computedSC.totalOT,
+            earned_hours: chain.earnedForColor + addEarned,
+            remaining_hours: chain.remaining + addEarned,
+            used_hours: usedHours,
+            remarks: mergedRemarks,
+          },
+          { headers },
+        );
+        setSuccessAction("edit");
+      } else {
+        const chainRecs = scRecords.filter(
+          (r) =>
+            String(r.employeeNumber) === empNum &&
+            String(r.sc_type || "non_commutative") === scType,
+        );
+        const chain = getScEmployeeLedgerSummary(chainRecs);
+        const usedHours = Math.max(0, chain.earnedForColor - chain.remaining);
+        const addEarned = computedSC.total;
+        const newRemaining = chain.remaining + addEarned;
+
+        await axios.post(
+          `${API_BASE_URL}/api/service-credits/service_credit`,
+          {
+            employeeNumber: empNum,
+            sc_type: scType,
+            ot_hours_regular: otRegular,
+            ot_hours_holiday: otHoliday,
+            ot_hours_night_diff: otNight,
+            total_ot_hours: computedSC.totalOT,
+            earned_hours: addEarned,
+            remaining_hours: newRemaining,
+            used_hours: usedHours,
+            period_year: py,
+            period_month: pm,
+            remarks: otRemarks || null,
+            emp_category_snapshot: catSnapshot,
+          },
+          { headers },
+        );
+        setSuccessAction("adding");
+      }
+
       await fetchSCRecords();
-      setOtValues({}); setOtRemarks("");
-      setSuccessAction("adding"); setSuccessOpen(true);
+      setOtValues({});
+      setOtRemarks("");
+      setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
     } catch (err) {
-      setError("Error adding SC: " + (err.response?.data?.error || err.message));
-    } finally { setLoading(false); }
+      setError(
+        "Error saving SC: " + (err.response?.data?.error || err.message),
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleUpdate = async () => {
@@ -995,8 +1138,9 @@ const ServiceCredit = () => {
   };
 
   const openEmployeeSCModal = (grp) => {
-    setSelectedEmployeeSC(grp);
-    setSelectedSCRecord(grp.records[0] || null);
+    const display = grp.displayRecords || latestScRecordsByPeriod(grp.records);
+    setSelectedEmployeeSC({ ...grp, displayRecords: display });
+    setSelectedSCRecord(display[0] || null);
     setEmployeeSCModalOpen(true);
   };
 
@@ -1158,6 +1302,9 @@ if (accessLoading || pageLoading) {
                       <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
                         Period Month <span style={{ color: T.faint, fontSize: "0.68rem", fontWeight: 400, marginLeft: 4 }}>(optional)</span>
                       </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: T.faint, mb: 0.5, fontFamily: T.poppins, lineHeight: 1.35 }}>
+                        Leave as &quot;No specific month&quot; to add to the same SC record for the year. Pick a month to keep a separate record per month.
+                      </Typography>
                       <FormControl fullWidth size="small">
                         <Select value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} displayEmpty
                           sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontFamily: T.poppins,
@@ -1265,9 +1412,13 @@ if (accessLoading || pageLoading) {
                           boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, fontFamily: T.poppins,
                           "&:hover": { bgcolor: T.accentDark },
                           "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" } }}>
-                        {loading ? "Saving…" : computedSC.total > 0
-                          ? `Record ${fmtHrs(computedSC.total, unit)} SC for ${periodYear}${selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}`
-                          : "Enter OT hours to compute SC"}
+                        {loading
+                          ? "Saving…"
+                          : computedSC.total > 0
+                            ? existingPeriodRecord
+                              ? `Add ${fmtHrs(computedSC.total, unit)} to existing SC · ${periodYear}${perMonthTracking && selectedMonthLabel ? ` · ${selectedMonthLabel}` : perMonthTracking ? "" : " (year total)"}`
+                              : `Record ${fmtHrs(computedSC.total, unit)} SC for ${periodYear}${selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}`
+                            : "Enter OT hours to compute SC"}
                       </AccentButton>
                     </>
                   ) : (
@@ -1399,7 +1550,7 @@ if (accessLoading || pageLoading) {
                               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                                 pt: 0.75, borderTop: `1px solid ${T.divider}` }}>
                                 <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>
-                                  {grp.records.length} record{grp.records.length !== 1 ? "s" : ""}
+                                  {(grp.displayRecords || grp.records).length} period{(grp.displayRecords || grp.records).length !== 1 ? "s" : ""}
                                 </Typography>
                                 <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
                                   Remaining balance: {fmtHrs(balRem, unit)}
@@ -1449,7 +1600,7 @@ if (accessLoading || pageLoading) {
                             <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: T.accentFaint,
                               border: `1px solid ${T.accentBorder}`, display: "inline-block", width: "fit-content" }}>
                               <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
-                                {grp.records.length}
+                                {(grp.displayRecords || grp.records).length}
                               </Typography>
                             </Box>
                             <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
@@ -1490,7 +1641,10 @@ if (accessLoading || pageLoading) {
                 {selectedEmployeeSC && (() => {
                   const deptCode      = deptMap[selectedEmployeeSC.employeeNumber] || null;
                   const empCat        = empCatLabelMap[selectedEmployeeSC.employeeNumber] || null;
-                  const sortedRecords = [...selectedEmployeeSC.records].sort((a, b) => {
+                  const modalRecords =
+                    selectedEmployeeSC.displayRecords ||
+                    latestScRecordsByPeriod(selectedEmployeeSC.records);
+                  const sortedRecords = [...modalRecords].sort((a, b) => {
                     if (b.period_year !== a.period_year) return b.period_year - a.period_year;
                     return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
                   });
@@ -1513,7 +1667,7 @@ if (accessLoading || pageLoading) {
                             {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} light />}
                           </Box>
                           <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>
-                            #{selectedEmployeeSC.employeeNumber} · {selectedEmployeeSC.records.length} SC record{selectedEmployeeSC.records.length !== 1 ? "s" : ""}
+                            #{selectedEmployeeSC.employeeNumber} · {modalRecords.length} SC period{modalRecords.length !== 1 ? "s" : ""}
                           </Typography>
                         </Box>
                         <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"

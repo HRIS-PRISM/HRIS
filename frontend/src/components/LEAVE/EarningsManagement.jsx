@@ -2573,6 +2573,29 @@
     );
   };
 
+  /** Shared reference-data load (dedupes React Strict Mode double mount). */
+  let earningsReferenceBootstrap = null;
+
+  async function loadEarningsReferenceData(token) {
+    if (earningsReferenceBootstrap) return earningsReferenceBootstrap;
+    const h = { Authorization: `Bearer ${token}` };
+    earningsReferenceBootstrap = Promise.allSettled([
+      axios.get(`${API_BASE_URL}/users`, { headers: h }),
+      axios.get(`${API_BASE_URL}/personalinfo/person_table`, { headers: h }),
+      axios.get(`${API_BASE_URL}/api/department-assignment`, { headers: h }),
+      axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
+        headers: h,
+      }),
+      axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, {
+        headers: h,
+      }),
+    ]).catch((err) => {
+      earningsReferenceBootstrap = null;
+      throw err;
+    });
+    return earningsReferenceBootstrap;
+  }
+
   // ─── Main Component ────────────────────────────────────────────────────────────
   const EarningsManagement = () => {
     const { socket, connected } = useSocket();
@@ -2963,28 +2986,13 @@
     }, [fetchAttendance, selectedEmployee]);
 
     useEffect(() => {
+      let cancelled = false;
       (async () => {
         try {
           const token = localStorage.getItem("token");
-          const h = { Authorization: `Bearer ${token}` };
           const [usersRes, personsRes, deptRes, empCatRes, typeConfigRes] =
-            await Promise.allSettled([
-              axios.get(`${API_BASE_URL}/users`, { headers: h }),
-              axios.get(`${API_BASE_URL}/personalinfo/person_table`, {
-                headers: h,
-              }),
-              axios.get(`${API_BASE_URL}/api/department-assignment`, {
-                headers: h,
-              }),
-              axios.get(
-                `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-                { headers: h },
-              ),
-              axios.get(
-                `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`,
-                { headers: h },
-              ),
-            ]);
+            await loadEarningsReferenceData(token);
+          if (cancelled) return;
           let usersData = [];
           if (usersRes.status === "fulfilled") {
             const d = usersRes.value.data;
@@ -3049,9 +3057,13 @@
             setTypeConfigs(typeConfigRes.value.data?.flat || []);
         } catch (e) {
           console.error(e);
+        } finally {
+          if (!cancelled) setPageLoading(false);
         }
-        setPageLoading(false);
       })();
+      return () => {
+        cancelled = true;
+      };
     }, []);
 
     useEffect(() => {

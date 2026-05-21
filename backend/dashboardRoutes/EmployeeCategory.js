@@ -231,7 +231,7 @@ router.get('/employment-category', authenticateToken, (req, res) => {
       console.error('Error fetching employment categories:', err);
       return res.status(500).json({ message: 'Error fetching employment categories' });
     }
-    logAudit(req.user, 'view', 'employment_category', null, null);
+    // Reference lookup for Earnings/Payroll/DTR badges — not a sensitive record view (avoids audit spam).
     res.json(results);
   });
 });

@@ -61,6 +61,7 @@ import {
   useOfficialAttendanceMetrics,
   listHalfDayDatesFromDailyRows,
 } from "./useOfficialAttendanceMetrics";
+import { listEarningsHalfDayDatesFromOverallSummary } from "../../../utils/halfDayReview";
 import { fetchDeductionCreditSnapshots } from "../../../utils/deductionSourceBalances";
 import OverallAttendanceCompareModal from "../../ATTENDANCE/OverallAttendanceCompareModal";
 import {
@@ -872,6 +873,7 @@ const AttendanceSummary = ({
     absentDays: absentDaysOfficial,
     halfDayDatesOfficial,
     rows: officialRows,
+    calendarMaps: officialCalendarMaps,
     absentTimeHrs: absentTimeHrsOfficial,
     halfDayShortfallHrs: halfDayShortfallHrsOfficial,
     renderedHrs: renderedHrsOfficial,
@@ -1062,21 +1064,20 @@ const AttendanceSummary = ({
   const totalAbsentHrs = totalAbsentDays * 8;
   const presentDays = toNum(stats.present_days);
 
-  const halfDays = canTrustOfficialMetrics
-    ? (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0)
-    : toNum(stats.half_days ?? stats.halfDays);
-  const halfDayHrs = canTrustOfficialMetrics
-    ? toNum(halfDayShortfallHrsOfficial)
-    : halfDays * 4;
-
   const halfDayDates = useMemo(() => {
+    const fromRecord = listEarningsHalfDayDatesFromOverallSummary(
+      raw,
+      officialCalendarMaps,
+    );
+    if (fromRecord.length) return fromRecord;
     if (canTrustOfficialMetrics) {
       return Array.isArray(halfDayDatesOfficial) ? [...halfDayDatesOfficial] : [];
     }
-    let dates = listHalfDayDatesFromDailyRows(officialRows);
+    let dates = listHalfDayDatesFromDailyRows(officialRows, officialCalendarMaps);
     if (!dates.length) {
       dates = listHalfDayDatesFromDailyRows(
         Array.isArray(attendanceData?.dailyRecords) ? attendanceData.dailyRecords : [],
+        officialCalendarMaps,
       );
     }
     const statsHalf = toNum(attendanceData?.stats?.half_days ?? attendanceData?.stats?.halfDays);
@@ -1088,9 +1089,29 @@ const AttendanceSummary = ({
     }
     return [...new Set(dates)].sort();
   }, [
-    canTrustOfficialMetrics, halfDayDatesOfficial, officialRows,
-    attendanceData?.dailyRecords, attendanceData?.stats, officialStart, year, month,
+    raw,
+    officialCalendarMaps,
+    canTrustOfficialMetrics,
+    halfDayDatesOfficial,
+    officialRows,
+    attendanceData?.dailyRecords,
+    attendanceData?.stats,
+    officialStart,
+    year,
+    month,
   ]);
+
+  const halfDays = halfDayDates.length
+    ? halfDayDates.length
+    : canTrustOfficialMetrics
+      ? (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0)
+      : toNum(stats.half_days ?? stats.halfDays);
+  const halfDayHrs =
+    halfDayDates.length && raw?.halfDayShortfallTime
+      ? parseHHMM(raw.halfDayShortfallTime)
+      : canTrustOfficialMetrics
+        ? toNum(halfDayShortfallHrsOfficial)
+        : halfDays * 4;
 
   const deductedNormSet = useMemo(
     () => new Set((deductedVlHalfDates || []).map(normalizeHalfDayDateKey).filter(Boolean)),

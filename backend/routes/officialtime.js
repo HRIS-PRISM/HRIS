@@ -825,24 +825,30 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
       startDate: toDateOnlyString(row.startDate),
       endDate: toDateOnlyString(row.endDate),
     }));
-    try {
-      logAudit(
-        req.user,
-        'View',
-        'Official Time',
-        null,
-        employeeID,
-        buildOfficialTimeActionAuditDetails({
-          source: 'view-db',
+    const skipAudit =
+      req.query.skipAudit === '1' ||
+      req.query.skipAudit === 'true' ||
+      req.query.audit === '0';
+    if (!skipAudit) {
+      try {
+        logAudit(
+          req.user,
+          'View',
+          'Official Time',
+          null,
           employeeID,
-          affectedEmployeeNumbers: [employeeID],
-          startDate: startDate || date || null,
-          endDate: endDate || date || null,
-          rowCount: out.length,
-        }),
-      );
-    } catch (e) {
-      console.error('Audit log error:', e);
+          buildOfficialTimeActionAuditDetails({
+            source: 'view-db',
+            employeeID,
+            affectedEmployeeNumbers: [employeeID],
+            startDate: startDate || date || null,
+            endDate: endDate || date || null,
+            rowCount: out.length,
+          }),
+        );
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
     }
     res.json(out);
   });
@@ -939,27 +945,7 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
     );
     await commitTransaction(conn);
 
-    try {
-      logAudit(
-        req.user,
-        `Add official time for ${employeeID} (${records.length} rows)`,
-        'Official Time',
-        null,
-        employeeID,
-        buildOfficialTimeActionAuditDetails({
-          source: 'manual-create',
-          employeeID,
-          affectedEmployeeNumbers: [employeeID],
-          academicYear: academicYearVal,
-          startDate,
-          endDate,
-          rowCount: records.length,
-          insertedCount: result.affectedRows || 0,
-        }),
-      );
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
+    // Audit logged from Official Time UI on successful save (one row per action).
 
     let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
     try {
@@ -1962,27 +1948,7 @@ router.put(
         });
       }
 
-      try {
-        logAudit(
-          req.user,
-          `Edit official time for ${employeeID} (${normalizedStartDate}–${normalizedEndDate})`,
-          'Official Time',
-          null,
-          employeeID,
-          buildOfficialTimeActionAuditDetails({
-            source: 'manual-edit',
-            employeeID,
-            affectedEmployeeNumbers: [employeeID],
-            startDate: normalizedStartDate,
-            endDate: normalizedEndDate,
-            lookupEndDate,
-            rowCount: records.length,
-            updatedCount,
-          }),
-        );
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
+      // Audit logged from Official Time UI on successful save (one row per action).
 
       let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
       try {

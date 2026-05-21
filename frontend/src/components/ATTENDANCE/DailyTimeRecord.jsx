@@ -39,6 +39,15 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import {
+  fetchDailyLateUndertime,
+  formatLateUndertimeDisplay,
+  resolveDtrLateUndertimeDisplay,
+  parseHalfDayDatesSet,
+  DTR_COMPUTED_LATE_UPDATE_EVENT,
+  DTR_COMPUTED_LATE_STORAGE_KEY,
+} from '../../utils/dtrLateUndertimeFromOverall';
+import { parseSuggestedHalfDayDatesFromReview } from '../../utils/halfDayReview';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -54,7 +63,7 @@ const generateHash = (data) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = (hash << 5) - hash + char;
     hash = hash & hash;
   }
   return Math.abs(hash).toString(16).toUpperCase();
@@ -94,8 +103,20 @@ const recordMatchesDay = (record, dayPadded) => {
   return ymd.endsWith(`-${dayPadded}`);
 };
 
-const REGULAR_WEEKDAY_KEYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const REGULAR_DAY_ABBREV = { Monday: 'M', Tuesday: 'T', Wednesday: 'W', Thursday: 'Th', Friday: 'F' };
+const REGULAR_WEEKDAY_KEYS = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+];
+const REGULAR_DAY_ABBREV = {
+  Monday: 'M',
+  Tuesday: 'T',
+  Wednesday: 'W',
+  Thursday: 'Th',
+  Friday: 'F',
+};
 
 /** HH:MM AM/PM for DTR official-time lines (uses same parsing rules as formatTime). */
 const formatOfficialClock = (timeString, formatTimeFn) => {
@@ -116,7 +137,8 @@ const buildOfficialTwoSegment = (sched, formatTimeFn) => {
   const brOut = formatOfficialClock(sched.officialBreaktimeOUT, formatTimeFn);
   const brIn = formatOfficialClock(sched.officialBreaktimeIN, formatTimeFn);
   const tOut = formatOfficialClock(sched.officialTimeOUT, formatTimeFn);
-  if (tIn && brOut && brIn && tOut) return `${tIn} to ${brOut} : ${brIn} to ${tOut}`;
+  if (tIn && brOut && brIn && tOut)
+    return `${tIn} to ${brOut} : ${brIn} to ${tOut}`;
   if (tIn && tOut) return `${tIn} to ${tOut}`;
   return '';
 };
@@ -218,7 +240,15 @@ const AccentButton = styled(Button)({
 const FormSectionLabel = ({ icon: Icon, children }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
     <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>
+    <Typography
+      sx={{
+        fontSize: '0.68rem',
+        fontWeight: 700,
+        letterSpacing: '0.09em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+      }}
+    >
       {children}
     </Typography>
   </Box>
@@ -245,65 +275,207 @@ const SHIMMER_CSS = `
 }`;
 
 const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
-  <Box sx={{
-    width: w, height: h, borderRadius: r,
-    background: `linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)`,
-    backgroundSize: '800px 100%',
-    animation: 'shimmer 1.6s infinite linear',
-    flexShrink: 0, ...sx,
-  }} />
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)`,
+      backgroundSize: '800px 100%',
+      animation: 'shimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
 );
 
 const DTRWireframe = () => (
   <>
     <style>{SHIMMER_CSS}</style>
-    <Box sx={{ py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
       {/* Header skeleton */}
-      <Box sx={{ mb: 2, borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.accentBorder}`, animation: 'blink 2s ease-in-out infinite' }}>
-        <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2.5, position: 'relative', overflow: 'hidden' }}>
-          <Box sx={{ position: 'absolute', top: -50, right: -50, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.06)' }} />
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'blink 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 180,
+              height: 180,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
-            <Box><Bone w={220} h={18} sx={{ mb: 1 }} /><Bone w={360} h={11} /></Box>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <Box>
+              <Bone w={220} h={18} sx={{ mb: 1 }} />
+              <Bone w={360} h={11} />
+            </Box>
           </Box>
         </Box>
       </Box>
       <Grid container spacing={3}>
         {[3, 9].map((lg, idx) => (
           <Grid item xs={12} lg={lg} key={idx}>
-            <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: `blink 2s ease-in-out ${idx * 0.1}s infinite`, height: 'calc(100vh - 280px)' }}>
-              <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                animation: `blink 2s ease-in-out ${idx * 0.1}s infinite`,
+                height: 'calc(100vh - 280px)',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 2.5,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: '50%',
+                    bgcolor: 'rgba(109,35,35,0.12)',
+                  }}
+                />
                 <Bone w={lg === 3 ? 160 : 220} h={13} />
               </Box>
               {lg === 3 ? (
-                <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box
+                  sx={{
+                    p: 3.5,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
                   <Box>
                     <Bone w={80} h={10} sx={{ mb: 1 }} />
-                    <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                    <Box
+                      sx={{
+                        height: 40,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
                   </Box>
                   <Box>
                     <Bone w={52} h={10} sx={{ mb: 1 }} />
-                    <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                    <Box
+                      sx={{
+                        height: 40,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
                   </Box>
                   <Box>
                     <Bone w={60} h={10} sx={{ mb: 1 }} />
-                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1 }}>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gap: 1,
+                      }}
+                    >
                       {Array.from({ length: 12 }, (_, i) => (
-                        <Box key={i} sx={{ height: 42, borderRadius: 1.5, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} />
+                        <Box
+                          key={i}
+                          sx={{
+                            height: 42,
+                            borderRadius: 1.5,
+                            border: `1px solid ${T.accentBorder}`,
+                            bgcolor: '#fafafa',
+                          }}
+                        />
                       ))}
                     </Box>
                   </Box>
-                  <Box sx={{ mt: 1, p: 1.5, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+                  <Box
+                    sx={{
+                      mt: 1,
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: `1px solid ${T.accentBorder}`,
+                      bgcolor: T.accentFaint,
+                    }}
+                  >
                     <Bone w={100} h={10} sx={{ mb: 1 }} />
                     <Bone w={150} h={12} sx={{ mb: 1 }} />
                     <Bone w={180} h={10} />
                   </Box>
                 </Box>
               ) : (
-                <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                <Box
+                  sx={{
+                    p: 3.5,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2.5,
+                  }}
+                >
                   {[100, 160, 120, 140, 110, 130].map((w, i) => (
-                    <Box key={i}><Bone w={w} h={10} sx={{ mb: 1 }} /><Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} /></Box>
+                    <Box key={i}>
+                      <Bone w={w} h={10} sx={{ mb: 1 }} />
+                      <Box
+                        sx={{
+                          height: 40,
+                          borderRadius: 2,
+                          border: `1px solid ${T.accentBorder}`,
+                          bgcolor: '#fafafa',
+                        }}
+                      />
+                    </Box>
                   ))}
                 </Box>
               )}
@@ -331,32 +503,39 @@ const DailyTimeRecord = () => {
   const { settings } = useSystemSettings();
 
   // ── Core state ─────────────────────────────────────────────────────────────
-  const [personID, setPersonID]         = useState('');
-  const [startDate, setStartDate]       = useState('');
-  const [endDate, setEndDate]           = useState('');
-  const [records, setRecords]           = useState([]);
+  const [personID, setPersonID] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [records, setRecords] = useState([]);
   const [employeeName, setEmployeeName] = useState('');
   const [officialTimes, setOfficialTimes] = useState({});
   const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
   const dtrRef = useRef(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
-  const [holidays, setHolidays]         = useState([]);
-  const [suspensions, setSuspensions]   = useState([]);
+  const [holidays, setHolidays] = useState([]);
+  const [suspensions, setSuspensions] = useState([]);
   const [approvedLeaves, setApprovedLeaves] = useState([]);
+  const [computedLateByDate, setComputedLateByDate] = useState({});
+  const [halfDayDatesSet, setHalfDayDatesSet] = useState(() => new Set());
+  const [suggestedHalfDayDatesSet, setSuggestedHalfDayDatesSet] = useState(() => new Set());
 
   // ── Anti-tamper state ──────────────────────────────────────────────────────
   const [originalRecords, setOriginalRecords] = useState([]);
-  const [recordsHash, setRecordsHash]         = useState('');
-  const [fetchedAt, setFetchedAt]             = useState(null);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [recordsHash, setRecordsHash] = useState('');
+  const [fetchedAt, setFetchedAt] = useState(null);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'info',
+  });
 
   // ── Anti-tamper refs ───────────────────────────────────────────────────────
-  const observerRef         = useRef(null);
-  const restoreTimerRef     = useRef(null);
-  const originalRecordsRef  = useRef([]);
-  const isRestoringRef      = useRef(false);
-  const formatTimeRef       = useRef(null);
-  const fetchRequestSeqRef  = useRef(0);
+  const observerRef = useRef(null);
+  const restoreTimerRef = useRef(null);
+  const originalRecordsRef = useRef([]);
+  const isRestoringRef = useRef(false);
+  const formatTimeRef = useRef(null);
+  const fetchRequestSeqRef = useRef(0);
 
   // ── Loading states for print/download ──────────────────────────────────────
   const [singlePrintLoading, setSinglePrintLoading] = useState(false);
@@ -375,19 +554,25 @@ const DailyTimeRecord = () => {
   const DTR_PANEL_HEIGHT = 'calc(100vh - 280px)';
 
   // ── Theme colours ──────────────────────────────────────────────────────────
-  const primaryColor      = settings.accentColor      || '#FEF9E1';
-  const secondaryColor    = settings.backgroundColor  || '#FFF8E7';
-  const accentColor       = settings.primaryColor     || '#6d2323';
-  const accentDark        = settings.secondaryColor   || '#8B3333';
-  const textPrimaryColor  = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor= settings.textSecondaryColor || '#FEF9E1';
+  const primaryColor = settings.accentColor || '#FEF9E1';
+  const secondaryColor = settings.backgroundColor || '#FFF8E7';
+  const accentColor = settings.primaryColor || '#6d2323';
+  const accentDark = settings.secondaryColor || '#8B3333';
+  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
+  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
 
   // ── Access guard ───────────────────────────────────────────────────────────
-  const { hasAccess, loading: accessLoading } = usePageAccess('daily-time-record');
+  const { hasAccess, loading: accessLoading } =
+    usePageAccess('daily-time-record');
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
-    return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    };
   };
 
   // ── Decode token ────────────────────────────────────────────────────────────
@@ -411,21 +596,30 @@ const DailyTimeRecord = () => {
     // Match HH:MM:SS AM/PM or HH:MM:SS or HH:MM AM/PM
     const match = cleaned.match(/^(\d{1,2}:\d{2})(?::\d{2})?(\s*[AaPp][Mm])?/);
     if (match) {
-      return (match[1] + (match[2] ? match[2].trim().toUpperCase() : '')).trim();
+      return (
+        match[1] + (match[2] ? match[2].trim().toUpperCase() : '')
+      ).trim();
     }
     return cleaned;
   }, []);
 
-  useEffect(() => { formatTimeRef.current = formatTime; }, [formatTime]);
+  useEffect(() => {
+    formatTimeRef.current = formatTime;
+  }, [formatTime]);
 
   const formatMonth = (dateString) => {
     if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString(undefined, { month: 'long' }).toUpperCase();
+    return new Date(dateString)
+      .toLocaleDateString(undefined, { month: 'long' })
+      .toUpperCase();
   };
 
   const formatStartDate = (dateString) => {
     if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+    });
   };
 
   const formatEndDate = (dateString) => {
@@ -435,7 +629,7 @@ const DailyTimeRecord = () => {
   };
 
   const formattedStartDate = formatStartDate(startDate);
-  const formattedEndDate   = formatEndDate(endDate);
+  const formattedEndDate = formatEndDate(endDate);
 
   // ── DOM restore logic ──────────────────────────────────────────────────────
   const restoreDOMFromOriginal = useCallback(() => {
@@ -452,18 +646,15 @@ const DailyTimeRecord = () => {
         if (!dayCell) return;
         const dayText = dayCell.textContent.trim();
         if (!/^\d{2}$/.test(dayText)) return;
-        const record = original.find((r) => {
-          const ymd = toPhCalendarYmd(r.date);
-          const d = ymd.split('-')[2];
-          return d === dayText;
-        });
+        const record = original.find((r) => recordMatchesDay(r, dayText));
+        if (!record) return;
         const cells = row.querySelectorAll('td');
         if (cells.length < 5) return;
         const timeValues = [
-          fmt(record?.timeIN     || ''),
-          fmt(record?.breaktimeIN  || ''),
+          fmt(record?.timeIN || ''),
+          fmt(record?.breaktimeIN || ''),
           fmt(record?.breaktimeOUT || ''),
-          fmt(record?.timeOUT    || ''),
+          fmt(record?.timeOUT || ''),
         ];
         [1, 2, 3, 4].forEach((cellIdx, spanIdx) => {
           // Target ONLY .dtr-actual-time — not watermark (HOLIDAY / SUSPENSION / ON LEAVE).
@@ -476,7 +667,9 @@ const DailyTimeRecord = () => {
         });
       });
     });
-    setTimeout(() => { isRestoringRef.current = false; }, 50);
+    setTimeout(() => {
+      isRestoringRef.current = false;
+    }, 50);
   }, []);
 
   const startObserver = useCallback(() => {
@@ -485,35 +678,59 @@ const DailyTimeRecord = () => {
     observerRef.current = new MutationObserver((mutations) => {
       if (isRestoringRef.current) return;
       const isTimeTamper = mutations.some((m) => {
-        // Ignore mutations inside the watermark wrapper — those are intentional UI labels.
+        // Only guard punch-time cells (.dtr-actual-time), not late/undertime or watermarks.
         const target = m.target;
-        const isInWatermark = (n) => !!(n && n.closest && n.closest('.dtr-cell-watermark'));
+        const isInWatermark = (n) =>
+          !!(n && n.closest && n.closest('.dtr-cell-watermark'));
         if (isInWatermark(target)) return false;
+        const isActualTimeEl = (node) =>
+          !!(node && node.closest && node.closest('.dtr-actual-time'));
         if (m.type === 'characterData') {
+          if (target?.classList?.contains('dtr-actual-time')) return true;
           const span = target.parentElement;
           if (isInWatermark(span)) return false;
-          return span && span.tagName === 'SPAN';
+          return isActualTimeEl(span);
         }
-        if (m.type === 'childList') return target.tagName === 'TD' || target.tagName === 'SPAN';
+        if (m.type === 'childList') {
+          if (isActualTimeEl(target)) return true;
+          return target.tagName === 'TD' && target.querySelector('.dtr-actual-time');
+        }
         return false;
       });
       if (!isTimeTamper) return;
       if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-      restoreTimerRef.current = setTimeout(() => { restoreDOMFromOriginal(); }, 300);
+      restoreTimerRef.current = setTimeout(() => {
+        restoreDOMFromOriginal();
+      }, 300);
     });
-    observerRef.current.observe(dtrRef.current, { subtree: true, childList: true, characterData: true });
+    observerRef.current.observe(dtrRef.current, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
   }, [restoreDOMFromOriginal]);
 
   const stopObserver = useCallback(() => {
-    if (observerRef.current) { observerRef.current.disconnect(); observerRef.current = null; }
-    if (restoreTimerRef.current) { clearTimeout(restoreTimerRef.current); restoreTimerRef.current = null; }
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (restoreTimerRef.current) {
+      clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
     if (originalRecords.length > 0 && dtrRef.current) {
       const t = setTimeout(() => startObserver(), 100);
-      return () => { clearTimeout(t); stopObserver(); };
-    } else { stopObserver(); }
+      return () => {
+        clearTimeout(t);
+        stopObserver();
+      };
+    } else {
+      stopObserver();
+    }
   }, [originalRecords, startObserver, stopObserver]);
 
   useEffect(() => () => stopObserver(), [stopObserver]);
@@ -529,22 +746,26 @@ const DailyTimeRecord = () => {
         getAuthHeaders(),
       );
       if (requestSeq !== fetchRequestSeqRef.current) return;
-      const data = response.data;
+      const data = Array.isArray(response.data) ? response.data : [];
       const regularRecords = data.filter((r) => r.timeIN || r.timeOUT);
       if (data.length > 0) {
         stopObserver();
         setRecords(regularRecords);
-        const immutable = Object.freeze(JSON.parse(JSON.stringify(regularRecords)));
+        const immutable = Object.freeze(
+          JSON.parse(JSON.stringify(regularRecords)),
+        );
         setOriginalRecords(immutable);
         originalRecordsRef.current = immutable;
         const hash = generateHash(regularRecords);
         setRecordsHash(hash);
         setFetchedAt(new Date().toISOString());
         const { firstName, lastName, middleName } = data[0];
-        const full = `${firstName || ''} ${middleName ? middleName + ' ' : ''}${lastName || ''}`.trim();
+        const full =
+          `${firstName || ''} ${middleName ? middleName + ' ' : ''}${lastName || ''}`.trim();
         setEmployeeName(full || 'Unknown');
-        // ── FIX: pass the selected period so only overlapping schedules are shown ──
-        await fetchOfficialTimes(personID, startDate, endDate);
+        // Load official-time data in background so the main DTR overlay can close earlier.
+        fetchOfficialTimes(personID, startDate, endDate, requestSeq);
+        await loadComputedLateForDTR();
       } else {
         stopObserver();
         setRecords([]);
@@ -555,9 +776,12 @@ const DailyTimeRecord = () => {
         setEmployeeName('No records found');
         // ── FIX: clear official times when no records for the period ──
         setOfficialTimes({});
+        setComputedLateByDate({});
+        setHalfDayDatesSet(new Set());
       }
-    } catch (err) { console.error(err); }
-    finally {
+    } catch (err) {
+      console.error(err);
+    } finally {
       if (requestSeq === fetchRequestSeqRef.current) {
         setMonthLoading(false);
       }
@@ -565,35 +789,48 @@ const DailyTimeRecord = () => {
   };
 
   // ── FIX: Accept periodStart / periodEnd and filter schedules to that window ──
-  const fetchOfficialTimes = async (employeeID, periodStart, periodEnd) => {
+  const fetchOfficialTimes = async (
+    employeeID,
+    periodStart,
+    periodEnd,
+    requestSeq = null,
+  ) => {
     try {
       const response = await axios.get(
         `${API_BASE_URL}/officialtimetable/${employeeID}`,
         getAuthHeaders(),
       );
 
+      if (requestSeq != null && requestSeq !== fetchRequestSeqRef.current)
+        return;
+
       const allRows = response.data || [];
 
       // Filter to only schedules whose date range overlaps the selected period.
       // If no period is provided (initial load), skip filtering.
-      const filtered = (periodStart && periodEnd)
-        ? allRows.filter((r) => {
-            const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
-            const schedEnd   = r.endDate   ? String(r.endDate).split('T')[0]   : null;
-            if (!schedStart || !schedEnd) return false;
-            // Overlap condition: sched starts before period ends AND sched ends after period starts
-            return schedStart <= periodEnd && schedEnd >= periodStart;
-          })
-        : allRows;
+      const filtered =
+        periodStart && periodEnd
+          ? allRows.filter((r) => {
+              const schedStart = r.startDate
+                ? String(r.startDate).split('T')[0]
+                : null;
+              const schedEnd = r.endDate
+                ? String(r.endDate).split('T')[0]
+                : null;
+              if (!schedStart || !schedEnd) return false;
+              // Overlap condition: sched starts before period ends AND sched ends after period starts
+              return schedStart <= periodEnd && schedEnd >= periodStart;
+            })
+          : allRows;
 
       const map = filtered.reduce((acc, r) => {
         // Last-write-wins per day — higher id = more recent row takes precedence
         if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
           acc[r.day] = {
             _id: r.id,
-            officialTimeIN:       r.officialTimeIN,
-            officialTimeOUT:      r.officialTimeOUT,
-            officialBreaktimeIN:  r.officialBreaktimeIN,
+            officialTimeIN: r.officialTimeIN,
+            officialTimeOUT: r.officialTimeOUT,
+            officialBreaktimeIN: r.officialBreaktimeIN,
             officialBreaktimeOUT: r.officialBreaktimeOUT,
           };
         }
@@ -605,11 +842,13 @@ const DailyTimeRecord = () => {
         Object.entries(map).map(([day, val]) => {
           const { _id, ...rest } = val;
           return [day, rest];
-        })
+        }),
       );
 
       setOfficialTimes(cleanMap);
     } catch (err) {
+      if (requestSeq != null && requestSeq !== fetchRequestSeqRef.current)
+        return;
       console.error('Error fetching official times:', err);
       setOfficialTimes({});
     }
@@ -617,10 +856,20 @@ const DailyTimeRecord = () => {
 
   const fetchApprovedLeaves = async (empID) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, getAuthHeaders());
-      const hrApproved = response.data.filter((req) => String(req.status) === '2' && String(req.employeeNumber) === String(empID));
+      const response = await axios.get(
+        `${API_BASE_URL}/leaveRoute/leave_request`,
+        getAuthHeaders(),
+      );
+      const hrApproved = response.data.filter(
+        (req) =>
+          String(req.status) === '2' &&
+          String(req.employeeNumber) === String(empID),
+      );
       setApprovedLeaves(hrApproved);
-    } catch (err) { console.error('Error fetching approved leaves:', err); setApprovedLeaves([]); }
+    } catch (err) {
+      console.error('Error fetching approved leaves:', err);
+      setApprovedLeaves([]);
+    }
   };
 
   // ── Initial load ────────────────────────────────────────────────────────────
@@ -633,22 +882,71 @@ const DailyTimeRecord = () => {
         // Initial load: no period yet — fetchOfficialTimes will not filter
         fetchOfficialTimes(personID, null, null),
         fetchApprovedLeaves(personID),
-        axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()).then((r) => {
-          setHolidays(Array.isArray(r.data) ? r.data : []);
-        }).catch(() => setHolidays([])),
-        axios.get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders()).then((r) => {
-          setSuspensions(Array.isArray(r.data) ? r.data : []);
-        }).catch(() => setSuspensions([])),
+        axios
+          .get(`${API_BASE_URL}/holiday`, getAuthHeaders())
+          .then((r) => {
+            setHolidays(Array.isArray(r.data) ? r.data : []);
+          })
+          .catch(() => setHolidays([])),
+        axios
+          .get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders())
+          .then((r) => {
+            setSuspensions(Array.isArray(r.data) ? r.data : []);
+          })
+          .catch(() => setSuspensions([])),
       ]);
       setTimeout(() => setPageLoading(false), 350);
     };
     init();
   }, [personID]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadComputedLateForDTR = useCallback(async () => {
+    if (!personID || !startDate || !endDate) {
+      setComputedLateByDate({});
+      setHalfDayDatesSet(new Set());
+      setSuggestedHalfDayDatesSet(new Set());
+      return;
+    }
+    const { byDate, halfDayDates, half_day_review } = await fetchDailyLateUndertime(
+      personID,
+      startDate,
+      endDate,
+    );
+    setComputedLateByDate(byDate || {});
+    setHalfDayDatesSet(parseHalfDayDatesSet(halfDayDates));
+    setSuggestedHalfDayDatesSet(parseSuggestedHalfDayDatesFromReview(half_day_review));
+  }, [personID, startDate, endDate]);
+
   useEffect(() => {
     if (personID && startDate && endDate) fetchRecords();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personID, startDate, endDate]);
+
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event?.key && event.key !== DTR_COMPUTED_LATE_STORAGE_KEY) return;
+      if (!personID || !startDate || !endDate) return;
+      loadComputedLateForDTR();
+    };
+
+    const handleComputedLateUpdated = () => {
+      if (!personID || !startDate || !endDate) return;
+      loadComputedLateForDTR();
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(
+      DTR_COMPUTED_LATE_UPDATE_EVENT,
+      handleComputedLateUpdated,
+    );
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(
+        DTR_COMPUTED_LATE_UPDATE_EVENT,
+        handleComputedLateUpdated,
+      );
+    };
+  }, [personID, startDate, endDate, loadComputedLateForDTR]);
 
   const fetchRecordsRef = useRef(fetchRecords);
   fetchRecordsRef.current = fetchRecords;
@@ -658,8 +956,15 @@ const DailyTimeRecord = () => {
     let debounceTimer = null;
     const handleAttendanceChanged = (payload) => {
       if (payload?.action === 'dtr-printed') return;
+      if (
+        payload?.action === 'overall-daily-late-updated' ||
+        payload?.action === 'overall-daily-late-created'
+      ) {
+        return;
+      }
       const scope = payload?.scope;
-      if (scope === 'suspensions' || scope === 'leaves' || scope === 'holiday') return;
+      if (scope === 'suspensions' || scope === 'leaves' || scope === 'holiday')
+        return;
       const changedIDs = Array.isArray(payload?.personIDs)
         ? payload.personIDs
         : payload?.personID != null
@@ -667,32 +972,51 @@ const DailyTimeRecord = () => {
           : [];
       const isBulk = payload?.action === 'bulk-auto-sync';
       if (changedIDs.length === 0 && !isBulk) return;
-      if (personID && changedIDs.length > 0 && !changedIDs.some((id) => String(id) === String(personID))) return;
+      if (
+        personID &&
+        changedIDs.length > 0 &&
+        !changedIDs.some((id) => String(id) === String(personID))
+      )
+        return;
       if (!personID || !startDate || !endDate) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchRecordsRef.current?.(), 120);
+      debounceTimer = setTimeout(() => {
+        fetchRecordsRef.current?.();
+      }, 120);
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       socket.off('attendanceChanged', handleAttendanceChanged);
     };
-  }, [socket, connected, personID, startDate, endDate]);
+  }, [socket, connected, personID, startDate, endDate, loadComputedLateForDTR]);
 
   // ── Integrity verification ─────────────────────────────────────────────────
   const verifyIntegrity = () => {
     if (!fetchedAt || originalRecords.length === 0) {
-      setSnackbar({ open: true, message: 'No DTR data loaded. Please search first.', severity: 'warning' });
+      setSnackbar({
+        open: true,
+        message: 'No DTR data loaded. Please search first.',
+        severity: 'warning',
+      });
       return false;
     }
     const ageMs = Date.now() - new Date(fetchedAt).getTime();
     if (ageMs > 30 * 60 * 1000) {
-      setSnackbar({ open: true, message: 'DTR data is older than 30 minutes. Please search again.', severity: 'warning' });
+      setSnackbar({
+        open: true,
+        message: 'DTR data is older than 30 minutes. Please search again.',
+        severity: 'warning',
+      });
       return false;
     }
     const currentHash = generateHash(records);
     if (currentHash !== recordsHash) {
-      setSnackbar({ open: true, message: 'Data integrity check failed. Please reload.', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: 'Data integrity check failed. Please reload.',
+        severity: 'error',
+      });
       return false;
     }
     return true;
@@ -701,20 +1025,41 @@ const DailyTimeRecord = () => {
   // ── Capture helpers ────────────────────────────────────────────────────────
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
-    const orig = { backgroundColor: el.style.backgroundColor, width: el.style.width, visibility: el.style.visibility, display: el.style.display, position: el.style.position, left: el.style.left, zIndex: el.style.zIndex, opacity: el.style.opacity };
-    el.style.backgroundColor = '#ffffff'; el.style.width = DTR_WIDTH_IN; el.style.visibility = 'visible';
-    el.style.display = 'block'; el.style.position = 'fixed'; el.style.left = '-9999px'; el.style.zIndex = '10000'; el.style.opacity = '1';
+    const orig = {
+      backgroundColor: el.style.backgroundColor,
+      width: el.style.width,
+      visibility: el.style.visibility,
+      display: el.style.display,
+      position: el.style.position,
+      left: el.style.left,
+      zIndex: el.style.zIndex,
+      opacity: el.style.opacity,
+    };
+    el.style.backgroundColor = '#ffffff';
+    el.style.width = DTR_WIDTH_IN;
+    el.style.visibility = 'visible';
+    el.style.display = 'block';
+    el.style.position = 'fixed';
+    el.style.left = '-9999px';
+    el.style.zIndex = '10000';
+    el.style.opacity = '1';
     return orig;
   };
 
   const restoreCaptureStyles = (el, orig) => {
     if (!el || !orig) return;
     try {
-      el.style.backgroundColor = orig.backgroundColor || ''; el.style.width = orig.width || '';
-      el.style.visibility = orig.visibility || ''; el.style.display = orig.display || '';
-      el.style.position = orig.position || ''; el.style.left = orig.left || '';
-      el.style.zIndex = orig.zIndex || ''; el.style.opacity = orig.opacity || '';
-    } catch (e) { /* noop */ }
+      el.style.backgroundColor = orig.backgroundColor || '';
+      el.style.width = orig.width || '';
+      el.style.visibility = orig.visibility || '';
+      el.style.display = orig.display || '';
+      el.style.position = orig.position || '';
+      el.style.left = orig.left || '';
+      el.style.zIndex = orig.zIndex || '';
+      el.style.opacity = orig.opacity || '';
+    } catch (e) {
+      /* noop */
+    }
   };
 
   const printPage = async () => {
@@ -722,21 +1067,45 @@ const DailyTimeRecord = () => {
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
-    setSinglePrintLoading(true); setSinglePrintStatus('Preparing DTR for printing...');
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for printing...');
     try {
-      const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
+      });
       const orig = ensureCaptureStyles(dtrRef.current);
       setSinglePrintStatus('Capturing DTR layout...');
       await new Promise((r) => setTimeout(r, 100));
-      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
+      const canvas = await html2canvas(dtrRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
+      });
       restoreCaptureStyles(dtrRef.current, orig);
       const imgData = canvas.toDataURL('image/png');
-      const dtrW = 8, dtrH = 9.5, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
+      const dtrW = 8,
+        dtrH = 9.5,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(
+        imgData,
+        'PNG',
+        (pw - dtrW) / 2,
+        (ph - dtrH) / 2,
+        dtrW,
+        dtrH,
+      );
       pdf.autoPrint();
       window.open(pdf.output('bloburl'), '_blank');
-    } catch (e) { console.error('Error generating print view:', e); }
-    finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
+    } catch (e) {
+      console.error('Error generating print view:', e);
+    } finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
+    }
   };
 
   const downloadPDF = async () => {
@@ -744,29 +1113,83 @@ const DailyTimeRecord = () => {
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
-    setSinglePrintLoading(true); setSinglePrintStatus('Preparing DTR for download...');
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing DTR for download...');
     try {
-      const pdf  = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
+      });
       const orig = ensureCaptureStyles(dtrRef.current);
       await new Promise((r) => setTimeout(r, 100));
-      const canvas  = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
+      const canvas = await html2canvas(dtrRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
+      });
       restoreCaptureStyles(dtrRef.current, orig);
       const imgData = canvas.toDataURL('image/png');
-      const dtrW = 8, dtrH = 10, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
+      const dtrW = 8,
+        dtrH = 10,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(
+        imgData,
+        'PNG',
+        (pw - dtrW) / 2,
+        (ph - dtrH) / 2,
+        dtrW,
+        dtrH,
+      );
       pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
-      setSnackbar({ open: true, message: 'DTR downloaded successfully.', severity: 'success' });
-    } catch (e) { console.error('Error generating PDF:', e); }
-    finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
+      setSnackbar({
+        open: true,
+        message: 'DTR downloaded successfully.',
+        severity: 'success',
+      });
+    } catch (e) {
+      console.error('Error generating PDF:', e);
+    } finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
+    }
   };
 
   // ── Month click ────────────────────────────────────────────────────────────
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-  const monthsShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const months = [
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
+  const monthsShort = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
     setMonthLoading(true);
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
@@ -791,7 +1214,11 @@ const DailyTimeRecord = () => {
     const check = toPhCalendarYmd(dateString);
     if (!check) return false;
     return approvedLeaves.some((req) => {
-      const dates = Array.isArray(req.leave_date) ? req.leave_date : String(req.leave_date).split(',').map((d) => d.trim());
+      const dates = Array.isArray(req.leave_date)
+        ? req.leave_date
+        : String(req.leave_date)
+            .split(',')
+            .map((d) => d.trim());
       return dates.some((d) => toPhCalendarYmd(d) === check);
     });
   };
@@ -800,91 +1227,325 @@ const DailyTimeRecord = () => {
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    if (isApprovedLeaveDate(date)) return { type: 'leave', label: 'ON LEAVE', bgColor: 'rgba(46,125,50,0.2)', textColor: '#000', borderColor: '#2e7d32' };
-    const susp = suspensions.find((s) => isDateInRange(date, s.date_start || s.date, s.date_end || s.date));
-    if (susp) return { type: 'suspension', label: 'SUSPENSION', bgColor: 'rgba(211,47,47,0.2)', textColor: '#000', borderColor: '#d32f2f' };
-    const hol = holidays.find((h) => isDateInRange(date, h.date_start || h.date, h.date_end || h.date));
-    if (hol) return { type: 'holiday', label: 'HOLIDAY', bgColor: 'rgba(237,108,2,0.25)', textColor: '#000', borderColor: '#ed6c02' };
+    if (isApprovedLeaveDate(date))
+      return {
+        type: 'leave',
+        label: 'ON LEAVE',
+        bgColor: 'rgba(46,125,50,0.2)',
+        textColor: '#000',
+        borderColor: '#2e7d32',
+      };
+    const susp = suspensions.find((s) =>
+      isDateInRange(date, s.date_start || s.date, s.date_end || s.date),
+    );
+    if (susp)
+      return {
+        type: 'suspension',
+        label: 'SUSPENSION',
+        bgColor: 'rgba(211,47,47,0.2)',
+        textColor: '#000',
+        borderColor: '#d32f2f',
+      };
+    const hol = holidays.find((h) =>
+      isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
+    );
+    if (hol)
+      return {
+        type: 'holiday',
+        label: 'HOLIDAY',
+        bgColor: 'rgba(237,108,2,0.25)',
+        textColor: '#000',
+        borderColor: '#ed6c02',
+      };
     return null;
   };
 
   // ── Access guards ─────────────────────────────────────────────────────────
   if (pageLoading || accessLoading) return <DTRWireframe />;
 
-  if (hasAccess === false) return (
-    <AccessDenied title="Access Denied" message="You do not have permission to access Daily Time Record. Contact your administrator to request access." returnPath="/admin-home" returnButtonText="Return to Home" />
-  );
+  if (hasAccess === false)
+    return (
+      <AccessDenied
+        title="Access Denied"
+        message="You do not have permission to access Daily Time Record. Contact your administrator to request access."
+        returnPath="/admin-home"
+        returnButtonText="Return to Home"
+      />
+    );
 
   // ── DTR table header ───────────────────────────────────────────────────────
   const renderHeader = () => {
     const fs = '10px';
-    const regularDaysLines = showOfficialTimeOnDtr ? buildRegularDaysOfficialLines(officialTimes, formatTime) : [];
+    const regularDaysLines = showOfficialTimeOnDtr
+      ? buildRegularDaysOfficialLines(officialTimes, formatTime)
+      : [];
     const saturdayOfficialText = showOfficialTimeOnDtr
       ? buildOfficialTwoSegment(officialTimes.Saturday, formatTime)
       : '';
-    const regularBlockMinH = showOfficialTimeOnDtr && regularDaysLines.length > 0
-      ? 14 + Math.max(0, regularDaysLines.length - 1) * 16
-      : 14;
+    const regularBlockMinH =
+      showOfficialTimeOnDtr && regularDaysLines.length > 0
+        ? 14 + Math.max(0, regularDaysLines.length - 1) * 16
+        : 14;
     return (
       <thead style={{ textAlign: 'center' }}>
         <tr>
-          <td colSpan="7" style={{ position: 'relative', padding: '25px 10px 0px 10px', textAlign: 'center' }}>
-            <div style={{ fontWeight: 'bold', fontSize: '11px', fontFamily: 'Arial,"Times New Roman",serif', color: 'black', marginBottom: '2px' }}>Republic of the Philippines</div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '3px' }}>
-              <img src={earistLogo} alt="Logo" width="50" height="50" style={{ position: 'absolute', left: '10px' }} />
-              <p style={{ margin: '0', fontSize: '11.5px', fontWeight: 'bold', textAlign: 'center', fontFamily: 'Arial,"Times New Roman",serif', lineHeight: '1.2' }}>
-                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &amp; TECHNOLOGY
+          <td
+            colSpan="7"
+            style={{
+              position: 'relative',
+              padding: '25px 10px 0px 10px',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 'bold',
+                fontSize: '11px',
+                fontFamily: 'Arial,"Times New Roman",serif',
+                color: 'black',
+                marginBottom: '2px',
+              }}
+            >
+              Republic of the Philippines
+            </div>
+            <div
+              style={{
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: '3px',
+              }}
+            >
+              <img
+                src={earistLogo}
+                alt="Logo"
+                width="50"
+                height="50"
+                style={{ position: 'absolute', left: '10px' }}
+              />
+              <p
+                style={{
+                  margin: '0',
+                  fontSize: '11.5px',
+                  fontWeight: 'bold',
+                  textAlign: 'center',
+                  fontFamily: 'Arial,"Times New Roman",serif',
+                  lineHeight: '1.2',
+                }}
+              >
+                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &amp;
+                TECHNOLOGY
               </p>
             </div>
           </td>
         </tr>
-        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '0px 5px 2px 5px' }}><p style={{ fontSize: '11px', fontWeight: 'bold', margin: '0', fontFamily: 'Arial,serif' }}>Nagtahan, Sampaloc Manila</p></td></tr>
-        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px' }}><p style={{ fontSize: '8px', fontWeight: 'bold', margin: '0', fontFamily: 'Arial,serif' }}>Civil Service Form No. 48</p></td></tr>
-        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px', lineHeight: '1.2' }}><h4 style={{ fontFamily: 'Times New Roman,serif', textAlign: 'center', margin: '2px 0', fontWeight: 'bold', fontSize: '16px' }}>DAILY TIME RECORD</h4></td></tr>
         <tr>
-          <td colSpan="7" style={{ paddingTop: '10px', paddingBottom: '5px', lineHeight: '1.1', verticalAlign: 'top', textAlign: 'center' }}>
-            <div style={{ margin: '0 auto', fontFamily: 'Arial,serif', width: '100%', maxWidth: '400px', position: 'relative' }}>
-              <div style={{ borderBottom: '2px solid black', width: '100%', margin: '2px 0 3px 0' }} />
-              <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', whiteSpace: 'nowrap', textAlign: 'center', fontFamily: 'Times New Roman', overflow: 'hidden', textOverflow: 'ellipsis' }}>{employeeName || ''}</div>
-              <div style={{ borderBottom: '2px solid black', width: '100%', margin: '2px 0 3px 0' }} />
-              <div style={{ fontSize: '9px', textAlign: 'center', fontFamily: 'Times New Roman' }}>NAME</div>
+          <td
+            colSpan="7"
+            style={{ textAlign: 'center', padding: '0px 5px 2px 5px' }}
+          >
+            <p
+              style={{
+                fontSize: '11px',
+                fontWeight: 'bold',
+                margin: '0',
+                fontFamily: 'Arial,serif',
+              }}
+            >
+              Nagtahan, Sampaloc Manila
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px' }}>
+            <p
+              style={{
+                fontSize: '8px',
+                fontWeight: 'bold',
+                margin: '0',
+                fontFamily: 'Arial,serif',
+              }}
+            >
+              Civil Service Form No. 48
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td
+            colSpan="7"
+            style={{
+              textAlign: 'center',
+              padding: '2px 5px',
+              lineHeight: '1.2',
+            }}
+          >
+            <h4
+              style={{
+                fontFamily: 'Times New Roman,serif',
+                textAlign: 'center',
+                margin: '2px 0',
+                fontWeight: 'bold',
+                fontSize: '16px',
+              }}
+            >
+              DAILY TIME RECORD
+            </h4>
+          </td>
+        </tr>
+        <tr>
+          <td
+            colSpan="7"
+            style={{
+              paddingTop: '10px',
+              paddingBottom: '5px',
+              lineHeight: '1.1',
+              verticalAlign: 'top',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                margin: '0 auto',
+                fontFamily: 'Arial,serif',
+                width: '100%',
+                maxWidth: '400px',
+                position: 'relative',
+              }}
+            >
+              <div
+                style={{
+                  borderBottom: '2px solid black',
+                  width: '100%',
+                  margin: '2px 0 3px 0',
+                }}
+              />
+              <div
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                  whiteSpace: 'nowrap',
+                  textAlign: 'center',
+                  fontFamily: 'Times New Roman',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {employeeName || ''}
+              </div>
+              <div
+                style={{
+                  borderBottom: '2px solid black',
+                  width: '100%',
+                  margin: '2px 0 3px 0',
+                }}
+              />
+              <div
+                style={{
+                  fontSize: '9px',
+                  textAlign: 'center',
+                  fontFamily: 'Times New Roman',
+                }}
+              >
+                NAME
+              </div>
             </div>
           </td>
         </tr>
-        <tr><td colSpan="7" style={{ padding: '2px 5px', lineHeight: '1.1', textAlign: 'left' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: '5px', fontFamily: 'Times New Roman,serif', fontSize: '10px' }}>
-            <span style={{ marginRight: '6px' }}>Covered Dates:</span>
-            <div style={{ minWidth: '220px', flexGrow: 1 }}><div style={{ fontWeight: 'bold', textAlign: 'left', fontSize: '10px', fontFamily: 'Times New Roman,serif' }}>{formattedStartDate} - {formattedEndDate}</div></div>
-          </div>
-        </td></tr>
-        <tr><td colSpan="7" style={{ padding: '2px 5px', lineHeight: '1.2', textAlign: 'left' }}><p style={{ fontSize: '11px', margin: '0', paddingLeft: '5px', fontFamily: 'Times New Roman,serif' }}>For the month of: <b>{startDate ? formatMonth(startDate) : ''}</b></p></td></tr>
-        <tr><td colSpan="7" style={{ padding: '8px 5px 2px 5px', textAlign: 'left', fontSize: '10px', fontFamily: 'Arial,serif', lineHeight: '1.2' }}>Official hours for arrival (regular day) and departure</td></tr>
+        <tr>
+          <td
+            colSpan="7"
+            style={{ padding: '2px 5px', lineHeight: '1.1', textAlign: 'left' }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                paddingLeft: '5px',
+                fontFamily: 'Times New Roman,serif',
+                fontSize: '10px',
+              }}
+            >
+              <span style={{ marginRight: '6px' }}>Covered Dates:</span>
+              <div style={{ minWidth: '220px', flexGrow: 1 }}>
+                <div
+                  style={{
+                    fontWeight: 'bold',
+                    textAlign: 'left',
+                    fontSize: '10px',
+                    fontFamily: 'Times New Roman,serif',
+                  }}
+                >
+                  {formattedStartDate} - {formattedEndDate}
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td
+            colSpan="7"
+            style={{ padding: '2px 5px', lineHeight: '1.2', textAlign: 'left' }}
+          >
+            <p
+              style={{
+                fontSize: '11px',
+                margin: '0',
+                paddingLeft: '5px',
+                fontFamily: 'Times New Roman,serif',
+              }}
+            >
+              For the month of: <b>{startDate ? formatMonth(startDate) : ''}</b>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td
+            colSpan="7"
+            style={{
+              padding: '8px 5px 2px 5px',
+              textAlign: 'left',
+              fontSize: '10px',
+              fontFamily: 'Arial,serif',
+              lineHeight: '1.2',
+            }}
+          >
+            Official hours for arrival (regular day) and departure
+          </td>
+        </tr>
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'flex-end',
-              paddingLeft: '5%',
-              minHeight: regularBlockMinH,
-              fontFamily: 'Arial,serif',
-              fontSize: '10px',
-            }}
-            >
-              <span style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}>Regular Days:</span>
-              <span style={{
-                display: 'inline-block',
-                borderBottom: '1.5px solid black',
-                flexGrow: 1,
-                minWidth: '300px',
-                marginBottom: '2px',
-                paddingLeft: '4px',
-                paddingBottom: '1px',
-                fontSize: regularDaysLines.length > 0 ? '9px' : '10px',
-                lineHeight: 1.35,
-                textAlign: 'left',
-                whiteSpace: 'normal',
-                wordBreak: 'break-word',
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                paddingLeft: '5%',
+                minHeight: regularBlockMinH,
+                fontFamily: 'Arial,serif',
+                fontSize: '10px',
               }}
+            >
+              <span
+                style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}
+              >
+                Regular Days:
+              </span>
+              <span
+                style={{
+                  display: 'inline-block',
+                  borderBottom: '1.5px solid black',
+                  flexGrow: 1,
+                  minWidth: '300px',
+                  marginBottom: '2px',
+                  paddingLeft: '4px',
+                  paddingBottom: '1px',
+                  fontSize: regularDaysLines.length > 0 ? '9px' : '10px',
+                  lineHeight: 1.35,
+                  textAlign: 'left',
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
+                }}
               >
                 {regularDaysLines.map((line, idx) => (
                   <React.Fragment key={idx}>
@@ -896,48 +1557,125 @@ const DailyTimeRecord = () => {
             </div>
           </td>
         </tr>
-        {Array.from({ length: 2 }, (_, i) => <tr key={`e2${i}`}><td colSpan="7"></td></tr>)}
+        {Array.from({ length: 2 }, (_, i) => (
+          <tr key={`e2${i}`}>
+            <td colSpan="7"></td>
+          </tr>
+        ))}
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'flex-end',
-              paddingLeft: '5%',
-              minHeight: showOfficialTimeOnDtr && saturdayOfficialText ? 26 : 20,
-              fontFamily: 'Arial,serif',
-              fontSize: '10px',
-            }}
-            >
-              <span style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}>Saturdays:</span>
-              <span style={{
-                display: 'inline-block',
-                borderBottom: '1.5px solid black',
-                flexGrow: 1,
-                minWidth: '318px',
-                marginBottom: '2px',
-                paddingLeft: '4px',
-                paddingBottom: '1px',
-                fontSize: saturdayOfficialText ? '9px' : '10px',
-                lineHeight: 1.25,
-                textAlign: 'left',
-                whiteSpace: 'nowrap',
-                wordBreak: 'break-word',
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                paddingLeft: '5%',
+                minHeight:
+                  showOfficialTimeOnDtr && saturdayOfficialText ? 26 : 20,
+                fontFamily: 'Arial,serif',
+                fontSize: '10px',
               }}
-              >{saturdayOfficialText}</span>
+            >
+              <span
+                style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}
+              >
+                Saturdays:
+              </span>
+              <span
+                style={{
+                  display: 'inline-block',
+                  borderBottom: '1.5px solid black',
+                  flexGrow: 1,
+                  minWidth: '318px',
+                  marginBottom: '2px',
+                  paddingLeft: '4px',
+                  paddingBottom: '1px',
+                  fontSize: saturdayOfficialText ? '9px' : '10px',
+                  lineHeight: 1.25,
+                  textAlign: 'left',
+                  whiteSpace: 'nowrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {saturdayOfficialText}
+              </span>
             </div>
           </td>
         </tr>
-        {Array.from({ length: 2 }, (_, i) => <tr key={`e3${i}`}><td colSpan="7"></td></tr>)}
+        {Array.from({ length: 2 }, (_, i) => (
+          <tr key={`e3${i}`}>
+            <td colSpan="7"></td>
+          </tr>
+        ))}
         <tr>
-          <th rowSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>DAY</th>
-          <th colSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>A.M.</th>
-          <th colSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>P.M.</th>
-          <th style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>Late</th>
-          <th style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>Undertime</th>
+          <th
+            rowSpan="2"
+            style={{
+              border: '1px solid black',
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
+            }}
+          >
+            DAY
+          </th>
+          <th
+            colSpan="2"
+            style={{
+              border: '1px solid black',
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
+            }}
+          >
+            A.M.
+          </th>
+          <th
+            colSpan="2"
+            style={{
+              border: '1px solid black',
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
+            }}
+          >
+            P.M.
+          </th>
+          <th
+            style={{
+              border: '1px solid black',
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
+            }}
+          >
+            Late
+          </th>
+          <th
+            style={{
+              border: '1px solid black',
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
+            }}
+          >
+            Undertime
+          </th>
         </tr>
         <tr style={{ textAlign: 'center' }}>
-          {['Arrival','Departure','Arrival','Departure','Min','Min'].map((label, i) => (
-            <td key={i} style={{ border: '1px solid black', fontSize: '9px', fontFamily: 'Arial,serif', whiteSpace: 'nowrap' }}>{label}</td>
+          {[
+            'Arrival',
+            'Departure',
+            'Arrival',
+            'Departure',
+            'HH:MM',
+            'HH:MM',
+          ].map((label, i) => (
+            <td
+              key={i}
+              style={{
+                border: '1px solid black',
+                fontSize: '9px',
+                fontFamily: 'Arial,serif',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {label}
+            </td>
           ))}
         </tr>
       </thead>
@@ -945,9 +1683,16 @@ const DailyTimeRecord = () => {
   };
 
   const cellStyle = {
-    border: '1px solid black', textAlign: 'center', padding: '0 1px',
-    fontFamily: 'Arial,serif', fontSize: '10px', height: '16px',
-    whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '52px', letterSpacing: '-0.3px',
+    border: '1px solid black',
+    textAlign: 'center',
+    padding: '0 1px',
+    fontFamily: 'Arial,serif',
+    fontSize: '10px',
+    height: '16px',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    maxWidth: '52px',
+    letterSpacing: '-0.3px',
   };
 
   const daysInSelectedMonth = (() => {
@@ -955,7 +1700,8 @@ const DailyTimeRecord = () => {
     return new Date(selectedYear, selectedMonth + 1, 0).getDate();
   })();
 
-  const dtrRawEmpty = (v) => v == null || (typeof v === 'string' && v.trim() === '');
+  const dtrRawEmpty = (v) =>
+    v == null || (typeof v === 'string' && v.trim() === '');
 
   const dtrWmSpanStyle = {
     fontSize: '8.5px',
@@ -970,7 +1716,13 @@ const DailyTimeRecord = () => {
     printColorAdjust: 'exact',
   };
 
-  const renderDtrAmPmWatermarkCell = (rawVal, displayText, rowTint, indicator, colKey) => {
+  const renderDtrAmPmWatermarkCell = (
+    rawVal,
+    displayText,
+    rowTint,
+    indicator,
+    colKey,
+  ) => {
     const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
     return (
       <td
@@ -1005,32 +1757,111 @@ const DailyTimeRecord = () => {
             <span style={dtrWmSpanStyle}>{indicator.label}</span>
           </div>
         )}
-        <span className="dtr-actual-time" style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
+        <span
+          className="dtr-actual-time"
+          style={{ position: 'relative', zIndex: 1 }}
+        >
+          {displayText}
+        </span>
       </td>
     );
   };
 
   const renderTableRows = () =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
-      const day    = (i + 1).toString().padStart(2, '0');
+      const day = (i + 1).toString().padStart(2, '0');
       const record = records.find((r) => r.date && recordMatchesDay(r, day));
       let fullDate = null;
       if (record?.date) fullDate = toPhCalendarYmd(record.date);
-      if (!fullDate && startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
-      else if (!fullDate && selectedMonth !== null) { fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`; }
+      if (!fullDate && startDate) {
+        const [y, m] = startDate.split('-');
+        fullDate = `${y}-${m}-${day}`;
+      } else if (!fullDate && selectedMonth !== null) {
+        fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
+      }
       const indicator = getDateIndicator(fullDate);
-      const rowTint   = indicator ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)') : 'transparent';
+      const rowTint = indicator
+        ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)')
+        : fullDate && suggestedHalfDayDatesSet.has(fullDate)
+          ? 'rgba(106, 27, 154, 0.06)'
+          : 'transparent';
+      const computed = computedLateByDate[fullDate];
+      const isExcludedDay =
+        indicator?.type === 'holiday' ||
+        indicator?.type === 'suspension' ||
+        indicator?.type === 'leave';
+      const hasIncompletePunch = Boolean(
+        record &&
+        ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
+          (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
+      );
+      const { lateDisplay, undertimeDisplay } = resolveDtrLateUndertimeDisplay({
+        computed,
+        record,
+        isExcludedDay,
+        hasIncompletePunch,
+      });
       return (
         <tr key={i}>
-          <td style={{ ...cellStyle, backgroundColor: rowTint, position: 'relative', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+          <td
+            style={{
+              ...cellStyle,
+              backgroundColor: rowTint,
+              position: 'relative',
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
+            }}
+          >
             <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
           </td>
-          {renderDtrAmPmWatermarkCell(record?.timeIN,        formatTime(record?.timeIN        || ''), rowTint, indicator, `r-${i}-0`)}
-          {renderDtrAmPmWatermarkCell(record?.breaktimeIN,   formatTime(record?.breaktimeIN   || ''), rowTint, indicator, `r-${i}-1`)}
-          {renderDtrAmPmWatermarkCell(record?.breaktimeOUT,  formatTime(record?.breaktimeOUT  || ''), rowTint, indicator, `r-${i}-2`)}
-          {renderDtrAmPmWatermarkCell(record?.timeOUT,       formatTime(record?.timeOUT       || ''), rowTint, indicator, `r-${i}-3`)}
-          <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{record?.hours   || ''}</span></td>
-          <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{record?.minutes || ''}</span></td>
+          {renderDtrAmPmWatermarkCell(
+            record?.timeIN,
+            formatTime(record?.timeIN || ''),
+            rowTint,
+            indicator,
+            `r-${i}-0`,
+          )}
+          {renderDtrAmPmWatermarkCell(
+            record?.breaktimeIN,
+            formatTime(record?.breaktimeIN || ''),
+            rowTint,
+            indicator,
+            `r-${i}-1`,
+          )}
+          {renderDtrAmPmWatermarkCell(
+            record?.breaktimeOUT,
+            formatTime(record?.breaktimeOUT || ''),
+            rowTint,
+            indicator,
+            `r-${i}-2`,
+          )}
+          {renderDtrAmPmWatermarkCell(
+            record?.timeOUT,
+            formatTime(record?.timeOUT || ''),
+            rowTint,
+            indicator,
+            `r-${i}-3`,
+          )}
+          <td
+            style={{
+              ...cellStyle,
+              backgroundColor: rowTint,
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
+            }}
+          >
+            <span className="dtr-computed-late">{lateDisplay}</span>
+          </td>
+          <td
+            style={{
+              ...cellStyle,
+              backgroundColor: rowTint,
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
+            }}
+          >
+            <span className="dtr-computed-undertime">{undertimeDisplay}</span>
+          </td>
         </tr>
       );
     });
@@ -1039,22 +1870,85 @@ const DailyTimeRecord = () => {
     <tr>
       <td colSpan="7" style={{ padding: '10px 5px' }}>
         <hr style={{ borderTop: '2px solid black', width: '100%' }} />
-        <p style={{ textAlign: 'justify', fontSize: '9px', lineHeight: '1.4', fontFamily: 'Times New Roman,serif', margin: '5px 0' }}>
-          I CERTIFY on my honor that the above is a true and correct report<br />of the hours of work performed, record of which was made daily at<br />the time of arrival and at the time of departure from office.
+        <p
+          style={{
+            textAlign: 'justify',
+            fontSize: '9px',
+            lineHeight: '1.4',
+            fontFamily: 'Times New Roman,serif',
+            margin: '5px 0',
+          }}
+        >
+          I CERTIFY on my honor that the above is a true and correct report
+          <br />
+          of the hours of work performed, record of which was made daily at
+          <br />
+          the time of arrival and at the time of departure from office.
         </p>
-        <div style={{ width: '50%', marginLeft: 'auto', textAlign: 'center', marginTop: '40px' }}>
+        <div
+          style={{
+            width: '50%',
+            marginLeft: 'auto',
+            textAlign: 'center',
+            marginTop: '40px',
+          }}
+        >
           <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-          <p style={{ fontSize: '9px', fontFamily: 'Arial,serif', margin: '5px 0 0 0' }}>Signature</p>
+          <p
+            style={{
+              fontSize: '9px',
+              fontFamily: 'Arial,serif',
+              margin: '5px 0 0 0',
+            }}
+          >
+            Signature
+          </p>
         </div>
         <div style={{ width: '100%', marginTop: '15px' }}>
-          <hr style={{ borderTop: '1px solid black', width: '100%', margin: 0 }} />
-          <hr style={{ borderTop: '1.5px solid black', width: '100%', margin: '2px 0 0 0' }} />
-          <p style={{ paddingLeft: '30px', fontSize: '9px', fontFamily: 'Arial,serif', margin: '5px 0 0 0' }}>Verified as to prescribed office hours.</p>
+          <hr
+            style={{ borderTop: '1px solid black', width: '100%', margin: 0 }}
+          />
+          <hr
+            style={{
+              borderTop: '1.5px solid black',
+              width: '100%',
+              margin: '2px 0 0 0',
+            }}
+          />
+          <p
+            style={{
+              paddingLeft: '30px',
+              fontSize: '9px',
+              fontFamily: 'Arial,serif',
+              margin: '5px 0 0 0',
+            }}
+          >
+            Verified as to prescribed office hours.
+          </p>
         </div>
-        <div style={{ width: '80%', marginLeft: 'auto', marginTop: '15px', textAlign: 'center' }}>
+        <div
+          style={{
+            width: '80%',
+            marginLeft: 'auto',
+            marginTop: '15px',
+            textAlign: 'center',
+          }}
+        >
           <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-          <p style={{ fontSize: '9px', fontFamily: 'Times New Roman,serif', margin: '2px 0 0 0' }}>In-Charge</p>
-          <p style={{ fontSize: '9px', fontFamily: 'Arial,serif', margin: '0' }}>(Signature Over Printed Name)</p>
+          <p
+            style={{
+              fontSize: '9px',
+              fontFamily: 'Times New Roman,serif',
+              margin: '2px 0 0 0',
+            }}
+          >
+            In-Charge
+          </p>
+          <p
+            style={{ fontSize: '9px', fontFamily: 'Arial,serif', margin: '0' }}
+          >
+            (Signature Over Printed Name)
+          </p>
         </div>
       </td>
     </tr>
@@ -1062,7 +1956,7 @@ const DailyTimeRecord = () => {
 
   const colgroup = (
     <colgroup>
-      <col style={{ width: '8%' }}  />
+      <col style={{ width: '8%' }} />
       <col style={{ width: '16%' }} />
       <col style={{ width: '16%' }} />
       <col style={{ width: '16%' }} />
@@ -1103,36 +1997,149 @@ const DailyTimeRecord = () => {
         `}</style>
 
         {/* Snackbar */}
-        <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-          <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%', fontWeight: 600 }}>{snackbar.message}</Alert>
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={5000}
+          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+            severity={snackbar.severity}
+            variant="filled"
+            sx={{ width: '100%', fontWeight: 600 }}
+          >
+            {snackbar.message}
+          </Alert>
         </Snackbar>
 
         <LoadingOverlay
           open={monthLoading}
-          message={selectedMonth !== null ? `Loading DTR — ${monthsShort[selectedMonth]}…` : 'Loading DTR — Fetching records…'}
+          message={
+            selectedMonth !== null
+              ? `Loading DTR — ${monthsShort[selectedMonth]}…`
+              : 'Loading DTR — Fetching records…'
+          }
         />
         <LoadingOverlay
           open={singlePrintLoading}
-          message={singlePrintStatus ? `DTR — ${singlePrintStatus}` : 'DTR — Capturing preview…'}
+          message={
+            singlePrintStatus
+              ? `DTR — ${singlePrintStatus}`
+              : 'DTR — Capturing preview…'
+          }
         />
 
-        <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
-
+        <Box
+          sx={{
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: '100vw',
+            maxWidth: '100%',
+            position: 'relative',
+            left: '63%',
+            transform: 'translateX(-61%)',
+            px: { xs: 2, sm: 3, md: 6 },
+          }}
+        >
           {/* ── Page Header (matches Payslip) ── */}
           <SectionCard className="no-print" sx={{ mb: 2, overflow: 'hidden' }}>
-            <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)' }} />
-              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)' }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: -50,
+                  right: -50,
+                  width: 200,
+                  height: 200,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+                }}
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  bottom: -30,
+                  left: '30%',
+                  width: 150,
+                  height: 150,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+                }}
+              />
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
                 <AccessTime sx={{ fontSize: 32, color: T.accent }} />
                 <Box>
-                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>Daily Time Record</Typography>
-                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>Employee Portal • View and download your DTR records</Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '1.25rem',
+                      fontWeight: 900,
+                      color: T.accent,
+                      lineHeight: 1.2,
+                      mb: 0.3,
+                    }}
+                  >
+                    Daily Time Record
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.82rem',
+                      color: T.accentMid,
+                      fontWeight: 700,
+                      opacity: 0.9,
+                    }}
+                  >
+                    Employee Portal • View and download your DTR records
+                  </Typography>
                 </Box>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
-                <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
-                  <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
+                <Box
+                  sx={{
+                    px: 2.5,
+                    py: 0.75,
+                    borderRadius: 6,
+                    bgcolor: alpha(T.accent, 0.1),
+                    border: `1px solid ${alpha(T.accent, 0.2)}`,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: '0.8rem',
+                      color: T.accent,
+                      fontWeight: 700,
+                    }}
+                  >
                     {records.length} records
                   </Typography>
                 </Box>
@@ -1140,7 +2147,21 @@ const DailyTimeRecord = () => {
                   component="button"
                   onClick={() => window.location.reload()}
                   title="Refresh"
-                  sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '8px', p: '7px 10px', cursor: 'pointer', color: T.accent, display: 'flex', alignItems: 'center', transition: 'all 0.15s', '&:hover': { bgcolor: alpha(T.accent, 0.15), transform: 'translateY(-1px)' } }}
+                  sx={{
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    borderRadius: '8px',
+                    p: '7px 10px',
+                    cursor: 'pointer',
+                    color: T.accent,
+                    display: 'flex',
+                    alignItems: 'center',
+                    transition: 'all 0.15s',
+                    '&:hover': {
+                      bgcolor: alpha(T.accent, 0.15),
+                      transform: 'translateY(-1px)',
+                    },
+                  }}
                 >
                   <AccessTime sx={{ fontSize: 17 }} />
                 </Box>
@@ -1150,24 +2171,112 @@ const DailyTimeRecord = () => {
 
           {/* ── Two-column layout (matches Payslip) ── */}
           <Grid container spacing={2} sx={{ alignItems: 'stretch' }}>
-
             {/* LEFT: Filter / Period selector panel (same height as DTR Preview; scrolls when zoom overflows) */}
-            <Grid item xs={12} lg={3} className="no-print" sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <SectionCard sx={{ width: '100%', height: DTR_PANEL_HEIGHT, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
+            <Grid
+              item
+              xs={12}
+              lg={3}
+              className="no-print"
+              sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
+            >
+              <SectionCard
+                sx={{
+                  width: '100%',
+                  height: DTR_PANEL_HEIGHT,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: 0,
+                }}
+              >
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 1.25,
+                    borderBottom: `1px solid ${T.divider}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                    bgcolor: T.accentFaint,
+                    flexShrink: 0,
+                  }}
+                >
                   <CalendarToday sx={{ fontSize: 15, color: T.accent }} />
-                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>DTR Period</Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: T.accent,
+                    }}
+                  >
+                    DTR Period
+                  </Typography>
                 </Box>
 
-                <Box sx={{ px: 3.5, py: 3, display: 'flex', flexDirection: 'column', gap: 0, ...dtrPanelScrollBodySx }}>
-
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 3,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0,
+                    ...dtrPanelScrollBodySx,
+                  }}
+                >
                   {/* Employee (read-only) */}
-                  <FormSectionLabel icon={AccessTime}>Employee</FormSectionLabel>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.1, mb: 2.5, borderRadius: '8px', border: `1px dashed ${T.accentBorder}`, bgcolor: alpha(T.accent, 0.03), cursor: 'not-allowed', userSelect: 'none' }}>
-                    <AccessTime sx={{ fontSize: 14, color: alpha(T.accent, 0.4), flexShrink: 0 }} />
-                    <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontWeight: 600, flex: 1 }}>{personID || '—'}</Typography>
-                    <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
-                      <Typography sx={{ fontSize: '0.58rem', color: T.accent, fontWeight: 700, letterSpacing: '0.05em' }}>AUTO</Typography>
+                  <FormSectionLabel icon={AccessTime}>
+                    Employee
+                  </FormSectionLabel>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      px: 1.5,
+                      py: 1.1,
+                      mb: 2.5,
+                      borderRadius: '8px',
+                      border: `1px dashed ${T.accentBorder}`,
+                      bgcolor: alpha(T.accent, 0.03),
+                      cursor: 'not-allowed',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <AccessTime
+                      sx={{
+                        fontSize: 14,
+                        color: alpha(T.accent, 0.4),
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Typography
+                      sx={{
+                        fontSize: '0.82rem',
+                        color: T.muted,
+                        fontWeight: 600,
+                        flex: 1,
+                      }}
+                    >
+                      {personID || '—'}
+                    </Typography>
+                    <Box
+                      sx={{
+                        px: 0.75,
+                        py: 0.2,
+                        borderRadius: '4px',
+                        bgcolor: alpha(T.accent, 0.08),
+                        border: `1px solid ${alpha(T.accent, 0.15)}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: '0.58rem',
+                          color: T.accent,
+                          fontWeight: 700,
+                          letterSpacing: '0.05em',
+                        }}
+                      >
+                        AUTO
+                      </Typography>
                     </Box>
                   </Box>
 
@@ -1179,31 +2288,91 @@ const DailyTimeRecord = () => {
                       onChange={(e) => {
                         setSelectedYear(parseInt(e.target.value));
                         setSelectedMonth(null);
-                        setSnackbar({ open: true, message: 'Year changed — please click a month to load records.', severity: 'info' });
+                        setSnackbar({
+                          open: true,
+                          message:
+                            'Year changed — please click a month to load records.',
+                          severity: 'info',
+                        });
                       }}
-                      style={{ width: '100%', padding: '9px 13px', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, fontSize: '0.82rem', outline: 'none', fontFamily: 'inherit', background: '#fff', color: T.text, cursor: 'pointer' }}
+                      style={{
+                        width: '100%',
+                        padding: '9px 13px',
+                        borderRadius: '8px',
+                        border: `1px solid ${T.accentBorder}`,
+                        fontSize: '0.82rem',
+                        outline: 'none',
+                        fontFamily: 'inherit',
+                        background: '#fff',
+                        color: T.text,
+                        cursor: 'pointer',
+                      }}
                     >
-                      {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                      {yearOptions.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
                     </select>
                   </Box>
 
                   {/* Month */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-                      <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>Month</Typography>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      mb: 1.5,
+                    }}
+                  >
+                    <Box
+                      sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                    >
+                      <CalendarToday
+                        sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }}
+                      />
+                      <Typography
+                        sx={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.09em',
+                          textTransform: 'uppercase',
+                          color: alpha(T.accent, 0.45),
+                        }}
+                      >
+                        Month
+                      </Typography>
                     </Box>
                     {selectedMonth !== null && (
-                      <Box onClick={() => { setSelectedMonth(null); setRecords([]); setStartDate(''); setEndDate(''); setOfficialTimes({}); }} sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}>Clear</Box>
+                      <Box
+                        onClick={() => {
+                          setSelectedMonth(null);
+                          setRecords([]);
+                          setStartDate('');
+                          setEndDate('');
+                          setOfficialTimes({});
+                        }}
+                        sx={{
+                          fontSize: '0.65rem',
+                          color: T.accent,
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          '&:hover': { textDecoration: 'underline' },
+                        }}
+                      >
+                        Clear
+                      </Box>
                     )}
                   </Box>
 
-                  <Box sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                    gap: '8px',
-                    mb: 1.25,
-                  }}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                      gap: '8px',
+                      mb: 1.25,
+                    }}
+                  >
                     {monthsShort.map((m, idx) => {
                       const isSelected = selectedMonth === idx;
                       return (
@@ -1222,18 +2391,25 @@ const DailyTimeRecord = () => {
                             border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
                             bgcolor: isSelected ? T.accent : 'transparent',
                             transition: 'all 0.14s ease',
-                            '&:hover': isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
+                            '&:hover': isSelected
+                              ? {}
+                              : {
+                                  bgcolor: T.accentFaint,
+                                  border: `1px solid ${T.accentBorder}`,
+                                },
                           }}
                         >
-                          <Typography sx={{
-                            fontSize: '0.78rem',
-                            fontWeight: isSelected ? 700 : 600,
-                            color: isSelected ? '#fff' : T.text,
-                            lineHeight: 1,
-                            letterSpacing: '0.03em',
-                            textAlign: 'center',
-                            width: '100%',
-                          }}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.78rem',
+                              fontWeight: isSelected ? 700 : 600,
+                              color: isSelected ? '#fff' : T.text,
+                              lineHeight: 1,
+                              letterSpacing: '0.03em',
+                              textAlign: 'center',
+                              width: '100%',
+                            }}
+                          >
                             {m}
                           </Typography>
                         </Box>
@@ -1243,29 +2419,75 @@ const DailyTimeRecord = () => {
 
                   <FormControlLabel
                     className="no-print"
-                    control={(
+                    control={
                       <Checkbox
                         size="small"
                         checked={showOfficialTimeOnDtr}
-                        onChange={(e) => setShowOfficialTimeOnDtr(e.target.checked)}
-                        sx={{ py: 0, color: T.accent, '&.Mui-checked': { color: T.accent } }}
+                        onChange={(e) =>
+                          setShowOfficialTimeOnDtr(e.target.checked)
+                        }
+                        sx={{
+                          py: 0,
+                          color: T.accent,
+                          '&.Mui-checked': { color: T.accent },
+                        }}
                       />
-                    )}
-                    label={(
-                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text, lineHeight: 1.3 }}>
+                    }
+                    label={
+                      <Typography
+                        sx={{
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          color: T.text,
+                          lineHeight: 1.3,
+                        }}
+                      >
                         Show official time on DTR
                       </Typography>
-                    )}
-                    sx={{ mt: 2, mb: 0.5, ml: -0.5, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { pt: '2px' } }}
+                    }
+                    sx={{
+                      mt: 2,
+                      mb: 0.5,
+                      ml: -0.5,
+                      alignItems: 'flex-start',
+                      '& .MuiFormControlLabel-label': { pt: '2px' },
+                    }}
                   />
-                  <Box sx={{ mt: 0, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(T.accent, 0.6), mb: 0.5 }}>
+                  <Box
+                    sx={{
+                      mt: 0,
+                      p: 1.5,
+                      borderRadius: 2,
+                      bgcolor: T.accentFaint,
+                      border: `1px solid ${T.accentBorder}`,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: alpha(T.accent, 0.6),
+                        mb: 0.5,
+                      }}
+                    >
                       Total Records
                     </Typography>
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
-                      {records.length} {records.length === 1 ? 'record' : 'records'} found
+                    <Typography
+                      sx={{
+                        fontSize: '0.9rem',
+                        fontWeight: 800,
+                        color: T.text,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {records.length}{' '}
+                      {records.length === 1 ? 'record' : 'records'} found
                     </Typography>
-                    <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
+                    <Typography
+                      sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}
+                    >
                       Counts loaded entries for the selected month.
                     </Typography>
                   </Box>
@@ -1274,49 +2496,236 @@ const DailyTimeRecord = () => {
             </Grid>
 
             {/* RIGHT: DTR preview panel */}
-            <Grid item xs={12} lg={9} sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <SectionCard sx={{ width: '100%', height: DTR_PANEL_HEIGHT, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-
+            <Grid
+              item
+              xs={12}
+              lg={9}
+              sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}
+            >
+              <SectionCard
+                sx={{
+                  width: '100%',
+                  height: DTR_PANEL_HEIGHT,
+                  minHeight: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  position: 'relative',
+                }}
+              >
                 {/* Toolbar */}
-                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }} className="no-print">
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 2,
+                    borderBottom: `1px solid ${T.divider}`,
+                    bgcolor: T.accentFaint,
+                    flexShrink: 0,
+                  }}
+                  className="no-print"
+                >
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <Box
+                      sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}
+                    >
                       <AccessTime sx={{ fontSize: 15, color: T.accent }} />
-                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>DTR Preview</Typography>
+                      <Typography
+                        sx={{
+                          fontSize: '0.88rem',
+                          fontWeight: 700,
+                          color: T.text,
+                        }}
+                      >
+                        DTR Preview
+                      </Typography>
                       {selectedMonth !== null && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: T.faint }} />
-                          <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{employeeName}</Typography>
-                          <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '5px', px: '6px', py: '2px' }}>{monthsShort[selectedMonth]}</Box>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.75,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 4,
+                              height: 4,
+                              borderRadius: '50%',
+                              bgcolor: T.faint,
+                            }}
+                          />
+                          <Typography
+                            sx={{
+                              fontSize: '0.78rem',
+                              color: T.muted,
+                              fontWeight: 500,
+                            }}
+                          >
+                            {employeeName}
+                          </Typography>
+                          <Box
+                            sx={{
+                              fontSize: '0.65rem',
+                              fontWeight: 700,
+                              color: T.accent,
+                              bgcolor: alpha(T.accent, 0.08),
+                              border: `1px solid ${T.accentBorder}`,
+                              borderRadius: '5px',
+                              px: '6px',
+                              py: '2px',
+                            }}
+                          >
+                            {monthsShort[selectedMonth]}
+                          </Box>
                         </Box>
                       )}
                     </Box>
                     {selectedMonth !== null && (
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         {/* Legend tooltip */}
-                        <Tooltip placement="top" title={
-                          <Box sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                            <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.05em' }}>LEGEND</Typography>
-                            {[{ label: 'Holiday', bg: 'rgba(237,108,2,0.25)', border: '#ed6c02' }, { label: 'Suspension', bg: 'rgba(211,47,47,0.2)', border: '#d32f2f' }, { label: 'On Leave', bg: 'rgba(46,125,50,0.2)', border: '#2e7d32' }].map(({ label, bg, border }) => (
-                              <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Box sx={{ width: 28, height: 16, backgroundColor: bg, border: `1.5px solid ${border}`, borderRadius: '3px', flexShrink: 0 }} />
-                                <Typography variant="caption" sx={{ fontSize: '11px', fontWeight: 500 }}>{label}</Typography>
-                              </Box>
-                            ))}
-                          </Box>
-                        } arrow componentsProps={{ tooltip: { sx: { bgcolor: 'white', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0', borderRadius: '10px', p: 1.5 } }, arrow: { sx: { color: 'white' } } }}>
-                          <IconButton size="small" sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, fontSize: '13px', fontWeight: 700, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}>?</IconButton>
+                        <Tooltip
+                          placement="top"
+                          title={
+                            <Box
+                              sx={{
+                                p: 0.5,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 1,
+                              }}
+                            >
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontWeight: 700,
+                                  fontSize: '11px',
+                                  letterSpacing: '0.05em',
+                                }}
+                              >
+                                LEGEND
+                              </Typography>
+                              {[
+                                {
+                                  label: 'Holiday',
+                                  bg: 'rgba(237,108,2,0.25)',
+                                  border: '#ed6c02',
+                                },
+                                {
+                                  label: 'Suspension',
+                                  bg: 'rgba(211,47,47,0.2)',
+                                  border: '#d32f2f',
+                                },
+                                {
+                                  label: 'On Leave',
+                                  bg: 'rgba(46,125,50,0.2)',
+                                  border: '#2e7d32',
+                                },
+                              ].map(({ label, bg, border }) => (
+                                <Box
+                                  key={label}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      width: 28,
+                                      height: 16,
+                                      backgroundColor: bg,
+                                      border: `1.5px solid ${border}`,
+                                      borderRadius: '3px',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                  <Typography
+                                    variant="caption"
+                                    sx={{ fontSize: '11px', fontWeight: 500 }}
+                                  >
+                                    {label}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          }
+                          arrow
+                          componentsProps={{
+                            tooltip: {
+                              sx: {
+                                bgcolor: 'white',
+                                color: '#333',
+                                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '10px',
+                                p: 1.5,
+                              },
+                            },
+                            arrow: { sx: { color: 'white' } },
+                          }}
+                        >
+                          <IconButton
+                            size="small"
+                            sx={{
+                              bgcolor: alpha(T.accent, 0.08),
+                              border: `1px solid ${T.accentBorder}`,
+                              color: T.accent,
+                              fontSize: '13px',
+                              fontWeight: 700,
+                              width: 32,
+                              height: 32,
+                              '&:hover': { bgcolor: alpha(T.accent, 0.15) },
+                            }}
+                          >
+                            ?
+                          </IconButton>
                         </Tooltip>
                         <Tooltip title="Print DTR" placement="top">
-                          <IconButton size="small" onClick={printPage} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}><PrintIcon sx={{ fontSize: 16 }} /></IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={printPage}
+                            sx={{
+                              bgcolor: alpha(T.accent, 0.08),
+                              border: `1px solid ${T.accentBorder}`,
+                              color: T.accent,
+                              width: 32,
+                              height: 32,
+                              '&:hover': { bgcolor: alpha(T.accent, 0.15) },
+                            }}
+                          >
+                            <PrintIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
                         </Tooltip>
                         <AccentButton
                           variant="contained"
                           size="small"
-                          startIcon={singlePrintLoading ? <MCircularProgress size={12} sx={{ color: '#fff' }} /> : <PictureAsPdfIcon sx={{ fontSize: '13px !important' }} />}
+                          startIcon={
+                            singlePrintLoading ? (
+                              <MCircularProgress
+                                size={12}
+                                sx={{ color: '#fff' }}
+                              />
+                            ) : (
+                              <PictureAsPdfIcon
+                                sx={{ fontSize: '13px !important' }}
+                              />
+                            )
+                          }
                           onClick={downloadPDF}
                           disabled={singlePrintLoading}
-                          sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`, '&:hover': { bgcolor: T.accentDark }, '&:disabled': { bgcolor: '#ddd !important' } }}
+                          sx={{
+                            fontSize: '0.78rem',
+                            bgcolor: T.accent,
+                            color: '#fff',
+                            boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                            '&:hover': { bgcolor: T.accentDark },
+                            '&:disabled': { bgcolor: '#ddd !important' },
+                          }}
                         >
                           {singlePrintLoading ? 'Processing…' : 'Download PDF'}
                         </AccentButton>
@@ -1329,23 +2738,86 @@ const DailyTimeRecord = () => {
                 <Box sx={{ ...dtrPanelScrollBodySx }}>
                   {selectedMonth === null ? (
                     <Box sx={{ py: 10, textAlign: 'center' }}>
-                      <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                        <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      <Box
+                        sx={{
+                          width: 72,
+                          height: 72,
+                          borderRadius: '50%',
+                          bgcolor: T.accentFaint,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          mx: 'auto',
+                          mb: 2,
+                        }}
+                      >
+                        <CalendarToday
+                          sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                        />
                       </Box>
-                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>Select a DTR Period</Typography>
-                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Choose a month from the left panel to view your Daily Time Record.</Typography>
+                      <Typography
+                        sx={{
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          color: T.muted,
+                          mb: 0.5,
+                        }}
+                      >
+                        Select a DTR Period
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                        Choose a month from the left panel to view your Daily
+                        Time Record.
+                      </Typography>
                     </Box>
                   ) : (
                     <Fade in timeout={250}>
-                      <Box sx={{ bgcolor: '#f4f0f0', p: 2.5, display: 'flex', justifyContent: 'center', position: 'relative' }}>
+                      <Box
+                        sx={{
+                          bgcolor: '#f4f0f0',
+                          p: 2.5,
+                          display: 'flex',
+                          justifyContent: 'center',
+                          position: 'relative',
+                        }}
+                      >
                         {/* DTR tables — identical to original, wrapped in a scaled paper */}
-                        <Paper elevation={2} sx={{ p: 2, borderRadius: '8px', bgcolor: '#fff', position: 'relative', boxSizing: 'border-box', overflowX: 'auto', width: '100%' }}>
+                        <Paper
+                          elevation={2}
+                          sx={{
+                            p: 2,
+                            borderRadius: '8px',
+                            bgcolor: '#fff',
+                            position: 'relative',
+                            boxSizing: 'border-box',
+                            overflowX: 'auto',
+                            width: '100%',
+                          }}
+                        >
                           <Box sx={{ overflowX: 'auto' }}>
                             <div className="table-container" ref={dtrRef}>
                               <div className="table-wrapper">
-                                <div style={{ display: 'flex', gap: '2%', width: DTR_WIDTH_IN, minWidth: '8.5in', margin: '0 auto', backgroundColor: 'white' }} className="table-side-by-side">
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    gap: '2%',
+                                    width: DTR_WIDTH_IN,
+                                    minWidth: '8.5in',
+                                    margin: '0 auto',
+                                    backgroundColor: 'white',
+                                  }}
+                                  className="table-side-by-side"
+                                >
                                   {[0, 1].map((tableIdx) => (
-                                    <table key={tableIdx} style={{ border: '1px solid black', borderCollapse: 'collapse', width: '49%', tableLayout: 'fixed' }}>
+                                    <table
+                                      key={tableIdx}
+                                      style={{
+                                        border: '1px solid black',
+                                        borderCollapse: 'collapse',
+                                        width: '49%',
+                                        tableLayout: 'fixed',
+                                      }}
+                                    >
                                       {colgroup}
                                       {renderHeader()}
                                       <tbody>
@@ -1366,16 +2838,32 @@ const DailyTimeRecord = () => {
 
                 {/* Footer info bar */}
                 {selectedMonth !== null && (
-                  <Box className="no-print" sx={{ flexShrink: 0, px: 3.5, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <PictureAsPdfIcon sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }} />
-                    <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>Download generates a PDF of your DTR for {monthsShort[selectedMonth]} {selectedYear}</Typography>
+                  <Box
+                    className="no-print"
+                    sx={{
+                      flexShrink: 0,
+                      px: 3.5,
+                      py: 1.25,
+                      borderTop: `1px solid ${T.divider}`,
+                      bgcolor: T.accentFaint,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                    }}
+                  >
+                    <PictureAsPdfIcon
+                      sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }}
+                    />
+                    <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                      Download generates a PDF of your DTR for{' '}
+                      {monthsShort[selectedMonth]} {selectedYear}
+                    </Typography>
                   </Box>
                 )}
               </SectionCard>
             </Grid>
           </Grid>
         </Box>
-
       </Box>
     </Fade>
   );

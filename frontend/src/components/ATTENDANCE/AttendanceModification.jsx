@@ -82,6 +82,11 @@ import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
+import {
+  buildAuditPeriodLabel,
+  logAttendanceModificationSave,
+  logAttendanceModificationView,
+} from '../../utils/moduleEmployeeSearchAudit';
 
 // ─── Poppins font import ───────────────────────────────────────────────────
 const poppinsImport = `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');`;
@@ -849,6 +854,16 @@ const getChanges = (current, saved) => {
   return EDITABLE_FIELDS.filter((f) => (current[f] || '') !== (saved[f] || '')).map((f) => ({ field: f, label: FIELD_LABELS[f], before: saved[f] || '—', after: current[f] || '—' }));
 };
 const isDirty = (current, saved) => { if (!saved) return false; return EDITABLE_FIELDS.some((f) => (current[f] || '') !== (saved[f] || '')); };
+const buildModificationChangeSummary = (entries) =>
+  (entries || [])
+    .filter((e) => e.changes?.length)
+    .map((e) => {
+      const detail = e.changes
+        .map((c) => `${c.label} ${c.before} → ${c.after}`)
+        .join(', ');
+      return `${e.date}: ${detail}`;
+    })
+    .join(' · ');
 const isWeekend = (dayName) => dayName === 'Saturday' || dayName === 'Sunday';
 const hasAnyTime = (record) => EDITABLE_FIELDS.some((f) => record[f] && String(record[f]).trim() !== '');
 const getEmployeeIdentifier = (emp) => {
@@ -1291,8 +1306,53 @@ const AttendanceSearch = () => {
 
   const getAuthHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' } });
 
+  const getModificationTargetUsername = useCallback(() => {
+    const u = selectedEmployee?.username;
+    if (u) return String(u).trim();
+    return String(submittedID || personID || '').trim();
+  }, [selectedEmployee, submittedID, personID]);
+
+  const getModificationMonthLabel = useCallback(
+    () =>
+      buildAuditPeriodLabel({
+        selectedMonth,
+        monthNames: months,
+        selectedYear,
+        startDate,
+        endDate,
+      }),
+    [selectedMonth, selectedYear, startDate, endDate],
+  );
+
+  const auditModificationView = useCallback(
+    (recordsCount, viewType = 'records') => {
+      const targetId = String(submittedID || personID || '').trim();
+      if (!targetId || !startDate || !endDate) return;
+      logAttendanceModificationView({
+        targetEmployeeNumber: targetId,
+        targetUsername: getModificationTargetUsername(),
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: getModificationMonthLabel(),
+        recordsCount,
+        viewType,
+      });
+    },
+    [
+      submittedID,
+      personID,
+      startDate,
+      endDate,
+      getModificationTargetUsername,
+      getModificationMonthLabel,
+    ],
+  );
+
   // ── fetchRecords ──────────────────────────────────────────────────────────
-  const fetchRecords = async (showLoading = true, { force = false, preserveBaseline = false } = {}) => {
+  const fetchRecords = async (
+    showLoading = true,
+    { force = false, preserveBaseline = false, auditView = false } = {},
+  ) => {
     if (!personID || !startDate || !endDate) return;
     const normalizedPersonID = String(personID || '').trim();
     const cacheKey = `${normalizedPersonID}|${startDate}|${endDate}`;
@@ -1307,6 +1367,7 @@ const AttendanceSearch = () => {
         setBaselineRecordsMap(bm);
       }
       setLoadedTabs((prev) => new Set([...prev, 'records']));
+      if (auditView) auditModificationView((cached || []).length, 'records');
       setLoading(false); return;
     }
     if (recordsControllerRef.current) recordsControllerRef.current.abort();
@@ -1346,6 +1407,7 @@ const AttendanceSearch = () => {
         });
       }
       setLoadedTabs((prev) => new Set([...prev, 'records']));
+      if (auditView) auditModificationView(fetched.length, 'records');
       if (fetched.length > 0) requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     } catch (err) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
@@ -1355,7 +1417,10 @@ const AttendanceSearch = () => {
   };
 
   // ── fetchFullRecords ──────────────────────────────────────────────────────
-  const fetchFullRecords = async (showLoading = true, { force = false, preserveBaseline = false } = {}) => {
+  const fetchFullRecords = async (
+    showLoading = true,
+    { force = false, preserveBaseline = false, auditView = false } = {},
+  ) => {
     if (!personID || !startDate || !endDate) return;
     const normalizedPersonID = String(personID || '').trim();
     const cacheKey = `${normalizedPersonID}|${startDate}|${endDate}`;
@@ -1370,6 +1435,7 @@ const AttendanceSearch = () => {
         setBaselineFullMap(bm);
       }
       setLoadedTabs((prev) => new Set([...prev, 'fullMonth']));
+      if (auditView) auditModificationView((cached || []).length, 'full_month');
       setLoading(false); return;
     }
     if (fullControllerRef.current) fullControllerRef.current.abort();
@@ -1405,6 +1471,7 @@ const AttendanceSearch = () => {
         });
       }
       setLoadedTabs((prev) => new Set([...prev, 'fullMonth']));
+      if (auditView) auditModificationView(fetched.length, 'full_month');
       if (fetched.length > 0) requestAnimationFrame(() => fullResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     } catch (err) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
@@ -1423,8 +1490,8 @@ const AttendanceSearch = () => {
     setAutoFilledRecordsRows(new Map()); setAutoFilledFullRows(new Map());
     setHasSearched(true); setSubmittedID(String(personID || '').trim());
     const timer = setTimeout(() => {
-      if (activeTab === 'records') fetchRecords(true, { force: true });
-      else fetchFullRecords(true, { force: true });
+      if (activeTab === 'records') fetchRecords(true, { force: true, auditView: true });
+      else fetchFullRecords(true, { force: true, auditView: true });
     }, 180);
     return () => clearTimeout(timer);
   }, [personID, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1474,11 +1541,17 @@ const AttendanceSearch = () => {
 
       // Snapshot dirty-row keys BEFORE the fetch clobbers `records`
       const changedRowKeys = new Set();
+      const changeEntries = [];
       records.forEach((rec, i) => {
         if (isDirty(rec, savedRecords[i])) {
           changedRowKeys.add(`${rec.personID}-${rec.date}`);
+          changeEntries.push({
+            date: rec.date,
+            changes: getChanges(rec, savedRecords[i]),
+          });
         }
       });
+      const changesSummary = buildModificationChangeSummary(changeEntries);
 
       // Snapshot the everModified fields we want to carry forward
       const modSet = new Set(everModifiedFields);
@@ -1517,6 +1590,21 @@ const AttendanceSearch = () => {
       // Apply the accumulated everModified set AFTER re-fetch so it isn't clobbered
       setEverModifiedFields(modSet);
       setModifiedRowKeys(newModifiedRowKeys);
+
+      if (changeEntries.length > 0) {
+        const targetId = String(submittedID || personID || '').trim();
+        logAttendanceModificationSave({
+          targetEmployeeNumber: targetId,
+          targetUsername: getModificationTargetUsername(),
+          periodStart: startDate,
+          periodEnd: endDate,
+          monthLabel: getModificationMonthLabel(),
+          rowsChanged: changeEntries.length,
+          changesSummary,
+          saveRemarks: remarks || null,
+          viewType: 'records',
+        });
+      }
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save records. Please try again.';
       setError(msg); showSnackbar(msg, 'error');
@@ -1534,6 +1622,22 @@ const AttendanceSearch = () => {
     if (toSave.length === 0) { showSnackbar('No changes to save.', 'info'); return; }
 
     const changedDateKeys = new Set(toSave.map((r) => r.date));
+
+    const changeEntries = toSave.map((rec) => {
+      const saved = savedFullRecords.find((s) => s.date === rec.date);
+      const changes = rec.isNew
+        ? EDITABLE_FIELDS.filter((f) => rec[f] && String(rec[f]).trim() !== '').map(
+            (f) => ({
+              field: f,
+              label: FIELD_LABELS[f],
+              before: '—',
+              after: rec[f] || '—',
+            }),
+          )
+        : getChanges(rec, saved);
+      return { date: rec.date, changes };
+    });
+    const changesSummary = buildModificationChangeSummary(changeEntries);
 
     // Snapshot the fullEverModified fields we want to carry forward
     const modSet = new Set(fullEverModified);
@@ -1566,6 +1670,19 @@ const AttendanceSearch = () => {
       // Apply the accumulated everModified set AFTER re-fetch so it isn't clobbered
       setFullEverModified(modSet);
       setFullModifiedRowKeys(newFullModifiedRowKeys);
+
+      const targetId = String(submittedID || personID || '').trim();
+      logAttendanceModificationSave({
+        targetEmployeeNumber: targetId,
+        targetUsername: getModificationTargetUsername(),
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: getModificationMonthLabel(),
+        rowsChanged: changeEntries.length,
+        changesSummary,
+        saveRemarks: remarks || null,
+        viewType: 'full_month',
+      });
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save records. Please try again.';
       setError(msg); showSnackbar(msg, 'error');
@@ -1891,7 +2008,7 @@ const AttendanceSearch = () => {
                 <Box sx={{ py: 8, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
                   <EventNote sx={{ fontSize: 36, color: T.accentBorder }} />
                   <Typography sx={{ fontSize: '0.84rem', color: T.muted, fontFamily: T.font }}>No calendar data loaded yet.</Typography>
-                  <button onClick={() => fetchFullRecords(true)} style={{ background: T.accent, border: 'none', borderRadius: '8px', padding: '9px 20px', cursor: 'pointer', color: '#FEF9E1', fontSize: '0.8rem', fontWeight: 700, fontFamily: T.font }}>Load Full Month</button>
+                  <button onClick={() => fetchFullRecords(true, { force: true, auditView: true })} style={{ background: T.accent, border: 'none', borderRadius: '8px', padding: '9px 20px', cursor: 'pointer', color: '#FEF9E1', fontSize: '0.8rem', fontWeight: 700, fontFamily: T.font }}>Load Full Month</button>
                 </Box>
               ) : (
                 visibleFullRecords.map((record, index) => (

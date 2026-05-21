@@ -103,6 +103,7 @@ export function useOfficialAttendanceMetrics({
     loading,
     error,
     rows,
+    calendarMaps,
     halfDayDatesOfficial,
     absentDays: metrics.absentDays,
     halfDays: metrics.halfDays,

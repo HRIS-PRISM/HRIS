@@ -36,6 +36,10 @@ import {
   List,
   ListItemButton,
   InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Search,
@@ -66,6 +70,8 @@ import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -590,6 +596,7 @@ const highlightMatch = (text, q) => {
 const EmployeeSearchField = ({
   value,
   onSelectEmployeeNumber,
+  onSearchQueryChange,
   disabled = false,
 }) => {
   const [query, setQuery] = useState(value || '');
@@ -666,6 +673,7 @@ const EmployeeSearchField = ({
     const next = e.target.value;
     onSelectEmployeeNumber(next);
     setQuery(next);
+    onSearchQueryChange?.(next.trim());
     queueSearch(next);
   };
   const handleSelect = (emp) => {
@@ -674,6 +682,7 @@ const EmployeeSearchField = ({
     setQuery(num);
     setDebouncedQuery(num);
     setOpen(false);
+    onSearchQueryChange?.(query.trim());
   };
   const handleClear = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -682,6 +691,7 @@ const EmployeeSearchField = ({
     setDebouncedQuery('');
     setResults([]);
     setOpen(false);
+    onSearchQueryChange?.('');
     onSelectEmployeeNumber('');
   };
 
@@ -829,7 +839,7 @@ const ViewAttendanceRecord = () => {
         variant="outlined"
         size="small"
         startIcon={<People sx={{ fontSize: 15 }} />}
-        onClick={() => navigate('/attendance_module')}
+        onClick={() => goToComputationModule('/attendance_module', 'NONTEACHING')}
         sx={{
           textTransform: 'none',
           fontWeight: 700,
@@ -847,7 +857,7 @@ const ViewAttendanceRecord = () => {
         variant="outlined"
         size="small"
         startIcon={<AccessTime sx={{ fontSize: 15 }} />}
-        onClick={() => navigate('/attendance_module_faculty')}
+        onClick={() => goToComputationModule('/attendance_module_faculty', 'FACULTY_30')}
         sx={{
           textTransform: 'none',
           fontWeight: 700,
@@ -865,7 +875,7 @@ const ViewAttendanceRecord = () => {
         variant="outlined"
         size="small"
         startIcon={<Assignment sx={{ fontSize: 15 }} />}
-        onClick={() => navigate('/attendance_module_faculty_40hrs')}
+        onClick={() => goToComputationModule('/attendance_module_faculty_40hrs', 'FACULTY_DESIGNATED')}
         sx={{
           textTransform: 'none',
           fontWeight: 700,
@@ -919,6 +929,7 @@ const ViewAttendanceRecord = () => {
   const [recordFilter, setRecordFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
 
   const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
@@ -962,6 +973,22 @@ const ViewAttendanceRecord = () => {
   const showSnackbar = (message, severity = 'success') =>
     setSnackbar({ open: true, message, severity });
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
+
+  const buildDeviceAuditPayload = (button, overrides = {}) => {
+    const monthLabel =
+      selectedMonth != null
+        ? `${monthsShort[selectedMonth]} ${selectedYear}`
+        : startDate && endDate
+          ? `${startDate} – ${endDate}`
+          : null;
+    return {
+      auditButton: button,
+      targetEmployeeName: personName || null,
+      monthLabel,
+      searchQuery: overrides.searchQuery ?? null,
+      ...overrides,
+    };
+  };
 
   useEffect(() => {
     if (!accessLoading) setPageLoading(false);
@@ -1058,7 +1085,7 @@ const ViewAttendanceRecord = () => {
   }, [filteredUsers, currentPage, rowsPerPage]);
   const goToPage = (p) => setCurrentPage(Math.min(Math.max(1, p), totalPages));
 
-  const fetchRecords = async (showLoading = true) => {
+  const fetchRecords = async (showLoading = true, auditPayload = null) => {
     if (!personID || !startDate || !endDate) return;
     if (showLoading) {
       setLoading(true);
@@ -1066,9 +1093,13 @@ const ViewAttendanceRecord = () => {
     }
     setError('');
     try {
+      const body = { personID, startDate, endDate };
+      if (auditPayload?.auditButton) {
+        Object.assign(body, auditPayload);
+      }
       const res = await axios.post(
         `${API_BASE_URL}/attendance/api/all-attendance`,
-        { personID, startDate, endDate },
+        body,
         getAuthHeaders(),
       );
       const recs = Array.isArray(res.data) ? res.data : [];
@@ -1223,7 +1254,12 @@ const ViewAttendanceRecord = () => {
     try {
       const res = await axios.post(
         `${API_BASE_URL}/attendance/api/send-to-dtr`,
-        { personID, startDate, endDate },
+        {
+          personID,
+          startDate,
+          endDate,
+          ...buildDeviceAuditPayload('View in DTR Module'),
+        },
         getAuthHeaders(),
       );
       if (res.data.success) {
@@ -1256,7 +1292,12 @@ const ViewAttendanceRecord = () => {
     try {
       const res = await axios.post(
         `${API_BASE_URL}/attendance/api/bulk-send-to-dtr`,
-        { userIDs: sel.map((u) => u.employeeNumber), startDate, endDate },
+        {
+          userIDs: sel.map((u) => u.employeeNumber),
+          startDate,
+          endDate,
+          ...buildDeviceAuditPayload(`View DTR (${sel.length} selected)`),
+        },
         getAuthHeaders(),
       );
       if (res.data.success) {
@@ -1270,6 +1311,84 @@ const ViewAttendanceRecord = () => {
         err.response?.data?.message || 'Failed to view DTR',
         'error',
       );
+    }
+  };
+
+  // Computation-type mismatch guard dialog
+  const [computationChangeDialog, setComputationChangeDialog] = useState({ open: false, existingType: null, newType: null, path: null });
+
+const COMPUTATION_TYPE_LABELS = {
+  NONTEACHING: 'Non-Teaching',
+  FACULTY_30: 'Faculty 30 hrs',
+  FACULTY_DESIGNATED: 'Faculty designated',
+};
+
+const COMPUTATION_BUTTON_LABELS = {
+  NONTEACHING: 'Non-teaching',
+  FACULTY_30: 'Faculty 30 hrs',
+  FACULTY_DESIGNATED: 'Faculty designated',
+};
+
+const goToComputationModule = async (path, selectedComputationType) => {
+  if (!personID || !startDate || !endDate) {
+    showSnackbar('Please fill in all fields first', 'warning');
+    return;
+  }
+
+  const auditButtonLabel =
+    COMPUTATION_BUTTON_LABELS[selectedComputationType] ||
+    selectedComputationType;
+
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/attendance-computation-view-state`, {
+      params: { employeeNumber: personID, periodStart: startDate, periodEnd: endDate },
+      ...getAuthHeaders(),
+    });
+    const existingType = res.data?.selectedComputationType ?? res.data?.row?.selected_computation_type ?? null;
+    if (existingType && existingType !== selectedComputationType) {
+      setComputationChangeDialog({
+        open: true,
+        existingType: COMPUTATION_TYPE_LABELS[existingType] || existingType,
+        newType: COMPUTATION_TYPE_LABELS[selectedComputationType] || selectedComputationType,
+        rawNewType: selectedComputationType,
+        path,
+        auditButtonLabel,
+        employeeName: personName || 'this employee',
+      });
+      return;
+    }
+    await proceedToComputationModule(path, selectedComputationType, auditButtonLabel);
+  } catch (err) {
+    console.error('Error checking computation view state:', err);
+    showSnackbar('Failed to check saved computation type', 'error');
+  }
+};
+
+  const proceedToComputationModule = async (
+    path,
+    selectedComputationType,
+    auditButtonLabel,
+  ) => {
+    try {
+      await axios.post(`${API_BASE_URL}/api/attendance-computation-view-state`, {
+        employeeNumber: personID,
+        periodStart: startDate,
+        periodEnd: endDate,
+        selectedComputationType,
+        ...buildDeviceAuditPayload(auditButtonLabel),
+      }, getAuthHeaders());
+      navigate(path, {
+        state: {
+          fromDevice: true,
+          employeeNumber: personID,
+          fullName: personName,
+          startDate,
+          endDate,
+        },
+      });
+    } catch (err) {
+      console.error('Error saving computation view state:', err);
+      showSnackbar('Failed to save computation selection', 'error');
     }
   };
 
@@ -1293,7 +1412,12 @@ const ViewAttendanceRecord = () => {
       return;
     }
     setHasSearchedSingle(true);
-    fetchRecords(true);
+    fetchRecords(
+      true,
+      buildDeviceAuditPayload('Fetch Records', {
+        searchQuery: employeeSearchQuery.trim() || personID,
+      }),
+    );
   };
 
   // Month click — shared for both modes
@@ -1663,6 +1787,7 @@ const ViewAttendanceRecord = () => {
           <Box sx={{ mb: 0.75 }}>
             <EmployeeSearchField
               value={personID}
+              onSearchQueryChange={setEmployeeSearchQuery}
               onSelectEmployeeNumber={(next) => {
                 setPersonID(next);
                 setHasSearchedSingle(false);
@@ -2440,6 +2565,233 @@ const ViewAttendanceRecord = () => {
         </Zoom>
 
         {/* ── Unified overlays ── */}
+{/* Computation type mismatch dialog */}
+<Dialog
+  open={computationChangeDialog.open}
+  onClose={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+  aria-labelledby="computation-type-mismatch-title"
+  PaperProps={{ sx: { borderRadius: 2, maxWidth: 440, width: '100%', overflow: 'hidden' } }}
+>
+  {/* Header */}
+  <Box
+    sx={{
+      px: 2.5,
+      py: 1.75,
+      borderBottom: '0.5px solid #e5e7eb',
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 1.5,
+    }}
+  >
+    <Box
+      sx={{
+        width: 36,
+        height: 36,
+        borderRadius: '50%',
+        bgcolor: '#fef3c7',
+        border: '0.5px solid #d97706',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        mt: '2px',
+      }}
+    >
+      <WarningAmberRoundedIcon sx={{ fontSize: 18, color: '#d97706' }} />
+    </Box>
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography id="computation-type-mismatch-title" sx={{ fontSize: '15px', fontWeight: 500, lineHeight: 1.3, color: '#111827' }}>
+        Computation type mismatch
+      </Typography>
+      <Typography sx={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.4, mt: '4px' }}>
+        A different type was previously saved for this employee and period.
+      </Typography>
+    </Box>
+    <IconButton
+      size="small"
+      onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+      aria-label="Close"
+      sx={{ color: '#9ca3af', p: '4px' }}
+    >
+      <Close sx={{ fontSize: 16 }} />
+    </IconButton>
+  </Box>
+
+  {/* Body */}
+  <DialogContent sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
+    {/* Warning banner */}
+    <Box
+      sx={{
+        px: 2,
+        py: 1.25,
+        borderRadius: 1.5,
+        bgcolor: '#fef9ec',
+        border: '0.5px solid #f0c060',
+        mb: 2,
+      }}
+    >
+      <Typography sx={{ fontSize: '13px', color: '#92400e', lineHeight: 1.55 }}>
+        Records for{' '}
+        <strong style={{ color: '#92400e' }}>
+          {computationChangeDialog.employeeName || 'this employee'}
+        </strong>{' '}
+        in this period were first saved as{' '}
+        <Box
+          component="span"
+          sx={{
+            display: 'inline-block',
+            px: '7px',
+            py: '1px',
+            borderRadius: 1,
+            bgcolor: 'rgba(0,0,0,0.08)',
+            fontWeight: 500,
+            fontSize: '12px',
+          }}
+        >
+          {computationChangeDialog.existingType || '—'}
+        </Box>
+        . Switching will overwrite that with{' '}
+        <Box
+          component="span"
+          sx={{
+            display: 'inline-block',
+            px: '7px',
+            py: '1px',
+            borderRadius: 1,
+            bgcolor: 'rgba(0,0,0,0.08)',
+            fontWeight: 500,
+            fontSize: '12px',
+          }}
+        >
+          {computationChangeDialog.newType || '—'}
+        </Box>
+        .
+      </Typography>
+    </Box>
+
+    {/* From → To cards */}
+    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 1.25 }}>
+      {/* Previously saved */}
+      <Box
+        sx={{
+          py: 1.5,
+          px: 1.25,
+          borderRadius: 1.5,
+          bgcolor: '#f9fafb',
+          border: '0.5px solid #e5e7eb',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 1,
+          textAlign: 'center',
+        }}
+      >
+        <Typography sx={{ fontSize: '11px', color: '#9ca3af', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          Previously saved
+        </Typography>
+        <Box
+          sx={{
+            width: 34,
+            height: 34,
+            borderRadius: '50%',
+            bgcolor: '#fef3c7',
+            border: '0.5px solid #d97706',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <CheckCircle sx={{ fontSize: 16, color: '#d97706' }} />
+        </Box>
+        <Typography sx={{ fontSize: '13px', fontWeight: 500, color: '#6b7280', lineHeight: 1.25 }}>
+          {computationChangeDialog.existingType || '—'}
+        </Typography>
+      </Box>
+
+      {/* Arrow */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+        <ArrowForward sx={{ fontSize: 18 }} />
+      </Box>
+
+      {/* Switching to */}
+      <Box
+        sx={{
+          py: 1.5,
+          px: 1.25,
+          borderRadius: 1.5,
+          bgcolor: '#eff6ff',
+          border: '2px solid #3b82f6',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 1,
+          textAlign: 'center',
+        }}
+      >
+        <Typography sx={{ fontSize: '11px', color: '#1d4ed8', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          Switching to
+        </Typography>
+        <Box
+          sx={{
+            width: 34,
+            height: 34,
+            borderRadius: '50%',
+            bgcolor: '#fff',
+            border: '0.5px solid #3b82f6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <AccessTime sx={{ fontSize: 16, color: '#3b82f6' }} />
+        </Box>
+        <Typography sx={{ fontSize: '13px', fontWeight: 500, color: '#1d4ed8', lineHeight: 1.25 }}>
+          {computationChangeDialog.newType || '—'}
+        </Typography>
+      </Box>
+    </Box>
+  </DialogContent>
+
+  {/* Actions */}
+  <DialogActions
+    sx={{
+      px: 2.5,
+      py: 1.5,
+      borderTop: '0.5px solid #e5e7eb',
+      gap: 1,
+    }}
+  >
+    <Button
+      onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+      sx={{ fontSize: '13px', color: '#6b7280', height: 36 }}
+    >
+      Cancel
+    </Button>
+    <Button
+      variant="contained"
+      onClick={async () => {
+        const next = { ...computationChangeDialog };
+        setComputationChangeDialog((p) => ({ ...p, open: false }));
+        await proceedToComputationModule(
+          next.path,
+          next.rawNewType,
+          next.auditButtonLabel ||
+            COMPUTATION_BUTTON_LABELS[next.rawNewType] ||
+            next.rawNewType,
+        );
+      }}
+      sx={{
+        fontSize: '13px',
+        fontWeight: 500,
+        height: 36,
+        bgcolor: '#6d2323',
+        '&:hover': { bgcolor: '#5a1c1c' },
+      }}
+    >
+      Yes, switch &amp; continue
+    </Button>
+  </DialogActions>
+</Dialog>
         <LoadingOverlay
           open={loading || loadingAllUsers}
           message={
@@ -2460,4 +2812,4 @@ const ViewAttendanceRecord = () => {
   );
 };
 
-export default ViewAttendanceRecord;
+export default ViewAttendanceRecord

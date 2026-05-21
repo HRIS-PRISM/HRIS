@@ -190,6 +190,69 @@ const getCtoEmployeeLedgerSummary = (records) => {
   return { remaining, earnedForColor };
 };
 
+const normalizeCtoPeriodMonth = (month) => {
+  if (month == null || month === "") return "";
+  const n = parseInt(month, 10);
+  return Number.isFinite(n) && n >= 1 && n <= 12 ? String(n) : String(month).trim();
+};
+
+const ctoPeriodKey = (year, month) =>
+  `${parseInt(year, 10) || 0}|${normalizeCtoPeriodMonth(month)}`;
+
+const ctoAccrualRecords = (records, employeeNumber) => {
+  const emp = String(employeeNumber || "").trim();
+  return (records || []).filter(
+    (r) => String(r.employeeNumber) === emp && !isCtoLedgerSnapshotChip(r),
+  );
+};
+
+/** Latest accrual row per period (append-only DB; one logical period in UI). */
+const latestCtoRecordsByPeriod = (records, employeeNumber) => {
+  const byKey = new Map();
+  ctoAccrualRecords(records, employeeNumber).forEach((r) => {
+    const key = ctoPeriodKey(r.period_year, r.period_month);
+    const prev = byKey.get(key);
+    if (!prev || toNum(r.id) > toNum(prev.id)) byKey.set(key, r);
+  });
+  return [...byKey.values()];
+};
+
+const findLatestCtoForPeriod = (records, employeeNumber, periodYear, periodMonth) => {
+  const key = ctoPeriodKey(periodYear, periodMonth);
+  return (
+    latestCtoRecordsByPeriod(records, employeeNumber).find(
+      (r) => ctoPeriodKey(r.period_year, r.period_month) === key,
+    ) || null
+  );
+};
+
+const isPerMonthCtoTracking = (periodMonth) => Boolean(normalizeCtoPeriodMonth(periodMonth));
+
+/** Per-month: one row per month. No month: update existing CTO for employee/year. */
+const findCtoSaveTarget = (records, employeeNumber, periodYear, periodMonth) => {
+  const emp = String(employeeNumber || "").trim();
+  if (!emp) return null;
+  const py = parseInt(periodYear, 10) || 0;
+
+  if (isPerMonthCtoTracking(periodMonth)) {
+    return findLatestCtoForPeriod(records, emp, py, periodMonth);
+  }
+
+  const accrual = ctoAccrualRecords(records, emp);
+  if (!accrual.length) return null;
+
+  const noMonthForYear = accrual.filter(
+    (r) => !normalizeCtoPeriodMonth(r.period_month) && toNum(r.period_year) === py,
+  );
+  if (noMonthForYear.length) {
+    return [...noMonthForYear].sort((a, b) => toNum(b.id) - toNum(a.id))[0];
+  }
+
+  const sameYear = accrual.filter((r) => toNum(r.period_year) === py);
+  const pool = sameYear.length ? sameYear : accrual;
+  return [...pool].sort((a, b) => toNum(b.id) - toNum(a.id))[0];
+};
+
 // ─── Badges — identical to LeaveAssignment ───────────────────────────────────
 const DeptBadge = ({ code, light = false }) => {
   if (!code) return null;
@@ -786,47 +849,101 @@ const CompensatoryTimeOff = () => {
       }
       acc[num].records.push(r);
     });
-    return Object.values(acc).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
-  }, [filteredRecords, getEmployeeInfo]);
+    return Object.values(acc)
+      .map((grp) => ({
+        ...grp,
+        displayRecords: latestCtoRecordsByPeriod(grp.records, grp.employeeNumber),
+      }))
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+  }, [filteredRecords, getEmployeeInfo, buildDisplayName]);
 
   const paginatedGroups = useMemo(() => {
     const s = recordsPage * rowsPerPage;
     return groupedByEmployee.slice(s, s + rowsPerPage);
   }, [groupedByEmployee, recordsPage, rowsPerPage]);
 
+  const perMonthTracking = isPerMonthCtoTracking(periodMonth);
+
+  const existingPeriodRecord = useMemo(() => {
+    const empNum = selectedEmployee?.employeeNumber?.toString().trim();
+    if (!empNum) return null;
+    return findCtoSaveTarget(ctoRecords, empNum, periodYear, periodMonth);
+  }, [ctoRecords, selectedEmployee, periodYear, periodMonth]);
+
   const handleAddCTO = async () => {
     const empNum = selectedEmployee?.employeeNumber?.toString().trim();
     if (!empNum)              { setError("Please select an employee"); return; }
     if (toNum(otHours) <= 0) { setError(`OT ${unit === "days" ? "days" : "hours"} must be > 0`); return; }
+    const py = parseInt(periodYear, 10) || new Date().getFullYear();
+    const pm = periodMonth || null;
+    const earned = toNum(otHours);
+    const catSnapshot = JSON.stringify({
+      label: selectedEmpCatData?.label || "",
+      is40hrs: selectedEmpCatData?.is40hrs || false,
+      isDesignated: selectedEmpCatData?.isDesignated || false,
+    });
+
     setLoading(true); setError("");
     try {
-      const token  = localStorage.getItem("token");
-      const earned = toNum(otHours); // always hours internally
-      await axios.post(
-        `${API_BASE_URL}/api/cto/cto`,
-        {
-          employeeNumber:        empNum,
-          ot_hours:              earned,
-          earned_hours:          earned,
-          period_year:           parseInt(periodYear, 10) || new Date().getFullYear(),
-          period_month:          periodMonth || null,
-          expiry_date:           expiryDate  || null,
-          remarks:               remarks     || null,
-          emp_category_snapshot: JSON.stringify({
-            label:        selectedEmpCatData?.label || "",
-            is40hrs:      selectedEmpCatData?.is40hrs || false,
-            isDesignated: selectedEmpCatData?.isDesignated || false,
-          }),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const existing = findCtoSaveTarget(ctoRecords, empNum, py, pm);
+      const chainRecs = ctoRecords.filter(
+        (r) => String(r.employeeNumber) === empNum,
       );
+      const chain = getCtoEmployeeLedgerSummary(chainRecs);
+      const usedHours = Math.max(0, chain.earnedForColor - chain.remaining);
+      const addEarned = earned;
+
+      if (existing?.id) {
+        const mergedRemarks = [existing.remarks, remarks]
+          .filter(Boolean)
+          .join(" · ")
+          .trim() || null;
+        await axios.put(
+          `${API_BASE_URL}/api/cto/cto/${existing.id}`,
+          {
+            ot_hours: toNum(existing.ot_hours) + addEarned,
+            earned_hours: chain.earnedForColor + addEarned,
+            remaining_hours: chain.remaining + addEarned,
+            used_hours: usedHours,
+            expiry_date: expiryDate || existing.expiry_date || null,
+            remarks: mergedRemarks,
+          },
+          { headers },
+        );
+        setSuccessAction("edit");
+      } else {
+        await axios.post(
+          `${API_BASE_URL}/api/cto/cto`,
+          {
+            employeeNumber: empNum,
+            ot_hours: addEarned,
+            earned_hours: addEarned,
+            remaining_hours: chain.remaining + addEarned,
+            used_hours: usedHours,
+            period_year: py,
+            period_month: pm,
+            expiry_date: expiryDate || null,
+            remarks: remarks || null,
+            emp_category_snapshot: catSnapshot,
+          },
+          { headers },
+        );
+        setSuccessAction("adding");
+      }
+
       await fetchCTORecords();
-      setOtHours(0); setRemarks(""); setExpiryDate("");
-      setSuccessAction("adding"); setSuccessOpen(true);
+      setOtHours(0);
+      setRemarks("");
+      setExpiryDate("");
+      setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
     } catch (err) {
-      setError("Error adding CTO: " + (err.response?.data?.error || err.message));
-    } finally { setLoading(false); }
+      setError("Error saving CTO: " + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleUpdate = async () => {
@@ -882,8 +999,10 @@ const CompensatoryTimeOff = () => {
   };
 
   const openEmployeeCTOModal = (grp) => {
-    setSelectedEmployeeCTO(grp);
-    setSelectedCTORecord(grp.records[0] || null);
+    const display =
+      grp.displayRecords || latestCtoRecordsByPeriod(grp.records, grp.employeeNumber);
+    setSelectedEmployeeCTO({ ...grp, displayRecords: display });
+    setSelectedCTORecord(display[0] || null);
     setEmployeeCTOModalOpen(true);
   };
 
@@ -1077,6 +1196,9 @@ if (accessLoading || pageLoading) {
                       <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
                         Period Month <span style={{ color: T.faint, fontSize: "0.68rem", fontWeight: 400 }}>(optional)</span>
                       </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: T.faint, mb: 0.5, fontFamily: T.poppins, lineHeight: 1.35 }}>
+                        Leave as &quot;No specific month&quot; to add to the same CTO record for the year. Pick a month to keep a separate record per month.
+                      </Typography>
                       <FormControl fullWidth size="small">
                         <Select value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} displayEmpty
                           sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontFamily: T.poppins, fontSize: "0.875rem", fontWeight: periodMonth ? 700 : 400, color: periodMonth ? T.text : T.faint } }}>
@@ -1149,9 +1271,13 @@ if (accessLoading || pageLoading) {
                         startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
                         disabled={loading || toNum(otHours) <= 0}
                         sx={{ height: 40, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, fontFamily: T.poppins, "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none" } }}>
-                        {loading ? "Saving…" : toNum(otHours) > 0
-                          ? `Record ${fmtHrs(otHours, unit)} CTO for ${periodYear}${selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}`
-                          : `Enter OT ${unit === "days" ? "days" : "hours"} to compute CTO`}
+                        {loading
+                          ? "Saving…"
+                          : toNum(otHours) > 0
+                            ? existingPeriodRecord
+                              ? `Add ${fmtHrs(otHours, unit)} to existing CTO · ${periodYear}${perMonthTracking && selectedMonthLabel ? ` · ${selectedMonthLabel}` : perMonthTracking ? "" : " (year total)"}`
+                              : `Record ${fmtHrs(otHours, unit)} CTO for ${periodYear}${selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}`
+                            : `Enter OT ${unit === "days" ? "days" : "hours"} to compute CTO`}
                       </AccentButton>
                     </>
                   ) : (
@@ -1224,13 +1350,12 @@ if (accessLoading || pageLoading) {
                       {paginatedGroups.map((grp) => {
                         const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records);
                         const sc = getStatusColor(balRem, earnedForColor);
-                        const chipRecords = grp.records
-                          .filter((r) => !isCtoLedgerSnapshotChip(r))
+                        const chipRecords = (grp.displayRecords || latestCtoRecordsByPeriod(grp.records, grp.employeeNumber))
                           .sort((a, b) => toNum(b.id) - toNum(a.id));
                         const initials    = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const deptCode    = deptMap[grp.employeeNumber] || null;
                         const empCat      = empCatLabelMap[grp.employeeNumber] || null;
-                        const hasExpired  = grp.records.some((r) => isExpired(r.expiry_date));
+                        const hasExpired  = chipRecords.some((r) => isExpired(r.expiry_date));
                         return (
                           <Grid item xs={12} sm={6} md={3} key={grp.employeeNumber} sx={{ display: "flex" }}>
                             <Box onClick={() => openEmployeeCTOModal(grp)}
@@ -1252,7 +1377,13 @@ if (accessLoading || pageLoading) {
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
                                 {chipRecords.slice(0, 3).map((r) => {
                                   const rsc = getStatusColor(r.remaining_hours, r.earned_hours);
-                                
+                                  return (
+                                    <Box key={r.id} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${rsc}12`, border: `1px solid ${rsc}30` }}>
+                                      <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: rsc, fontFamily: T.poppins }}>
+                                        {r.period_year}{r.period_month ? `-${monthName(r.period_month).slice(0, 3)}` : ""}
+                                      </Typography>
+                                    </Box>
+                                  );
                                 })}
                                 {chipRecords.length > 3 && (
                                   <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
@@ -1261,7 +1392,9 @@ if (accessLoading || pageLoading) {
                                 )}
                               </Box>
                               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pt: 0.75, borderTop: `1px solid ${T.divider}` }}>
-                                <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>{grp.records.length} record{grp.records.length !== 1 ? "s" : ""}</Typography>
+                                <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>
+                                  {(grp.displayRecords || grp.records).length} period{(grp.displayRecords || grp.records).length !== 1 ? "s" : ""}
+                                </Typography>
                                 <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>
                                   Remaining balance: {fmtHrs(balRem, unit)}
                                 </Typography>
@@ -1281,8 +1414,7 @@ if (accessLoading || pageLoading) {
                       {paginatedGroups.map((grp, idx) => {
                         const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records);
                         const sc = getStatusColor(balRem, earnedForColor);
-                        const chipRecords = grp.records
-                          .filter((r) => !isCtoLedgerSnapshotChip(r))
+                        const chipRecords = (grp.displayRecords || latestCtoRecordsByPeriod(grp.records, grp.employeeNumber))
                           .sort((a, b) => toNum(b.id) - toNum(a.id));
                         const initials    = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const deptCode    = deptMap[grp.employeeNumber] || null;
@@ -1302,7 +1434,9 @@ if (accessLoading || pageLoading) {
                               {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} />}
                             </Box>
                             <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: "inline-block", width: "fit-content" }}>
-                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{grp.records.length}</Typography>
+                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>
+                                {(grp.displayRecords || grp.records).length}
+                              </Typography>
                             </Box>
                             <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{fmtHrs(balRem, unit)}</Typography>
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
@@ -1349,10 +1483,19 @@ if (accessLoading || pageLoading) {
                 {selectedEmployeeCTO && (() => {
                   const deptCode      = deptMap[selectedEmployeeCTO.employeeNumber] || null;
                   const empCat        = empCatLabelMap[selectedEmployeeCTO.employeeNumber] || null;
-                  const sortedRecords = [...selectedEmployeeCTO.records].sort((a, b) => {
+                  const modalRecords =
+                    selectedEmployeeCTO.displayRecords ||
+                    latestCtoRecordsByPeriod(
+                      selectedEmployeeCTO.records,
+                      selectedEmployeeCTO.employeeNumber,
+                    );
+                  const sortedRecords = [...modalRecords].sort((a, b) => {
                     if (b.period_year !== a.period_year) return b.period_year - a.period_year;
                     return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
                   });
+                  const { remaining: balRemModal } = getCtoEmployeeLedgerSummary(
+                    selectedEmployeeCTO.records,
+                  );
                   return (
                     <>
                       {/* Modal header */}
@@ -1367,7 +1510,8 @@ if (accessLoading || pageLoading) {
                             {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} light />}
                           </Box>
                           <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>
-                            #{selectedEmployeeCTO.employeeNumber} · {selectedEmployeeCTO.records.length} CTO record{selectedEmployeeCTO.records.length !== 1 ? "s" : ""}
+                            #{selectedEmployeeCTO.employeeNumber} · {modalRecords.length} CTO period{modalRecords.length !== 1 ? "s" : ""}
+                            {balRemModal > 0 ? ` · Remaining ${fmtHrs(balRemModal, unit)}` : ""}
                           </Typography>
                         </Box>
                         <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"

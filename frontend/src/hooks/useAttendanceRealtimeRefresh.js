@@ -32,6 +32,13 @@ export default function useAttendanceRealtimeRefresh(refreshFn, options = {}) {
 
     const handleAttendanceChanged = (payload) => {
       if (payload?.action === 'dtr-printed') return;
+      // Daily late/undertime upsert on load only updates DTR JSON — not device/calendar data.
+      if (
+        payload?.action === 'overall-daily-late-updated' ||
+        payload?.action === 'overall-daily-late-created'
+      ) {
+        return;
+      }
       const scope = payload?.scope;
       if (scope === 'suspensions' || scope === 'leaves' || scope === 'holiday') return;
 

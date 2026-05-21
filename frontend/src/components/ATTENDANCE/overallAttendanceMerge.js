@@ -21,8 +21,12 @@ export const OVERALL_ABSENCE_FIELD_KEYS = [
   'halfDays',
   'absentTime',
   'halfDayShortfallTime',
+  'lateTotalTime',
   'absentDates',
   'halfDayDates',
+  'half_day_review',
+  'daily_late_undertime',
+  'computation_module_type',
 ];
 
 export const OVERALL_COMPARE_FIELD_META = [
@@ -56,6 +60,54 @@ export function hmsRoughlyEqual(a, b, toleranceSec = 1) {
   return Math.abs(timeToSec(a) - timeToSec(b)) <= toleranceSec;
 }
 
+/** Normalize API/UI dates to YYYY-MM-DD for period matching. */
+export function normalizeOverallPeriodYmd(value) {
+  if (value == null) return '';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Match overall_attendance_record for the exact period being saved (not overlapping ranges). */
+export function findExactOverallRecord(rows, startDate, endDate) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const sd = normalizeOverallPeriodYmd(startDate);
+  const ed = normalizeOverallPeriodYmd(endDate);
+  return (
+    rows.find(
+      (r) =>
+        normalizeOverallPeriodYmd(r.startDate) === sd &&
+        normalizeOverallPeriodYmd(r.endDate) === ed,
+    ) ?? null
+  );
+}
+
+/** True when the row has saved summary totals (not a daily-late stub with null/zero times only). */
+export function hasOverallSummaryTotals(row) {
+  if (!row) return false;
+  return OVERALL_TIME_FIELD_KEYS.some((key) => {
+    const v = row[key];
+    if (v == null || v === '') return false;
+    const str = String(v).trim();
+    if (!str || str === '—') return false;
+    return timeToSec(str) > 0;
+  });
+}
+
+/**
+ * How save should treat an existing overall row for this employee/period.
+ * @returns {'post'|'fill-stub'|'duplicate-info'|'compare'}
+ */
+export function classifyOverallSave(existingList, startDate, endDate, proposed) {
+  const existing = findExactOverallRecord(existingList, startDate, endDate);
+  if (!existing) return { action: 'post', existing: null };
+  if (!hasOverallSummaryTotals(existing)) return { action: 'fill-stub', existing };
+  if (!overallRecordsDiffer(existing, proposed)) return { action: 'duplicate-info', existing };
+  return { action: 'compare', existing };
+}
+
 export function overallRecordsDiffer(saved, proposed, keys = OVERALL_TIME_FIELD_KEYS) {
   if (!saved || !proposed) return true;
   const timeDiff = keys.some((key) => {
@@ -73,6 +125,12 @@ export function overallRecordsDiffer(saved, proposed, keys = OVERALL_TIME_FIELD_
     const sv = saved[key];
     const pv = proposed[key];
     if (key === 'absentDays' || key === 'halfDays') return Number(sv ?? 0) !== Number(pv ?? 0);
+    if (key === 'half_day_review' || key === 'daily_late_undertime') {
+      return JSON.stringify(sv ?? null) !== JSON.stringify(pv ?? null);
+    }
+    if (key === 'lateTotalTime') {
+      return !hmsRoughlyEqual(sv, pv);
+    }
     return String(sv ?? '').trim() !== String(pv ?? '').trim();
   });
 }

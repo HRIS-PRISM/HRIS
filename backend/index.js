@@ -67,6 +67,7 @@ const deductionsRoutes = require('./routes/deductions');
 const leaveSalaryShortfallRoutes = require('./routes/leaveSalaryShortfallRoutes');
 const attendanceResultRoutes = require('./routes/attendanceResultRoutes');
 const supervisorRoutes = require('./routes/supervisor');
+const attendanceComputationViewStateRoutes = require('./routes/attendanceComputationViewState');
 
 
 
@@ -469,6 +470,7 @@ app.use('/api/earnings', earningsRoutes);
 app.use('/api/deductions', deductionsRoutes);
 app.use('/api/leave-salary-shortfall', leaveSalaryShortfallRoutes);
 app.use('/api/attendance-result', attendanceResultRoutes);
+app.use('/api/attendance-computation-view-state', attendanceComputationViewStateRoutes);
 
 const ensureAttendanceResultSQL = `
   CREATE TABLE IF NOT EXISTS attendance_result (
@@ -498,6 +500,57 @@ db.query(ensureAttendanceResultSQL, (err) => {
     console.error('Failed to ensure attendance_result table:', err.message);
   } else {
     console.log('attendance_result table ready');
+  }
+});
+
+const ensureAttendanceComputationViewStateSQL = `
+  CREATE TABLE IF NOT EXISTS attendance_computation_view_state (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_number VARCHAR(64) NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    selected_computation_type VARCHAR(128) NOT NULL,
+    selected_by VARCHAR(128) NULL,
+    selected_at DATETIME NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_acvs_emp_period (employee_number, period_start, period_end)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureAttendanceComputationViewStateSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure attendance_computation_view_state table exists:', err.message);
+  } else {
+    console.log('attendance_computation_view_state table ready');
+  }
+});
+
+const ensureAttendanceRecordRemarksColumns = [
+  `ALTER TABLE attendancerecord ADD COLUMN remarks TEXT NULL COMMENT 'Manual adjustment remarks for this day'`,
+  `ALTER TABLE attendancerecord ADD COLUMN autofill_remarks TEXT NULL COMMENT 'Auto-filled adjustment remarks'`,
+];
+ensureAttendanceRecordRemarksColumns.forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME') {
+      console.error('attendancerecord column ensure:', err.message);
+    }
+  });
+});
+
+const ensureOverallDailyLateColumns = [
+  `ALTER TABLE overall_attendance_record ADD COLUMN daily_late_undertime JSON NULL COMMENT 'Per-day late/undertime for DTR'`,
+  `ALTER TABLE overall_attendance_record ADD COLUMN computation_module_type VARCHAR(64) NULL`,
+];
+ensureOverallDailyLateColumns.forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME') {
+      console.error('overall_attendance_record column ensure:', err.message);
+    }
+  });
+});
+
+db.query('DROP TABLE IF EXISTS dtr_computed_daily_late', (err) => {
+  if (err) {
+    console.warn('dtr_computed_daily_late drop (optional):', err.message);
   }
 });
 

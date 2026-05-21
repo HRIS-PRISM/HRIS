@@ -3,6 +3,7 @@ const db      = require('../db');
 const express = require('express');
 const router  = express.Router();
 const { authenticateToken, requireAdmin, logAudit } = require('../middleware/auth');
+const { getCtoCreditRunningTotals } = require('../services/ctoCreditRunningTotals');
 
 const toNum = (v) => {
   const n = Number(v);
@@ -51,7 +52,7 @@ const fmtPeriod = (y, m) => {
   return `${yy}-${mm}`;
 };
 
-const auditCto = ({ req, action, recordId, targetEmployeeNumber, details }) => {
+const auditCto = async ({ req, action, recordId, targetEmployeeNumber, details }) => {
   try {
     logAudit(
       { employeeNumber: getActorEmpNum(req) },
@@ -62,6 +63,59 @@ const auditCto = ({ req, action, recordId, targetEmployeeNumber, details }) => {
       details,
     );
   } catch {}
+};
+
+/** Always mirror balance changes to transaction_table + audit_log (same pattern as leave_assignment). */
+const logCtoBalanceChange = async ({
+  req,
+  targetEmp,
+  recordId,
+  action,
+  period_year,
+  period_month,
+  balBeforeRem,
+  balAfterRem,
+  details = {},
+}) => {
+  const actorEmp = getActorEmpNum(req);
+  const emp = String(targetEmp || "").trim();
+  if (!emp) return;
+  const [actorName, targetName] = await Promise.all([
+    getEmployeeFullName(actorEmp),
+    getEmployeeFullName(emp),
+  ]);
+  const actorDisplay = formatUserDisplayName(actorEmp, actorName);
+  const targetDisplay = formatUserDisplayName(emp, targetName);
+  const hasBal =
+    balBeforeRem != null &&
+    balAfterRem != null &&
+    Number.isFinite(Number(balBeforeRem)) &&
+    Number.isFinite(Number(balAfterRem));
+  const b0 = hasBal ? toNum(balBeforeRem) : null;
+  const b1 = hasBal ? toNum(balAfterRem) : null;
+  const delta = hasBal ? b1 - b0 : null;
+  const balPart = hasBal
+    ? ` Balance updated: ${b0.toFixed(3)} hrs → ${b1.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`
+    : "";
+  const msg = `${actorDisplay} ${action} Compensatory Time Off for ${targetDisplay} (record #${recordId}) for period ${fmtPeriod(period_year, period_month)}.${balPart}`;
+  await insertTransactionLog(emp, msg);
+  await auditCto({
+    req,
+    action,
+    recordId,
+    targetEmployeeNumber: emp,
+    details: {
+      ...details,
+      transaction_message: msg,
+      ...(hasBal
+        ? {
+            balance_before_remaining: b0,
+            balance_after_remaining: b1,
+            balance_delta_remaining: delta,
+          }
+        : {}),
+    },
+  });
 };
  
 // ─── GET /cto ─────────────────────────────────────────────────────────────────
@@ -119,107 +173,146 @@ router.get('/cto/:id/audit', authenticateToken, requireAdmin, (req, res) => {
 // ─── POST /cto ────────────────────────────────────────────────────────────────
 router.post('/cto', authenticateToken, requireAdmin, (req, res) => {
   const {
-    employeeNumber, ot_hours, earned_hours,
+    employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours,
     period_year, period_month, expiry_date,
     remarks, emp_category_snapshot,
   } = req.body;
  
   const earned = parseFloat(earned_hours ?? ot_hours) || 0;
+  const rem = parseFloat(remaining_hours ?? earned_hours) || 0;
+  const used = parseFloat(used_hours) || 0;
  
   db.query(
     `INSERT INTO cto_credit
      (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours,
       period_year, period_month, expiry_date, remarks, emp_category_snapshot)
-     VALUES (?,?,?,?,0,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
       employeeNumber,
       parseFloat(ot_hours) || 0,
       earned,
-      earned,                                // remaining = earned at creation
+      rem,
+      used,
       parseInt(period_year, 10) || null,
       period_month || null,
       expiry_date  || null,
       remarks      || null,
       emp_category_snapshot || null,
     ],
-    (err, result) => {
+    async (err, result) => {
       if (err) {
         console.error('cto POST error:', err);
         return res.status(500).json({ error: err.message });
       }
-      (async () => {
-        const actorEmp = getActorEmpNum(req);
-        const emp = String(employeeNumber || "").trim();
-        const [actorName, targetName] = await Promise.all([
-          getEmployeeFullName(actorEmp),
-          getEmployeeFullName(emp),
-        ]);
-        const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-        const targetDisplay = formatUserDisplayName(emp, targetName);
-        const msg = `${actorDisplay} assigned Compensatory Time Off (${toNum(earned).toFixed(3)} hrs) to ${targetDisplay} for period ${fmtPeriod(period_year, period_month)}.`;
-        await insertTransactionLog(emp, msg);
-        auditCto({
+      const newId = result.insertId;
+      const emp = String(employeeNumber || "").trim();
+      try {
+        const balBefore = Math.max(0, rem - earned);
+        await logCtoBalanceChange({
           req,
-          action: "Create",
-          recordId: result.insertId,
-          targetEmployeeNumber: emp,
-          details: { employeeNumber: emp, ot_hours, earned_hours: earned, period_year, period_month, expiry_date, remarks },
+          targetEmp: emp,
+          recordId: newId,
+          action: "assigned",
+          period_year,
+          period_month,
+          balBeforeRem: balBefore,
+          balAfterRem: rem,
+          details: {
+            employeeNumber: emp,
+            ot_hours,
+            earned_hours: earned,
+            period_year,
+            period_month,
+            expiry_date,
+            remarks,
+            source: "cto_credit_create",
+          },
         });
-      })();
-      res.json({ id: result.insertId, ...req.body, remaining_hours: earned, used_hours: 0 });
+        res.json({ id: newId, ...req.body, remaining_hours: rem, used_hours: used });
+      } catch (e) {
+        console.error("[cto] POST audit:", e.message);
+        res.status(500).json({ error: "CTO saved but failed to write audit log" });
+      }
     }
   );
 });
  
 // ─── PUT /cto/:id ─────────────────────────────────────────────────────────────
+// Append-only ledger snapshot (do not UPDATE in place — running balance reads latest id).
 router.put('/cto/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { ot_hours, earned_hours, used_hours, expiry_date, remarks } = req.body;
-  const earned = parseFloat(earned_hours) || 0;
-  const used   = parseFloat(used_hours)   || 0;
-  const rem    = Math.max(0, earned - used);
- 
-  db.query(
-    `UPDATE cto_credit
-     SET ot_hours       = ?,
-         earned_hours   = ?,
-         remaining_hours= ?,
-         used_hours     = ?,
-         expiry_date    = ?,
-         remarks        = ?
-     WHERE id = ?`,
-    [
-      parseFloat(ot_hours) || 0,
-      earned, rem, used,
-      expiry_date || null,
-      remarks     || null,
-      id,
-    ],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!result.affectedRows) return res.status(404).json({ error: 'Not found' });
-      (async () => {
-        const actorEmp = getActorEmpNum(req);
-        const targetEmp = String(req.body.employeeNumber || req.body.employee_number || "").trim();
-        const [actorName, targetName] = await Promise.all([
-          getEmployeeFullName(actorEmp),
-          getEmployeeFullName(targetEmp),
-        ]);
-        const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-        const targetDisplay = formatUserDisplayName(targetEmp, targetName);
-        const msg = `${actorDisplay} updated Compensatory Time Off (record #${id}) for ${targetDisplay} for period ${fmtPeriod(req.body.period_year, req.body.period_month)}.`;
-        await insertTransactionLog(targetEmp, msg);
-        auditCto({
-          req,
-          action: "Update",
-          recordId: id,
-          targetEmployeeNumber: targetEmp,
-          details: { id, ot_hours, earned_hours: earned, used_hours: used, remaining_hours: rem, expiry_date, remarks },
-        });
-      })();
-      res.json({ id, ...req.body, remaining_hours: rem });
-    }
-  );
+  const snapEarned = toNum(earned_hours);
+  const snapUsed = toNum(used_hours);
+  const snapRem = Math.max(0, snapEarned - snapUsed);
+  const snapOt = toNum(ot_hours);
+
+  db.query('SELECT * FROM cto_credit WHERE id = ?', [id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+
+    const rec = rows[0];
+    const emp = rec.employeeNumber;
+    const ledgerRemark = [`cto_manual_adjust:source_row_${id}`, remarks].filter(Boolean).join(' · ');
+
+    getCtoCreditRunningTotals(emp, (errSum, cur) => {
+      if (errSum) return res.status(500).json({ error: errSum.message });
+      const balBefore = cur.remaining;
+
+      db.query(
+        `INSERT INTO cto_credit
+          (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [
+          emp,
+          snapOt,
+          snapEarned,
+          snapRem,
+          snapUsed,
+          rec.period_year,
+          rec.period_month,
+          expiry_date != null ? expiry_date : rec.expiry_date,
+          ledgerRemark,
+          rec.emp_category_snapshot || null,
+        ],
+        async (errIns, insRes) => {
+          if (errIns) return res.status(500).json({ error: errIns.message });
+          const newId = insRes.insertId;
+          try {
+            await logCtoBalanceChange({
+              req,
+              targetEmp: emp,
+              recordId: newId,
+              action: "updated",
+              period_year: rec.period_year,
+              period_month: rec.period_month,
+              balBeforeRem: balBefore,
+              balAfterRem: snapRem,
+              details: {
+                source_cto_credit_id: id,
+                cto_credit_id: newId,
+                ot_hours: snapOt,
+                earned_hours: snapEarned,
+                used_hours: snapUsed,
+                remaining_hours: snapRem,
+                expiry_date: expiry_date != null ? expiry_date : rec.expiry_date,
+                remarks,
+              },
+            });
+            res.json({
+              id: newId,
+              ...req.body,
+              employeeNumber: emp,
+              remaining_hours: snapRem,
+            });
+          } catch (e) {
+            console.error("[cto] PUT audit:", e.message);
+            res.status(500).json({ error: "Ledger updated but failed to write audit log" });
+          }
+        },
+      );
+    });
+  });
 });
  
 // ─── DELETE /cto/:id ──────────────────────────────────────────────────────────
@@ -227,23 +320,27 @@ router.delete('/cto/:id', authenticateToken, requireAdmin, (req, res) => {
   const id = req.params.id;
   db.query('SELECT employeeNumber FROM cto_credit WHERE id = ? LIMIT 1', [id], (e0, rows0) => {
     const emp = !e0 && rows0 && rows0[0] ? rows0[0].employeeNumber : null;
-    db.query('DELETE FROM cto_credit WHERE id = ?', [id], (err, r) => {
+    db.query('DELETE FROM cto_credit WHERE id = ?', [id], async (err, r) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!r.affectedRows) return res.status(404).json({ error: 'Not found' });
-      (async () => {
-        const actorEmp = getActorEmpNum(req);
-        const targetEmp = String(emp || "").trim();
-        const [actorName, targetName] = await Promise.all([
-          getEmployeeFullName(actorEmp),
-          getEmployeeFullName(targetEmp),
-        ]);
-        const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-        const targetDisplay = formatUserDisplayName(targetEmp, targetName);
-        const msg = `${actorDisplay} deleted Compensatory Time Off (record #${id}) for ${targetDisplay}.`;
-        await insertTransactionLog(targetEmp, msg);
-        auditCto({ req, action: "Delete", recordId: id, targetEmployeeNumber: emp, details: { id } });
-      })();
-      res.json({ message: 'Deleted' });
+      const targetEmp = String(emp || "").trim();
+      try {
+        await logCtoBalanceChange({
+          req,
+          targetEmp,
+          recordId: id,
+          action: "deleted",
+          period_year: null,
+          period_month: null,
+          balBeforeRem: null,
+          balAfterRem: null,
+          details: { id, source: "cto_credit_delete" },
+        });
+        res.json({ message: 'Deleted' });
+      } catch (e) {
+        console.error("[cto] DELETE audit:", e.message);
+        res.status(500).json({ error: "Record deleted but failed to write audit log" });
+      }
     });
   });
 });
@@ -261,50 +358,76 @@ router.post('/cto/:id/action', authenticateToken, requireAdmin, (req, res) => {
     if (err)          return res.status(500).json({ error: err.message });
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
  
-    const rec    = rows[0];
-    const remHrs = parseFloat(rec.remaining_hours) || 0;
-    const apply  = Math.min(parseFloat(hours) || remHrs, remHrs);
-    if (apply <= 0) return res.status(400).json({ error: 'No hours to apply' });
- 
-    const newRem  = Math.max(0, remHrs - apply);
-    const newUsed = (parseFloat(rec.used_hours) || 0) + apply;
- 
-    db.query(
-      'UPDATE cto_credit SET remaining_hours = ?, used_hours = ? WHERE id = ?',
-      [newRem, newUsed, id],
-      (err2) => {
-        if (err2) return res.status(500).json({ error: err2.message });
- 
-        // Audit log
-        db.query(
-          `INSERT INTO cto_usage
-           (cto_credit_id, employeeNumber, action, hours_applied, date_used, remarks)
-           VALUES (?,?,?,?,?,?)`,
-          [id, rec.employeeNumber, action, apply, date_used || null, remarks || null],
-          (err3) => { if (err3) console.error('CTO audit log error:', err3); }
-        );
-        (async () => {
-          const actorEmp = getActorEmpNum(req);
-          const [actorName, targetName] = await Promise.all([
-            getEmployeeFullName(actorEmp),
-            getEmployeeFullName(rec.employeeNumber),
-          ]);
-          const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-          const targetDisplay = formatUserDisplayName(rec.employeeNumber, targetName);
-          const msg = `${actorDisplay} applied CTO action "${action}" (${toNum(apply).toFixed(3)} hrs) to ${targetDisplay} (record #${id}) for period ${fmtPeriod(rec.period_year, rec.period_month)}.`;
-          await insertTransactionLog(rec.employeeNumber, msg);
-          auditCto({
-            req,
-            action: "Action",
-            recordId: id,
-            targetEmployeeNumber: rec.employeeNumber,
-            details: { action, hours_applied: apply, date_used: date_used || null, remarks: remarks || null },
-          });
-        })();
- 
-        res.json({ message: 'Action applied', hours_applied: apply, remaining_hours: newRem });
-      }
-    );
+    const rec = rows[0];
+    const emp = rec.employeeNumber;
+
+    getCtoCreditRunningTotals(emp, (errSum, cur) => {
+      if (errSum) return res.status(500).json({ error: errSum.message });
+      const totalRem = cur.remaining;
+      const apply = Math.min(parseFloat(hours) || totalRem, Math.max(0, totalRem));
+      if (apply <= 0) return res.status(400).json({ error: 'No hours to apply' });
+
+      const snapEarned = cur.earned;
+      const snapUsed = cur.used + apply;
+      const snapRem = cur.remaining - apply;
+      const ledgerRemark = `cto_credit_action:source_row_${id}:${action || 'offset'}`;
+
+      db.query(
+        `INSERT INTO cto_credit
+          (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot)
+         VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          emp,
+          snapEarned,
+          snapRem,
+          snapUsed,
+          rec.period_year,
+          rec.period_month,
+          rec.expiry_date || null,
+          ledgerRemark,
+          rec.emp_category_snapshot || null,
+        ],
+        (errIns, insRes) => {
+          if (errIns) return res.status(500).json({ error: errIns.message });
+          const newCtoId = insRes.insertId;
+
+          db.query(
+            `INSERT INTO cto_usage
+             (cto_credit_id, employeeNumber, action, hours_applied, date_used, remarks)
+             VALUES (?,?,?,?,?,?)`,
+            [newCtoId, emp, action, apply, date_used || null, remarks || null],
+            (err3) => { if (err3) console.error('CTO usage insert:', err3); }
+          );
+
+          (async () => {
+            try {
+              await logCtoBalanceChange({
+                req,
+                targetEmp: emp,
+                recordId: newCtoId,
+                action: `applied action "${action}" (${toNum(apply).toFixed(3)} hrs deducted)`,
+                period_year: rec.period_year,
+                period_month: rec.period_month,
+                balBeforeRem: totalRem,
+                balAfterRem: snapRem,
+                details: {
+                  source_cto_credit_id: id,
+                  cto_credit_id: newCtoId,
+                  action,
+                  hours_applied: apply,
+                  date_used: date_used || null,
+                  remarks: remarks || null,
+                },
+              });
+            } catch (e) {
+              console.error("[cto] action audit:", e.message);
+            }
+          })();
+
+          res.json({ message: 'Action applied', hours_applied: apply, remaining_hours: snapRem });
+        },
+      );
+    });
   });
 });
  
@@ -319,81 +442,112 @@ router.post('/cto/:id/commute', (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
 
     const rec = rows[0];
-    const remHrs = parseFloat(rec.remaining_hours) || 0;
-    if (remHrs <= 0) return res.status(400).json({ error: 'No remaining hours to commute' });
+    const emp = rec.employeeNumber;
 
-    const commutedDays = remHrs / 8;
+    getCtoCreditRunningTotals(emp, (errSum, cur) => {
+      if (errSum) return res.status(500).json({ error: errSum.message });
+      const remHrs = cur.remaining;
+      if (remHrs <= 0) return res.status(400).json({ error: 'No remaining hours to commute' });
 
-    const insertQuery = `
+      const snapEarned = cur.earned;
+      const snapUsed = cur.used + remHrs;
+      const snapRem = 0;
+      const commutedDays = remHrs / 8;
+
+      const insertQuery = `
       INSERT INTO leave_commutation
         (leave_assignment_id, employeeNumber, leave_code, period_year, period_semester,
          commuted_hours, commuted_days, status, commuted_by, commuted_at, remarks)
       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), ?)
     `;
 
-    db.query(
-      insertQuery,
-      [
-        null,
-        rec.employeeNumber,
-        'CTO',
-        rec.period_year || null,
-        rec.period_month || null,
-        remHrs,
-        commutedDays,
-        commuted_by || null,
-        remarks || `Transferred CTO (${commutedDays.toFixed(2)} days) to Leave Commutation.`,
-      ],
-      (insErr, insResult) => {
-        if (insErr) return res.status(500).json({ error: 'Failed to create commutation record: ' + insErr.message });
+      db.query(
+        insertQuery,
+        [
+          null,
+          emp,
+          'CTO',
+          rec.period_year || null,
+          rec.period_month || null,
+          remHrs,
+          commutedDays,
+          commuted_by || null,
+          remarks || `Transferred CTO (${commutedDays.toFixed(2)} days) to Leave Commutation.`,
+        ],
+        (insErr, insResult) => {
+          if (insErr) return res.status(500).json({ error: 'Failed to create commutation record: ' + insErr.message });
 
-        const newUsed = (parseFloat(rec.used_hours) || 0) + remHrs;
-        db.query(
-          'UPDATE cto_credit SET remaining_hours = 0, used_hours = ? WHERE id = ?',
-          [newUsed, id],
-          (upErr) => {
-            if (upErr) return res.status(500).json({ error: 'Commutation recorded but failed to zero out CTO: ' + upErr.message });
+          const ledgerRemark = `cto_credit_commute:source_row_${id}`;
+          db.query(
+            `INSERT INTO cto_credit
+              (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot)
+             VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              emp,
+              snapEarned,
+              snapRem,
+              snapUsed,
+              rec.period_year || null,
+              rec.period_month || null,
+              rec.expiry_date || null,
+              ledgerRemark,
+              rec.emp_category_snapshot || null,
+            ],
+            (insScErr, insScRes) => {
+              if (insScErr) {
+                return res.status(500).json({
+                  error: 'Commutation recorded but failed to append CTO ledger: ' + insScErr.message,
+                });
+              }
+              const newCtoId = insScRes.insertId;
+              db.query(
+                `INSERT INTO cto_usage
+                 (cto_credit_id, employeeNumber, action, hours_applied, date_used, remarks)
+                 VALUES (?,?,?,?,?,?)`,
+                [newCtoId, emp, 'commute', remHrs, null, remarks || null],
+                () => {}
+              );
 
-            // Best-effort audit trail (cto_usage)
-            db.query(
-              `INSERT INTO cto_usage
-               (cto_credit_id, employeeNumber, action, hours_applied, date_used, remarks)
-               VALUES (?,?,?,?,?,?)`,
-              [id, rec.employeeNumber, 'commute', remHrs, null, remarks || null],
-              () => {}
-            );
-            (async () => {
-              const actorEmp = getActorEmpNum(req);
-              const [actorName, targetName] = await Promise.all([
-                getEmployeeFullName(actorEmp),
-                getEmployeeFullName(rec.employeeNumber),
-              ]);
-              const actorDisplay = formatUserDisplayName(actorEmp, actorName);
-              const targetDisplay = formatUserDisplayName(rec.employeeNumber, targetName);
-              const msg = `${actorDisplay} transferred Compensatory Time Off (${toNum(remHrs).toFixed(3)} hrs) to Commutation for ${targetDisplay} (record #${id}) for period ${fmtPeriod(rec.period_year, rec.period_month)}.`;
-              await insertTransactionLog(rec.employeeNumber, msg);
-              auditCto({
-                req,
-                action: "Commute",
-                recordId: id,
-                targetEmployeeNumber: rec.employeeNumber,
-                details: { commuted_hours: remHrs, commuted_days: commutedDays, remarks: remarks || null },
-              });
-            })();
-
-            res.json({
-              message: 'CTO transferred to commutation',
-              commutation_id: insResult.insertId,
-              cto_credit_id: rec.id,
-              employeeNumber: rec.employeeNumber,
-              commuted_hours: remHrs,
-              commuted_days: commutedDays,
-              status: 0,
-            });
-          }
-        );
-      }
-    );
+              (async () => {
+                try {
+                  await logCtoBalanceChange({
+                    req,
+                    targetEmp: emp,
+                    recordId: newCtoId,
+                    action: `transferred to commutation (${toNum(remHrs).toFixed(3)} hrs)`,
+                    period_year: rec.period_year,
+                    period_month: rec.period_month,
+                    balBeforeRem: remHrs,
+                    balAfterRem: snapRem,
+                    details: {
+                      source_cto_credit_id: id,
+                      cto_credit_id: newCtoId,
+                      commutation_id: insResult.insertId,
+                      commuted_hours: remHrs,
+                      commuted_days: commutedDays,
+                    },
+                  });
+                  res.json({
+                    message: 'CTO transferred to commutation',
+                    commutation_id: insResult.insertId,
+                    cto_credit_id: newCtoId,
+                    employeeNumber: emp,
+                    commuted_hours: remHrs,
+                    commuted_days: commutedDays,
+                    status: 0,
+                  });
+                } catch (e) {
+                  console.error("[cto] commute audit:", e.message);
+                  res.status(500).json({
+                    error: 'Commutation recorded but failed to write audit log',
+                  });
+                }
+              })();
+            },
+          );
+        },
+      );
+    });
   });
 });
 
