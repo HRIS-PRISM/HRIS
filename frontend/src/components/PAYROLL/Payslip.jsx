@@ -62,7 +62,7 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-// ─── Design tokens (unified with PayslipDistribution) ─────────────────────────
+// ─── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
   accent: '#6d2323',
   accentDark: '#5a1d1d',
@@ -143,7 +143,7 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   }} />
 );
 
-// ─── Wireframe skeleton (unified with PayslipDistribution) ────────────────────
+// ─── Wireframe skeleton ────────────────────────────────────────────────────────
 const PayslipWireframe = () => (
   <>
     <style>{shimmerKf}</style>
@@ -217,6 +217,26 @@ const monthFromLocationState = (val) => {
   if (typeof val === 'string' && MONTHS.includes(val)) return val;
   return '';
 };
+
+// ─── "No Data" placeholder for a month slot ───────────────────────────────────
+const NoDataSlip = ({ label }) => (
+  <Box sx={{
+    width: '920px',
+    minHeight: '600px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    bgcolor: '#fff',
+    border: '2.5px dashed rgba(109,35,35,0.2)',
+    borderRadius: '8px',
+    gap: 1.5,
+  }}>
+    <CalendarToday sx={{ fontSize: 48, color: alpha(T.accent, 0.18) }} />
+    <Typography sx={{ fontSize: '26px', fontWeight: 800, color: alpha(T.accent, 0.35), fontFamily: '"Poppins",sans-serif' }}>No Data</Typography>
+    <Typography sx={{ fontSize: '18px', color: alpha(T.accent, 0.25), fontFamily: '"Poppins",sans-serif' }}>{label}</Typography>
+  </Box>
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 const Payslip = forwardRef(({ employee }, ref) => {
@@ -330,6 +350,25 @@ const Payslip = forwardRef(({ employee }, ref) => {
       }).length
     : 0;
 
+  // ── Compute the 3 months to display: selected month + 2 prior ────────────
+  const threeMonthSlots = useMemo(() => {
+    if (!selectedMonth) return [];
+    const monthIndex = MONTHS.indexOf(selectedMonth);
+    if (monthIndex < 0) return [];
+    return [0, 1, 2].map((offset) => {
+      let m = monthIndex - offset;
+      let y = Number(selectedYear);
+      while (m < 0) { m += 12; y -= 1; }
+      const label = `${MONTHS[m]} ${y}`;
+      const payroll = allPayroll.find((p) => {
+        if (!p.startDate || p.employeeNumber?.toString() !== personID.toString()) return false;
+        const d = new Date(p.startDate);
+        return d.getMonth() === m && d.getFullYear() === y;
+      }) || null;
+      return { month: m, year: y, label, payroll };
+    });
+  }, [selectedMonth, selectedYear, allPayroll, personID]);
+
   const handleYearChange = (year) => {
     setSelectedYear(year);
     setSnackbar({ open: true, message: 'Year changed — payroll for the selected month updates automatically.', severity: 'info' });
@@ -398,7 +437,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     const images = await Promise.all(containers.map((container) => { const root = container.firstElementChild || container; const h = root.scrollHeight || root.offsetHeight || 1700; return html2canvas(root, { scale: 1.0, useCORS: true, allowTaint: true, logging: false, backgroundColor: '#ffffff', imageTimeout: 15000, windowWidth: 1100, windowHeight: h, height: h, foreignObjectRendering: false }).then((c) => c.toDataURL('image/jpeg', 0.82)); }));
     containers.forEach((c) => document.body.removeChild(c));
     const pdf = new jsPDF('l', 'in', 'a4');
-    const cw = 3.5, ch = 7.1, gap = 0.2;
+const cw = 3.5, ch = 6, gap = 0.2;
     const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
     const tw = cw * 3 + gap * 2, yo = (ph - ch) / 2;
     const pos = [(pw - tw) / 2, (pw - tw) / 2 + cw + gap, (pw - tw) / 2 + (cw + gap) * 2];
@@ -431,7 +470,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     }
   };
 
-  // ── Payslip preview renderer ──────────────────────────────────────────────
+  // ── Payslip preview renderer (single slip) ────────────────────────────────
   const renderPayslipPreview = (emp) => {
     const isJO = (emp.employmentCategory ?? -1) === 0;
     const SecHead = ({ title, icon }) => (
@@ -520,6 +559,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     );
   };
 
+  // ── Institution header (used inside each slip) ────────────────────────────
   const PayslipInstitutionHeader = () => (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5, background: 'linear-gradient(135deg,#6d2323 0%,#a31d1d 100%)', borderRadius: '6px', p: '20px 28px', boxShadow: '0 4px 20px rgba(109,35,35,0.3)' }}>
       {institutionLogo ? <img src={institutionLogo} alt="Logo" style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover', marginLeft: 8 }} /> : <Box sx={{ width: 88, height: 88, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.3)', marginLeft: 8, flexShrink: 0 }} />}
@@ -536,13 +576,16 @@ const Payslip = forwardRef(({ employee }, ref) => {
   if (!accessLoading && hasAccess !== true)
     return <AccessDenied title="Access Denied" message="You do not have permission to access Payslip. Contact your administrator to request access." returnPath="/admin-home" returnButtonText="Return to Home" />;
 
+  // ── Has a month been selected and do we have any data to show? ─────────────
+  const hasAnySlipData = threeMonthSlots.some((s) => s.payroll !== null);
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={400}>
       <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
         <style>{shimmerKf}</style>
 
-        {/* ── Page Header (matches PayslipDistribution) ── */}
+        {/* ── Page Header ── */}
         <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
           <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
             <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)' }} />
@@ -579,7 +622,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
         </Collapse>
         {error && <Collapse in={!!error}><Alert severity="error" sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{error}</Alert></Collapse>}
 
-        {/* ── Two-column layout (matches PayslipDistribution) ── */}
+        {/* ── Two-column layout ── */}
         <Grid container spacing={2}>
 
           {/* LEFT: Period selector panel */}
@@ -619,7 +662,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   </FieldInput>
                 </Box>
 
-                {/* Month — grid matching PayslipDistribution */}
+                {/* Month grid */}
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
@@ -634,42 +677,21 @@ const Payslip = forwardRef(({ employee }, ref) => {
                     </Box>
                   )}
                 </Box>
-                <Box sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                  gap: '8px',
-                  mb: 1.25,
-                }}
-                >
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', mb: 1.25 }}>
                   {MONTHS.map((m) => (
                     <Box
                       key={m}
                       onClick={() => setSelectedMonth(m === selectedMonth ? '' : m)}
                       sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minHeight: 42,
-                        px: 1,
-                        py: 0.65,
-                        borderRadius: '6px',
-                        cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        minHeight: 42, px: 1, py: 0.65, borderRadius: '6px', cursor: 'pointer',
                         border: `1px solid ${selectedMonth === m ? T.accent : 'transparent'}`,
                         bgcolor: selectedMonth === m ? T.accent : 'transparent',
                         transition: 'all 0.14s ease',
                         '&:hover': selectedMonth === m ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
                       }}
                     >
-                      <Typography sx={{
-                        fontSize: '0.78rem',
-                        fontWeight: selectedMonth === m ? 700 : 600,
-                        color: selectedMonth === m ? '#fff' : T.text,
-                        lineHeight: 1,
-                        letterSpacing: '0.03em',
-                        textAlign: 'center',
-                        width: '100%',
-                      }}
-                      >
+                      <Typography sx={{ fontSize: '0.78rem', fontWeight: selectedMonth === m ? 700 : 600, color: selectedMonth === m ? '#fff' : T.text, lineHeight: 1, letterSpacing: '0.03em', textAlign: 'center', width: '100%' }}>
                         {m}
                       </Typography>
                     </Box>
@@ -691,7 +713,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
             </SectionCard>
           </Grid>
 
-          {/* RIGHT: Payslip preview panel */}
+          {/* RIGHT: 3-month payslip preview panel */}
           <Grid item xs={12} lg={9}>
             <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
 
@@ -701,26 +723,17 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <WorkIcon sx={{ fontSize: 15, color: T.accent }} />
                     <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
-                      {selectedMonth ? `${selectedMonth} ${selectedYear}` : 'Payslip Preview'}
+                      {selectedMonth ? `3-Month Payslip View — ${selectedMonth} ${selectedYear} & prior 2 months` : 'Payslip Preview'}
                     </Typography>
-                    {displayEmployee && (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                        <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: T.faint }} />
-                        <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{displayEmployee.name}</Typography>
-                        {!!selectedMonth && (
-                          <Box sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, borderRadius: '5px', px: '6px', py: '2px' }}>{selectedMonth}</Box>
-                        )}
-                      </Box>
-                    )}
                     {selectedMonth && (
                       <Box sx={{ px: 1, py: 0.2, borderRadius: '5px', bgcolor: alpha(T.accent, 0.1), border: `1px solid ${T.accentBorder}` }}>
                         <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: T.accent }}>
-                          {filteredPayrollCount} {filteredPayrollCount === 1 ? 'record' : 'records'}
+                          {threeMonthSlots.filter((s) => s.payroll).length} / 3 records
                         </Typography>
                       </Box>
                     )}
                   </Box>
-                  {displayEmployee && (
+                  {hasAnySlipData && (
                     <AccentButton
                       variant="contained"
                       size="small"
@@ -735,43 +748,98 @@ const Payslip = forwardRef(({ employee }, ref) => {
               </Box>
 
               {/* Content */}
-              <Box sx={{ flexGrow: 1, overflowY: 'auto', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+              <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', '&::-webkit-scrollbar': { width: 6, height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+
                 {!selectedMonth ? (
+                  /* ── No month selected ── */
                   <Box sx={{ py: 10, textAlign: 'center' }}>
                     <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
                       <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                     </Box>
                     <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>Select a Month</Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Choose a month from the left panel to view your payslip.</Typography>
-                  </Box>
-                ) : !displayEmployee ? (
-                  <Box sx={{ py: 10, textAlign: 'center' }}>
-                    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                      <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
-                    </Box>
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>No Payslip Found</Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>No records for <strong>{selectedMonth}</strong> {selectedYear}. Try a different period.</Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Choose a month from the left panel to view your 3-month payslip.</Typography>
                   </Box>
                 ) : (
+                  /* ── 3-month side-by-side layout (mirrors the PDF) ── */
                   <Fade in timeout={250}>
-                    <Box sx={{ bgcolor: '#f4f0f0', p: 2.5, display: 'flex', justifyContent: 'center' }}>
-                      <Paper ref={payslipRef} elevation={2} sx={{ zoom: 0.64, width: '920px', p: 1.5, borderRadius: '8px', bgcolor: '#fff', fontFamily: '"Poppins",sans-serif', position: 'relative', boxSizing: 'border-box' }}>
-                        {dynamicHrisLogo && (
-                          <Box component="img" src={dynamicHrisLogo} alt="Watermark" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.08, width: '70%', pointerEvents: 'none', userSelect: 'none', zIndex: 2, mixBlendMode: 'multiply' }} />
-                        )}
-                        <PayslipInstitutionHeader />
-                        <Box sx={{ position: 'relative', zIndex: 1 }}>{renderPayslipPreview(displayEmployee)}</Box>
-                      </Paper>
+                    <Box sx={{
+                      bgcolor: '#e8e0e0',
+                      p: 2,
+                      minHeight: '100%',
+                      // horizontal flex row of 3 slips
+                      display: 'flex',
+                      flexDirection: 'row',
+                      gap: 1.5,
+                      alignItems: 'flex-start',
+                      justifyContent: 'center',
+                      // allow horizontal scroll on very small viewports
+                      minWidth: 'max-content',
+                      width: '100%',
+                    }}>
+                      {threeMonthSlots.map((slot, idx) => (
+                        <Box key={idx} sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, flexShrink: 0 }}>
+                          {/* Month label badge above each slip */}
+                          <Box sx={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
+                            px: 1.5, py: 0.5, borderRadius: '6px',
+                            bgcolor: idx === 0 ? T.accent : alpha(T.accent, 0.12),
+                            border: `1px solid ${idx === 0 ? T.accent : T.accentBorder}`,
+                            alignSelf: 'flex-start',
+                          }}>
+                            <Typography sx={{
+                              fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.06em',
+                              color: idx === 0 ? '#fff' : T.accent,
+                              textTransform: 'uppercase',
+                            }}>
+                              {idx === 0 ? '● ' : ''}{slot.label}
+                              {idx === 0 ? ' (Selected)' : idx === 1 ? ' — 1 month prior' : ' — 2 months prior'}
+                            </Typography>
+                          </Box>
+
+                          {/* The payslip paper or no-data placeholder */}
+                          <Paper
+                            elevation={idx === 0 ? 4 : 2}
+                            sx={{
+                              zoom: 0.38,
+                              width: '920px',
+                              p: 1.5,
+                              borderRadius: '8px',
+                              bgcolor: '#fff',
+                              fontFamily: '"Poppins",sans-serif',
+                              position: 'relative',
+                              boxSizing: 'border-box',
+                              border: idx === 0 ? `2px solid ${T.accent}` : '2px solid transparent',
+                              transition: 'box-shadow 0.2s ease',
+                            }}
+                          >
+                            {slot.payroll ? (
+                              <>
+                                {dynamicHrisLogo && (
+                                  <Box component="img" src={dynamicHrisLogo} alt="Watermark" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.08, width: '70%', pointerEvents: 'none', userSelect: 'none', zIndex: 2, mixBlendMode: 'multiply' }} />
+                                )}
+                                <PayslipInstitutionHeader />
+                                <Box sx={{ position: 'relative', zIndex: 1 }}>
+                                  {renderPayslipPreview(slot.payroll)}
+                                </Box>
+                              </>
+                            ) : (
+                              <NoDataSlip label={slot.label} />
+                            )}
+                          </Paper>
+                        </Box>
+                      ))}
                     </Box>
                   </Fade>
                 )}
               </Box>
 
               {/* Footer info bar */}
-              {displayEmployee && (
+              {hasAnySlipData && (
                 <Box sx={{ px: 3.5, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Download sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }} />
-                  <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>Generates a 3-month PDF (current + 2 prior months)</Typography>
+                  <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                    Showing {selectedMonth} {selectedYear} and the 2 prior months side-by-side — exactly as they appear in the downloaded PDF.
+                  </Typography>
                 </Box>
               )}
             </SectionCard>

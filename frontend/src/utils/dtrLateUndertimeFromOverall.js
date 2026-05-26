@@ -11,7 +11,62 @@ import {
   parseHalfDayReviewJson,
   getApprovedHalfDayDatesSet,
   buildHalfDayReviewArray,
+  isHalfDayPendingHrReview,
 } from './halfDayReview';
+import { isScheduledByOfficialTime } from './officialAttendanceFromDailyRows';
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/** Calendar weekday name for YYYY-MM-DD (Asia/Manila), e.g. Sunday for unscheduled rest days. */
+export const getDayNameFromYmd = (ymd) => {
+  const s = String(ymd ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  try {
+    const d = new Date(`${s}T12:00:00+08:00`);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      weekday: 'long',
+    }).formatToParts(d);
+    return parts.find((p) => p.type === 'weekday')?.value || '';
+  } catch {
+    return WEEKDAY_NAMES[new Date(`${s}T12:00:00`).getDay()] || '';
+  }
+};
+
+/** True when Official Time Form covers this calendar day (matches attendance modules). */
+export const isDtrDateScheduledByOfficialTime = ({
+  record,
+  officialTimesByDay,
+  fullDate,
+}) => {
+  if (isScheduledByOfficialTime(record)) return true;
+  const dayName = getDayNameFromYmd(fullDate);
+  if (dayName && officialTimesByDay && typeof officialTimesByDay === 'object') {
+    return isScheduledByOfficialTime(officialTimesByDay[dayName]);
+  }
+  return false;
+};
+
+/** Half-day suggested or not HR-confirmed — DTR must not show late/undertime yet. */
+export const isDtrHalfDayLateUndertimePending = ({
+  record,
+  fullDate,
+  reviewByDate,
+  moduleType = MODULE_TYPES.NON_TEACHING,
+}) => {
+  const row = record || (fullDate ? { date: fullDate } : null);
+  if (!row) return false;
+  return isHalfDayPendingHrReview(row, reviewByDate || {}, moduleType);
+};
 
 const STORAGE_KEY = 'dtrComputedDailyLate';
 const UPDATE_EVENT = 'dtrComputedDailyLateUpdated';
@@ -64,15 +119,20 @@ export const formatLateUndertimeDisplay = (value) => {
 };
 
 /**
- * DTR Late/Undertime cells: half-days often have only AM or PM punch (xor).
- * Still show module-computed late when present (approved half-day tardiness).
+ * DTR Late/Undertime: show only for full days, HR-confirmed half-days, or rejected half-days.
+ * Pending/suggested half-days stay blank (matches attendance modules).
  */
 export const resolveDtrLateUndertimeDisplay = ({
   computed,
   record,
   isExcludedDay,
   hasIncompletePunch,
+  isNotScheduledDay = false,
+  isPendingHalfDay = false,
 }) => {
+  if (isNotScheduledDay || isPendingHalfDay) {
+    return { lateDisplay: '', undertimeDisplay: '' };
+  }
   const lateRaw = computed?.lateTotal ?? record?.hours ?? '';
   const undertimeRaw = computed?.undertimeTotal ?? record?.minutes ?? '';
   const lateFmt = formatLateUndertimeDisplay(lateRaw);
@@ -173,6 +233,9 @@ export const buildDailyLateUndertimeRows = (
 ) => {
   return (processedData || []).map((r) => {
     const date = normalizeReviewDate(r.date);
+    if (!isScheduledByOfficialTime(r)) {
+      return { date, lateTotal: '00:00:00', undertimeTotal: '00:00:00' };
+    }
     const entry = reviewByDate?.[date];
     if (
       (approvedHalfDaySet.has(date) ||
@@ -215,6 +278,9 @@ export const buildDailyLateUndertimeRows = (
         lateTotal: eff?.total || '00:00:00',
         undertimeTotal: '00:00:00',
       };
+    }
+    if (isHalfDayPendingHrReview(r, reviewByDate || {}, moduleType)) {
+      return { date, lateTotal: '00:00:00', undertimeTotal: '00:00:00' };
     }
     return {
       date,
@@ -432,11 +498,18 @@ export const fetchDailyLateUndertimeBatch = async (
 ) => {
   const ids = [...new Set((employeeNumbers || []).map((n) => String(n).trim()).filter(Boolean))];
   if (!ids.length || !periodStart || !periodEnd) {
-    return { byEmployee: {}, halfDayDatesByEmployee: {} };
+    return {
+      byEmployee: {},
+      halfDayDatesByEmployee: {},
+      halfDayReviewByEmployee: {},
+      computationModuleTypeByEmployee: {},
+    };
   }
 
   const byEmployee = {};
   const halfDayDatesByEmployee = {};
+  const halfDayReviewByEmployee = {};
+  const computationModuleTypeByEmployee = {};
   for (let i = 0; i < ids.length; i += BATCH_CHUNK) {
     const chunk = ids.slice(i, i + BATCH_CHUNK);
     try {
@@ -449,20 +522,32 @@ export const fetchDailyLateUndertimeBatch = async (
       const metaByEmp = res.data?.metaByEmployee || {};
       Object.entries(chunkByEmp).forEach(([emp, byDate]) => {
         const meta = metaByEmp[emp];
+        const mod = meta?.computation_module_type || MODULE_TYPES.NON_TEACHING;
         byEmployee[emp] = meta
           ? enrichDailyLateByDateFromReview(
               byDate,
               meta.half_day_review,
-              meta.computation_module_type || MODULE_TYPES.NON_TEACHING,
+              mod,
             )
           : byDate;
+        if (meta) {
+          halfDayReviewByEmployee[emp] = buildReviewByDate(
+            parseHalfDayReviewJson(meta.half_day_review),
+          );
+          computationModuleTypeByEmployee[emp] = mod;
+        }
       });
       Object.assign(halfDayDatesByEmployee, res.data?.halfDayDatesByEmployee || {});
     } catch (err) {
       console.warn('fetchDailyLateUndertimeBatch chunk failed:', err?.message || err);
     }
   }
-  return { byEmployee, halfDayDatesByEmployee };
+  return {
+    byEmployee,
+    halfDayDatesByEmployee,
+    halfDayReviewByEmployee,
+    computationModuleTypeByEmployee,
+  };
 };
 
 /** @deprecated use persistDailyLateUndertimeFromModule */
