@@ -2113,33 +2113,33 @@ const AttendanceSearch = () => {
           );
         })}
       </Box>
-      <Box sx={{ p: 1.5, borderRadius: '8px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, mb: 2 }}>
-        <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65), mb: 0.5, fontFamily: T.font }}>Summary</Typography>
-        <Typography sx={{ fontSize: '0.95rem', fontWeight: 800, color: T.text, lineHeight: 1.2, fontFamily: T.font }}>
-          {loading ? 'Loading…' : hasSearched ? `${recordsCount} records` : 'No data loaded'}
-        </Typography>
-        <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.3, fontFamily: T.font }}>{startDate && endDate ? `${startDate} → ${endDate}` : 'Select a period'}</Typography>
-        {hasSearched && fullDaysCount > 0 && activeTab === 'fullMonth' && (
-          <Typography sx={{ fontSize: '0.72rem', color: missingCount > 0 ? '#b45309' : '#2e7d32', mt: 0.25, fontFamily: T.font }}>
-            {missingCount > 0 ? `${missingCount} missing days` : 'All days accounted for'}
-          </Typography>
-        )}
-        {hasSearched && (recordsCount > 0 || fullDaysCount > 0) && (
-          <Box>
-            <FormSectionLabel icon={CalendarToday}>Custom Range</FormSectionLabel>
-            <Box sx={{ display: 'grid',}}>
-              <Box>
-                <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: alpha(T.accent, 0.55), mb: 0.5, fontFamily: T.font, letterSpacing: '0.06em', textTransform: 'uppercase' }}>From</Typography>
-                <NativeInput type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setQuickDatePreset(''); setSelectedMonth(null); }} />
-              </Box>
-              <Box>
-                <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: alpha(T.accent, 0.55), mb: 0.5, fontFamily: T.font, letterSpacing: '0.06em', textTransform: 'uppercase' }}>To</Typography>
-                <NativeInput type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setQuickDatePreset(''); setSelectedMonth(null); }} />
-              </Box>
-            </Box>
-          </Box>
-        )}
-      </Box>
+<Box sx={{ p: 1, borderRadius: '6px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, mb: 1.5 }}>
+  <Typography sx={{ fontSize: '0.60rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65), mb: 0.5, fontFamily: T.font }}>Summary</Typography>
+  <Typography sx={{ fontSize: '0.80rem', fontWeight: 800, color: T.text, lineHeight: 1.2, fontFamily: T.font }}>
+    {loading ? 'Loading…' : hasSearched ? `${recordsCount} records` : 'No data loaded'}
+  </Typography>
+  <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.3, fontFamily: T.font }}>{startDate && endDate ? `${startDate} → ${endDate}` : 'Select a period'}</Typography>
+  {hasSearched && fullDaysCount > 0 && activeTab === 'fullMonth' && (
+    <Typography sx={{ fontSize: '0.72rem', color: missingCount > 0 ? '#b45309' : '#2e7d32', mt: 0.25, fontFamily: T.font }}>
+      {missingCount > 0 ? `${missingCount} missing days` : 'All days accounted for'}
+    </Typography>
+  )}
+  {hasSearched && (recordsCount > 0 || fullDaysCount > 0) && (
+    <Box>
+      <FormSectionLabel icon={CalendarToday}>Custom Range</FormSectionLabel>
+<Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+  <Box sx={{ minWidth: 0 }}>
+    <Typography sx={{ fontSize: '0.55rem', fontWeight: 700, color: alpha(T.accent, 0.55), mb: 0.3, fontFamily: T.font, letterSpacing: '0.06em', textTransform: 'uppercase' }}>From</Typography>
+    <NativeInput type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setQuickDatePreset(''); setSelectedMonth(null); }} style={{ width: '100%' }} />
+  </Box>
+  <Box sx={{ minWidth: 0 }}>
+    <Typography sx={{ fontSize: '0.55rem', fontWeight: 700, color: alpha(T.accent, 0.55), mb: 0.3, fontFamily: T.font, letterSpacing: '0.06em', textTransform: 'uppercase' }}>To</Typography>
+    <NativeInput type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setQuickDatePreset(''); setSelectedMonth(null); }} style={{ width: '100%' }} />
+  </Box>
+</Box>
+    </Box>
+  )}
+</Box>
     </Box>
   );
 
@@ -2162,47 +2162,6 @@ const AttendanceSearch = () => {
 
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
-        {displayEmployee && (
-          <Box
-            sx={{
-              px: 2.5,
-              py: 1.25,
-              borderBottom: `1px solid ${T.divider}`,
-              bgcolor: T.accentFaint,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              flexWrap: 'wrap',
-            }}
-          >
-            <EmployeeProfileCard
-              employee={displayEmployee}
-              deptMap={departmentAssignmentsMap}
-              empCatMap={empCatMap}
-              sexMap={sexMap}
-              loading={loading}
-            />
-            {selectedMonth !== null && (
-              <Box
-                sx={{
-                  fontSize: '0.65rem',
-                  fontWeight: 700,
-                  color: T.accent,
-                  bgcolor: alpha(T.accent, 0.08),
-                  border: `1px solid ${T.accentBorder}`,
-                  borderRadius: '5px',
-                  px: '6px',
-                  py: '2px',
-                  flexShrink: 0,
-                  fontFamily: T.font,
-                }}
-              >
-                {months[selectedMonth]}
-              </Box>
-            )}
-          </Box>
-        )}
         {/* Tab bar */}
         <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, px: 2, pt: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
           <TabBtn active={activeTab === 'records'} icon={TableRows} label="Device Records" badge={recordsCount > 0 ? recordsCount : null} onClick={() => handleTabSwitch('records')} />
