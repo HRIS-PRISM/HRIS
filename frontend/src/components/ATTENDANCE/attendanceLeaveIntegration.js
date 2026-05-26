@@ -21,7 +21,12 @@ export async function postAttendanceDevicePreflightNoSync({
     },
     getAuthHeaders(),
   );
-  return Array.isArray(deviceCheck.data) ? deviceCheck.data : [];
+  const payload = deviceCheck.data;
+  return Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.records)
+      ? payload.records
+      : [];
 }
 
 /** Suspensions, HR-approved leaves, and holidays keyed by YYYY-MM-DD */
@@ -69,4 +74,31 @@ export function getLeaveStatusLabelForDate(date, maps) {
   if (holidayByDate[date]) return 'HOLIDAY';
   if (leaveByDate[date]) return 'ON LEAVE';
   return '';
+}
+
+const FILED_LEAVE_STATUS_LABEL = {
+  0: 'Pending',
+  1: 'Supervisor approved',
+  2: 'HR approved',
+};
+
+/** Map leave_request rows in [startDate, endDate] with status 0–2 → by YYYY-MM-DD. */
+export function buildFiledLeaveByDate(requests, startDate, endDate) {
+  const start = String(startDate || '').slice(0, 10);
+  const end = String(endDate || '').slice(0, 10);
+  const byDate = {};
+  (Array.isArray(requests) ? requests : []).forEach((lr) => {
+    const d = String(lr?.leave_date ?? '').trim().slice(0, 10);
+    if (!d || (start && d < start) || (end && d > end)) return;
+    const st = Number(lr.status);
+    if (![0, 1, 2].includes(st)) return;
+    byDate[d] = {
+      id: lr.id,
+      leave_code: lr.leave_code,
+      leave_description: lr.leave_description || lr.leave_code,
+      status: st,
+      statusLabel: FILED_LEAVE_STATUS_LABEL[st] || 'Leave',
+    };
+  });
+  return byDate;
 }

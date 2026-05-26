@@ -14,19 +14,44 @@ export function sumHmsDurationStrings(values) {
 }
 
 /**
- * Late total for overall record: overall tardiness minus absent and approved half-day shortfall.
+ * Late total: punch/HR-reject shortfall only (excludes absent + approved half-day).
  */
-export function computeLateTotalTimeFromTardiness(overallTardiness, buckets) {
-  const overallSec = parseOfficialTimeToSeconds(overallTardiness);
-  if (overallSec != null) {
-    return formatOfficialAttendanceSeconds(
-      Math.max(
-        0,
-        overallSec -
-          (buckets?.absentSecTotal ?? 0) -
-          (buckets?.halfDayShortfallSecTotal ?? 0),
-      ),
-    );
+export function computeLateTotalTimeFromTardiness(_overallTardiness, buckets) {
+  const fromBuckets = buckets?.lateShortfallTime;
+  if (fromBuckets != null && String(fromBuckets).trim() !== '') {
+    return fromBuckets;
   }
-  return buckets?.lateShortfallTime || '00:00:00';
+  return '00:00:00';
+}
+
+/**
+ * Overall tardiness = Absent + Half day shortfall + Late Total (whole summary).
+ * Row Total Tardiness column sums to this same value.
+ */
+export function computeOverallTardinessFromBuckets(buckets) {
+  if (buckets?.overallShortfallSecTotal != null) {
+    return formatOfficialAttendanceSeconds(buckets.overallShortfallSecTotal);
+  }
+  return sumHmsDurationStrings([
+    buckets?.absentTime,
+    buckets?.halfDayShortfallTime,
+    buckets?.lateShortfallTime,
+  ]);
+}
+
+/** Apply bucket-based late + overall totals (optional row sum for table footers). */
+export function applyBucketAttendanceTotals(base, buckets, { rowTardinessSum } = {}) {
+  const lateTotalTime = computeLateTotalTimeFromTardiness(null, buckets);
+  const overallTardiness = computeOverallTardinessFromBuckets(buckets);
+  return {
+    ...base,
+    absentDays: buckets?.absentDays ?? base?.absentDays,
+    halfDays: buckets?.halfDays ?? base?.halfDays,
+    absentTime: buckets?.absentTime ?? base?.absentTime,
+    halfDayShortfallTime: buckets?.halfDayShortfallTime ?? base?.halfDayShortfallTime,
+    lateTotalTime,
+    overallTardiness,
+    overallShortfallTime: buckets?.overallShortfallTime ?? overallTardiness,
+    ...(rowTardinessSum != null ? { rowTardinessSum } : {}),
+  };
 }

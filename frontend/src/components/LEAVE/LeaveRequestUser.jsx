@@ -67,6 +67,7 @@ import AccessDenied from "../AccessDenied";
 import SuccessfulOverlay from "../SuccessfulOverlay";
 import LeaveDatePicker from "./LeaveDatePicker";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
+import { getLeaveTypeStatsActive } from "./leaveAssignmentBalanceUtils";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -652,20 +653,26 @@ const LeaveRequestUser = () => {
   };
 
   const groupedBalances = useMemo(() => {
-    const map = {};
+    const byCode = {};
     assignments.forEach((a) => {
       const code = a.leave_code;
-      const desc = leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
-      if (!map[code]) map[code] = { code, description: desc, totalHours: 0, allocatedHours: 0 };
-      map[code].totalHours += parseFloat(a.remaining_hours || 0);
-      map[code].allocatedHours += parseFloat(a.allocated_hours || 0);
+      if (!byCode[code]) byCode[code] = [];
+      byCode[code].push(a);
     });
 
-    const result = Object.values(map).map((b) => ({
-      ...b,
-      totalDays: (b.totalHours / 8).toFixed(3),
-      allocatedDays: (b.allocatedHours / 8).toFixed(3),
-    }));
+    const result = Object.entries(byCode).map(([code, rows]) => {
+      const stats = getLeaveTypeStatsActive(rows);
+      const desc =
+        leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
+      return {
+        code,
+        description: desc,
+        totalHours: stats.remainingHours,
+        allocatedHours: stats.allocatedHours,
+        totalDays: (stats.remainingHours / 8).toFixed(3),
+        allocatedDays: (stats.allocatedHours / 8).toFixed(3),
+      };
+    });
 
     if (scRemainingHours > 1e-6) {
       result.push({

@@ -1251,6 +1251,8 @@ const express = require("express");
           ar.specialTimeOUT,
           ot.officialTimeIN,
           ot.officialTimeOUT,
+          ot.officialBreaktimeIN,
+          ot.officialBreaktimeOUT,
           ot.officialOverTimeIN,
           ot.officialOverTimeOUT,
           CASE WHEN ar.timeIN IS NULL AND ar.timeOUT IS NULL THEN 1 ELSE 0 END AS is_absent,

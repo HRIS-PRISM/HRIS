@@ -98,6 +98,7 @@ export function logAttendanceModuleAction({
   renderedTotal,
   tardinessTotal,
   halfDayNote,
+  deductionSource,
   targetUsername,
   auditEvent,
   recordsCount,
@@ -132,6 +133,7 @@ export function logAttendanceModuleAction({
         renderedTotal: renderedTotal || null,
         tardinessTotal: tardinessTotal || null,
         halfDayNote: halfDayNote || null,
+        deductionSource: deductionSource || null,
         auditEvent: auditEvent || null,
         recordsCount: recordsCount ?? null,
         rowsChanged: rowsChanged ?? null,
@@ -170,12 +172,13 @@ export function logAttendanceHalfDayReview({
         : null;
   if (!auditButton) return;
 
-  const tardiness =
-    entry.computedTardinessTotal ??
-    entry.computedTardinessRegular ??
-    entry.hrTardinessTotal ??
-    entry.hrTardinessRegular ??
-    null;
+  const isApproved = status === 'approved';
+  const tardiness = isApproved
+    ? null
+    : entry.hrTardinessTotal ?? entry.hrTardinessRegular ?? null;
+  const deductionSource =
+    entry.deductionSource ||
+    (isApproved ? 'earnings' : status === 'rejected' ? 'attendance' : null);
 
   const username = String(targetUsername || '').trim();
 
@@ -194,6 +197,7 @@ export function logAttendanceHalfDayReview({
     renderedTotal: entry.renderedTotal ?? null,
     tardinessTotal: tardiness,
     halfDayNote: entry.note?.trim() || null,
+    deductionSource,
   });
 }
 

@@ -111,8 +111,36 @@ function loadScBalanceSummaryRows(employeeNumber, year, month, cb) {
   );
 }
 
+/** Sum remaining across all sc_type buckets (matches GET /api/earnings/sc/:emp/balance). */
+function getScRemainingHoursTotal(employeeNumber, cb) {
+  const emp = String(employeeNumber || "").trim();
+  if (!emp) return cb(null, 0);
+  db.query(
+    `SELECT DISTINCT sc_type FROM service_credit WHERE employeeNumber = ?`,
+    [emp],
+    (err, types) => {
+      if (err) return cb(err);
+      const list = (types || []).map((t) => t.sc_type).filter(Boolean);
+      if (!list.length) return cb(null, 0);
+      let total = 0;
+      let i = 0;
+      const next = () => {
+        if (i >= list.length) return cb(null, total);
+        const st = list[i++];
+        getServiceCreditRunningTotals(emp, st, (e2, cur) => {
+          if (e2) return cb(e2);
+          total += toNum(cur?.remaining);
+          next();
+        });
+      };
+      next();
+    },
+  );
+}
+
 module.exports = {
   getServiceCreditRunningTotals,
+  getScRemainingHoursTotal,
   loadScBalanceSummaryRows,
   toNum,
 };

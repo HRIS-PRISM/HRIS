@@ -1,5 +1,6 @@
 const db = require("../db");
 const { getCtoCreditRunningTotals } = require("./ctoCreditRunningTotals");
+const { getScRemainingHoursTotal } = require("./serviceCreditRunningTotals");
 
 const SALARY_VALUE = "SALARY_DEDUCTION";
 
@@ -69,7 +70,7 @@ const normalizeClockHoursPerDay = (raw) => {
 const getLeaveAssignmentsForCode = (employeeNumber, leave_code) =>
   new Promise((resolve) => {
     db.query(
-      `SELECT remaining_hours
+      `SELECT *
        FROM leave_assignment
        WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
        ORDER BY period_year DESC,
@@ -87,9 +88,13 @@ const getLeaveAssignmentsForCode = (employeeNumber, leave_code) =>
     );
   });
 
+const {
+  getLeaveTypeStatsActive,
+} = require("../utils/leaveAssignmentBalanceUtils");
+
 const getTotalRemainingHours = async (employeeNumber, leave_code) => {
   const rows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
-  return rows.reduce((sum, r) => sum + parseDbHours(r.remaining_hours), 0);
+  return getLeaveTypeStatsActive(rows).remainingHours;
 };
 
 /** Matches earnings CTO balance: latest snapshot row, not SUM(remaining) across historical ledger rows. */
@@ -104,10 +109,23 @@ const getCtoRemainingHours = (employeeNumber) =>
     });
   });
 
+/** Matches GET /api/earnings/sc/:emp/balance totalRemaining (service_credit ledger, all sc_type). */
+const getScRemainingHoursAsync = (employeeNumber) =>
+  new Promise((resolve, reject) => {
+    const emp = String(employeeNumber || "").trim();
+    if (!emp) return resolve(0);
+    getScRemainingHoursTotal(emp, (err, total) => {
+      if (err) return reject(err);
+      const n = Number(total);
+      resolve(Number.isFinite(n) ? n : 0);
+    });
+  });
+
 async function getRemainingHoursForCode(employeeNumber, leaveCodeRaw) {
   const code = String(leaveCodeRaw || "").trim().toUpperCase();
   if (!code) return 0;
   if (code === "CTO") return getCtoRemainingHours(employeeNumber);
+  if (code === "SC") return getScRemainingHoursAsync(employeeNumber);
   return getTotalRemainingHours(employeeNumber, code);
 }
 

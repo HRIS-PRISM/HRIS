@@ -74,6 +74,22 @@ export function hasAfternoonPunch(row) {
   return !empty(row?.breaktimeOUT) || !empty(row?.timeOUT);
 }
 
+/** No Time IN and no Time OUT (break punches ignored for this check). */
+export function hasNoPunchesTimeInOutOnly(row) {
+  return empty(row?.timeIN) && empty(row?.timeOUT);
+}
+
+/**
+ * Non-teaching half-day: Time IN and Time OUT only — one present, one missing.
+ * Break IN / Break OUT are not used for half-day detection.
+ */
+export function isNonTeachingHalfDayByPunches(row) {
+  if (hasNoPunchesTimeInOutOnly(row)) return false;
+  const hasIn = !empty(row?.timeIN);
+  const hasOut = !empty(row?.timeOUT);
+  return hasIn !== hasOut;
+}
+
 /** Official scheduled work seconds (day span minus official break), or null if not parseable. */
 export function getOfficialSchedWorkSec(row) {
   const offInSec = parseOfficialTimeToSeconds(row?.officialTimeIN);
@@ -112,9 +128,7 @@ export function listHalfDayDatesFromDailyRows(rows, calendarMaps) {
     if (!isScheduledByOfficialTime(row)) return;
     if (getOfficialSchedWorkSec(row) == null) return;
     if (hasNoPunches(row)) return;
-    const hasMorning = hasMorningPunch(row);
-    const hasAfternoon = hasAfternoonPunch(row);
-    if (hasMorning === hasAfternoon) return;
+    if (!isNonTeachingHalfDayByPunches(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
   return [...new Set(dates)].sort();
@@ -180,9 +194,8 @@ export function computeOfficialAwareAbsenceAndLate(rows, calendarMaps) {
       return;
     }
 
-    const morning = hasMorningPunch(row);
-    const afternoon = hasAfternoonPunch(row);
-    if (morning !== afternoon) halfDays += 1;
+    const isHalfDay = isNonTeachingHalfDayByPunches(row);
+    if (isHalfDay) halfDays += 1;
 
     const inSec = parseOfficialTimeToSeconds(row?.timeIN);
     const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
@@ -190,19 +203,19 @@ export function computeOfficialAwareAbsenceAndLate(rows, calendarMaps) {
     const breakOutSec = parseOfficialTimeToSeconds(row?.breaktimeOUT);
 
     let renderedSec = 0;
-    if (inSec != null && outSec != null) {
+    if (!isHalfDay && inSec != null && outSec != null) {
       if (breakInSec != null && breakOutSec != null && breakOutSec >= breakInSec) {
         renderedSec = Math.max(0, breakInSec - inSec) + Math.max(0, outSec - breakOutSec);
       } else {
         renderedSec = Math.max(0, outSec - inSec);
       }
-    } else if (morning !== afternoon) {
+    } else if (isHalfDay) {
       renderedSec = Math.floor(schedWorkSec / 2);
     }
 
     renderedSecTotal += renderedSec;
     const deficit = Math.max(0, schedWorkSec - renderedSec);
-    if (morning !== afternoon) halfDayShortfallSecTotal += deficit;
+    if (isHalfDay) halfDayShortfallSecTotal += deficit;
     else lateShortfallSecTotal += deficit;
   });
 

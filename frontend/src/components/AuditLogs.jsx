@@ -1246,6 +1246,24 @@ const AuditLogs = () => {
       return `${who} adjusted ${target}'s leave balance. ${remLine}. ${usedLine}.`;
     }
 
+    if (
+      tableLower === 'leave_transaction' &&
+      /hr leave (bulk )?approval (deduction|reversal)/i.test(actionLower)
+    ) {
+      const details = parseAuditDetailsSafe(log?.details_json) || {};
+      if (typeof details.transaction_message === 'string' && details.transaction_message.trim()) {
+        return details.transaction_message.trim();
+      }
+      const beforeH = Number(details.available_hours_before);
+      const afterH = Number(details.available_hours_after);
+      const chargeTo = String(details.charge_to || '').toUpperCase();
+      const hrs = Number(details.deducted_hours ?? details.restored_hours);
+      const fmt = (n) => (Number.isFinite(n) ? n.toFixed(3) : '—');
+      if (Number.isFinite(beforeH) && Number.isFinite(afterH)) {
+        return `${log.action}. ${chargeTo ? `[${chargeTo}] ` : ''}Balance: ${fmt(beforeH)} → ${fmt(afterH)} hrs${Number.isFinite(hrs) ? ` (${fmt(hrs)} hrs)` : ''}.`;
+      }
+    }
+
     if (isEarningsModule) {
       // fallback kept for safety; branch above handles earnings
       return 'Earnings activity logged.';
@@ -1518,6 +1536,14 @@ const AuditLogs = () => {
         detailParts.push(`Computation: ${computation}`);
         if (detailsWithButton.rendered_total) {
           detailParts.push(`Rendered: ${detailsWithButton.rendered_total}`);
+        }
+        const deductionSrc = String(
+          detailsWithButton.deduction_source || '',
+        ).toLowerCase();
+        if (deductionSrc === 'earnings') {
+          detailParts.push('Deduction: Earnings (excluded from Total Tardiness)');
+        } else if (deductionSrc === 'attendance') {
+          detailParts.push('Deduction: Attendance (Late Total)');
         }
         if (detailsWithButton.tardiness_total) {
           detailParts.push(`Tardiness: ${detailsWithButton.tardiness_total}`);
