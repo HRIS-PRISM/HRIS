@@ -42,7 +42,7 @@ import {
   TextField,
   Paper,
   List,
-  ListItem,
+  ListItemButton,
   Avatar,
   InputAdornment,
   IconButton,
@@ -77,7 +77,10 @@ import {
   History,
   Comment,
   InfoOutlined,
+  Male as MaleIcon,
+  Female as FemaleIcon,
 } from '@mui/icons-material';
+import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
@@ -874,6 +877,177 @@ const getEmployeeIdentifier = (emp) => {
   return String(raw).trim();
 };
 
+const toProfileEmployee = (emp) => {
+  if (!emp) return null;
+  const num = getEmployeeIdentifier(emp);
+  return { ...emp, employeeNumber: num };
+};
+
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  if (!last && !first) {
+    const raw = String(e?.name || e?.fullName || '').trim();
+    if (!raw) {
+      const num = getEmployeeIdentifier(e);
+      return num ? `#${num}` : '';
+    }
+    if (raw.includes(',')) return raw;
+    return raw;
+  }
+  return last
+    ? `${last.toUpperCase()}, ${[first, mid].filter(Boolean).join(' ')}`
+    : [first, mid].filter(Boolean).join(' ');
+};
+
+const getEmployeeInitials = (e) => {
+  const last = e?.lastName?.[0];
+  const first = e?.firstName?.[0];
+  if (last || first) {
+    return `${last || ''}${first || ''}`.toUpperCase() || '?';
+  }
+  const nm = String(e?.name || e?.fullName || '').trim();
+  if (!nm) return '?';
+  const parts = nm.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return nm[0]?.toUpperCase() || '?';
+};
+
+const GenderBadge = ({ gender }) => {
+  if (!gender) return null;
+  const isMale = String(gender).trim().toLowerCase() === 'male';
+  return (
+    <Chip
+      size="small"
+      icon={
+        isMale ? (
+          <MaleIcon style={{ fontSize: 11, color: '#1565C0' }} />
+        ) : (
+          <FemaleIcon style={{ fontSize: 11, color: '#c2185b' }} />
+        )
+      }
+      label={gender}
+      sx={{
+        height: 18,
+        fontSize: '0.6rem',
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        bgcolor: isMale ? 'rgba(21,101,192,0.08)' : 'rgba(194,24,91,0.08)',
+        color: isMale ? '#1565C0' : '#c2185b',
+        border: `1px solid ${isMale ? 'rgba(21,101,192,0.25)' : 'rgba(194,24,91,0.25)'}`,
+        borderRadius: '4px',
+      }}
+    />
+  );
+};
+
+const EmployeeProfileRow = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  avatarSize = 30,
+}) => {
+  if (!employee) return null;
+  const num = getEmployeeIdentifier(employee);
+  const initials = getEmployeeInitials(employee);
+  const name = buildDisplayName(employee);
+  const dc = deptMap[num];
+  const ec = empCatMap[num];
+  const gender = sexMap[num] || employee.sex || employee.gender;
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+      <Avatar
+        sx={{
+          width: avatarSize,
+          height: avatarSize,
+          bgcolor: T.accent,
+          fontSize: avatarSize <= 30 ? '0.65rem' : '0.8rem',
+          fontWeight: 800,
+          borderRadius: avatarSize <= 30 ? '4px' : '8px',
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </Avatar>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          sx={{
+            fontWeight: 700,
+            fontSize: avatarSize <= 30 ? '0.78rem' : '0.84rem',
+            color: T.text,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            fontFamily: T.font,
+          }}
+        >
+          {name}
+        </Typography>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.45,
+            flexWrap: 'wrap',
+            mt: 0.25,
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{ color: T.faint, fontSize: '0.65rem', whiteSpace: 'nowrap', fontFamily: T.font }}
+          >
+            #{num}
+          </Typography>
+          {gender && <GenderBadge gender={gender} />}
+          {dc && <DeptBadge code={dc} />}
+          {ec && <EmpCatBadge label={ec.label} colorHex={ec.colorHex} />}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const EmployeeProfileCard = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  loading = false,
+}) => {
+  if (!employee) return null;
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.25,
+        px: 1.25,
+        py: 1,
+        borderRadius: 2,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fafafa',
+      }}
+    >
+      <EmployeeProfileRow
+        employee={employee}
+        deptMap={deptMap}
+        empCatMap={empCatMap}
+        sexMap={sexMap}
+        avatarSize={44}
+      />
+      {loading && (
+        <CircularProgress size={14} sx={{ color: T.accent, flexShrink: 0 }} />
+      )}
+    </Box>
+  );
+};
+
 // ─── Remarks Dialog (for auto-fill) ────────────────────────────────────────
 const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
   const [remarks, setRemarks] = useState('');
@@ -1128,7 +1302,15 @@ const AuthorizationDialog = ({
 };
 
 // ─── Employee Search Field ─────────────────────────────────────────────────
-const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = false }) => {
+const EmployeeSearchField = ({
+  onSelect,
+  selectedEmployee,
+  onClear,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  disabled = false,
+}) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1200,15 +1382,24 @@ const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = f
           ) : results.length > 0 ? (
             <List dense disablePadding>
               {results.map((emp) => (
-                <ListItem key={emp.employeeNumber} button onClick={() => handleSelect(emp)} sx={{ py: 1, px: 1.5, borderBottom: `1px solid ${T.divider}`, '&:hover': { bgcolor: T.accentFaint }, '&:last-child': { borderBottom: 'none' } }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Avatar sx={{ width: 30, height: 30, fontSize: '0.72rem', bgcolor: alpha(T.accent, 0.15), color: T.accent, fontWeight: 700 }}>{emp.name?.charAt(0)?.toUpperCase() || '?'}</Avatar>
-                    <Box>
-                      <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{emp.name}</Typography>
-                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{getEmployeeIdentifier(emp)}{emp.department ? ` · ${emp.department}` : ''}</Typography>
-                    </Box>
-                  </Box>
-                </ListItem>
+                <ListItemButton
+                  key={getEmployeeIdentifier(emp) || emp.employeeNumber}
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    '&:last-child': { borderBottom: 'none' },
+                  }}
+                >
+                  <EmployeeProfileRow
+                    employee={toProfileEmployee(emp)}
+                    deptMap={deptMap}
+                    empCatMap={empCatMap}
+                    sexMap={sexMap}
+                  />
+                </ListItemButton>
               ))}
             </List>
           ) : (
@@ -1238,6 +1429,9 @@ const AttendanceSearch = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [sexMap, setSexMap] = useState({});
   const [quickDatePreset, setQuickDatePreset] = useState('');
   const [activeTab, setActiveTab] = useState('records');
   const [records, setRecords] = useState([]);
@@ -1299,13 +1493,79 @@ const AttendanceSearch = () => {
   }, [snackbar.open, snackbarCountdown]);
 
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
+
+  const getAuthHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' } });
+
+  useEffect(() => {
+    if (accessLoading || hasAccess === false) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+          axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
+          axios.get(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+            getAuthHeaders(),
+          ),
+          axios.get(`${API_BASE_URL}/personalinfo/person_table`, getAuthHeaders()),
+        ]);
+        if (cancelled) return;
+        if (assignRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(assignRes.value.data) ? assignRes.value.data : []).forEach(
+            (a) => {
+              if (!a?.employeeNumber) return;
+              map[String(a.employeeNumber)] = a.code || '';
+            },
+          );
+          setDepartmentAssignmentsMap(map);
+        }
+        if (empCatRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach(
+            (item) => {
+              if (!item.employeeNumber) return;
+              const label =
+                item.parentGroup && item.typeName
+                  ? `${item.parentGroup} | ${item.typeName}`
+                  : item.categoryLabel || '';
+              if (label) {
+                map[String(item.employeeNumber)] = {
+                  label,
+                  colorHex: item.colorHex || '#757575',
+                };
+              }
+            },
+          );
+          setEmpCatMap(map);
+        }
+        if (personsRes.status === 'fulfilled') {
+          const list = Array.isArray(personsRes.value.data)
+            ? personsRes.value.data
+            : personsRes.value.data?.data || [];
+          const gMap = {};
+          list.forEach((p) => {
+            const num =
+              p.agencyEmployeeNum?.toString() || p.employeeNumber?.toString();
+            if (num && p.sex) gMap[num] = p.sex;
+          });
+          setSexMap(gMap);
+        }
+      } catch (err) {
+        console.error('Error loading employee reference data:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessLoading, hasAccess]);
+
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 300);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  const getAuthHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' } });
 
   const getModificationTargetUsername = useCallback(() => {
     const u = selectedEmployee?.username;
@@ -1780,6 +2040,13 @@ const AttendanceSearch = () => {
   const fullDaysCount = fullRecords.length;
   const missingCount = fullRecords.filter((r) => r.isNew).length;
 
+  const displayEmployee = useMemo(() => {
+    if (selectedEmployee) return toProfileEmployee(selectedEmployee);
+    const id = String(submittedID || personID || '').trim();
+    if (!id) return null;
+    return { employeeNumber: id, name: '' };
+  }, [selectedEmployee, submittedID, personID]);
+
   if (pageLoading || accessLoading) return <AttendanceSearchWireframe />;
   if (hasAccess === false)
     return <AccessDenied title="Access Denied" message="You do not have permission to access Attendance Modification. Contact your administrator to request access." returnPath="/admin-home" returnButtonText="Return to Home" />;
@@ -1788,13 +2055,31 @@ const AttendanceSearch = () => {
   const renderLeftPanel = () => (
     <Box sx={{ px: 2.5, py: 0.5, flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, ...scrollbarSx }}>
       <FormSectionLabel icon={Person}>Employee</FormSectionLabel>
-      <Box sx={{ mb: 2.5 }}>
+      <Box sx={{ mb: 1.25 }}>
         <EmployeeSearchField
-          onSelect={(emp) => { const resolvedEmployeeId = getEmployeeIdentifier(emp); setSelectedEmployee(emp); setPersonID(resolvedEmployeeId); }}
+          onSelect={(emp) => {
+            const resolvedEmployeeId = getEmployeeIdentifier(emp);
+            setSelectedEmployee(toProfileEmployee(emp));
+            setPersonID(resolvedEmployeeId);
+          }}
           selectedEmployee={selectedEmployee}
           onClear={() => { setSelectedEmployee(null); setPersonID(''); }}
+          deptMap={departmentAssignmentsMap}
+          empCatMap={empCatMap}
+          sexMap={sexMap}
         />
       </Box>
+      {displayEmployee && (
+        <Box sx={{ mb: 2 }}>
+          <EmployeeProfileCard
+            employee={displayEmployee}
+            deptMap={departmentAssignmentsMap}
+            empCatMap={empCatMap}
+            sexMap={sexMap}
+            loading={loading}
+          />
+        </Box>
+      )}
       <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
       <Box sx={{ mb: 2 }}>
         <select value={selectedYear} onChange={(e) => { setSelectedYear(parseInt(e.target.value)); setSelectedMonth(null); showSnackbar('Year changed — please click a month to load records.', 'info'); }}
@@ -1877,6 +2162,47 @@ const AttendanceSearch = () => {
 
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
+        {displayEmployee && (
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.25,
+              borderBottom: `1px solid ${T.divider}`,
+              bgcolor: T.accentFaint,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              flexWrap: 'wrap',
+            }}
+          >
+            <EmployeeProfileCard
+              employee={displayEmployee}
+              deptMap={departmentAssignmentsMap}
+              empCatMap={empCatMap}
+              sexMap={sexMap}
+              loading={loading}
+            />
+            {selectedMonth !== null && (
+              <Box
+                sx={{
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  color: T.accent,
+                  bgcolor: alpha(T.accent, 0.08),
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '5px',
+                  px: '6px',
+                  py: '2px',
+                  flexShrink: 0,
+                  fontFamily: T.font,
+                }}
+              >
+                {months[selectedMonth]}
+              </Box>
+            )}
+          </Box>
+        )}
         {/* Tab bar */}
         <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, px: 2, pt: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
           <TabBtn active={activeTab === 'records'} icon={TableRows} label="Device Records" badge={recordsCount > 0 ? recordsCount : null} onClick={() => handleTabSwitch('records')} />
@@ -1961,12 +2287,9 @@ const AttendanceSearch = () => {
         {activeTab === 'fullMonth' && (
           <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
             <Box sx={{ px: 2.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                 <EventNote sx={{ fontSize: 14, color: T.accent }} />
-                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, fontFamily: T.font }}>Full Month —</Typography>
-                <Box sx={{ px: 1.25, py: 0.25, borderRadius: '5px', bgcolor: alpha(T.accent, 0.1), border: `1px solid ${T.accentBorder}` }}>
-                  <Typography sx={{ fontSize: '0.75rem', color: T.accent, fontWeight: 800, fontFamily: T.font }}>{submittedID}</Typography>
-                </Box>
+                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, fontFamily: T.font }}>Full Month</Typography>
                 {fullDaysCount > 0 && (
                   <Box sx={{ px: 1.25, py: 0.25, borderRadius: '5px', bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}` }}>
                     <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700, fontFamily: T.font }}>{fullDaysCount - missingCount} / {fullDaysCount} days</Typography>

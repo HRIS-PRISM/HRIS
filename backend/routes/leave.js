@@ -17,6 +17,16 @@ const {
 const attendanceWriter = require("../services/attendanceResultWriter");
 const { getCtoCreditRunningTotals } = require("../services/ctoCreditRunningTotals");
 const { appendCtoDeductionSnapshotRowAsync } = require("../services/ctoLedgerSnapshots");
+const {
+  getServiceCreditRunningTotals,
+  getScRemainingHoursTotal,
+} = require("../services/serviceCreditRunningTotals");
+const {
+  getActivePeriods,
+  sortPeriodsDesc,
+  getLeaveTypeStatsActive,
+} = require("../utils/leaveAssignmentBalanceUtils");
+const { isApprovedHalfDayInReviewJson } = require("../utils/halfDayReviewUtils");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -109,6 +119,127 @@ const resolveHoursPerDayFromMeta = (meta) => {
   if (Number.isFinite(lt) && lt > 0)
     return { hoursPerDay: lt, rateSource: "leave_table" };
   return { hoursPerDay: 8, rateSource: "default" };
+};
+
+const getScRemainingHours = (employeeNumber, scType = "non_commutative") =>
+  new Promise((resolve, reject) => {
+    const emp = String(employeeNumber || "").trim();
+    const st = String(scType || "non_commutative").trim() || "non_commutative";
+    if (!emp) return resolve(0);
+    getServiceCreditRunningTotals(emp, st, (err, cur) => {
+      if (err) return reject(err);
+      const n = Number(cur?.remaining);
+      resolve(Number.isFinite(n) ? n : 0);
+    });
+  });
+
+const getScRemainingHoursAllTypes = (employeeNumber) =>
+  new Promise((resolve, reject) => {
+    const emp = String(employeeNumber || "").trim();
+    if (!emp) return resolve(0);
+    getScRemainingHoursTotal(emp, (err, total) => {
+      if (err) return reject(err);
+      const n = Number(total);
+      resolve(Number.isFinite(n) ? n : 0);
+    });
+  });
+
+/**
+ * Apply SC balance delta via service_credit ledger (NOT leave_assignment).
+ * deltaHours > 0: deduct remaining; deltaHours < 0: restore remaining.
+ */
+const applyHoursDeltaAcrossServiceCredit = async ({
+  req,
+  employeeNumber,
+  deltaHours,
+  leaveDateOnly,
+  requestId = null,
+  reason,
+  scType = "non_commutative",
+  actorEmployeeNumber = null,
+}) => {
+  const emp = String(employeeNumber || "").trim();
+  const st = String(scType || "non_commutative").trim() || "non_commutative";
+  const abs = Math.abs(Number(deltaHours) || 0);
+  if (!emp || !abs) return;
+
+  const y = parseInt(String(leaveDateOnly || "").slice(0, 4), 10);
+  const m = parseInt(String(leaveDateOnly || "").slice(5, 7), 10);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    throw new Error("Invalid leave_date for SC ledger period");
+  }
+
+  const cur = await new Promise((resolve, reject) => {
+    getServiceCreditRunningTotals(emp, st, (err, totals) =>
+      err ? reject(err) : resolve(totals || { earned: 0, used: 0, remaining: 0 }),
+    );
+  });
+
+  const remainingBefore = Number(cur.remaining) || 0;
+  const earnedSnap = Number(cur.earned) || 0;
+  const usedBefore = Number(cur.used) || 0;
+
+  let apply = abs;
+  if (deltaHours > 0) {
+    if (remainingBefore + 1e-6 < abs) {
+      throw new Error(
+        `Insufficient Service Credit (SC) balance. Need ${abs} hours but only ${remainingBefore} available.`,
+      );
+    }
+  } else {
+    // restore: don't restore more than what has been used
+    apply = Math.min(abs, Math.max(0, usedBefore));
+    if (apply <= 0) return;
+  }
+
+  const remainingAfter = deltaHours > 0 ? remainingBefore - apply : remainingBefore + apply;
+  const usedAfter = deltaHours > 0 ? usedBefore + apply : Math.max(0, usedBefore - apply);
+  const action = deltaHours > 0 ? "offset" : "restore";
+  const remarks = [
+    requestId != null ? `leave_request:${requestId}` : null,
+    "SC",
+    action === "offset" ? "deduct" : "restore",
+    leaveDateOnly ? String(leaveDateOnly) : null,
+    reason || null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+    .slice(0, 500);
+
+  const newScId = await new Promise((resolve, reject) => {
+    db.query(
+      `INSERT INTO service_credit
+        (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
+         earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
+       VALUES (?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        emp,
+        st,
+        earnedSnap,
+        remainingAfter,
+        usedAfter,
+        y,
+        m,
+        remarks,
+        null,
+      ],
+      (err, res) => {
+        if (err) return reject(err);
+        resolve(res.insertId);
+      },
+    );
+  });
+
+  // Minimal column set (matches serviceCredit.js inserts; other columns may exist but are optional).
+  db.query(
+    `INSERT INTO service_credit_usage
+     (service_credit_id, employeeNumber, action, hours_applied, target_leave_code)
+     VALUES (?,?,?,?,?)`,
+    [newScId, emp, action, apply, null],
+    (e) => {
+      if (e) console.error("[leave] SC usage insert:", e.message);
+    },
+  );
 };
 
 /** Normalize leave_date / DB date to YYYY-MM-DD */
@@ -251,9 +382,10 @@ const getLeaveAssignmentsForCode = (employeeNumber, leave_code) =>
     );
   });
 
+/** Matches Assignment Management: latest active period only (not SUM of all historical rows). */
 const getTotalRemainingHours = async (employeeNumber, leave_code) => {
   const rows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
-  return rows.reduce((sum, r) => sum + (parseDbHours(r.remaining_hours) || 0), 0);
+  return getLeaveTypeStatsActive(rows).remainingHours;
 };
 
 const safeJsonStringify = (value) => {
@@ -614,8 +746,16 @@ const applyHoursDeltaAcrossAssignments = async ({
   const abs = Math.abs(Number(deltaHours) || 0);
   if (!employeeNumber || !leave_code || !abs) return;
 
-  const rows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
-  if (!rows.length) return;
+  const allRows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
+  const rows = sortPeriodsDesc(getActivePeriods(allRows));
+  if (!rows.length) {
+    if (Number(deltaHours) > 0) {
+      throw new Error(
+        `No active leave_assignment for leave code "${leave_code}". Assign credits first or choose a different charge-to balance.`,
+      );
+    }
+    return;
+  }
 
   const resolvedSourceType =
     sourceType ||
@@ -762,11 +902,16 @@ const insertTransactionLog = (
               detailsJson = JSON.stringify({ message });
             }
           }
+          const auditLabel =
+            (auditDetailsPayload &&
+              typeof auditDetailsPayload === "object" &&
+              auditDetailsPayload.audit_action) ||
+            (auditDetailsPayload != null
+              ? "Half-day deduction applied"
+              : message);
           logAudit(
             { employeeNumber: actorEmployeeNumber || employeeId },
-            auditDetailsPayload != null
-              ? "Half-day deduction applied"
-              : message,
+            auditLabel,
             "leave_transaction",
             result.insertId,
             employeeId,
@@ -804,6 +949,31 @@ const formatUserDisplayName = (employeeNumber, fullName) => {
   const emp = employeeNumber ? String(employeeNumber) : "unknown";
   const name = (fullName || "").trim();
   return name ? `${name} (${emp})` : emp;
+};
+
+/** Same pattern as earnings transaction logs (before → after, signed delta). */
+const formatBalanceUpdatedSuffix = (beforeH, afterH, deltaH) => {
+  const before = Number(beforeH || 0);
+  const after = Number(afterH || 0);
+  const delta = Number(deltaH || 0);
+  const sign = delta >= 0 ? "−" : "+";
+  return ` Balance updated: ${before.toFixed(3)} hrs → ${after.toFixed(3)} hrs (${sign}${Math.abs(delta).toFixed(3)} hrs).`;
+};
+
+/** HR modal "charge to" — may differ from leave_code on the filed request (e.g. Half Day form → VL balance). */
+const resolveHrDeductionChargeCode = ({
+  charge_to = null,
+  decision_context = null,
+  requestLeaveCode = null,
+  systemRecommendation = null,
+}) => {
+  const raw =
+    charge_to ||
+    decision_context?.charge_to ||
+    systemRecommendation?.recommended_charge_to ||
+    requestLeaveCode;
+  const code = String(raw || requestLeaveCode || "").trim();
+  return code || String(requestLeaveCode || "").trim();
 };
 
 const buildLeaveTransactionMessage = ({
@@ -1706,6 +1876,28 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
 
   (async () => {
     try {
+      const leaveDateNorm = String(leave_date).trim().slice(0, 10);
+      const attendanceRows = await new Promise((resolve, reject) => {
+        db.query(
+          `SELECT half_day_review
+           FROM overall_attendance_record
+           WHERE CAST(personID AS CHAR) = CAST(? AS CHAR)
+             AND startDate <= ?
+             AND endDate >= ?
+           ORDER BY startDate DESC
+           LIMIT 1`,
+          [employeeNumber, leaveDateNorm, leaveDateNorm],
+          (err, rows) => (err ? reject(err) : resolve(rows || [])),
+        );
+      });
+      const reviewRaw = attendanceRows[0]?.half_day_review;
+      if (!isApprovedHalfDayInReviewJson(reviewRaw, leaveDateNorm)) {
+        return res.status(400).json({
+          error:
+            "Half-day leave deduction requires HR approval in the attendance module (rendered hours confirmed).",
+        });
+      }
+
       const suggestion = await buildHalfDayPolicySuggestion({
         employeeNumber,
         leave_date,
@@ -1893,6 +2085,18 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
           });
         }
         availableAfter = await getCtoRemainingHours(employeeNumber);
+      } else if (chargeTo === "SC") {
+        await applyHoursDeltaAcrossServiceCredit({
+          req,
+          actorEmployeeNumber,
+          employeeNumber,
+          deltaHours: hours,
+          leaveDateOnly,
+          requestId: null,
+          reason: `Half-day policy deduction (SC) — deducted ${hours} hours`,
+          scType: "non_commutative",
+        });
+        availableAfter = await getScRemainingHoursAllTypes(employeeNumber);
       } else {
         await applyHoursDeltaAcrossAssignments({
           req,
@@ -2177,8 +2381,14 @@ router.post("/leave_request", (req, res) => {
 // in the body. Per row: hours = deduction_hours_each OR hr_approval_rate × hours/day.
 // ============================================================
 router.put("/leave_request/bulk-update", (req, res) => {
-  const { ids, status, hr_approval_rate, deduction_hours_each, decision_context } =
-    req.body;
+  const {
+    ids,
+    status,
+    hr_approval_rate,
+    deduction_hours_each,
+    charge_to,
+    decision_context,
+  } = req.body;
   const actorEmployeeNumber = getActorEmployeeNumber(req);
   if (!Array.isArray(ids) || !ids.length)
     return res.status(400).json({ error: "ids must be a non-empty array" });
@@ -2231,9 +2441,24 @@ router.put("/leave_request/bulk-update", (req, res) => {
                 for (const reqRow of requests) {
                   const oldSt = Number(reqRow.status);
                   if (oldSt === 2) continue;
+                  const rowSuggestion = await buildDeductionSuggestion({
+                    employeeNumber: reqRow.employeeNumber,
+                    leave_code: reqRow.leave_code,
+                    leave_date: reqRow.leave_date,
+                    has_leave_form: true,
+                    is_half_day_absence: false,
+                    requested_rate_decimal: hasRate ? bulkRate : null,
+                  });
+                  const chargeCode = resolveHrDeductionChargeCode({
+                    charge_to,
+                    decision_context,
+                    requestLeaveCode: reqRow.leave_code,
+                    systemRecommendation:
+                      decision_context?.system_recommendation || rowSuggestion,
+                  });
                   const availableBefore = await getTotalRemainingHours(
                     reqRow.employeeNumber,
-                    reqRow.leave_code,
+                    chargeCode,
                   );
                   const meta = await fetchLeaveDeductionMeta(
                     reqRow.employeeNumber,
@@ -2255,19 +2480,26 @@ router.put("/leave_request/bulk-update", (req, res) => {
                     req,
                     actorEmployeeNumber,
                     employeeNumber: reqRow.employeeNumber,
-                    leave_code: reqRow.leave_code,
+                    leave_code: chargeCode,
                     deltaHours: delta,
                     requestId: reqRow.id,
-                    reason: `HR Approved (bulk) — deducted ${delta} hours`,
+                    reason: `HR Approved (bulk) — deducted ${delta} hours from ${chargeCode}`,
                   });
                   const availableAfter = await getTotalRemainingHours(
                     reqRow.employeeNumber,
-                    reqRow.leave_code,
+                    chargeCode,
                   );
                   await new Promise((resolve) => {
                     db.query(
-                      `UPDATE leave_request SET deduction_applied_hours = ?, hr_approval_rate = ? WHERE id = ?`,
-                      [delta, storedRate, reqRow.id],
+                      `UPDATE leave_request SET deduction_applied_hours = ?, hr_approval_rate = ?, deduction_charge_to = ?, deduction_balance_before_hours = ?, deduction_balance_after_hours = ? WHERE id = ?`,
+                      [
+                        delta,
+                        storedRate,
+                        chargeCode,
+                        Number(availableBefore.toFixed(4)),
+                        Number(availableAfter.toFixed(4)),
+                        reqRow.id,
+                      ],
                       () => resolve(),
                     );
                   });
@@ -2316,11 +2548,61 @@ router.put("/leave_request/bulk-update", (req, res) => {
                     finalApplied: {
                       applied_rate_decimal: storedRate,
                       applied_hours: delta,
+                      charge_to: chargeCode,
+                      request_leave_code: reqRow.leave_code,
                       available_hours_before: availableBefore,
                       available_hours_after: availableAfter,
                     },
                     overrideReason,
                   });
+
+                  try {
+                    const [empName, actorName] = await Promise.all([
+                      getEmployeeFullName(String(reqRow.employeeNumber)),
+                      getEmployeeFullName(actorEmployeeNumber),
+                    ]);
+                    const chargeDesc = await new Promise((resolve) =>
+                      db.query(
+                        "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+                        [chargeCode],
+                        (e, r) =>
+                          resolve(
+                            (r && r[0] && r[0].leave_description) || chargeCode,
+                          ),
+                      ),
+                    );
+                    const actorDisplay = formatUserDisplayName(
+                      actorEmployeeNumber,
+                      actorName,
+                    );
+                    const empDisplay = formatUserDisplayName(
+                      String(reqRow.employeeNumber),
+                      empName,
+                    );
+                    const beforeH = Number(availableBefore || 0);
+                    const afterH = Number(availableAfter || 0);
+                    const txMsg = `${actorDisplay} deducted ${delta} hrs from ${chargeDesc} (${chargeCode}) balance for ${empDisplay} (HR bulk approval).${formatBalanceUpdatedSuffix(beforeH, afterH, delta)}`;
+                    await insertTransactionLog(
+                      String(reqRow.employeeNumber),
+                      txMsg,
+                      actorEmployeeNumber,
+                      {
+                        audit_action: "HR leave bulk approval deduction",
+                        transaction_message: txMsg,
+                        leave_request_id: reqRow.id,
+                        request_leave_code: reqRow.leave_code,
+                        charge_to: chargeCode,
+                        deducted_hours: delta,
+                        available_hours_before: beforeH,
+                        available_hours_after: afterH,
+                      },
+                    );
+                  } catch (e) {
+                    console.error(
+                      "[leave] bulk HR deduction transaction log:",
+                      e.message,
+                    );
+                  }
                 }
               } else if (newStatus === 3 || newStatus === 4) {
                 for (const reqRow of requests) {
@@ -2349,7 +2631,7 @@ router.put("/leave_request/bulk-update", (req, res) => {
               }
 
               const action = statusToLeaveAction(newStatus);
-              if (action) {
+              if (action && newStatus !== 2) {
                 const actorFullName =
                   await getEmployeeFullName(actorEmployeeNumber);
                 const actorDisplayName = formatUserDisplayName(
@@ -2422,6 +2704,7 @@ router.put("/leave_request/:id", (req, res) => {
     status,
     deduction_hours,
     rate_decimal,
+    charge_to,
     decision_context,
   } = req.body;
   const actorEmployeeNumber = getActorEmployeeNumber(req);
@@ -2440,7 +2723,11 @@ router.put("/leave_request/:id", (req, res) => {
       const newStatus = parseInt(status);
 
       const updateStatus = (opts = {}) => {
-        const { setDeduction = null, clearDeduction = false } = opts;
+        const {
+          setDeduction = null,
+          clearDeduction = false,
+          skipTransactionLog = false,
+        } = opts;
         let sql =
           "UPDATE leave_request SET employeeNumber = ?, leave_code = ?, leave_date = ?, status = ?";
         const params = [
@@ -2451,10 +2738,17 @@ router.put("/leave_request/:id", (req, res) => {
         ];
         if (setDeduction) {
           sql +=
-            ", deduction_applied_hours = ?, hr_approval_rate = ?";
-          params.push(setDeduction.hours, setDeduction.rate);
+            ", deduction_applied_hours = ?, hr_approval_rate = ?, deduction_charge_to = ?, deduction_balance_before_hours = ?, deduction_balance_after_hours = ?";
+          params.push(
+            setDeduction.hours,
+            setDeduction.rate,
+            setDeduction.chargeTo || null,
+            setDeduction.balanceBefore ?? null,
+            setDeduction.balanceAfter ?? null,
+          );
         } else if (clearDeduction) {
-          sql += ", deduction_applied_hours = NULL, hr_approval_rate = NULL";
+          sql +=
+            ", deduction_applied_hours = NULL, hr_approval_rate = NULL, deduction_charge_to = NULL, deduction_balance_before_hours = NULL, deduction_balance_after_hours = NULL";
         }
         sql += " WHERE id = ?";
         params.push(id);
@@ -2486,7 +2780,7 @@ router.put("/leave_request/:id", (req, res) => {
               const leave_description =
                 leaveRows[0]?.leave_description || "Unknown Leave Type";
               const action = statusToLeaveAction(newStatus);
-              if (action) {
+              if (action && !skipTransactionLog) {
                 const actorFullName = await getEmployeeFullName(
                   actorEmployeeNumber,
                 );
@@ -2548,10 +2842,30 @@ router.put("/leave_request/:id", (req, res) => {
       if (newStatus === 2 && oldStatus !== 2) {
         (async () => {
           try {
-            const availableBefore = await getTotalRemainingHours(
+            const fallbackSuggestion = await buildDeductionSuggestion({
               employeeNumber,
               leave_code,
-            );
+              leave_date,
+              has_leave_form: true,
+              is_half_day_absence: false,
+              requested_rate_decimal: parseFloat(rate_decimal) || null,
+            });
+            const systemRecommendation =
+              decision_context?.system_recommendation || fallbackSuggestion;
+            const chargeCode = resolveHrDeductionChargeCode({
+              charge_to,
+              decision_context,
+              requestLeaveCode: leave_code,
+              systemRecommendation,
+            });
+
+            const leaveDateOnly = toMysqlDateOnly(leave_date);
+            const availableBefore =
+              String(chargeCode || "").trim().toUpperCase() === "CTO"
+                ? await getCtoRemainingHours(employeeNumber)
+                : String(chargeCode || "").trim().toUpperCase() === "SC"
+                  ? await getScRemainingHours(employeeNumber)
+                  : await getTotalRemainingHours(employeeNumber, chargeCode);
             const meta = await fetchLeaveDeductionMeta(
               request.employeeNumber,
               request.leave_code,
@@ -2577,15 +2891,56 @@ router.put("/leave_request/:id", (req, res) => {
               });
             }
 
-            await applyHoursDeltaAcrossAssignments({
-              req,
-              actorEmployeeNumber,
-              employeeNumber,
-              leave_code,
-              deltaHours: delta,
-              requestId: id,
-              reason: `HR Approved — deducted ${delta} hours from leave balance`,
-            });
+            if (String(chargeCode || "").trim().toUpperCase() === "CTO") {
+              const y = parseInt(String(leaveDateOnly).slice(0, 4), 10);
+              const m = parseInt(String(leaveDateOnly).slice(5, 7), 10);
+              if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+                return res
+                  .status(400)
+                  .json({ error: "Invalid leave_date for CTO ledger period" });
+              }
+              const baseRemark = `Leave request HR approval · ${leaveDateOnly} · leave_request:${id}`;
+              const ctoLedger = await appendCtoDeductionSnapshotRowAsync({
+                employeeNumber,
+                needHours: delta,
+                period_year: y,
+                period_month: m,
+                expiry_date: null,
+                remarksForLedger: baseRemark,
+                emp_category_snapshot: null,
+                usageDateUsed: leaveDateOnly,
+                usageAction: "offset",
+              });
+              if (
+                !Number.isFinite(ctoLedger?.deducted) ||
+                ctoLedger.deducted + 1e-6 < delta
+              ) {
+                return res.status(400).json({
+                  error: "CTO deduction failed due to insufficient remaining credits",
+                });
+              }
+            } else if (String(chargeCode || "").trim().toUpperCase() === "SC") {
+              await applyHoursDeltaAcrossServiceCredit({
+                req,
+                actorEmployeeNumber,
+                employeeNumber,
+                deltaHours: delta,
+                leaveDateOnly,
+                requestId: id,
+                reason: `HR Approved — deducted ${delta} hours from SC balance`,
+                scType: "non_commutative",
+              });
+            } else {
+              await applyHoursDeltaAcrossAssignments({
+                req,
+                actorEmployeeNumber,
+                employeeNumber,
+                leave_code: chargeCode,
+                deltaHours: delta,
+                requestId: id,
+                reason: `HR Approved — deducted ${delta} hours from ${chargeCode} balance`,
+              });
+            }
 
             try {
               await syncApprovedLeaveToAttendanceRecord(
@@ -2599,20 +2954,12 @@ router.put("/leave_request/:id", (req, res) => {
               );
             }
 
-            const availableAfter = await getTotalRemainingHours(
-              employeeNumber,
-              leave_code,
-            );
-            const fallbackSuggestion = await buildDeductionSuggestion({
-              employeeNumber,
-              leave_code,
-              leave_date,
-              has_leave_form: true,
-              is_half_day_absence: false,
-              requested_rate_decimal: storedRate,
-            });
-            const systemRecommendation =
-              decision_context?.system_recommendation || fallbackSuggestion;
+            const availableAfter =
+              String(chargeCode || "").trim().toUpperCase() === "CTO"
+                ? await getCtoRemainingHours(employeeNumber)
+                : String(chargeCode || "").trim().toUpperCase() === "SC"
+                  ? await getScRemainingHours(employeeNumber)
+                  : await getTotalRemainingHours(employeeNumber, chargeCode);
             const overrideReason =
               (decision_context?.override_reason || "").trim() || null;
             const decision =
@@ -2621,7 +2968,13 @@ router.put("/leave_request/:id", (req, res) => {
               !nearlyEqual(
                 systemRecommendation?.recommended_rate_decimal,
                 storedRate,
-              )
+              ) ||
+              String(chargeCode).trim().toUpperCase() !==
+                String(
+                  systemRecommendation?.recommended_charge_to || "",
+                )
+                  .trim()
+                  .toUpperCase()
                 ? "overridden"
                 : "accepted";
             await insertDeductionDecisionLog({
@@ -2636,6 +2989,8 @@ router.put("/leave_request/:id", (req, res) => {
               finalApplied: {
                 applied_rate_decimal: storedRate,
                 applied_hours: delta,
+                charge_to: chargeCode,
+                request_leave_code: leave_code,
                 available_hours_before: availableBefore,
                 available_hours_after: availableAfter,
               },
@@ -2647,13 +3002,13 @@ router.put("/leave_request/:id", (req, res) => {
                 getEmployeeFullName(String(employeeNumber)),
                 getEmployeeFullName(actorEmployeeNumber),
               ]);
-              const leaveDesc = await new Promise((resolve) =>
+              const chargeDesc = await new Promise((resolve) =>
                 db.query(
                   "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
-                  [leave_code],
+                  [chargeCode],
                   (e, r) =>
                     resolve(
-                      (r && r[0] && r[0].leave_description) || leave_code,
+                      (r && r[0] && r[0].leave_description) || chargeCode,
                     ),
                 ),
               );
@@ -2665,10 +3020,23 @@ router.put("/leave_request/:id", (req, res) => {
                 String(employeeNumber),
                 empName,
               );
+              const beforeH = Number(availableBefore || 0);
+              const afterH = Number(availableAfter || 0);
+              const txMsg = `${actorDisplay} deducted ${delta} hrs from ${chargeDesc} (${chargeCode}) balance for ${empDisplay} (HR approval).${formatBalanceUpdatedSuffix(beforeH, afterH, delta)}`;
               await insertTransactionLog(
                 String(employeeNumber),
-                `${actorDisplay} deducted ${delta} hrs from ${leaveDesc} balance for ${empDisplay} (HR approval).`,
+                txMsg,
                 actorEmployeeNumber,
+                {
+                  audit_action: "HR leave approval deduction",
+                  transaction_message: txMsg,
+                  leave_request_id: id,
+                  request_leave_code: leave_code,
+                  charge_to: chargeCode,
+                  deducted_hours: delta,
+                  available_hours_before: beforeH,
+                  available_hours_after: afterH,
+                },
               );
             } catch (e) {
               console.error(
@@ -2679,7 +3047,14 @@ router.put("/leave_request/:id", (req, res) => {
 
             emitLeaveChange("leaveAssignmentChanged");
             updateStatus({
-              setDeduction: { hours: delta, rate: storedRate },
+              setDeduction: {
+                hours: delta,
+                rate: storedRate,
+                chargeTo: chargeCode,
+                balanceBefore: Number(availableBefore.toFixed(4)),
+                balanceAfter: Number(availableAfter.toFixed(4)),
+              },
+              skipTransactionLog: true,
             });
           } catch (e) {
             console.error("[Deduct] Error:", e.message);
@@ -2695,15 +3070,65 @@ router.put("/leave_request/:id", (req, res) => {
             const applied = parseFloat(request.deduction_applied_hours);
             const restoreAmt =
               Number.isFinite(applied) && applied > 0 ? applied : 8;
-            await applyHoursDeltaAcrossAssignments({
-              req,
-              actorEmployeeNumber,
-              employeeNumber,
-              leave_code,
-              deltaHours: -restoreAmt,
-              requestId: id,
-              reason: `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"}) — restored ${restoreAmt} hours`,
-            });
+            const restoreChargeCode =
+              String(request.deduction_charge_to || "").trim() || leave_code;
+            const leaveDateOnly = toMysqlDateOnly(leave_date);
+            const availableBefore =
+              String(restoreChargeCode || "").trim().toUpperCase() === "CTO"
+                ? await getCtoRemainingHours(employeeNumber)
+                : String(restoreChargeCode || "").trim().toUpperCase() === "SC"
+                  ? await getScRemainingHours(employeeNumber)
+                  : await getTotalRemainingHours(employeeNumber, restoreChargeCode);
+
+            if (String(restoreChargeCode || "").trim().toUpperCase() === "CTO") {
+              const y = parseInt(String(leaveDateOnly).slice(0, 4), 10);
+              const m = parseInt(String(leaveDateOnly).slice(5, 7), 10);
+              if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+                return res
+                  .status(400)
+                  .json({ error: "Invalid leave_date for CTO ledger period" });
+              }
+              const baseRemark = `Leave request HR reversal · ${leaveDateOnly} · leave_request:${id}`;
+              await appendCtoDeductionSnapshotRowAsync({
+                employeeNumber,
+                needHours: -restoreAmt,
+                period_year: y,
+                period_month: m,
+                expiry_date: null,
+                remarksForLedger: baseRemark,
+                emp_category_snapshot: null,
+                usageDateUsed: leaveDateOnly,
+                usageAction: "restore",
+              });
+            } else if (String(restoreChargeCode || "").trim().toUpperCase() === "SC") {
+              await applyHoursDeltaAcrossServiceCredit({
+                req,
+                actorEmployeeNumber,
+                employeeNumber,
+                deltaHours: -restoreAmt,
+                leaveDateOnly,
+                requestId: id,
+                reason: `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"}) — restored ${restoreAmt} hours to SC`,
+                scType: "non_commutative",
+              });
+            } else {
+              await applyHoursDeltaAcrossAssignments({
+                req,
+                actorEmployeeNumber,
+                employeeNumber,
+                leave_code: restoreChargeCode,
+                deltaHours: -restoreAmt,
+                requestId: id,
+                reason: `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"}) — restored ${restoreAmt} hours to ${restoreChargeCode}`,
+              });
+            }
+
+            const availableAfter =
+              String(restoreChargeCode || "").trim().toUpperCase() === "CTO"
+                ? await getCtoRemainingHours(employeeNumber)
+                : String(restoreChargeCode || "").trim().toUpperCase() === "SC"
+                  ? await getScRemainingHours(employeeNumber)
+                  : await getTotalRemainingHours(employeeNumber, restoreChargeCode);
 
             try {
               const [empName, actorName] = await Promise.all([
@@ -2713,10 +3138,10 @@ router.put("/leave_request/:id", (req, res) => {
               const leaveDesc = await new Promise((resolve) =>
                 db.query(
                   "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
-                  [leave_code],
+                  [restoreChargeCode],
                   (e, r) =>
                     resolve(
-                      (r && r[0] && r[0].leave_description) || leave_code,
+                      (r && r[0] && r[0].leave_description) || restoreChargeCode,
                     ),
                 ),
               );
@@ -2728,10 +3153,22 @@ router.put("/leave_request/:id", (req, res) => {
                 String(employeeNumber),
                 empName,
               );
+              const beforeH = Number(availableBefore || 0);
+              const afterH = Number(availableAfter || 0);
+              const txMsg = `${actorDisplay} restored ${restoreAmt} hrs to ${leaveDesc} (${restoreChargeCode}) balance for ${empDisplay} (reversal).${formatBalanceUpdatedSuffix(beforeH, afterH, -restoreAmt)}`;
               await insertTransactionLog(
                 String(employeeNumber),
-                `${actorDisplay} restored ${restoreAmt} hrs to ${leaveDesc} balance for ${empDisplay} (reversal).`,
+                txMsg,
                 actorEmployeeNumber,
+                {
+                  audit_action: "HR leave approval reversal",
+                  transaction_message: txMsg,
+                  leave_request_id: id,
+                  charge_to: restoreChargeCode,
+                  restored_hours: restoreAmt,
+                  available_hours_before: beforeH,
+                  available_hours_after: afterH,
+                },
               );
             } catch (e) {
               console.error(

@@ -978,9 +978,12 @@ const CompensatoryTimeOff = () => {
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
-  const handleTransferToCommutation = async (record) => {
+  const handleTransferToCommutation = async (record, ledgerRemainingHours) => {
     if (!record?.id) return;
-    const remH = toNum(record.remaining_hours);
+    const remH =
+      ledgerRemainingHours != null
+        ? toNum(ledgerRemainingHours)
+        : toNum(record.remaining_hours);
     if (remH <= 0) return;
     if (!window.confirm(`Transfer remaining ${fmtHrs(remH, unit)} to Leave Commutation?`)) return;
     setCommuteLoadingId(record.id);
@@ -1493,9 +1496,13 @@ if (accessLoading || pageLoading) {
                     if (b.period_year !== a.period_year) return b.period_year - a.period_year;
                     return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
                   });
-                  const { remaining: balRemModal } = getCtoEmployeeLedgerSummary(
+                  const ledgerModal = getCtoEmployeeLedgerSummary(
                     selectedEmployeeCTO.records,
                   );
+                  const balRemModal = ledgerModal.remaining;
+                  const earnedModal = ledgerModal.earnedForColor;
+                  const usedModal = Math.max(0, earnedModal - balRemModal);
+                  const ledgerStatusColor = getStatusColor(balRemModal, earnedModal);
                   return (
                     <>
                       {/* Modal header */}
@@ -1533,7 +1540,6 @@ if (accessLoading || pageLoading) {
                           </Box>
                           <Box sx={{ flex: 1, overflowY: "auto" }}>
                             {sortedRecords.map((r) => {
-                              const rsc      = getStatusColor(r.remaining_hours, r.earned_hours);
                               const expired  = isExpired(r.expiry_date);
                               const isActive = selectedCTORecord?.id === r.id;
                               return (
@@ -1543,8 +1549,8 @@ if (accessLoading || pageLoading) {
                                     <Typography sx={{ fontSize: "0.82rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.text, fontFamily: T.poppins }}>
                                       {r.period_year}{r.period_month ? ` · ${monthName(r.period_month).slice(0, 3)}` : ""}
                                     </Typography>
-                                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: expired ? "#d32f2f" : rsc, fontFamily: T.poppins }}>
-                                      {fmtHrs(r.remaining_hours, unit)}
+                                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: expired ? "#d32f2f" : ledgerStatusColor, fontFamily: T.poppins }}>
+                                      {fmtHrs(balRemModal, unit)}
                                     </Typography>
                                   </Box>
                                   {expired && <Chip label="Expired" size="small" sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: "rgba(211,47,47,0.08)", color: "#d32f2f", mt: 0.25 }} />}
@@ -1571,10 +1577,10 @@ if (accessLoading || pageLoading) {
                               {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}><Typography sx={{ fontFamily: T.poppins }}>{error}</Typography></Alert>}
                               {(() => {
                                 const r       = selectedCTORecord;
-                                const rsc     = getStatusColor(r.remaining_hours, r.earned_hours);
-                                const remH    = toNum(r.remaining_hours);
-                                const earnedH = toNum(r.earned_hours);
-                                const usedH   = toNum(r.used_hours);
+                                const remH    = balRemModal;
+                                const earnedH = earnedModal;
+                                const usedH   = usedModal;
+                                const rsc     = ledgerStatusColor;
                                 const pctUsed = earnedH > 0 ? Math.min((usedH / earnedH) * 100, 100) : 0;
                                 const fmt     = (h) => fmtHrs(h, unit);
                                 const expired = isExpired(r.expiry_date);
@@ -1642,7 +1648,7 @@ if (accessLoading || pageLoading) {
                                             <Tooltip title="Transfer remaining balance to Leave Commutation">
                                               <span>
                                                 <AccentButton
-                                                  onClick={() => handleTransferToCommutation(r)}
+                                                  onClick={() => handleTransferToCommutation(r, balRemModal)}
                                                   variant="contained"
                                                   size="small"
                                                   disabled={commuteLoadingId === r.id}
@@ -1679,6 +1685,16 @@ if (accessLoading || pageLoading) {
                 {editRecord && (() => {
                   const deptCode = deptMap[editRecord.employeeNumber?.toString()] || null;
                   const empCat   = empCatLabelMap[editRecord.employeeNumber?.toString()] || null;
+                  const editLedger = getCtoEmployeeLedgerSummary(
+                    ctoRecords.filter(
+                      (x) =>
+                        String(x.employeeNumber) ===
+                        String(editRecord.employeeNumber),
+                    ),
+                  );
+                  const editRemH = editLedger.remaining;
+                  const editEarnedH = editLedger.earnedForColor;
+                  const editUsedH = Math.max(0, editEarnedH - editRemH);
                   // editHours is always stored internally in hours; display in current unit
                   const editDisplayVal = parseFloat((unit === "days" ? editHours / 8 : editHours).toFixed(3));
                   const editCounterLabel = unit === "days"
@@ -1710,9 +1726,9 @@ if (accessLoading || pageLoading) {
                         {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}><Typography sx={{ fontFamily: T.poppins }}>{error}</Typography></Alert>}
                         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1.5, mb: 2.5 }}>
                           {[
-                            ["CTO Earned", toNum(editRecord.earned_hours),    T.accent],
-                            ["Used",       toNum(editRecord.used_hours),      "#ed6c02"],
-                            ["Remaining",  toNum(editRecord.remaining_hours), getStatusColor(toNum(editRecord.remaining_hours), toNum(editRecord.earned_hours))],
+                            ["CTO Earned", editEarnedH,    T.accent],
+                            ["Used",       editUsedH,      "#ed6c02"],
+                            ["Remaining",  editRemH, getStatusColor(editRemH, editEarnedH)],
                           ].map(([lbl, val, col]) => (
                             <Box key={lbl} sx={{ p: 1.5, borderRadius: 2, textAlign: "center", bgcolor: `${col}08`, border: `1px solid ${col}20` }}>
                               <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5, mb: 0.25, fontFamily: T.poppins }}>{lbl}</Typography>

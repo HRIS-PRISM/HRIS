@@ -5,7 +5,6 @@ import {
   MODULE_TYPES,
   normalizeReviewDate,
   getEffectiveTardinessFromReview,
-  getEffectiveTardinessFromApproved,
   hasHrHalfDayConfirmation,
   buildReviewByDate,
   parseHalfDayReviewJson,
@@ -167,41 +166,14 @@ export const parseHalfDayDatesSet = (halfDayDatesStr) => {
   return set;
 };
 
-/** HR-approved half day → daily late/undertime for DTR (tardiness from rendered). */
-export const approvedHalfDayToDailyLateRow = (
-  entry,
-  moduleType = MODULE_TYPES.NON_TEACHING,
-) => {
+/** HR-approved half day → zero late/undertime on DTR (deficiency charged in Earnings only). */
+export const approvedHalfDayToDailyLateRow = (entry) => {
   if (!entry || !hasHrHalfDayConfirmation(entry)) return null;
-  const eff = getEffectiveTardinessFromApproved(entry, moduleType);
   const z = '00:00:00';
-  if (!eff) {
-    return { lateTotal: z, undertimeTotal: z };
-  }
-  if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
-    return {
-      lateTotal: sanitizeDurationHhMmSs(eff.regular ?? eff.total, { fallback: z }),
-      undertimeTotal: z,
-    };
-  }
-  const am = eff.morning;
-  const pm = eff.afternoon;
-  const hasSplit =
-    (am != null && String(am).trim() !== '' && am !== z) ||
-    (pm != null && String(pm).trim() !== '' && pm !== z);
-  if (hasSplit) {
-    return {
-      lateTotal: sanitizeDurationHhMmSs(am, { fallback: z }),
-      undertimeTotal: sanitizeDurationHhMmSs(pm, { fallback: z }),
-    };
-  }
-  return {
-    lateTotal: sanitizeDurationHhMmSs(eff.total ?? eff.regular, { fallback: z }),
-    undertimeTotal: z,
-  };
+  return { lateTotal: z, undertimeTotal: z };
 };
 
-/** Overlay approved half-day tardiness onto DTR daily map (e.g. legacy rows saved as 00:00:00). */
+/** Overlay approved half-day zeros onto DTR daily map (fixes legacy rows with computed tardiness). */
 export const enrichDailyLateByDateFromReview = (
   byDate,
   reviewRaw,
@@ -213,7 +185,7 @@ export const enrichDailyLateByDateFromReview = (
     const d = normalizeReviewDate(entry?.date);
     if (!d || entry?.status !== HALF_DAY_STATUS.APPROVED) return;
     if (!hasHrHalfDayConfirmation(entry)) return;
-    const patch = approvedHalfDayToDailyLateRow(entry, moduleType);
+    const patch = approvedHalfDayToDailyLateRow(entry);
     if (patch) map[d] = patch;
   });
   return map;
@@ -243,7 +215,7 @@ export const buildDailyLateUndertimeRows = (
           hasHrHalfDayConfirmation(entry))) &&
       entry
     ) {
-      const approved = approvedHalfDayToDailyLateRow(entry, moduleType);
+      const approved = approvedHalfDayToDailyLateRow(entry);
       if (approved) {
         return {
           date,
@@ -384,6 +356,26 @@ export const loadDtrComputedDailyLateFromStorage = (employeeNumber, startDate, e
   return byDate;
 };
 
+/** Remove browser cache for this employee/period (e.g. after overall_attendance_record deleted). */
+export const clearDailyLateStorageForPeriod = (employeeNumber, startDate, endDate) => {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      String(parsed.employeeNumber) === String(employeeNumber) &&
+      parsed.startDate === startDate &&
+      parsed.endDate === endDate
+    ) {
+      localStorage.removeItem(STORAGE_KEY);
+      window.dispatchEvent(new CustomEvent(UPDATE_EVENT));
+    }
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    window.dispatchEvent(new CustomEvent(UPDATE_EVENT));
+  }
+};
+
 export const loadDailyLateFromStorage = (employeeNumber, startDate, endDate) => {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return { byDate: {}, halfDayDates: '' };
@@ -439,7 +431,14 @@ export const fetchDailyLateUndertime = async (employeeNumber, periodStart, perio
       periodEnd,
     );
     if (!row) {
-      return loadDailyLateFromStorage(employeeNumber, periodStart, periodEnd);
+      // No DB record — do not restore HR-approved half-day from browser cache.
+      clearDailyLateStorageForPeriod(employeeNumber, periodStart, periodEnd);
+      return {
+        byDate: {},
+        halfDayDates: '',
+        half_day_review: null,
+        computation_module_type: MODULE_TYPES.NON_TEACHING,
+      };
     }
     let byDate = {};
     if (row.daily_late_undertime != null) {

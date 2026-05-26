@@ -260,10 +260,42 @@ const CollapsibleLedger = ({
 };
 
 // ─── Main CTODeductionReceipt ─────────────────────────────────────────────────
+const LEAVE_OVERLAY = {
+  border: "rgba(21,101,192,0.35)",
+  bg: "rgba(21,101,192,0.08)",
+  color: "#1565C0",
+};
+
+const resolveHalfDayLeaveOverlay = (dateKey, leaveByDate, filedLeaveByDate) => {
+  const hr = leaveByDate?.[dateKey];
+  if (hr) {
+    const title = hr.title || hr.label || "Leave";
+    return {
+      kind: "on_leave",
+      label: "On Leave",
+      detail: title,
+      sub: "HR-approved leave — deduct via Leave Request, not earnings",
+    };
+  }
+  const filed = filedLeaveByDate?.[dateKey];
+  if (filed) {
+    const desc = filed.leave_description || filed.leave_code || "Leave";
+    const code = filed.leave_code ? ` (${filed.leave_code})` : "";
+    return {
+      kind: "on_leave",
+      label: "On Leave",
+      detail: `${desc}${code}`,
+      sub: `${filed.statusLabel || "Leave filed"} — use Leave Request module`,
+    };
+  }
+  return null;
+};
+
 const CTODeductionReceipt = ({
   employee, attendanceData, year, month, onDeductSuccess, refreshKey, empCat,
   onDeductHalfDayVLRequested, halfDayDeductDate, halfDayPendingDates,
-  deductedVlHalfDates = [], metricsTardinessHrs,
+  deductedVlHalfDates = [], leaveByDate = {}, filedLeaveByDate = {},
+  metricsTardinessHrs,
 }) => {
   const [absenceDeductionOptions, setAbsenceDeductionOptions] = useState([]);
   const [tardinessDeductionOptions, setTardinessDeductionOptions] = useState([]);
@@ -599,7 +631,9 @@ const CTODeductionReceipt = ({
   },[halfDayPendingDates,halfDayDeductDate]);
 
   const halfDayDeductedSet=useMemo(()=>new Set((deductedVlHalfDates||[]).map(normalizeHalfDayDateKey).filter(Boolean)),[deductedVlHalfDates]);
-  const halfDayPendingCount=useMemo(()=>halfDayRows.filter((d)=>!halfDayDeductedSet.has(d)).length,[halfDayRows,halfDayDeductedSet]);
+  const halfDayLeaveOverlayFor=useCallback((d)=>resolveHalfDayLeaveOverlay(normalizeHalfDayDateKey(d),leaveByDate,filedLeaveByDate),[leaveByDate,filedLeaveByDate]);
+  const halfDayPendingCount=useMemo(()=>halfDayRows.filter((d)=>{const k=normalizeHalfDayDateKey(d);if(halfDayDeductedSet.has(k))return false;if(halfDayLeaveOverlayFor(d))return false;return true;}).length,[halfDayRows,halfDayDeductedSet,halfDayLeaveOverlayFor]);
+  const halfDayOnLeaveCount=useMemo(()=>halfDayRows.filter((d)=>!halfDayDeductedSet.has(normalizeHalfDayDateKey(d))&&halfDayLeaveOverlayFor(d)).length,[halfDayRows,halfDayDeductedSet,halfDayLeaveOverlayFor]);
 
   useEffect(()=>{ if(showScWarningButtons)setPolicySelection("sc"); else setPolicySelection(null); },[showScWarningButtons]);
 
@@ -1033,57 +1067,83 @@ const CTODeductionReceipt = ({
         {halfDayRows.length>0&&typeof onDeductHalfDayVLRequested==="function"&&(
           <Box sx={{
             borderRadius:1.5,
-            border:`1px solid ${halfDayPendingCount===0?"rgba(46,125,50,0.45)":"rgba(0,0,0,0.1)"}`,
+            border:`1px solid ${halfDayPendingCount===0&&halfDayOnLeaveCount===0?"rgba(46,125,50,0.45)":halfDayOnLeaveCount>0&&halfDayPendingCount===0?LEAVE_OVERLAY.border:"rgba(0,0,0,0.1)"}`,
             bgcolor:"#fff", overflow:"hidden",
           }}>
             <Box sx={{
               px:1.6, py:0.9,
-              bgcolor:halfDayPendingCount===0?"rgba(46,125,50,0.06)":"rgba(0,0,0,0.03)",
+              bgcolor:halfDayPendingCount===0&&halfDayOnLeaveCount===0?"rgba(46,125,50,0.06)":halfDayOnLeaveCount>0&&halfDayPendingCount===0?LEAVE_OVERLAY.bg:"rgba(0,0,0,0.03)",
               borderBottom:"1px solid rgba(0,0,0,0.08)",
               display:"flex", alignItems:"center", justifyContent:"space-between", gap:1, flexWrap:"wrap",
             }}>
               <Box sx={{ display:"flex", alignItems:"center", gap:0.75, minWidth:0 }}>
-                <StepNum n={3} done={halfDayPendingCount===0&&halfDayRows.length>0} />
+                <StepNum n={3} done={halfDayPendingCount===0&&halfDayOnLeaveCount===0&&halfDayRows.length>0} />
                 <Box>
                   <Typography sx={{ fontSize:"0.72rem", fontWeight:600, color:T.text, fontFamily:T.poppins }}>
                     Half-day VL deductions
                   </Typography>
                   <Typography sx={{ fontSize:"0.63rem", color:T.muted, fontFamily:T.poppins, mt:0.1 }}>
-                    {halfDayPendingCount>0?`${halfDayPendingCount} pending · click "Deduct from VL" per date`:"All half days applied for this period"}
+                    {halfDayPendingCount>0
+                      ? `${halfDayPendingCount} pending · click "Deduct from VL" per date`
+                      : halfDayOnLeaveCount>0&&halfDayRows.length>0
+                        ? `${halfDayOnLeaveCount} on leave · deduct via Leave Request`
+                        : "All half days applied for this period"}
                   </Typography>
                 </Box>
               </Box>
               <Chip size="small"
-                label={halfDayPendingCount>0?`${halfDayPendingCount} pending`:`${halfDayRows.length} applied`}
-                sx={{ height:20,fontSize:"0.6rem",fontWeight:700,bgcolor:halfDayPendingCount>0?"#FCEBEB":"rgba(46,125,50,0.12)",color:halfDayPendingCount>0?"#791F1F":"#1b5e20",border:"none" }}
+                label={
+                  halfDayPendingCount>0
+                    ?`${halfDayPendingCount} pending`
+                    :halfDayOnLeaveCount>0
+                      ?`${halfDayOnLeaveCount} on leave`
+                      :`${halfDayRows.length} applied`
+                }
+                sx={{
+                  height:20,fontSize:"0.6rem",fontWeight:700,border:"none",
+                  bgcolor:halfDayPendingCount>0?"#FCEBEB":halfDayOnLeaveCount>0?LEAVE_OVERLAY.bg:"rgba(46,125,50,0.12)",
+                  color:halfDayPendingCount>0?"#791F1F":halfDayOnLeaveCount>0?LEAVE_OVERLAY.color:"#1b5e20",
+                }}
               />
             </Box>
 
             <Box sx={{ px:1.6, py:1 }}>
               <Box sx={{ display:"flex", flexDirection:"column", gap:0.75 }}>
                 {halfDayRows.map((d)=>{
-                  const isDeducted=halfDayDeductedSet.has(d);
+                  const dateKey=normalizeHalfDayDateKey(d);
+                  const isDeducted=halfDayDeductedSet.has(dateKey);
+                  const leaveOverlay=!isDeducted?halfDayLeaveOverlayFor(d):null;
                   return(
-                    <Box key={d} sx={{
+                    <Box key={dateKey||d} sx={{
                       display:"flex", alignItems:"center", justifyContent:"space-between", gap:1, flexWrap:"wrap",
                       py:"8px", px:"10px",
-                      border:isDeducted?"1.5px solid rgba(46,125,50,0.35)":"0.5px solid rgba(0,0,0,0.1)",
+                      border:isDeducted?"1.5px solid rgba(46,125,50,0.35)":leaveOverlay?`1.5px solid ${LEAVE_OVERLAY.border}`:"0.5px solid rgba(0,0,0,0.1)",
                       borderRadius:1.25,
-                      bgcolor:isDeducted?"rgba(46,125,50,0.05)":"transparent",
+                      bgcolor:isDeducted?"rgba(46,125,50,0.05)":leaveOverlay?LEAVE_OVERLAY.bg:"transparent",
                     }}>
                       <Box sx={{ display:"flex", alignItems:"center", gap:0.85, minWidth:0, flex:1 }}>
-                        <Box sx={{ width:6,height:6,borderRadius:"50%",bgcolor:isDeducted?"#2e7d32":"#E24B4A",flexShrink:0 }} />
+                        <Box sx={{ width:6,height:6,borderRadius:"50%",bgcolor:isDeducted?"#2e7d32":leaveOverlay?LEAVE_OVERLAY.color:"#E24B4A",flexShrink:0 }} />
                         <Box sx={{ minWidth:0 }}>
                           <Typography sx={{ fontSize:"0.78rem",fontWeight:600,fontFamily:T.poppins,color:T.text,lineHeight:1.2 }}>
                             {formatHalfDayHeading(d)}
                           </Typography>
-                          {!isDeducted&&<Typography sx={{ fontSize:"0.62rem",color:T.muted,fontFamily:T.poppins,mt:0.1 }}>Half day — deduction not yet applied</Typography>}
+                          {isDeducted?null:leaveOverlay?(
+                            <Typography sx={{ fontSize:"0.62rem",color:LEAVE_OVERLAY.color,fontFamily:T.poppins,mt:0.1,lineHeight:1.35 }}>
+                              {leaveOverlay.detail} — {leaveOverlay.sub}
+                            </Typography>
+                          ):(
+                            <Typography sx={{ fontSize:"0.62rem",color:T.muted,fontFamily:T.poppins,mt:0.1 }}>Half day — deduction not yet applied</Typography>
+                          )}
                         </Box>
                       </Box>
                       {isDeducted?(
                         <Box sx={{ display:"flex",alignItems:"center",gap:0.4,py:0.3,px:0.85,borderRadius:1,bgcolor:"rgba(46,125,50,0.12)",border:"1px solid rgba(46,125,50,0.3)",flexShrink:0 }}>
                           <CheckIcon sx={{ fontSize:13,color:"#2e7d32" }} />
                           <Typography sx={{ fontSize:"0.68rem",fontWeight:700,color:"#1b5e20",fontFamily:T.poppins,whiteSpace:"nowrap" }}>Deducted</Typography>
+                        </Box>
+                      ):leaveOverlay?(
+                        <Box sx={{ display:"flex",alignItems:"center",gap:0.4,py:0.3,px:0.85,borderRadius:1,bgcolor:LEAVE_OVERLAY.bg,border:`1px solid ${LEAVE_OVERLAY.border}`,flexShrink:0 }}>
+                          <Typography sx={{ fontSize:"0.68rem",fontWeight:700,color:LEAVE_OVERLAY.color,fontFamily:T.poppins,whiteSpace:"nowrap" }}>{leaveOverlay.label}</Typography>
                         </Box>
                       ):(
                         <Button variant="outlined" size="small" onClick={()=>onDeductHalfDayVLRequested(d)}
@@ -1151,132 +1211,183 @@ const CTODeductionReceipt = ({
       </Box>
 
       {/* ══════════ CONFIRM MODAL ══════════ */}
-      <Dialog open={confirmOpen} onClose={()=>!deducting&&closeConfirm()} maxWidth={false}
+{/* ══════════ CONFIRM MODAL ══════════ */}
+<Dialog open={confirmOpen} onClose={()=>!deducting&&closeConfirm()} maxWidth={false}
         PaperProps={{ sx:{ width:"100%",maxWidth:400,borderRadius:"16px",overflow:"hidden",border:"0.5px solid rgba(0,0,0,0.09)",boxShadow:"0 12px 48px rgba(0,0,0,0.2)" } }}>
-        <Box sx={{ px:2.5,pt:2.5,pb:2,background:T.accent,position:"relative",overflow:"hidden",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:1.5 }}>
-          <Box sx={{ position:"absolute",top:-30,right:-30,width:100,height:100,borderRadius:"50%",bgcolor:"rgba(255,255,255,0.06)",pointerEvents:"none" }} />
-          <Box sx={{ display:"flex",alignItems:"center",gap:1.25,minWidth:0,position:"relative",zIndex:1 }}>
-            <Box sx={{ width:36,height:36,borderRadius:"50%",bgcolor:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-              <InfoOutlinedIcon sx={{ fontSize:18,color:"#fff" }} />
+
+        {/* Header */}
+        <Box sx={{ px:2.5,pt:2.25,pb:2,background:T.accent,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:1.5 }}>
+          <Box sx={{ display:"flex",alignItems:"center",gap:1.25,minWidth:0 }}>
+            <Box sx={{ width:36,height:36,borderRadius:"50%",bgcolor:"rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+              <ReceiptIcon sx={{ fontSize:17,color:"#fff" }} />
             </Box>
-            <Box sx={{ minWidth:0 }}>
-              <Typography sx={{ fontSize:"0.65rem",color:"rgba(255,255,255,0.6)",fontWeight:400,letterSpacing:"0.08em",textTransform:"uppercase",fontFamily:T.poppins,mb:0.25 }}>Earnings deduction</Typography>
-              <Typography sx={{ fontFamily:T.poppins,fontWeight:500,fontSize:"1.0625rem",color:"#fff",lineHeight:1.2 }}>Confirm transaction</Typography>
+            <Box>
+              <Typography sx={{ fontSize:"0.6rem",color:"rgba(255,255,255,0.55)",fontWeight:400,letterSpacing:"0.08em",textTransform:"uppercase",fontFamily:T.poppins,mb:0.25 }}>Earnings deduction</Typography>
+              <Typography sx={{ fontFamily:T.poppins,fontWeight:500,fontSize:"1.05rem",color:"#fff",lineHeight:1.2 }}>Confirm transaction</Typography>
             </Box>
           </Box>
-          <IconButton size="small" onClick={closeConfirm} disabled={deducting} sx={{ color:"#fff",bgcolor:"rgba(255,255,255,0.12)",borderRadius:1,p:0.5,position:"relative",zIndex:1,"&:hover":{bgcolor:"rgba(255,255,255,0.22)"} }}>
+          <IconButton size="small" onClick={closeConfirm} disabled={deducting}
+            sx={{ color:"#fff",bgcolor:"rgba(255,255,255,0.12)",borderRadius:1,p:0.5,"&:hover":{bgcolor:"rgba(255,255,255,0.22)"} }}>
             <Close sx={{ fontSize:14 }} />
           </IconButton>
         </Box>
 
         <DialogContent sx={{ p:0 }}>
-          <Box sx={{ px:2.5,pt:2,pb:2,display:"flex",flexDirection:"column",gap:1.75 }}>
+          <Box sx={{ px:2,pt:1.75,pb:2,display:"flex",flexDirection:"column",gap:1.5 }}>
+
             {/* Employee card */}
-            <Box sx={{ display:"flex",alignItems:"center",gap:1.25,bgcolor:"rgba(0,0,0,0.04)",borderRadius:"10px",px:1.5,py:1.25 }}>
-              <Avatar sx={{ width:38,height:38,bgcolor:T.accent,fontSize:"0.8125rem",fontWeight:500,fontFamily:T.poppins,flexShrink:0 }}>
+            <Box sx={{ display:"flex",alignItems:"center",gap:1.25,bgcolor:"rgba(0,0,0,0.04)",borderRadius:"10px",border:"0.5px solid rgba(0,0,0,0.08)",px:1.5,py:1.25 }}>
+              <Avatar sx={{ width:36,height:36,bgcolor:T.accent,fontSize:"0.78rem",fontWeight:500,fontFamily:T.poppins,flexShrink:0 }}>
                 {(employee?.fullName||employee?.employeeNumber||"Employee").split(" ").filter(Boolean).slice(0,2).map((n)=>n[0]?.toUpperCase()).join("")}
               </Avatar>
               <Box sx={{ flex:1,minWidth:0 }}>
                 <Typography sx={{ fontSize:"0.875rem",fontWeight:500,color:T.text,fontFamily:T.poppins,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
                   {employee?.fullName||employee?.employeeNumber||"Employee"}
                 </Typography>
-                <Typography sx={{ fontSize:"0.75rem",color:T.faint,fontFamily:T.poppins,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
+                <Typography sx={{ fontSize:"0.72rem",color:T.faint,fontFamily:T.poppins,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
                   #{employee?.employeeNumber||"—"}{empCatDisplay?` · ${empCatDisplay}`:""}
                 </Typography>
               </Box>
               <Box sx={{ textAlign:"right",flexShrink:0 }}>
-                <Typography sx={{ fontSize:"0.69rem",color:T.faint,fontFamily:T.poppins,mb:0.25 }}>Period</Typography>
-                <Typography sx={{ fontSize:"0.8125rem",fontWeight:500,color:T.text,fontFamily:T.poppins,lineHeight:1.1 }}>{monthName(month)} {year}</Typography>
+                <Typography sx={{ fontSize:"0.65rem",color:T.faint,fontFamily:T.poppins,mb:0.25 }}>Period</Typography>
+                <Typography sx={{ fontSize:"0.8rem",fontWeight:500,color:T.text,fontFamily:T.poppins,lineHeight:1.15,textAlign:"right" }}>
+                  {monthName(month)}<br/>{year}
+                </Typography>
               </Box>
             </Box>
 
-            {/* Order + salary note */}
+            {/* ── TRANSACTION SUMMARY ── */}
+            <Box>
+              <Typography sx={{ fontSize:"0.6rem",fontWeight:500,color:T.faint,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.75 }}>Transaction summary</Typography>
+              <Box sx={{ border:"0.5px solid rgba(0,0,0,0.1)",borderRadius:"10px",overflow:"hidden",bgcolor:"#fff" }}>
+
+                {/* Charge to */}
+                <Box sx={{ px:1.75,py:1.1,borderBottom:"0.5px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:1 }}>
+                  <Box sx={{ display:"flex",alignItems:"center",gap:0.75 }}>
+                    <MoneyOffIcon sx={{ fontSize:16,color:T.faint }} />
+                    <Typography sx={{ fontSize:"0.8rem",color:T.muted,fontFamily:T.poppins }}>Charge to</Typography>
+                  </Box>
+                  <Box sx={{ bgcolor:"rgba(0,0,0,0.05)",border:"0.5px solid rgba(0,0,0,0.1)",borderRadius:"6px",px:1.25,py:0.25 }}>
+                    <Typography sx={{ fontSize:"0.78rem",fontWeight:700,color:T.text,fontFamily:T.poppins }}>
+                      {deductSource==="sc"?"SC":deductSource==="cto"?"CTO":absenceIsSkipped&&tardinessIsSkipped?"—":confirmTransactionLines.length===1?humanizeDeductionCharge(confirmTransactionLines[0]?.key?.startsWith("tar")?tardinessSource:absenceSource):`${confirmTransactionLines.map((l)=>humanizeDeductionCharge(l.key?.startsWith("tar")?tardinessSource:absenceSource)).filter((v,i,a)=>a.indexOf(v)===i).join(" / ")}`}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {/* Transaction lines */}
+                {(confirmTransactionLines.length
+                  ? confirmTransactionLines
+                  : [{key:"fallback",title:"Deduction",sub:`${deductSource?.toUpperCase()||""}`,amount:confirmSlipTotalDays}]
+                ).map((line,idx,arr)=>(
+                  <Box key={line.key} sx={{ px:1.75,py:1.1,borderBottom:idx<arr.length-1?"0.5px solid rgba(0,0,0,0.08)":"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:1 }}>
+                    <Box sx={{ minWidth:0 }}>
+                      <Typography sx={{ fontSize:"0.8rem",fontWeight:500,color:T.text,fontFamily:T.poppins }}>{line.title}</Typography>
+                      <Typography sx={{ fontSize:"0.68rem",color:T.faint,fontFamily:T.poppins,mt:0.15,lineHeight:1.4 }}>{line.sub}</Typography>
+                    </Box>
+                    <Typography sx={{ fontSize:"0.875rem",fontWeight:500,color:"#c62828",fontFamily:T.poppins,flexShrink:0 }}>−{Number(line.amount||0).toFixed(3)} d</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+
+            {/* Policy / order notes */}
             {deductSource==="normal"&&(()=>{
               const showOrder=willApplyAbsence&&willApplyTardiness;
               const showSalaryNote=String(absenceSource||"").toUpperCase()==="SALARY_DEDUCTION"||String(tardinessSource||"").toUpperCase()==="SALARY_DEDUCTION";
               if(!showOrder&&!showSalaryNote)return null;
-              return(<Alert severity="info" icon={false} sx={{ py:0.65,px:1.15,borderRadius:"10px",bgcolor:"rgba(25,118,210,0.06)",border:"1px solid rgba(25,118,210,0.2)","& .MuiAlert-message":{width:"100%",padding:0} }}>
-                <Typography sx={{ fontSize:"0.68rem",fontFamily:T.poppins,lineHeight:1.55,color:T.text }}>
-                  {showOrder&&<><strong>Order:</strong> absences first, then tardiness.{showSalaryNote?<br/>:null}</>}
-                  {showSalaryNote&&<><strong>Salary deduction</strong> records salary shortfall in the audit trail.</>}
-                </Typography>
-              </Alert>);
+              return(
+                <Alert severity="info" icon={false} sx={{ py:0.65,px:1.15,borderRadius:"10px",bgcolor:"rgba(25,118,210,0.06)",border:"1px solid rgba(25,118,210,0.2)","& .MuiAlert-message":{width:"100%",padding:0} }}>
+                  <Typography sx={{ fontSize:"0.68rem",fontFamily:T.poppins,lineHeight:1.55,color:T.text }}>
+                    {showOrder&&<><strong>Order:</strong> absences first, then tardiness.{showSalaryNote?<br/>:null}</>}
+                    {showSalaryNote&&<><strong>Salary deduction</strong> records shortfall in the audit trail — no leave balance reduced.</>}
+                  </Typography>
+                </Alert>
+              );
             })()}
-
             {deductSource==="cto"&&(
-              <Box sx={{ display:"flex",alignItems:"flex-start",gap:0.8,px:1.25,py:1,borderRadius:"10px",bgcolor:"rgba(255,152,0,0.08)",border:"1px solid rgba(255,152,0,0.3)" }}>
-                <WarnIcon sx={{ fontSize:15,color:"#e65100",flexShrink:0,mt:"1px" }} />
-                <Typography sx={{ fontSize:"0.7rem",color:"#bf360c",fontFamily:T.poppins,fontWeight:700,lineHeight:1.55 }}>
+              <Alert severity="warning" icon={<WarnIcon fontSize="small"/>} sx={{ py:0.65,px:1.15,borderRadius:"10px","& .MuiAlert-message":{padding:0} }}>
+                <Typography sx={{ fontSize:"0.7rem",color:"#bf360c",fontFamily:T.poppins,lineHeight:1.55 }}>
                   <strong>Policy override:</strong> SC balance ({scBuffer.toFixed(3)}d) not depleted. Deducting from CTO instead.
                 </Typography>
-              </Box>
+              </Alert>
             )}
             {deductSource==="sc"&&(
-              <Box sx={{ display:"flex",alignItems:"flex-start",gap:0.8,px:1.25,py:1,borderRadius:"10px",bgcolor:"rgba(109,35,35,0.06)",border:"1px solid rgba(109,35,35,0.18)" }}>
-                <PolicyIcon sx={{ fontSize:15,color:T.accent,flexShrink:0,mt:"1px" }} />
-                <Typography sx={{ fontSize:"0.7rem",color:T.accentDark,fontFamily:T.poppins,fontWeight:700,lineHeight:1.55 }}>Following SC-first policy — deducting from SC before CTO.</Typography>
+              <Alert severity="info" icon={<PolicyIcon fontSize="small"/>} sx={{ py:0.65,px:1.15,borderRadius:"10px","& .MuiAlert-message":{padding:0} }}>
+                <Typography sx={{ fontSize:"0.7rem",fontFamily:T.poppins,lineHeight:1.55 }}>
+                  Following SC-first policy — deducting from SC before CTO.
+                </Typography>
+              </Alert>
+            )}
+
+            {/* ── DASHED DIVIDER ── */}
+            <Box sx={{ display:"flex",alignItems:"center",gap:1 }}>
+              <Box sx={{ flex:1,borderTop:"1.5px dashed rgba(0,0,0,0.12)" }} />
+              <Box sx={{ width:22,height:22,borderRadius:"50%",bgcolor:"rgba(0,0,0,0.06)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                <Typography sx={{ fontSize:"0.65rem",color:T.faint,lineHeight:1 }}>✂</Typography>
+              </Box>
+              <Box sx={{ flex:1,borderTop:"1.5px dashed rgba(0,0,0,0.12)" }} />
+            </Box>
+
+            {/* ── BALANCE SECTION ── */}
+            {confirmModalBalanceTiles.length>0&&(
+              <Box>
+                {confirmModalBalanceTiles.map((tile)=>(
+                  <Box key={tile.key} sx={{ mb:1.25 }}>
+                    <Typography sx={{ fontSize:"0.6rem",fontWeight:500,color:T.faint,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.75 }}>
+                      {tile.label.replace(" before","")} balance
+                    </Typography>
+                    <Box sx={{ border:"0.5px solid rgba(0,0,0,0.1)",borderRadius:"10px",overflow:"hidden",bgcolor:"#fff" }}>
+                      {/* Current balance */}
+                      <Box sx={{ px:1.75,py:1.1,borderBottom:"0.5px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                        <Typography sx={{ fontSize:"0.8rem",color:T.muted,fontFamily:T.poppins }}>Current balance</Typography>
+                        <Typography sx={{ fontSize:"0.88rem",fontWeight:500,color:T.text,fontFamily:T.poppins }}>{tile.before.toFixed(3)} d</Typography>
+                      </Box>
+                      {/* Amount to deduct */}
+                      <Box sx={{ px:1.75,py:1.1,borderBottom:"0.5px solid rgba(0,0,0,0.08)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                        <Typography sx={{ fontSize:"0.8rem",color:T.muted,fontFamily:T.poppins }}>Amount to deduct</Typography>
+                        <Typography sx={{ fontSize:"0.88rem",fontWeight:500,color:"#c62828",fontFamily:T.poppins }}>{tile.delta.toFixed(3)} d</Typography>
+                      </Box>
+                      {/* New balance */}
+                      <Box sx={{ px:1.75,py:1.25,display:"flex",justifyContent:"space-between",alignItems:"center",bgcolor:tile.after<0?"rgba(198,40,40,0.07)":"rgba(46,125,50,0.07)" }}>
+                        <Box sx={{ display:"flex",alignItems:"center",gap:0.6 }}>
+                          <Box sx={{ width:7,height:7,borderRadius:"50%",bgcolor:slipAfterDotColor(tile.after),flexShrink:0 }} />
+                          <Typography sx={{ fontSize:"0.8rem",fontWeight:600,color:slipAfterTextColor(tile.after),fontFamily:T.poppins }}>
+                            New {tile.label.replace(" before","").split(" ").pop()} balance
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontSize:"1rem",fontWeight:700,color:slipAfterTextColor(tile.after),fontFamily:T.poppins }}>{tile.after.toFixed(3)} d</Typography>
+                      </Box>
+                      {tile.after<0&&(
+                        <Box sx={{ px:1.75,py:0.6,bgcolor:"rgba(198,40,40,0.05)",borderTop:"0.5px solid rgba(198,40,40,0.2)" }}>
+                          <Typography sx={{ fontSize:"0.65rem",color:"#c62828",fontFamily:T.poppins,fontWeight:600 }}>Shortfall → will be charged to salary</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                ))}
               </Box>
             )}
 
-            {/* Transaction summary */}
-            <Box sx={{ bgcolor:"rgba(0,0,0,0.04)",borderRadius:"10px",overflow:"hidden" }}>
-              <Box sx={{ px:1.5,py:1,borderBottom:"0.5px solid rgba(0,0,0,0.08)" }}>
-                <Typography sx={{ fontSize:"0.69rem",fontWeight:500,color:T.faint,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em" }}>Transaction summary</Typography>
-              </Box>
-              {(confirmTransactionLines.length?confirmTransactionLines:[{key:"fallback",title:"Deduction",sub:`${deductSource?.toUpperCase()||""}`,amount:confirmSlipTotalDays}]).map((line,idx,arr)=>(
-                <Box key={line.key} sx={{ px:1.5,py:1.25,borderBottom:idx<arr.length-1?"0.5px solid rgba(0,0,0,0.08)":"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:1 }}>
-                  <Box sx={{ minWidth:0 }}>
-                    <Typography sx={{ fontSize:"0.8125rem",fontWeight:500,color:T.text,fontFamily:T.poppins }}>{line.title}</Typography>
-                    <Typography sx={{ fontSize:"0.69rem",color:T.faint,fontFamily:T.poppins,mt:0.125,lineHeight:1.4 }}>{line.sub}</Typography>
-                  </Box>
-                  <Typography sx={{ fontSize:"0.875rem",fontWeight:500,color:"#c62828",fontFamily:T.poppins,flexShrink:0 }}>−{Number(line.amount||0).toFixed(3)} d</Typography>
-                </Box>
-              ))}
-            </Box>
-
-            {/* Total */}
+            {/* ── TOTAL DEDUCTION PILL ── */}
             <Box sx={{ bgcolor:T.accent,borderRadius:"10px",px:1.75,py:1.5,display:"flex",alignItems:"center",justifyContent:"space-between",gap:1 }}>
               <Box>
-                <Typography sx={{ fontSize:"0.69rem",color:"rgba(255,255,255,0.65)",fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.375 }}>Total deduction</Typography>
-                <Typography sx={{ fontSize:"0.69rem",color:"rgba(255,255,255,0.55)",fontFamily:T.poppins }}>{confirmSlipTotalDays.toFixed(3)} days · {confirmSlipTotalHrs.toFixed(3)} hrs</Typography>
+                <Typography sx={{ fontSize:"0.6rem",color:"rgba(255,255,255,0.55)",fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.4 }}>Total deduction</Typography>
+                <Typography sx={{ fontSize:"0.68rem",color:"rgba(255,255,255,0.6)",fontFamily:T.poppins }}>{confirmSlipTotalDays.toFixed(3)} days · {confirmSlipTotalHrs.toFixed(3)} hrs</Typography>
               </Box>
-              <Typography sx={{ fontSize:"1.375rem",fontWeight:500,color:"#fff",fontFamily:T.poppins }}>{confirmSlipTotalDays.toFixed(3)} d</Typography>
+              <Typography sx={{ fontSize:"1.5rem",fontWeight:500,color:"#fff",fontFamily:T.poppins,lineHeight:1 }}>{confirmSlipTotalDays.toFixed(3)} d</Typography>
             </Box>
 
-            {/* Balance preview */}
-            {confirmModalBalanceTiles.length>0&&(
-              <Box sx={{ bgcolor:"rgba(0,0,0,0.04)",borderRadius:"10px",overflow:"hidden" }}>
-                <Box sx={{ px:1.5,py:1,borderBottom:"0.5px solid rgba(0,0,0,0.08)" }}>
-                  <Typography sx={{ fontSize:"0.69rem",fontWeight:500,color:T.faint,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em" }}>Balance preview</Typography>
-                </Box>
-                <Box sx={{ display:"grid",gridTemplateColumns:confirmModalBalanceTiles.length>1?"1fr 1fr":"1fr" }}>
-                  {confirmModalBalanceTiles.map((tile,i)=>(
-                    <Box key={tile.key} sx={{ p:1.25,borderRight:confirmModalBalanceTiles.length>1&&i===0?"0.5px solid rgba(0,0,0,0.08)":"none" }}>
-                      <Typography sx={{ fontSize:"0.69rem",color:T.faint,fontFamily:T.poppins,mb:0.5 }}>{tile.label}</Typography>
-                      <Typography sx={{ fontSize:"0.9375rem",fontWeight:500,color:T.text,fontFamily:T.poppins }}>{tile.before.toFixed(3)} d</Typography>
-                      <Typography sx={{ fontSize:"0.69rem",color:T.faint,fontFamily:T.poppins,mt:0.125 }}>{tile.delta.toFixed(3)} d</Typography>
-                      <Box sx={{ display:"flex",alignItems:"center",gap:0.5,mt:0.65 }}>
-                        <Box sx={{ width:8,height:8,borderRadius:"50%",bgcolor:slipAfterDotColor(tile.after),flexShrink:0 }} />
-                        <Typography sx={{ fontSize:"0.75rem",fontWeight:500,color:slipAfterTextColor(tile.after),fontFamily:T.poppins }}>{tile.after.toFixed(3)} d after</Typography>
-                      </Box>
-                      {tile.after<0&&<Typography sx={{ fontSize:"0.65rem",color:"#c62828",fontFamily:T.poppins,fontWeight:600,mt:0.5 }}>Shortfall → salary deduction</Typography>}
-                    </Box>
-                  ))}
-                </Box>
-              </Box>
-            )}
-
-            {/* Info note */}
-            <Box sx={{ bgcolor:"#FAEEDA",borderRadius:"8px",px:1.5,py:1.25,border:"0.5px solid #FAC775",display:"flex",gap:1,alignItems:"flex-start" }}>
-              <InfoOutlinedIcon sx={{ fontSize:16,color:"#633806",flexShrink:0,mt:"2px" }} />
-              <Typography sx={{ fontSize:"0.75rem",color:"#633806",fontFamily:T.poppins,lineHeight:1.5 }}>
+            {/* Note */}
+            <Box sx={{ bgcolor:"#FAEEDA",borderRadius:"8px",px:1.5,py:1.1,border:"0.5px solid #FAC775",display:"flex",gap:0.85,alignItems:"flex-start" }}>
+              <InfoOutlinedIcon sx={{ fontSize:15,color:"#633806",flexShrink:0,mt:"2px" }} />
+              <Typography sx={{ fontSize:"0.72rem",color:"#633806",fontFamily:T.poppins,lineHeight:1.5 }}>
                 Posts to SC / CTO / leave earnings. Requires approval before balances finalize.
               </Typography>
             </Box>
 
             {/* Remark */}
             <Box>
-              <Typography sx={{ fontSize:"0.58rem",fontWeight:800,color:T.muted,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.5 }}>
+              <Typography sx={{ fontSize:"0.6rem",fontWeight:500,color:T.faint,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.5 }}>
                 Remark <span style={{ fontWeight:400,textTransform:"none",letterSpacing:0 }}>(optional)</span>
               </Typography>
               <textarea
@@ -1291,78 +1402,170 @@ const CTODeductionReceipt = ({
               />
             </Box>
 
+            {/* Acknowledge checkbox */}
             <FormControlLabel
               control={<Checkbox size="small" checked={confirmDeductionAcknowledged} onChange={(e)=>setConfirmDeductionAcknowledged(e.target.checked)} disabled={deducting} sx={{ py:0,color:T.accent,"&.Mui-checked":{color:T.accent} }} />}
               label={<Typography sx={{ fontSize:"0.75rem",fontFamily:T.poppins,color:T.faint,lineHeight:1.5 }}>I confirm the deduction source, amounts, and balances are correct.</Typography>}
               sx={{ alignItems:"flex-start",ml:0,mr:0,mb:0 }}
             />
+
             {deductError&&<Alert severity="error" sx={{ mt:0.2,py:0.25,fontSize:"0.68rem",borderRadius:1.5 }}>{deductError}</Alert>}
           </Box>
         </DialogContent>
 
-        <DialogActions sx={{ display:"flex",justifyContent:"stretch",gap:1,px:2.5,pt:0,pb:2.5,bgcolor:"transparent" }}>
-          <Button size="medium" onClick={closeConfirm} disabled={deducting} sx={{ flex:1,fontSize:"0.8125rem",fontWeight:500,textTransform:"none",fontFamily:T.poppins,color:T.text,borderRadius:"8px",py:1.25,border:"0.5px solid rgba(0,0,0,0.12)",bgcolor:"transparent" }}>Cancel</Button>
+        <DialogActions sx={{ display:"flex",justifyContent:"stretch",gap:1,px:2,pt:0,pb:2.5,bgcolor:"transparent" }}>
+          <Button size="medium" onClick={closeConfirm} disabled={deducting}
+            sx={{ flex:1,fontSize:"0.8rem",fontWeight:500,textTransform:"none",fontFamily:T.poppins,color:T.text,borderRadius:"8px",py:1.25,border:"0.5px solid rgba(0,0,0,0.12)",bgcolor:"transparent" }}>
+            Cancel
+          </Button>
           <Button size="medium" variant="contained" onClick={handleDeduct} disabled={deducting||!confirmDeductionAcknowledged} disableElevation
             startIcon={deducting?<CircularProgress size={11} sx={{ color:"#fff" }} />:<SaveIcon sx={{ fontSize:"13px !important" }} />}
-            sx={{ flex:2,fontSize:"0.8125rem",fontWeight:500,textTransform:"none",fontFamily:T.poppins,bgcolor:T.accent,borderRadius:"8px",py:1.25,boxShadow:"none","&:hover":{bgcolor:T.accentDark,boxShadow:"none"},"&.Mui-disabled":{bgcolor:"rgba(109,35,35,0.4)",color:"#fff"} }}>
+            sx={{ flex:2,fontSize:"0.8rem",fontWeight:500,textTransform:"none",fontFamily:T.poppins,bgcolor:T.accent,borderRadius:"8px",py:1.25,boxShadow:"none","&:hover":{bgcolor:T.accentDark,boxShadow:"none"},"&.Mui-disabled":{bgcolor:"rgba(109,35,35,0.4)",color:"#fff"} }}>
             {deducting?"Processing…":deductSource==="normal"&&applyIsSalaryOnly?"Apply to salary":"Confirm deduction"}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* ══════════ SALARY-ONLY MODAL ══════════ */}
-      <Dialog open={salaryOnlyModalOpen} onClose={()=>!salaryOnlySubmitting&&setSalaryOnlyModalOpen(false)} maxWidth="xs" fullWidth
-        PaperProps={{ sx:{ borderRadius:3,overflow:"hidden",boxShadow:"0 12px 48px rgba(0,0,0,0.2)" } }}>
-        <Box sx={{ px:2,py:1.75,background:T.headerGrad,display:"flex",alignItems:"center",justifyContent:"space-between",gap:1.5 }}>
+{/* ══════════ SALARY-ONLY MODAL ══════════ */}
+<Dialog open={salaryOnlyModalOpen} onClose={()=>!salaryOnlySubmitting&&setSalaryOnlyModalOpen(false)} maxWidth={false}
+        PaperProps={{ sx:{ width:"100%",maxWidth:400,borderRadius:"16px",overflow:"hidden",border:"0.5px solid rgba(0,0,0,0.09)",boxShadow:"0 12px 48px rgba(0,0,0,0.2)" } }}>
+
+        {/* Header */}
+        <Box sx={{ px:2.5,pt:2.25,pb:2,background:T.accent,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:1.5 }}>
           <Box sx={{ display:"flex",alignItems:"center",gap:1.25,minWidth:0 }}>
-            <Box sx={{ width:32,height:32,borderRadius:"50%",bgcolor:"rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><MoneyOffIcon sx={{ fontSize:16,color:"#fff" }} /></Box>
-            <Box sx={{ minWidth:0 }}>
-              <Typography sx={{ fontFamily:T.poppins,fontWeight:800,fontSize:"0.95rem",color:"#fff",lineHeight:1.2 }}>Deduct from salary</Typography>
-              <Typography sx={{ fontFamily:T.poppins,fontSize:"0.62rem",color:"rgba(255,255,255,0.7)",mt:0.25 }}>{monthName(month)} {year}</Typography>
+            <Box sx={{ width:36,height:36,borderRadius:"50%",bgcolor:"rgba(255,255,255,0.18)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+              <MoneyOffIcon sx={{ fontSize:17,color:"#fff" }} />
+            </Box>
+            <Box>
+              <Typography sx={{ fontSize:"0.6rem",color:"rgba(255,255,255,0.55)",fontWeight:400,letterSpacing:"0.08em",textTransform:"uppercase",fontFamily:T.poppins,mb:0.25 }}>Salary shortfall</Typography>
+              <Typography sx={{ fontFamily:T.poppins,fontWeight:500,fontSize:"1.05rem",color:"#fff",lineHeight:1.2 }}>Confirm salary deduction</Typography>
             </Box>
           </Box>
-          <IconButton size="small" onClick={()=>!salaryOnlySubmitting&&setSalaryOnlyModalOpen(false)} disabled={salaryOnlySubmitting} sx={{ color:"#fff",bgcolor:"rgba(255,255,255,0.12)",borderRadius:1,p:0.5,"&:hover":{bgcolor:"rgba(255,255,255,0.22)"} }}>
+          <IconButton size="small" onClick={()=>!salaryOnlySubmitting&&setSalaryOnlyModalOpen(false)} disabled={salaryOnlySubmitting}
+            sx={{ color:"#fff",bgcolor:"rgba(255,255,255,0.12)",borderRadius:1,p:0.5,"&:hover":{bgcolor:"rgba(255,255,255,0.22)"} }}>
             <Close sx={{ fontSize:14 }} />
           </IconButton>
         </Box>
+
         <DialogContent sx={{ p:0 }}>
-          <Box sx={{ px:2,py:1.75,display:"flex",flexDirection:"column",gap:1.25 }}>
-            <Box sx={{ display:"flex",alignItems:"center",gap:1.25,bgcolor:"rgba(0,0,0,0.03)",borderRadius:1.75,border:"0.5px solid rgba(0,0,0,0.09)",px:1.5,py:1 }}>
-              <Avatar sx={{ width:36,height:36,bgcolor:T.accent,fontSize:"0.75rem",fontWeight:700,fontFamily:T.poppins,flexShrink:0 }}>
+          <Box sx={{ px:2,pt:1.75,pb:2,display:"flex",flexDirection:"column",gap:1.5 }}>
+
+            {/* Employee card */}
+            <Box sx={{ display:"flex",alignItems:"center",gap:1.25,bgcolor:"rgba(0,0,0,0.04)",borderRadius:"10px",border:"0.5px solid rgba(0,0,0,0.08)",px:1.5,py:1.25 }}>
+              <Avatar sx={{ width:36,height:36,bgcolor:T.accent,fontSize:"0.78rem",fontWeight:500,fontFamily:T.poppins,flexShrink:0 }}>
                 {(employee?.fullName||employee?.employeeNumber||"Employee").split(" ").filter(Boolean).slice(0,2).map((n)=>n[0]?.toUpperCase()).join("")}
               </Avatar>
               <Box sx={{ flex:1,minWidth:0 }}>
-                <Typography sx={{ fontSize:"0.8rem",fontWeight:800,color:T.text,fontFamily:T.poppins,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
+                <Typography sx={{ fontSize:"0.875rem",fontWeight:500,color:T.text,fontFamily:T.poppins,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
                   {employee?.fullName||employee?.employeeNumber||"Employee"}
                 </Typography>
-                <Typography sx={{ fontSize:"0.62rem",color:T.faint,fontFamily:T.poppins }}>{employee?.employeeNumber||"—"}{empCatDisplay?` · ${empCatDisplay}`:""}</Typography>
+                <Typography sx={{ fontSize:"0.72rem",color:T.faint,fontFamily:T.poppins,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
+                  #{employee?.employeeNumber||"—"}{empCatDisplay?` · ${empCatDisplay}`:""}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign:"right",flexShrink:0 }}>
+                <Typography sx={{ fontSize:"0.65rem",color:T.faint,fontFamily:T.poppins,mb:0.25 }}>Period</Typography>
+                <Typography sx={{ fontSize:"0.8rem",fontWeight:500,color:T.text,fontFamily:T.poppins,lineHeight:1.15,textAlign:"right" }}>
+                  {monthName(month)}<br/>{year}
+                </Typography>
               </Box>
             </Box>
-            <Typography sx={{ fontSize:"0.7rem",color:T.muted,fontFamily:T.poppins,lineHeight:1.5 }}>
-              Posts to <strong>salary shortfall</strong> (audit trail only). No SC, CTO, or leave balance reduced.
-            </Typography>
-            <Box sx={{ borderRadius:1.5,border:"0.5px solid rgba(0,0,0,0.1)",overflow:"hidden",bgcolor:"#fff" }}>
-              <Box sx={{ px:1.25,py:0.65,bgcolor:"rgba(109,35,35,0.06)",borderBottom:"0.5px solid rgba(0,0,0,0.08)" }}>
-                <Typography sx={{ fontSize:"0.58rem",fontWeight:800,color:alpha(T.accent,0.85),fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em" }}>Summary — charge to salary</Typography>
-              </Box>
-              <Box sx={{ px:1.25,py:1 }}>
-                {salaryModalAbsenceDays>1e-5&&<R label="Absence (salary days)" sub="ATTENDANCE_SALARY_DEDUCTION" value={`${salaryModalAbsenceDays.toFixed(3)} d`} valueColor="#c62828" bold />}
-                {salaryModalTardinessDays>1e-5&&<R label="Tardiness (salary days)" sub="TARDINESS_SALARY_DEDUCTION" value={`${salaryModalTardinessDays.toFixed(3)} d`} valueColor="#c62828" bold />}
-                <Divider sx={{ my:1,borderColor:"rgba(0,0,0,0.08)" }} />
-                <R label="Total (8h-equivalent days)" sub={`${salaryModalTotalHrs.toFixed(3)} hours`} value={`${salaryModalTotalDays.toFixed(3)} d`} valueColor={T.accent} bold />
+
+            {/* ── TRANSACTION SUMMARY ── */}
+            <Box>
+              <Typography sx={{ fontSize:"0.6rem",fontWeight:500,color:T.faint,fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.75 }}>Transaction summary</Typography>
+              <Box sx={{ border:"0.5px solid rgba(0,0,0,0.1)",borderRadius:"10px",overflow:"hidden",bgcolor:"#fff" }}>
+
+                {/* Charge to */}
+                <Box sx={{ px:1.75,py:1.1,borderBottom:"0.5px solid rgba(0,0,0,0.08)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:1 }}>
+                  <Box sx={{ display:"flex",alignItems:"center",gap:0.75 }}>
+                    <MoneyOffIcon sx={{ fontSize:16,color:T.faint }} />
+                    <Typography sx={{ fontSize:"0.8rem",color:T.muted,fontFamily:T.poppins }}>Charge to</Typography>
+                  </Box>
+                  <Box sx={{ bgcolor:"rgba(0,0,0,0.05)",border:"0.5px solid rgba(0,0,0,0.1)",borderRadius:"6px",px:1.25,py:0.25 }}>
+                    <Typography sx={{ fontSize:"0.78rem",fontWeight:700,color:T.text,fontFamily:T.poppins }}>Salary</Typography>
+                  </Box>
+                </Box>
+
+                {/* Absence line — only if applicable */}
+                {salaryModalAbsenceDays>1e-5&&(
+                  <Box sx={{ px:1.75,py:1.1,borderBottom:salaryModalTardinessDays>1e-5?"0.5px solid rgba(0,0,0,0.08)":"none",display:"flex",alignItems:"center",justifyContent:"space-between",gap:1 }}>
+                    <Box sx={{ display:"flex",alignItems:"center",gap:0.75 }}>
+                      <DeductIcon sx={{ fontSize:16,color:T.faint }} />
+                      <Typography sx={{ fontSize:"0.8rem",fontWeight:500,color:T.text,fontFamily:T.poppins }}>Absence</Typography>
+                    </Box>
+                    <Typography sx={{ fontSize:"0.875rem",fontWeight:500,color:"#c62828",fontFamily:T.poppins,flexShrink:0 }}>− {salaryModalAbsenceDays.toFixed(3)} d</Typography>
+                  </Box>
+                )}
+
+                {/* Tardiness line — only if applicable */}
+                {salaryModalTardinessDays>1e-5&&(
+                  <Box sx={{ px:1.75,py:1.1,display:"flex",alignItems:"center",justifyContent:"space-between",gap:1 }}>
+                    <Box sx={{ display:"flex",alignItems:"center",gap:0.75 }}>
+                      <DeductIcon sx={{ fontSize:16,color:T.faint }} />
+                      <Typography sx={{ fontSize:"0.8rem",fontWeight:500,color:T.text,fontFamily:T.poppins }}>Tardiness</Typography>
+                    </Box>
+                    <Typography sx={{ fontSize:"0.875rem",fontWeight:500,color:"#c62828",fontFamily:T.poppins,flexShrink:0 }}>− {salaryModalTardinessDays.toFixed(3)} d</Typography>
+                  </Box>
+                )}
+
               </Box>
             </Box>
-            {salaryOnlyModalError&&<Alert severity="error" sx={{ py:0.5,fontSize:"0.65rem",borderRadius:1.25 }}>{salaryOnlyModalError}</Alert>}
+
+            {/* ── DASHED DIVIDER ── */}
+            <Box sx={{ display:"flex",alignItems:"center",gap:1 }}>
+              <Box sx={{ flex:1,borderTop:"1.5px dashed rgba(0,0,0,0.12)" }} />
+              <Box sx={{ width:22,height:22,borderRadius:"50%",bgcolor:"rgba(0,0,0,0.06)",border:"0.5px solid rgba(0,0,0,0.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                <Typography sx={{ fontSize:"0.65rem",color:T.faint,lineHeight:1 }}>✂</Typography>
+              </Box>
+              <Box sx={{ flex:1,borderTop:"1.5px dashed rgba(0,0,0,0.12)" }} />
+            </Box>
+
+            {/* ── TOTAL PILL ── */}
+            <Box sx={{ bgcolor:T.accent,borderRadius:"10px",px:1.75,py:1.5,display:"flex",alignItems:"center",justifyContent:"space-between",gap:1 }}>
+              <Box>
+                <Typography sx={{ fontSize:"0.6rem",color:"rgba(255,255,255,0.55)",fontFamily:T.poppins,textTransform:"uppercase",letterSpacing:"0.07em",mb:0.4 }}>Total to be deducted on salary</Typography>
+                <Typography sx={{ fontSize:"0.68rem",color:"rgba(255,255,255,0.6)",fontFamily:T.poppins }}>{salaryModalTotalDays.toFixed(3)} days · {salaryModalTotalHrs.toFixed(3)} hrs</Typography>
+              </Box>
+              <Typography sx={{ fontSize:"1.5rem",fontWeight:500,color:"#fff",fontFamily:T.poppins,lineHeight:1 }}>{salaryModalTotalDays.toFixed(3)} d</Typography>
+            </Box>
+
+            {/* Note */}
+            <Box sx={{ bgcolor:"#FAEEDA",borderRadius:"8px",px:1.5,py:1.1,border:"0.5px solid #FAC775",display:"flex",gap:0.85,alignItems:"flex-start" }}>
+              <InfoOutlinedIcon sx={{ fontSize:15,color:"#633806",flexShrink:0,mt:"2px" }} />
+              <Typography sx={{ fontSize:"0.72rem",color:"#633806",fontFamily:T.poppins,lineHeight:1.5 }}>
+                Audit trail only — no SC, CTO, or leave balance will be reduced. Recorded as salary shortfall for payroll.
+              </Typography>
+            </Box>
+
+            {/* Acknowledge checkbox */}
+            <FormControlLabel
+              control={<Checkbox size="small" checked={confirmDeductionAcknowledged} onChange={(e)=>setConfirmDeductionAcknowledged(e.target.checked)} disabled={salaryOnlySubmitting} sx={{ py:0,color:T.accent,"&.Mui-checked":{color:T.accent} }} />}
+              label={<Typography sx={{ fontSize:"0.75rem",fontFamily:T.poppins,color:T.faint,lineHeight:1.5 }}>I confirm that this amount will be deducted from the employee's salary for this period.</Typography>}
+              sx={{ alignItems:"flex-start",ml:0,mr:0,mb:0 }}
+            />
+
+            {salaryOnlyModalError&&(
+              <Alert severity="error" sx={{ py:0.5,fontSize:"0.65rem",borderRadius:1.25 }}>{salaryOnlyModalError}</Alert>
+            )}
+
           </Box>
         </DialogContent>
-        <DialogActions sx={{ display:"flex",justifyContent:"flex-end",gap:1,px:2,py:1.25,borderTop:`1px solid ${T.divider}`,bgcolor:"rgba(0,0,0,0.02)" }}>
-          <Button size="small" onClick={()=>!salaryOnlySubmitting&&setSalaryOnlyModalOpen(false)} disabled={salaryOnlySubmitting} sx={{ fontSize:"0.72rem",fontWeight:700,textTransform:"none",fontFamily:T.poppins,color:T.muted,borderRadius:1.25,px:1.5,border:"0.5px solid rgba(0,0,0,0.15)" }}>Cancel</Button>
-          <Button size="small" variant="contained" onClick={handleSalaryShortcutConfirm} disabled={salaryOnlySubmitting||salaryModalTotalDays<=1e-5}
+
+        <DialogActions sx={{ display:"flex",justifyContent:"stretch",gap:1,px:2,pt:0,pb:2.5,bgcolor:"transparent" }}>
+          <Button size="medium" onClick={()=>!salaryOnlySubmitting&&setSalaryOnlyModalOpen(false)} disabled={salaryOnlySubmitting}
+            sx={{ flex:1,fontSize:"0.8rem",fontWeight:500,textTransform:"none",fontFamily:T.poppins,color:T.text,borderRadius:"8px",py:1.25,border:"0.5px solid rgba(0,0,0,0.12)",bgcolor:"transparent" }}>
+            Cancel
+          </Button>
+          <Button size="medium" variant="contained" onClick={handleSalaryShortcutConfirm}
+            disabled={salaryOnlySubmitting||salaryModalTotalDays<=1e-5||!confirmDeductionAcknowledged}
+            disableElevation
             startIcon={salaryOnlySubmitting?<CircularProgress size={11} sx={{ color:"#fff" }} />:<SaveIcon sx={{ fontSize:"13px !important" }} />}
-            sx={{ fontSize:"0.72rem",fontWeight:900,textTransform:"none",fontFamily:T.poppins,bgcolor:T.accent,borderRadius:1.25,px:1.75,boxShadow:"none","&:hover":{bgcolor:T.accentDark,boxShadow:"none"},"&.Mui-disabled":{bgcolor:"rgba(109,35,35,0.4)",color:"#fff"} }}>
+            sx={{ flex:2,fontSize:"0.8rem",fontWeight:500,textTransform:"none",fontFamily:T.poppins,bgcolor:T.accent,borderRadius:"8px",py:1.25,boxShadow:"none","&:hover":{bgcolor:T.accentDark,boxShadow:"none"},"&.Mui-disabled":{bgcolor:"rgba(109,35,35,0.4)",color:"#fff"} }}>
             {salaryOnlySubmitting?"Recording…":"Confirm salary deduction"}
           </Button>
         </DialogActions>
+
       </Dialog>
     </>
   );
@@ -1372,7 +1575,7 @@ const CTODeductionReceipt = ({
 const DeductionReceiptSwitcher = ({
   employee, attendanceData, year, month, onDeductSuccess, refreshKey, empCat,
   onDeductHalfDayVLRequested, halfDayDeductDate, halfDayPendingDates,
-  deductedVlHalfDates, metricsTardinessHrs,
+  deductedVlHalfDates, leaveByDate, filedLeaveByDate, metricsTardinessHrs,
 }) => {
   if (!employee || !attendanceData?.summary) return null;
   return (
@@ -1381,7 +1584,10 @@ const DeductionReceiptSwitcher = ({
       onDeductSuccess={onDeductSuccess} refreshKey={refreshKey} empCat={empCat}
       onDeductHalfDayVLRequested={onDeductHalfDayVLRequested}
       halfDayDeductDate={halfDayDeductDate} halfDayPendingDates={halfDayPendingDates}
-      deductedVlHalfDates={deductedVlHalfDates} metricsTardinessHrs={metricsTardinessHrs}
+      deductedVlHalfDates={deductedVlHalfDates}
+      leaveByDate={leaveByDate}
+      filedLeaveByDate={filedLeaveByDate}
+      metricsTardinessHrs={metricsTardinessHrs}
     />
   );
 };

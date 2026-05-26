@@ -110,16 +110,52 @@ const sql = `
 // Helper function to format time
 const formatTime = (time) => {
   if (!time) return null;
-  if (time.includes('AM') || time.includes('PM')) {
-    const [hour, minute, second] = time.split(/[: ]/);
-    const paddedHour = hour.padStart(2, '0');
-    return `${paddedHour}:${minute}:${second} ${time.slice(-2)}`;
+  const str = String(time).trim();
+  if (/am|pm/i.test(str)) {
+    const parts = str.split(/[: ]/).filter(Boolean);
+    const hour = parts[0] || '00';
+    const minute = parts[1] || '00';
+    const second = (parts[2] || '00').replace(/am|pm/i, '');
+    const ampm = /pm/i.test(str) ? 'PM' : 'AM';
+    return `${hour.padStart(2, '0')}:${minute}:${second} ${ampm}`;
   }
-  const [hour, minute, second] = time.split(':');
+  const [hour, minute, second] = str.split(':');
   const hour24 = parseInt(hour, 10);
   const hour12 = hour24 % 12 || 12;
   const ampm = hour24 < 12 ? 'AM' : 'PM';
-  return `${String(hour12).padStart(2, '0')}:${minute}:${second} ${ampm}`;
+  return `${String(hour12).padStart(2, '0')}:${minute}:${second || '00'} ${ampm}`;
+};
+
+const convertDeviceMillisToManila = (timestamp) => {
+  if (!timestamp) return null;
+  const date = new Date(Number(timestamp));
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+};
+
+const normalizeDateYmd = (d) => {
+  if (!d) return '';
+  if (d instanceof Date && !Number.isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  const s = String(d);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+};
+
+const ALLOWED_SPECIAL_TYPES = new Set(['HONORARIUM', 'SERVICE', 'OVERTIME']);
+
+const safeSpecialTypeForDb = (type) => {
+  if (!type || type === 'UNCATEGORIZED') return null;
+  return ALLOWED_SPECIAL_TYPES.has(type) ? type : null;
 };
 
 // Helper function to get day of week
@@ -226,6 +262,7 @@ router.post('/api/module-search-audit', authenticateToken, (req, res) => {
     renderedTotal,
     tardinessTotal,
     halfDayNote,
+    deductionSource,
     targetUsername,
     auditEvent,
     recordsCount,
@@ -260,6 +297,7 @@ router.post('/api/module-search-audit', authenticateToken, (req, res) => {
         rendered_total: renderedTotal || null,
         tardiness_total: tardinessTotal || null,
         half_day_note: halfDayNote || null,
+        deduction_source: deductionSource || null,
         target_username: targetUsername || targetEmployeeName || null,
         audit_event: auditEvent || null,
         records_count: recordsCount ?? null,
@@ -1471,8 +1509,8 @@ router.post(
   },
 );
 
-// Insert overall attendance record
-router.post('/api/overall_attendance', authenticateToken, (req, res) => {
+// Insert overall attendance record (upsert by exact person+period)
+router.post('/api/overall_attendance', authenticateToken, async (req, res) => {
   const {
     personID,
     startDate,
@@ -1510,68 +1548,170 @@ router.post('/api/overall_attendance', authenticateToken, (req, res) => {
       : null;
   const reviewJson = serializeHalfDayReview(half_day_review);
 
-  const query = `
-    INSERT INTO overall_attendance_record (
-      personID, startDate, endDate,
-      totalRenderedTimeMorning, totalRenderedTimeMorningTardiness,
-      totalRenderedTimeAfternoon, totalRenderedTimeAfternoonTardiness,
-      totalRenderedHonorarium, totalRenderedHonorariumTardiness,
-      totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
-      totalRenderedOvertime, totalRenderedOvertimeTardiness,
-      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
-      overallTotalOfficialSchedule,
-      absentDays, halfDays,
-      absentTime, halfDayShortfallTime,
-      lateTotalTime,
-      absentDates, halfDayDates,
-      daily_late_undertime, computation_module_type, half_day_review
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
+  try {
+    const pid = String(personID ?? '').trim();
+    const sd = normalizeYmd(startDate);
+    const ed = normalizeYmd(endDate);
+    if (!pid || !sd || !ed) {
+      return res.status(400).json({ message: 'personID, startDate, and endDate are required' });
+    }
 
-  db.query(
-    query,
-    [
-      personID, startDate, endDate,
-      totalRenderedTimeMorning, totalRenderedTimeMorningTardiness,
-      totalRenderedTimeAfternoon, totalRenderedTimeAfternoonTardiness,
-      totalRenderedHonorarium, totalRenderedHonorariumTardiness,
-      totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
-      totalRenderedOvertime, totalRenderedOvertimeTardiness,
-      overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
-      overallTotalOfficialSchedule,
-      absentDays ?? null,
-      halfDays ?? null,
-      absentTime ?? null,
-      halfDayShortfallTime ?? null,
-      lateTotalTime ?? null,
-      absentDates ?? null,
-      halfDayDates ?? null,
-      dailyJson,
-      computation_module_type ?? null,
-      reviewJson,
-    ],
-    (error, results) => {
-      if (error) {
-        console.error('Error inserting data:', error);
-        return res.status(500).json({ message: 'Database error', error });
-      }
+    const existingId = await findOverallByExactPeriod(pid, sd, ed);
+    if (existingId) {
+      await new Promise((resolve, reject) => {
+        db.query(
+          `UPDATE overall_attendance_record SET
+            totalRenderedTimeMorning = ?,
+            totalRenderedTimeMorningTardiness = ?,
+            totalRenderedTimeAfternoon = ?,
+            totalRenderedTimeAfternoonTardiness = ?,
+            totalRenderedHonorarium = ?,
+            totalRenderedHonorariumTardiness = ?,
+            totalRenderedServiceCredit = ?,
+            totalRenderedServiceCreditTardiness = ?,
+            totalRenderedOvertime = ?,
+            totalRenderedOvertimeTardiness = ?,
+            overallRenderedOfficialTime = ?,
+            overallRenderedOfficialTimeTardiness = ?,
+            overallTotalOfficialSchedule = ?,
+            absentDays = ?,
+            halfDays = ?,
+            absentTime = ?,
+            halfDayShortfallTime = ?,
+            lateTotalTime = ?,
+            absentDates = ?,
+            halfDayDates = ?,
+            daily_late_undertime = ?,
+            computation_module_type = ?,
+            half_day_review = ?
+           WHERE id = ?`,
+          [
+            totalRenderedTimeMorning ?? null,
+            totalRenderedTimeMorningTardiness ?? null,
+            totalRenderedTimeAfternoon ?? null,
+            totalRenderedTimeAfternoonTardiness ?? null,
+            totalRenderedHonorarium ?? null,
+            totalRenderedHonorariumTardiness ?? null,
+            totalRenderedServiceCredit ?? null,
+            totalRenderedServiceCreditTardiness ?? null,
+            totalRenderedOvertime ?? null,
+            totalRenderedOvertimeTardiness ?? null,
+            overallRenderedOfficialTime ?? null,
+            overallRenderedOfficialTimeTardiness ?? null,
+            overallTotalOfficialSchedule ?? null,
+            absentDays ?? null,
+            halfDays ?? null,
+            absentTime ?? null,
+            halfDayShortfallTime ?? null,
+            lateTotalTime ?? null,
+            absentDates ?? null,
+            halfDayDates ?? null,
+            dailyJson,
+            computation_module_type ?? null,
+            reviewJson,
+            existingId,
+          ],
+          (error, results) => {
+            if (error) reject(error);
+            else resolve(results);
+          },
+        );
+      });
+
       logAudit(
         req.user,
         `Saved Overall Attendance Record`,
         'Attendance Module (Non-Teaching/30hrs/40hrs)',
-        `${startDate} to ${endDate}`,
-        personID,
+        `${sd} to ${ed}`,
+        pid,
       );
-      notifyAttendanceChanged('overall-created', {
+      notifyAttendanceChanged('overall-updated', {
         scope: 'overall_attendance_record',
-        personID, startDate, endDate,
+        personID: pid,
+        startDate: sd,
+        endDate: ed,
       });
-      res.status(201).json({
-        message: 'Attendance record saved successfully',
-        data: results,
+      return res.status(200).json({
+        message: 'Attendance record updated successfully',
+        id: existingId,
+        updated: true,
       });
-    },
-  );
+    }
+
+    const insertResult = await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO overall_attendance_record (
+          personID, startDate, endDate,
+          totalRenderedTimeMorning, totalRenderedTimeMorningTardiness,
+          totalRenderedTimeAfternoon, totalRenderedTimeAfternoonTardiness,
+          totalRenderedHonorarium, totalRenderedHonorariumTardiness,
+          totalRenderedServiceCredit, totalRenderedServiceCreditTardiness,
+          totalRenderedOvertime, totalRenderedOvertimeTardiness,
+          overallRenderedOfficialTime, overallRenderedOfficialTimeTardiness,
+          overallTotalOfficialSchedule,
+          absentDays, halfDays,
+          absentTime, halfDayShortfallTime,
+          lateTotalTime,
+          absentDates, halfDayDates,
+          daily_late_undertime, computation_module_type, half_day_review
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          pid,
+          sd,
+          ed,
+          totalRenderedTimeMorning ?? null,
+          totalRenderedTimeMorningTardiness ?? null,
+          totalRenderedTimeAfternoon ?? null,
+          totalRenderedTimeAfternoonTardiness ?? null,
+          totalRenderedHonorarium ?? null,
+          totalRenderedHonorariumTardiness ?? null,
+          totalRenderedServiceCredit ?? null,
+          totalRenderedServiceCreditTardiness ?? null,
+          totalRenderedOvertime ?? null,
+          totalRenderedOvertimeTardiness ?? null,
+          overallRenderedOfficialTime ?? null,
+          overallRenderedOfficialTimeTardiness ?? null,
+          overallTotalOfficialSchedule ?? null,
+          absentDays ?? null,
+          halfDays ?? null,
+          absentTime ?? null,
+          halfDayShortfallTime ?? null,
+          lateTotalTime ?? null,
+          absentDates ?? null,
+          halfDayDates ?? null,
+          dailyJson,
+          computation_module_type ?? null,
+          reviewJson,
+        ],
+        (error, results) => {
+          if (error) reject(error);
+          else resolve(results);
+        },
+      );
+    });
+
+    logAudit(
+      req.user,
+      `Saved Overall Attendance Record`,
+      'Attendance Module (Non-Teaching/30hrs/40hrs)',
+      `${sd} to ${ed}`,
+      pid,
+    );
+    notifyAttendanceChanged('overall-created', {
+      scope: 'overall_attendance_record',
+      personID: pid,
+      startDate: sd,
+      endDate: ed,
+    });
+    return res.status(201).json({
+      message: 'Attendance record saved successfully',
+      id: insertResult.insertId,
+      created: true,
+    });
+  } catch (error) {
+    console.error('Error saving overall attendance record:', error);
+    return res.status(500).json({ message: 'Database error', error });
+  }
 });
 
 // Fetch overall attendance record
@@ -2056,10 +2196,16 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
 
       let savedCount = 0;
       let updatedCount = 0;
+      let syncFailedCount = 0;
+      const syncErrors = [];
 
-      try {
-        if (syncDeviceToRecords) {
-          for (const record of records) {
+      if (syncDeviceToRecords) {
+        for (const raw of results) {
+          const dateYmd = normalizeDateYmd(raw.Date);
+          const personKey = String(raw.PersonID ?? '').trim();
+          if (!personKey || !dateYmd) continue;
+
+          try {
             const officialTimeQuery = `
               SELECT 
                 officialTimeIN, officialTimeOUT,
@@ -2076,7 +2222,7 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             const officialTimeData = await new Promise((resolve, reject) => {
               db.query(
                 officialTimeQuery,
-                [record.PersonID, record.Date, record.Date],
+                [personKey, dateYmd, dateYmd],
                 (err, result) => {
                   if (err) reject(err);
                   else resolve(result[0] || null);
@@ -2088,7 +2234,7 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             const existingRecord = await new Promise((resolve, reject) => {
               db.query(
                 checkSql,
-                [record.PersonID, record.Date],
+                [personKey, dateYmd],
                 (err, result) => {
                   if (err) reject(err);
                   else resolve(result);
@@ -2096,22 +2242,26 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               );
             });
 
-            const newTimeIN = formatTime(record.Time1);
-            const newBreaktimeIN = formatTime(record.Time3);
-            const newBreaktimeOUT = formatTime(record.Time2);
-            const newTimeOUT = formatTime(record.Time4);
-            const newDay = getDayOfWeek(record.Date);
+            const newTimeIN = formatTime(convertDeviceMillisToManila(raw.Time1));
+            const newBreaktimeIN = formatTime(convertDeviceMillisToManila(raw.Time3));
+            const newBreaktimeOUT = formatTime(convertDeviceMillisToManila(raw.Time2));
+            const newTimeOUT = formatTime(convertDeviceMillisToManila(raw.Time4));
+            const newDay = getDayOfWeek(dateYmd);
 
             let specialType = null;
             let specialTimeIN = null;
             let specialTimeOUT = null;
 
-            if (record.Time5 || record.Time6) {
-              const specialTime = record.Time5 || record.Time6;
+            if (raw.Time5 || raw.Time6) {
+              const specialTime = convertDeviceMillisToManila(raw.Time5 || raw.Time6);
               const specialResult = determineSpecialType(specialTime, officialTimeData);
-              specialType = specialResult.type;
-              specialTimeIN = record.Time5 ? formatTime(record.Time5) : null;
-              specialTimeOUT = record.Time6 ? formatTime(record.Time6) : null;
+              specialType = safeSpecialTypeForDb(specialResult.type);
+              specialTimeIN = raw.Time5
+                ? formatTime(convertDeviceMillisToManila(raw.Time5))
+                : null;
+              specialTimeOUT = raw.Time6
+                ? formatTime(convertDeviceMillisToManila(raw.Time6))
+                : null;
             }
 
             if (existingRecord.length === 0) {
@@ -2124,13 +2274,15 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                 db.query(
                   insertSql,
                   [
-                    record.PersonID, record.Date, newDay,
+                    personKey, dateYmd, newDay,
                     newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
                     specialType, specialTimeIN, specialTimeOUT,
                   ],
                   (err) => {
-                    if (err) { console.error('Error auto-saving record:', err); reject(err); }
-                    else {
+                    if (err) {
+                      console.error('Error auto-saving record:', err);
+                      reject(err);
+                    } else {
                       savedCount++;
                       resolve();
                     }
@@ -2162,11 +2314,13 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                     [
                       newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
                       specialType, specialTimeIN, specialTimeOUT, newDay,
-                      record.PersonID, record.Date,
+                      personKey, dateYmd,
                     ],
                     (err) => {
-                      if (err) { console.error('Error updating record:', err); reject(err); }
-                      else {
+                      if (err) {
+                        console.error('Error updating record:', err);
+                        reject(err);
+                      } else {
                         updatedCount++;
                         resolve();
                       }
@@ -2175,19 +2329,33 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
                 });
               }
             }
-          }
-
-          if (savedCount > 0 || updatedCount > 0) {
-            notifyAttendanceChanged('auto-sync', {
-              scope: 'device-auto-save',
-              personID, startDate, endDate,
-              saved: savedCount, updated: updatedCount,
-            });
+          } catch (rowErr) {
+            syncFailedCount++;
+            const msg = rowErr?.message || String(rowErr);
+            console.error(`Device sync failed ${personKey} ${dateYmd}:`, msg);
+            if (syncErrors.length < 5) {
+              syncErrors.push({ personID: personKey, date: dateYmd, error: msg });
+            }
           }
         }
-      } catch (saveError) {
-        console.error('Error auto-saving records:', saveError);
+
+        if (savedCount > 0 || updatedCount > 0) {
+          notifyAttendanceChanged('auto-sync', {
+            scope: 'device-auto-save',
+            personID, startDate, endDate,
+            saved: savedCount, updated: updatedCount,
+          });
+        }
       }
+
+      const syncMeta = {
+        enabled: syncDeviceToRecords,
+        saved: savedCount,
+        updated: updatedCount,
+        failed: syncFailedCount,
+        attempted: results.length,
+        errors: syncErrors,
+      };
 
       const syncTargetName =
         req.body.targetEmployeeName ||
@@ -2281,7 +2449,7 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
         });
       }
 
-      res.json(enrichedRecords);
+      res.json({ records: enrichedRecords, sync: syncMeta });
     },
   );
 });
@@ -2386,7 +2554,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
           if (record.Time5 || record.Time6) {
             const specialTime = convertToManilaTime(record.Time5 || record.Time6);
             const specialResult = determineSpecialType(specialTime, officialTimeData);
-            specialType = specialResult.type;
+            specialType = safeSpecialTypeForDb(specialResult.type);
             specialTimeIN = record.Time5 ? formatTime(convertToManilaTime(record.Time5)) : null;
             specialTimeOUT = record.Time6 ? formatTime(convertToManilaTime(record.Time6)) : null;
           }

@@ -61,7 +61,7 @@ import {
   useOfficialAttendanceMetrics,
   listHalfDayDatesFromDailyRows,
 } from "./useOfficialAttendanceMetrics";
-import { listEarningsHalfDayDatesFromOverallSummary } from "../../../utils/halfDayReview";
+import { listEarningsHalfDayDatesForDisplay } from "../../../utils/halfDayReview";
 import { fetchDeductionCreditSnapshots } from "../../../utils/deductionSourceBalances";
 import OverallAttendanceCompareModal from "../../ATTENDANCE/OverallAttendanceCompareModal";
 import {
@@ -830,6 +830,7 @@ const AttendanceSummary = ({
   onBalancesInvalidate,
   deductedVlHalfDates = [],
   onDeductHalfDayVLRequested,
+  filedLeaveByDate = {},
 }) => {
   const navigate = useNavigate();
 
@@ -1064,33 +1065,53 @@ const AttendanceSummary = ({
   const totalAbsentHrs = totalAbsentDays * 8;
   const presentDays = toNum(stats.present_days);
 
+  /** Same source as ATTENDANCE/AttendanceSummary: saved overall_attendance_record buckets only. */
   const halfDayDates = useMemo(() => {
-    const fromRecord = listEarningsHalfDayDatesFromOverallSummary(
-      raw,
-      officialCalendarMaps,
-    );
-    if (fromRecord.length) return fromRecord;
+    if (raw) {
+      const fromStoredField = [
+        ...new Set(
+          (String(raw.halfDayDates || "").match(/\d{4}-\d{2}-\d{2}/g) || [])
+            .map(normalizeHalfDayDateKey)
+            .filter(Boolean),
+        ),
+      ].sort();
+      if (fromStoredField.length) return fromStoredField;
+      const fromRecord = listEarningsHalfDayDatesForDisplay(raw);
+      return [
+        ...new Set(
+          (Array.isArray(fromRecord) ? fromRecord : [])
+            .map(normalizeHalfDayDateKey)
+            .filter(Boolean),
+        ),
+      ].sort();
+    }
+    const merge = new Set();
     if (canTrustOfficialMetrics) {
-      return Array.isArray(halfDayDatesOfficial) ? [...halfDayDatesOfficial] : [];
+      (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial : []).forEach((d) => {
+        const n = normalizeHalfDayDateKey(d);
+        if (n) merge.add(n);
+      });
     }
-    let dates = listHalfDayDatesFromDailyRows(officialRows, officialCalendarMaps);
-    if (!dates.length) {
-      dates = listHalfDayDatesFromDailyRows(
-        Array.isArray(attendanceData?.dailyRecords) ? attendanceData.dailyRecords : [],
-        officialCalendarMaps,
-      );
+    if (!merge.size) {
+      let dates = listHalfDayDatesFromDailyRows(officialRows, null);
+      if (!dates.length) {
+        dates = listHalfDayDatesFromDailyRows(
+          Array.isArray(attendanceData?.dailyRecords) ? attendanceData.dailyRecords : [],
+          null,
+        );
+      }
+      dates.forEach((d) => merge.add(normalizeHalfDayDateKey(d)));
+      const statsHalf = toNum(attendanceData?.stats?.half_days ?? attendanceData?.stats?.halfDays);
+      if (!merge.size && statsHalf > 0.0001) {
+        const fallback =
+          (officialStart && String(officialStart).slice(0, 10)) ||
+          `${year}-${String(month).padStart(2, "0")}-01`;
+        if (fallback) merge.add(normalizeHalfDayDateKey(fallback));
+      }
     }
-    const statsHalf = toNum(attendanceData?.stats?.half_days ?? attendanceData?.stats?.halfDays);
-    if (!dates.length && statsHalf > 0.0001) {
-      const fallback =
-        (officialStart && String(officialStart).slice(0, 10)) ||
-        `${year}-${String(month).padStart(2, "0")}-01`;
-      if (fallback) dates = [fallback];
-    }
-    return [...new Set(dates)].sort();
+    return [...merge].filter(Boolean).sort();
   }, [
     raw,
-    officialCalendarMaps,
     canTrustOfficialMetrics,
     halfDayDatesOfficial,
     officialRows,
@@ -1101,24 +1122,68 @@ const AttendanceSummary = ({
     month,
   ]);
 
-  const halfDays = halfDayDates.length
-    ? halfDayDates.length
-    : canTrustOfficialMetrics
-      ? (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0)
-      : toNum(stats.half_days ?? stats.halfDays);
-  const halfDayHrs =
-    halfDayDates.length && raw?.halfDayShortfallTime
-      ? parseHHMM(raw.halfDayShortfallTime)
-      : canTrustOfficialMetrics
+  const halfDays = useMemo(() => {
+    if (raw?.halfDays != null && String(raw.halfDays).trim() !== "") {
+      const stored = toNum(raw.halfDays);
+      if (Number.isFinite(stored)) return stored;
+    }
+    if (halfDayDates.length) return halfDayDates.length;
+    if (!raw) {
+      if (canTrustOfficialMetrics) {
+        return Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0;
+      }
+      return toNum(stats.half_days ?? stats.halfDays);
+    }
+    return 0;
+  }, [
+    raw,
+    halfDayDates.length,
+    canTrustOfficialMetrics,
+    halfDayDatesOfficial,
+    stats.half_days,
+    stats.halfDays,
+  ]);
+
+  const halfDayHrs = useMemo(() => {
+    if (raw?.halfDayShortfallTime != null && String(raw.halfDayShortfallTime).trim() !== "") {
+      return parseHHMM(raw.halfDayShortfallTime);
+    }
+    if (halfDayDates.length) {
+      return canTrustOfficialMetrics
         ? toNum(halfDayShortfallHrsOfficial)
         : halfDays * 4;
+    }
+    if (!raw && canTrustOfficialMetrics) return toNum(halfDayShortfallHrsOfficial);
+    return halfDays * 4;
+  }, [
+    raw,
+    halfDayDates.length,
+    halfDays,
+    canTrustOfficialMetrics,
+    halfDayShortfallHrsOfficial,
+  ]);
 
   const deductedNormSet = useMemo(
     () => new Set((deductedVlHalfDates || []).map(normalizeHalfDayDateKey).filter(Boolean)),
     [deductedVlHalfDates],
   );
+  const leaveByDateMap = officialCalendarMaps?.leaveByDate || {};
+  const isHalfDayCoveredByLeave = useCallback(
+    (d) => {
+      const key = normalizeHalfDayDateKey(d);
+      if (!key) return false;
+      if (leaveByDateMap[key]) return true;
+      if (filedLeaveByDate?.[key]) return true;
+      return false;
+    },
+    [leaveByDateMap, filedLeaveByDate],
+  );
   const nextUndeductedVlHalfDate =
-    halfDayDates.find((d) => !deductedNormSet.has(normalizeHalfDayDateKey(d))) || null;
+    halfDayDates.find(
+      (d) =>
+        !deductedNormSet.has(normalizeHalfDayDateKey(d)) &&
+        !isHalfDayCoveredByLeave(d),
+    ) || null;
 
   // ── Early returns ──────────────────────────────────────────────────────────
   if (!employee) {
@@ -1384,6 +1449,8 @@ const AttendanceSummary = ({
                 halfDayDeductDate={nextUndeductedVlHalfDate || null}
                 halfDayPendingDates={halfDayDates}
                 deductedVlHalfDates={deductedVlHalfDates}
+                leaveByDate={officialCalendarMaps?.leaveByDate || {}}
+                filedLeaveByDate={filedLeaveByDate}
                 metricsTardinessHrs={tardHrs}
               />
 

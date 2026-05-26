@@ -569,7 +569,7 @@ router.post('/register', async (req, res) => {
                     }
 
                     // Grant default page access for staff role
-                   const grantDefaultAccessQuery = `
+                    const grantDefaultAccessQuery = `
   SELECT id FROM pages WHERE FIND_IN_SET('staff', REPLACE(page_group, ' ', ''))
 `;
                     db.query(
@@ -997,7 +997,7 @@ router.post('/excel-register', async (req, res) => {
 
                         handleEmploymentCategoryTable(() => {
                           // Grant default page access for staff role
-          const grantDefaultAccessQuery = `
+                          const grantDefaultAccessQuery = `
   SELECT id FROM pages WHERE FIND_IN_SET('staff', REPLACE(page_group, ' ', ''))
 `;
 
@@ -2047,7 +2047,7 @@ router.post(
         }
 
         // Get default pages for staff
-const getDefaultPagesQuery = `
+        const getDefaultPagesQuery = `
   SELECT id FROM pages 
   WHERE page_url IN ('home', 'admin-home', 'attendance-user-state', 'daily-time-record', 'payslip', 'pds1', 'pds2', 'pds3', 'pds4', 'settings') 
   OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings', 'attendance-user-state', 'daily-time-record', 'daily-time-record-honorarium', 'daily-time-record-service-credits', 'daily-time-record-overtime')
@@ -2215,70 +2215,88 @@ router.post(
   },
 );
 
-
 //UNIFIED GRANT END POINTS
-router.post('/users/grant-role-access/:role', authenticateToken, async (req, res) => {
-  const { role } = req.params;
+router.post(
+  '/users/grant-role-access/:role',
+  authenticateToken,
+  async (req, res) => {
+    const { role } = req.params;
 
-  const validRoles = ['staff', 'administrator', 'superadmin'];
-  if (!validRoles.includes(role)) {
-    return res.status(400).json({ error: 'Invalid role' });
-  }
+    const validRoles = ['staff', 'administrator', 'superadmin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
 
-  try {
-    db.query('SELECT employeeNumber FROM users WHERE role = ?', [role], (err, users) => {
-      if (err) return res.status(500).json({ error: 'Failed to fetch users' });
-
-      if (users.length === 0) {
-        return res.status(200).json({ message: `No ${role} users found`, usersProcessed: 0, pagesGranted: 0 });
-      }
-
-      // Read directly from pages table using page_group — driven by Page Management
+    try {
       db.query(
-        `SELECT id FROM pages WHERE FIND_IN_SET(?, REPLACE(page_group, ' ', ''))`,
+        'SELECT employeeNumber FROM users WHERE role = ?',
         [role],
-        (pagesErr, pages) => {
-          if (pagesErr) return res.status(500).json({ error: 'Failed to fetch pages' });
+        (err, users) => {
+          if (err)
+            return res.status(500).json({ error: 'Failed to fetch users' });
 
-          if (pages.length === 0) {
-            return res.status(404).json({
-              error: `No pages configured for role "${role}". Go to Page Management and set the Access Groups on each page.`
-            });
+          if (users.length === 0) {
+            return res
+              .status(200)
+              .json({
+                message: `No ${role} users found`,
+                usersProcessed: 0,
+                pagesGranted: 0,
+              });
           }
 
-          let processed = 0;
-          let failed = 0;
-          const total = users.length * pages.length;
+          // Read directly from pages table using page_group — driven by Page Management
+          db.query(
+            `SELECT id FROM pages WHERE FIND_IN_SET(?, REPLACE(page_group, ' ', ''))`,
+            [role],
+            (pagesErr, pages) => {
+              if (pagesErr)
+                return res.status(500).json({ error: 'Failed to fetch pages' });
 
-          users.forEach((user) => {
-            pages.forEach((page) => {
-              db.query(
-                `INSERT INTO page_access (employeeNumber, page_id, page_privilege)
+              if (pages.length === 0) {
+                return res.status(404).json({
+                  error: `No pages configured for role "${role}". Go to Page Management and set the Access Groups on each page.`,
+                });
+              }
+
+              let processed = 0;
+              let failed = 0;
+              const total = users.length * pages.length;
+
+              users.forEach((user) => {
+                pages.forEach((page) => {
+                  db.query(
+                    `INSERT INTO page_access (employeeNumber, page_id, page_privilege)
                  VALUES (?, ?, '1')
                  ON DUPLICATE KEY UPDATE page_privilege = '1'`,
-                [user.employeeNumber, page.id],
-                (err) => {
-                  if (err) { failed++; } else { processed++; }
-                  if (processed + failed === total) {
-                    res.status(200).json({
-                      message: `Access granted for ${role}`,
-                      usersProcessed: users.length,
-                      pagesGranted: pages.length,
-                      success: processed,
-                      failed,
-                    });
-                  }
-                }
-              );
-            });
-          });
-        }
+                    [user.employeeNumber, page.id],
+                    (err) => {
+                      if (err) {
+                        failed++;
+                      } else {
+                        processed++;
+                      }
+                      if (processed + failed === total) {
+                        res.status(200).json({
+                          message: `Access granted for ${role}`,
+                          usersProcessed: users.length,
+                          pagesGranted: pages.length,
+                          success: processed,
+                          failed,
+                        });
+                      }
+                    },
+                  );
+                });
+              });
+            },
+          );
+        },
       );
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+);
 
 module.exports = router;
