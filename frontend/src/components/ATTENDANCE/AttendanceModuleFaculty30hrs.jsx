@@ -2282,34 +2282,9 @@ import API_BASE_URL from '../../apiConfig';
                                           {!rowIsAbsent && halfUi && (
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto' }}>
                                               {halfUi === 'approved' ? (
-                                                <Box sx={{
-                                                  display: 'inline-flex', alignItems: 'center', gap: 0.5,
-                                                  px: 1, py: 0.4, borderRadius: '6px',
-                                                  border: '1px solid rgba(27,94,32,0.28)',
-                                                  bgcolor: 'rgba(27,94,32,0.08)',
-                                                }}>
-                                                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 13, height: 13 }}>
-                                                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-                                                      <circle cx="6" cy="6" r="5.5" stroke="#1b5e20" strokeWidth="1.2"/>
-                                                      <polyline points="3.5,6 5,7.5 8.5,4" stroke="#1b5e20" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                                    </svg>
-                                                  </Box>
-                                                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: '#1b5e20', letterSpacing: '.03em' }}>
-                                                    Approved
-                                                  </Typography>
-                                                </Box>
+                                                <Box/>                                                 
                                               ) : halfUi === 'rejected' ? (
-                                                <Box sx={{
-                                                  display: 'inline-flex', alignItems: 'center', gap: 0.5,
-                                                  px: 1, py: 0.4, borderRadius: '6px',
-                                                  border: `1px solid ${T.accentBorder}`,
-                                                  bgcolor: alpha(T.accent, 0.08),
-                                                }}>
-                                                  <CloseIcon sx={{ fontSize: 13, color: T.accent }} />
-                                                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent, letterSpacing: '.03em' }}>
-                                                    Denied
-                                                  </Typography>
-                                                </Box>
+                                                <Box/>
                                               ) : (
                                                 <>
                                                   <Tooltip title="Approve half day — enter rendered time" placement="top" arrow>
