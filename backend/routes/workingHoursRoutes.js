@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WORKING HOURS — defaults
@@ -131,7 +132,7 @@ async function getLeaveCreditsRates() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/working-hours/rates
-router.get('/rates', async (_req, res) => {
+router.get('/rates', authenticateToken, async (_req, res) => {
   try {
     const rates = await getWorkingHoursRates();
     res.json({ success: true, ...rates });
@@ -142,7 +143,7 @@ router.get('/rates', async (_req, res) => {
 
 // PUT /api/working-hours/rates
 // Body: { entries: [{ rate_type, day_type, rate_value, decimal_equivalent }] }
-router.put('/rates', async (req, res) => {
+router.put('/rates', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const entries = req.body?.entries;
     if (!Array.isArray(entries) || entries.length === 0) {
@@ -190,7 +191,7 @@ router.put('/rates', async (req, res) => {
 
 // POST /api/working-hours/convert
 // Body: { hours, minutes, dayType }
-router.post('/convert', async (req, res) => {
+router.post('/convert', authenticateToken, async (req, res) => {
   try {
     const rawHours   = Math.max(0, Math.trunc(Number(req.body?.hours   ?? 0)));
     const rawMinutes = Math.max(0, Math.trunc(Number(req.body?.minutes ?? 0)));
@@ -223,7 +224,7 @@ router.post('/convert', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/working-hours/leave-credits/rates
-router.get('/leave-credits/rates', async (_req, res) => {
+router.get('/leave-credits/rates', authenticateToken, async (_req, res) => {
   try {
     const rates = await getLeaveCreditsRates();
     res.json({ success: true, ...rates });
@@ -234,7 +235,7 @@ router.get('/leave-credits/rates', async (_req, res) => {
 
 // PUT /api/working-hours/leave-credits/rates
 // Body: { lwp: [{ d, e }], abs: [{ a, e }] }
-router.put('/leave-credits/rates', async (req, res) => {
+router.put('/leave-credits/rates', authenticateToken, requireAdmin, async (req, res) => {
   const { lwp, abs } = req.body || {};
 
   if (!Array.isArray(lwp) || !Array.isArray(abs)) {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
+import { normalizeRole } from './GatedPageRoute';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
     const token = localStorage.getItem('token');
@@ -9,16 +10,15 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     }
 
     try {
-        // Decode the JWT token to extract the user's role
         const decoded = JSON.parse(atob(token.split('.')[1]));
+        const userRole = normalizeRole(decoded.role);
+        const allowed = (allowedRoles || []).map(normalizeRole);
 
-        // Check if the user's role is included in the allowedRoles
-        if (allowedRoles.includes(decoded.role)) {
+        if (allowed.includes(userRole)) {
             return children;
-        } else {
-            // Redirect unauthorized users to a fallback page (e.g., unauthorized page)
-            return <Navigate to="/unauthorized" />;
         }
+
+        return <Navigate to="/access-denied" replace />;
     } catch (error) {
         console.error('Error decoding token:', error);
         return <Navigate to="/" />;

@@ -35,13 +35,8 @@ export const getAuthHeaders = (options = {}) => {
   // Log token status for debugging (remove in production if needed)
   if (!token) {
     console.warn('⚠️ No authentication token found in localStorage');
-    console.warn('User may need to log in again');
-  } else {
-    // Log token info (first 20 chars only for security)
-    console.log('✅ Token found:', token.substring(0, 20) + '...');
-    console.log('Token length:', token.length);
   }
-  
+
   const headers = {
     Authorization: `Bearer ${token}`,
   };

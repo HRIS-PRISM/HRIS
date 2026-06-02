@@ -15,6 +15,11 @@ export function SocketProvider({ children }) {
   const [error, setError] = useState(null);
 
   const initializeSocket = useCallback(() => {
+    const publicPaths = ['/', '/register', '/forgot-password', '/reset-password'];
+    if (publicPaths.includes(window.location.pathname)) {
+      return null;
+    }
+
     const token = localStorage.getItem('token');
     
     if (!token) {

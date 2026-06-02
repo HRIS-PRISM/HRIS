@@ -3,8 +3,9 @@ const express = require("express");
 const multer = require("multer");
 const router = express.Router();
 const socketService = require("../socket/socketService");
+const authenticateToken = require("./authMiddleware");
 
-
+router.use(authenticateToken);
 
 
 

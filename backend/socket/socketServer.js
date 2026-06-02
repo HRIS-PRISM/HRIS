@@ -53,7 +53,7 @@ function initializeSocket(server) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
       socket.userId = decoded.employeeNumber;
       socket.userRole = decoded.role;
       socket.username = decoded.username;

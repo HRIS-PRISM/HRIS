@@ -26,7 +26,13 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const jwt     = require('jsonwebtoken');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const {
+  authenticateToken,
+  logAudit,
+  requireAdmin,
+  requireSupervisorSelfOrAdmin,
+  ADMIN_ROLES,
+} = require('../middleware/auth');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +104,7 @@ const insertTransactionLog = (employeeId, message, actorEmployeeNumber = null, a
  * GET /api/supervisor-assignment
  * Returns all supervisor assignments, enriched with person names and dept description.
  */
-router.get('/api/supervisor-assignment', authenticateToken, (req, res) => {
+router.get('/api/supervisor-assignment', authenticateToken, requireAdmin, (req, res) => {
   const sql = `
     SELECT
       sa.id,
@@ -128,7 +134,7 @@ router.get('/api/supervisor-assignment', authenticateToken, (req, res) => {
  * GET /api/supervisor-assignment/by-supervisor/:employeeNumber
  * Returns all department assignments for a given supervisor.
  */
-router.get('/api/supervisor-assignment/by-supervisor/:employeeNumber', authenticateToken, (req, res) => {
+router.get('/api/supervisor-assignment/by-supervisor/:employeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('employeeNumber'), (req, res) => {
   const sql = `
     SELECT sa.*, dt.description AS departmentDescription
     FROM supervisor_assignment sa
@@ -147,7 +153,7 @@ router.get('/api/supervisor-assignment/by-supervisor/:employeeNumber', authentic
  * Assigns an employee as supervisor for a department.
  * Body: { supervisorEmployeeNumber, departmentCode, role }
  */
-router.post('/api/supervisor-assignment', authenticateToken, async (req, res) => {
+router.post('/api/supervisor-assignment', authenticateToken, requireAdmin, async (req, res) => {
   const { supervisorEmployeeNumber, departmentCode, role } = req.body;
   const actorEmpNum = getActorEmployeeNumber(req);
 
@@ -195,7 +201,7 @@ router.post('/api/supervisor-assignment', authenticateToken, async (req, res) =>
  * Update role for an existing supervisor assignment.
  * Body: { role }
  */
-router.put('/api/supervisor-assignment/:id', authenticateToken, async (req, res) => {
+router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id }  = req.params;
   const { role } = req.body;
   const actorEmpNum = getActorEmployeeNumber(req);
@@ -242,7 +248,7 @@ router.put('/api/supervisor-assignment/:id', authenticateToken, async (req, res)
  * DELETE /api/supervisor-assignment/:id
  * Removes a supervisor from a department.
  */
-router.delete('/api/supervisor-assignment/:id', authenticateToken, async (req, res) => {
+router.delete('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id }  = req.params;
   const actorEmpNum = getActorEmployeeNumber(req);
 
@@ -283,7 +289,7 @@ router.delete('/api/supervisor-assignment/:id', authenticateToken, async (req, r
  * Returns the supervisor's department codes and assigned role.
  * Used by the front-end to scope which departments' leave requests are visible.
  */
-router.get('/api/supervisor-leave/context/:supervisorEmployeeNumber', authenticateToken, (req, res) => {
+router.get('/api/supervisor-leave/context/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
   const { supervisorEmployeeNumber } = req.params;
   const sql = `
     SELECT sa.departmentCode, sa.role, dt.description AS departmentDescription
@@ -312,7 +318,7 @@ router.get('/api/supervisor-leave/context/:supervisorEmployeeNumber', authentica
  * Joins department_assignment to determine which employees belong to the dept.
  * Optional query params: ?status=0&departmentCode=DEPT01
  */
-router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authenticateToken, (req, res) => {
+router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
   const { supervisorEmployeeNumber } = req.params;
   const { status, departmentCode }   = req.query;
 
@@ -385,7 +391,7 @@ router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authentic
  *  - Supervisor must have the employee's department in their assignment list.
  *  - Once status is 1/2/3/4, supervisor cannot change it (HR owns 2/3/4).
  */
-router.put('/api/supervisor-leave/action/:leaveRequestId', authenticateToken, async (req, res) => {
+router.put('/api/supervisor-leave/action/:leaveRequestId', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), async (req, res) => {
   const { leaveRequestId } = req.params;
   const { newStatus, supervisorEmployeeNumber, remarks } = req.body;
   const actorEmpNum = getActorEmployeeNumber(req, supervisorEmployeeNumber);
@@ -395,6 +401,16 @@ router.put('/api/supervisor-leave/action/:leaveRequestId', authenticateToken, as
   }
   if (!supervisorEmployeeNumber) {
     return res.status(400).json({ error: 'supervisorEmployeeNumber is required.' });
+  }
+
+  const callerRole = String(req.user?.role || '').toLowerCase();
+  const callerEmp = String(req.user?.employeeNumber || '').trim();
+  const actingSupervisor = ADMIN_ROLES.includes(callerRole)
+    ? String(supervisorEmployeeNumber).trim()
+    : callerEmp;
+
+  if (!ADMIN_ROLES.includes(callerRole) && actingSupervisor !== String(supervisorEmployeeNumber).trim()) {
+    return res.status(403).json({ error: 'Cannot act on behalf of another supervisor.' });
   }
 
   // Fetch the leave request
@@ -418,7 +434,7 @@ router.put('/api/supervisor-leave/action/:leaveRequestId', authenticateToken, as
       WHERE sa.supervisorEmployeeNumber = ?
       LIMIT 1
     `;
-    db.query(verifySQL, [request.employeeNumber, supervisorEmployeeNumber], async (vErr, vRows) => {
+    db.query(verifySQL, [request.employeeNumber, actingSupervisor], async (vErr, vRows) => {
       if (vErr) return res.status(500).json({ error: 'Failed to verify supervisor authority' });
       if (!vRows.length) {
         return res.status(403).json({
@@ -496,13 +512,22 @@ router.put('/api/supervisor-leave/action/:leaveRequestId', authenticateToken, as
  * Bulk approve or deny by supervisor.
  * Body: { ids: [1,2,3], newStatus: 1|3, supervisorEmployeeNumber, remarks? }
  */
-router.put('/api/supervisor-leave/bulk-action', authenticateToken, async (req, res) => {
+router.put('/api/supervisor-leave/bulk-action', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), async (req, res) => {
   const { ids, newStatus, supervisorEmployeeNumber, remarks } = req.body;
-  const actorEmpNum = getActorEmployeeNumber(req, supervisorEmployeeNumber);
+  const callerRole = String(req.user?.role || '').toLowerCase();
+  const callerEmp = String(req.user?.employeeNumber || '').trim();
+  const actingSupervisor = ADMIN_ROLES.includes(callerRole)
+    ? String(supervisorEmployeeNumber).trim()
+    : callerEmp;
+  const actorEmpNum = getActorEmployeeNumber(req, actingSupervisor);
 
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids must be a non-empty array' });
   if (![1, 3].includes(Number(newStatus))) return res.status(400).json({ error: 'newStatus must be 1 or 3' });
   if (!supervisorEmployeeNumber) return res.status(400).json({ error: 'supervisorEmployeeNumber is required' });
+
+  if (!ADMIN_ROLES.includes(callerRole) && actingSupervisor !== String(supervisorEmployeeNumber).trim()) {
+    return res.status(403).json({ error: 'Cannot act on behalf of another supervisor.' });
+  }
 
   const placeholders = ids.map(() => '?').join(',');
   db.query(
@@ -529,7 +554,7 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, async (req, r
         WHERE sa.supervisorEmployeeNumber = ?
           AND CAST(da.employeeNumber AS CHAR) IN (${empPlaceholders})
       `;
-      db.query(verifySql, [supervisorEmployeeNumber, ...empNums.map(String)], async (vErr, vRows) => {
+      db.query(verifySql, [actingSupervisor, ...empNums.map(String)], async (vErr, vRows) => {
         if (vErr) return res.status(500).json({ error: 'Failed to verify supervisor authority' });
         const authorizedEmps = new Set(vRows.map((r) => String(r.employeeNumber)));
         const unauthorized   = empNums.filter((n) => !authorizedEmps.has(String(n)));
@@ -546,12 +571,12 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, async (req, r
             if (updateErr) return res.status(500).json({ error: 'Bulk update failed' });
             const actionLabel = Number(newStatus) === 1 ? 'approved' : 'denied';
             try {
-              const [supName] = await Promise.all([getEmployeeFullName(supervisorEmployeeNumber)]);
-              const supDisplay = formatUserDisplayName(supervisorEmployeeNumber, supName);
+              const [supName] = await Promise.all([getEmployeeFullName(actingSupervisor)]);
+              const supDisplay = formatUserDisplayName(actingSupervisor, supName);
               const [supRole]  = await new Promise((resolve) =>
                 db.query(
                   'SELECT role FROM supervisor_assignment WHERE supervisorEmployeeNumber = ? LIMIT 1',
-                  [supervisorEmployeeNumber],
+                  [actingSupervisor],
                   (e, r) => resolve([r && r[0] && r[0].role ? r[0].role : 'Supervisor']),
                 ),
               );
@@ -560,7 +585,7 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, async (req, r
                 `Supervisor Bulk ${actionLabel === 'approved' ? 'Approve' : 'Deny'} Leave (${pendingIds.length} requests)`,
                 'leave_request',
                 null,
-                supervisorEmployeeNumber,
+                actingSupervisor,
               );
               await Promise.all(
                 pending.map(async (r) => {
@@ -594,7 +619,7 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, async (req, r
  * GET /api/supervisor-leave/employees/:supervisorEmployeeNumber
  * Returns all employees under the supervisor's department(s), with leave summary.
  */
-router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenticateToken, (req, res) => {
+router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
   const { supervisorEmployeeNumber } = req.params;
   const deptSql = `
     SELECT departmentCode FROM supervisor_assignment WHERE supervisorEmployeeNumber = ?
@@ -634,7 +659,7 @@ router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenti
  * GET /api/supervisor-leave/transactions/:supervisorEmployeeNumber
  * Returns transaction logs for employees under the supervisor's departments.
  */
-router.get('/api/supervisor-leave/transactions/:supervisorEmployeeNumber', authenticateToken, (req, res) => {
+router.get('/api/supervisor-leave/transactions/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
   const { supervisorEmployeeNumber } = req.params;
   db.query(
     'SELECT departmentCode FROM supervisor_assignment WHERE supervisorEmployeeNumber = ?',

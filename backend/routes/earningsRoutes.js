@@ -1,7 +1,7 @@
 const express = require("express");
   const router = express.Router();
   const db = require("../db");
-  const { authenticateToken, requireAdmin, logAudit } = require("../middleware/auth");
+  const { authenticateToken, logAudit, requireAdmin, requireSelfOrAdmin } = require("../middleware/auth");
   const jwt = require("jsonwebtoken");
   const {
     getPromiseConnection,
@@ -1101,7 +1101,7 @@ const express = require("express");
    * GET /api/earnings/deduction-ui-audit/:employeeNumber?year=&month=
    * @deprecated Prefer period-audit-for-records — kept for older clients.
    */
-  router.get("/deduction-ui-audit/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/deduction-ui-audit/:employeeNumber", authenticateToken, requireAdmin, (req, res) => {
     const emp = String(req.params.employeeNumber || "").trim();
     const y = parseInt(req.query.year, 10);
     const m = parseInt(req.query.month, 10);
@@ -1142,7 +1142,7 @@ const express = require("express");
    * earnings_audit_log: leave + SC/CTO earning lifecycle only (not SC/CTO balance deductions).
    * Half-day policy: audit_log leave_transaction rows, reshaped here for the same UI mapper.
    */
-  router.get("/period-audit-for-records/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/period-audit-for-records/:employeeNumber", authenticateToken, requireAdmin, (req, res) => {
     const emp = String(req.params.employeeNumber || "").trim();
     const y = parseInt(req.query.year, 10);
     const m = parseInt(req.query.month, 10);
@@ -1212,7 +1212,7 @@ const express = require("express");
   //  GET /api/earnings/attendance/:employeeNumber?year=2026&month=4
   //  Uses overlap logic so payroll periods don't need to align to calendar month
   // ══════════════════════════════════════════════════════════════════════════════
-  router.get("/attendance/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/attendance/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const now   = new Date();
     const year  = parseInt(req.query.year  || now.getFullYear(), 10);
@@ -1559,7 +1559,7 @@ const stats = {
   //  LEAVE EARNINGS
   // ══════════════════════════════════════════════════════════════════════════════
 
-  router.get("/leave/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/leave/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const now = new Date();
     const year  = req.query.year  || now.getFullYear();
@@ -2547,7 +2547,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     });
   };
 
-  router.get("/sc/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/sc/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const now = new Date();
     const year  = req.query.year  || now.getFullYear();
@@ -3330,7 +3330,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     });
   };
 
-  router.get("/cto/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/cto/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const now = new Date();
     const year  = req.query.year  || now.getFullYear();
@@ -3938,7 +3938,7 @@ const earnedHrs = toNum(earned_hours || ot_hours);
   //  MONTHLY SUMMARY
   //  GET /api/earnings/monthly/:employeeNumber?year=2026
   // ══════════════════════════════════════════════════════════════════════════════
-  router.get("/monthly/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/monthly/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const year = req.query.year || new Date().getFullYear();
 
@@ -3991,7 +3991,7 @@ const earnedHrs = toNum(earned_hours || ot_hours);
   //  COMBINED BALANCE
   //  GET /api/earnings/balance/:employeeNumber?year=2026&month=4
   // ══════════════════════════════════════════════════════════════════════════════
-  router.get("/balance/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/balance/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const now = new Date();
     const year  = req.query.year  || now.getFullYear();
@@ -4025,7 +4025,7 @@ const earnedHrs = toNum(earned_hours || ot_hours);
   //  ASSIGNMENT BALANCES
   //  GET /api/earnings/assignment-balances/:employeeNumber
   // ══════════════════════════════════════════════════════════════════════════════
-  router.get("/assignment-balances/:employeeNumber", authenticateToken, (req, res) => {
+  router.get("/assignment-balances/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
 
     const query = `
@@ -4053,7 +4053,7 @@ const earnedHrs = toNum(earned_hours || ot_hours);
 //  SC BALANCE — direct from service_credit table
 //  GET /api/earnings/sc/:employeeNumber/balance
 // ══════════════════════════════════════════════════════════════════════════════
-router.get("/sc/:employeeNumber/balance", authenticateToken, (req, res) => {
+router.get("/sc/:employeeNumber/balance", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber } = req.params;
   db.query(
     `SELECT DISTINCT sc_type FROM service_credit WHERE employeeNumber = ?`,
@@ -4089,7 +4089,7 @@ router.get("/sc/:employeeNumber/balance", authenticateToken, (req, res) => {
 //  CTO BALANCE — direct from cto_credit table
 //  GET /api/earnings/cto/:employeeNumber/balance
 // ══════════════════════════════════════════════════════════════════════════════
-router.get("/cto/:employeeNumber/balance", authenticateToken, (req, res) => {
+router.get("/cto/:employeeNumber/balance", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber } = req.params;
   getCtoCreditRunningTotals(employeeNumber, (err, cur) => {
     if (err) {
@@ -4111,7 +4111,7 @@ router.get("/cto/:employeeNumber/balance", authenticateToken, (req, res) => {
 });
 
 // ── OT TYPES ──────────────────────────────────────────────────────────────────
-router.get("/ot-types", authenticateToken, (req, res) => {
+router.get("/ot-types", authenticateToken, requireAdmin, (req, res) => {
   res.json([
     { id: "regular",    name: "Regular OT",           multiplier: 1 },
     { id: "holiday",    name: "Holiday OT",            multiplier: 1 },

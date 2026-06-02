@@ -153,6 +153,7 @@ import AssignmentManagement from "./components/LEAVE/AssignmentManagement";
 import EarningsManagement from "./components/LEAVE/EarningsManagement";
 
 import RecordsPanel from "./components/LEAVE/RecordsPanel";
+import { adminPage, allUserPage, superTechPage, technicalPage, ADMIN_ROUTE_ROLES } from "./utils/gatedRoutes";
 
 
 function applySystemCSSVariables(s) {
@@ -804,8 +805,26 @@ function App() {
           <Toolbar />
           <Routes>
             <Route path="/register" element={<Register />} />
-            <Route path="/bulk-register" element={<BulkRegister />} />
-            <Route path="/registration" element={<Registration />} />
+            <Route
+              path="/bulk-register"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <BulkRegister />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/registration"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <Registration />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route
@@ -1359,183 +1378,75 @@ function App() {
             />
             <Route
               path="/assessment-clearance"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <AssessmentClearance />
-                </ProtectedRoute>
-              }
+              element={adminPage(AssessmentClearance, 'assessment-clearance', 'You do not have permission to access Assessment Clearance forms.')}
             />
             <Route
               path="/clearance"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <Clearance />
-                </ProtectedRoute>
-              }
+              element={adminPage(Clearance, 'clearance', 'You do not have permission to access Clearance forms.')}
             />
             <Route
               path="/clearance-back"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <ClearanceBack />
-                </ProtectedRoute>
-              }
+              element={adminPage(ClearanceBack, 'clearance-back', 'You do not have permission to access Clearance forms.')}
             />
             <Route
               path="/faculty-clearance"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <FacultyClearance />
-                </ProtectedRoute>
-              }
+              element={adminPage(FacultyClearance, 'faculty-clearance', 'You do not have permission to access Faculty Clearance forms.')}
             />
             <Route
               path="/faculty-clearance-70-days"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <FacultyClearance70Days />
-                </ProtectedRoute>
-              }
+              element={adminPage(FacultyClearance70Days, 'faculty-clearance-70-days', 'You do not have permission to access Faculty Clearance forms.')}
             />
             <Route
               path="/hrms-request-forms"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <HrmsRequestForms />
-                </ProtectedRoute>
-              }
+              element={adminPage(HrmsRequestForms, 'hrms-request-forms', 'You do not have permission to access HRMS Request forms.')}
             />
             <Route
               path="/individual-faculty-loading"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <IndividualFacultyLoading />
-                </ProtectedRoute>
-              }
+              element={adminPage(IndividualFacultyLoading, 'individual-faculty-loading', 'You do not have permission to access Individual Faculty Loading forms.')}
             />
             <Route
               path="/in-service-training"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <InServiceTraining />
-                </ProtectedRoute>
-              }
+              element={adminPage(InServiceTraining, 'in-service-training', 'You do not have permission to access In-Service Training forms.')}
             />
             <Route
               path="/leave-card"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <LeaveCard />
-                </ProtectedRoute>
-              }
+              element={adminPage(LeaveCard, 'leave-card', 'You do not have permission to access Leave Card forms.')}
             />
             <Route
               path="/leave-card-back"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <LeaveCardBack />
-                </ProtectedRoute>
-              }
+              element={adminPage(LeaveCardBack, 'leave-card-back', 'You do not have permission to access Leave Card forms.')}
             />
             <Route
               path="/leave-form"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <Leave />
-                </ProtectedRoute>
-              }
+              element={adminPage(Leave, 'leave-form', 'You do not have permission to access Leave forms.')}
             />
             <Route
               path="/locator-slip"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <LocatorSlip />
-                </ProtectedRoute>
-              }
+              element={adminPage(LocatorSlip, 'locator-slip', 'You do not have permission to access Locator Slip forms.')}
             />
             <Route
               path="/permission-to-teach"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <PermissionToTeach />
-                </ProtectedRoute>
-              }
+              element={adminPage(PermissionToTeach, 'permission-to-teach', 'You do not have permission to access Permission to Teach forms.')}
             />
             <Route
               path="/request-for-id"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <RequestForID />
-                </ProtectedRoute>
-              }
+              element={adminPage(RequestForID, 'request-for-id', 'You do not have permission to access Request for ID forms.')}
             />
             <Route
               path="/saln-front"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <SalnFront />
-                </ProtectedRoute>
-              }
+              element={adminPage(SalnFront, 'saln-front', 'You do not have permission to access SALN forms.')}
             />
             <Route
               path="/saln-back"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <SalnBack />
-                </ProtectedRoute>
-              }
+              element={adminPage(SalnBack, 'saln-back', 'You do not have permission to access SALN forms.')}
             />
             <Route
               path="/scholarship-agreement"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <ScholarshipAgreement />
-                </ProtectedRoute>
-              }
+              element={adminPage(ScholarshipAgreement, 'scholarship-agreement', 'You do not have permission to access Scholarship Agreement forms.')}
             />
             <Route
               path="/subject"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <SubjectStillToBeTaken />
-                </ProtectedRoute>
-              }
+              element={adminPage(SubjectStillToBeTaken, 'subject', 'You do not have permission to access Subject forms.')}
             />
             <Route
               path="/profile"
@@ -1628,7 +1539,7 @@ function App() {
               }
             />
             <Route
-              path="admin-home"
+              path="/admin-home"
               element={
                 <ProtectedRoute
                   allowedRoles={[
@@ -1643,19 +1554,8 @@ function App() {
               }
             />
             <Route
-              path="employee-category"
-              element={
-                <ProtectedRoute
-                  allowedRoles={[
-                    "staff",
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                  ]}
-                >
-                  <EmploymentCategoryManagement />
-                </ProtectedRoute>
-              }
+              path="/employee-category"
+              element={adminPage(EmploymentCategoryManagement, 'employee-category', 'You do not have permission to access Employee Category.')}
             />
             <Route
               path="/leave-table"
@@ -1678,25 +1578,13 @@ function App() {
               }
             />
             <Route
-              path="absences-report"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                  > 
-                  <AbsencesReport />
-                </ProtectedRoute> 
-              }
-              />
-                <Route
-              path="attendance-adjustment-reports"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                  > 
-                  <AttendanceAdjustmentReports />
-                </ProtectedRoute> 
-              }
-              />
+              path="/absences-report"
+              element={adminPage(AbsencesReport, 'absences-report', 'You do not have permission to access Absences Report.')}
+            />
+            <Route
+              path="/attendance-adjustment-reports"
+              element={adminPage(AttendanceAdjustmentReports, 'attendance-adjustment-reports', 'You do not have permission to access Attendance Adjustment Reports.')}
+            />
               
             <Route
               path="/leave-request-user"
@@ -1755,23 +1643,11 @@ function App() {
             />
             <Route
               path="/assignment-management"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <AssignmentManagement />
-                </ProtectedRoute>
-              }
+              element={adminPage(AssignmentManagement, 'assignment-management', 'You do not have permission to access Assignment Management.')}
             />
             <Route
               path="/earnings-management"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <EarningsManagement />
-                </ProtectedRoute>
-              }
+              element={adminPage(EarningsManagement, 'earnings-management', 'You do not have permission to access Earnings Management.')}
             />
             <Route
               path="/supervisor-assignment"
@@ -1802,82 +1678,44 @@ function App() {
             />
             <Route
               path="/users-list"
-              element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
-                  <UsersList />
-                </ProtectedRoute>
-              }
+              element={superTechPage(UsersList, 'users-list', 'You do not have permission to access User Management.')}
             />
             <Route
               path="/pages-list"
-              element={
-                <ProtectedRoute allowedRoles={["technical"]}>
-                  <PagesList />
-                </ProtectedRoute>
-              }
+              element={technicalPage(PagesList, 'pages-list', 'You do not have permission to access Page Management.')}
             />
             <Route
               path="/audit-logs"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <AuditLogs />
-                </ProtectedRoute>
-              }
+              element={adminPage(AuditLogs, 'audit-logs', 'You do not have permission to access Audit Logs.')}
             />
             <Route
               path="/reports"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <Reports />
-                </ProtectedRoute>
-              }
+              element={adminPage(Reports, 'reports', 'You do not have permission to access Reports.')}
             />
             <Route
               path="/employee-reports"
-              element={
-                <ProtectedRoute
-                  allowedRoles={[
-                    "staff",
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                  ]}
-                >
-                  <EmployeeReports />
-                </ProtectedRoute>
-              }
+              element={allUserPage(EmployeeReports, 'employee-reports', 'You do not have permission to access Employee Reports.')}
             />
             <Route
               path="/system-settings"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["technical"]}
-                >
-                  <SystemSetting />
-                </ProtectedRoute>
-              }
+              element={technicalPage(SystemSetting, 'system-settings', 'You do not have permission to access System Settings.')}
             />
             <Route
               path="/payroll-formulas"
-              element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
-                  <PayrollFormulas />
-                </ProtectedRoute>
-              }
+              element={superTechPage(PayrollFormulas, 'payroll-formulas', 'You do not have permission to access Payroll Formulas.')}
             />
             <Route
               path="/admin-security"
+              element={superTechPage(AdminSecurity, 'admin-security', 'You do not have permission to access Admin Security.')}
+            />
+            <Route
+              path="/working-hours"
               element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
-                  <AdminSecurity />
+                <ProtectedRoute allowedRoles={ADMIN_ROUTE_ROLES}>
+                  <WorkingHoursConverter />
                 </ProtectedRoute>
               }
             />
-            <Route path="/working-hours" element={<WorkingHoursConverter />} />
             <Route path="/under-construction" element={<UnderConstruction />} />
             <Route path="/access-denied" element={<AccessDenied />} />
           </Routes>

@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const jwt = require("jsonwebtoken");
-const { logAudit } = require("../middleware/auth");
+const { logAudit, authenticateToken, requireAdmin, requireSelfOrAdmin } = require("../middleware/auth");
 const { notifyAttendanceChanged } = require("../socket/socketService");
 const {
   SALARY_VALUE: DEDUCTION_SALARY,
@@ -39,6 +39,8 @@ const emitLeaveChange = (eventName) => {
     console.log(`[Socket.IO] Emitted ${eventName}`);
   }
 };
+
+router.use(authenticateToken);
 
 // Convert DB hour values to numeric hours.
 // Supports numeric values (number or numeric string) and HH:MM[:SS] strings like "33:29:49".
@@ -1083,7 +1085,7 @@ const auditLeaveBalanceAdjustment = ({
 // ============================================
 // EMPLOYEES
 // ============================================
-router.get("/employees", (req, res) => {
+router.get("/employees", requireAdmin, (req, res) => {
   const query = `
     SELECT u.employeeNumber, u.email, u.role,
       p.firstName, p.middleName, p.lastName, p.nameExtension,
@@ -1105,7 +1107,7 @@ router.get("/employees", (req, res) => {
 // ============================================
 // LEAVE TABLE
 // ============================================
-router.get("/leave_table", (req, res) => {
+router.get("/leave_table", requireAdmin, (req, res) => {
   db.query("SELECT * FROM leave_table ORDER BY leave_code", (err, results) => {
     if (err)
       return res.status(500).json({ error: "Failed to fetch leave types" });
@@ -1121,7 +1123,7 @@ const normalizeLeaveTableHours = (leave_hours) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-router.post("/leave_table", (req, res) => {
+router.post("/leave_table", requireAdmin, (req, res) => {
   const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
   const hoursVal = normalizeLeaveTableHours(leave_hours);
   const genderVal =
@@ -1165,7 +1167,7 @@ router.post("/leave_table", (req, res) => {
   );
 });
 
-router.put("/leave_table/:id", (req, res) => {
+router.put("/leave_table/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   const { leave_code, leave_description, leave_hours, gender_restriction } = req.body;
   const hoursVal = normalizeLeaveTableHours(leave_hours);
@@ -1205,7 +1207,7 @@ router.put("/leave_table/:id", (req, res) => {
   );
 });
 
-router.delete("/leave_table/:id", (req, res) => {
+router.delete("/leave_table/:id", requireAdmin, (req, res) => {
   db.query("DELETE FROM leave_table WHERE id = ?", [req.params.id], (err) => {
     if (err) {
       logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Delete Failed', 'leave_table', req.params.id, null);
@@ -1219,7 +1221,7 @@ router.delete("/leave_table/:id", (req, res) => {
 // ============================================
 // LEAVE ASSIGNMENT
 // ============================================
-router.get("/leave_assignment", (req, res) => {
+router.get("/leave_assignment", requireAdmin, (req, res) => {
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
@@ -1244,7 +1246,7 @@ router.get("/leave_assignment", (req, res) => {
   });
 });
 
-router.get("/leave_assignment/employee/:employeeNumber", (req, res) => {
+router.get("/leave_assignment/employee/:employeeNumber", requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
@@ -1265,6 +1267,7 @@ router.get("/leave_assignment/employee/:employeeNumber", (req, res) => {
 
 router.get(
   "/leave_assignment/calculate-carryforward/:employeeNumber/:leave_code",
+  requireSelfOrAdmin('employeeNumber'),
   (req, res) => {
     const { employeeNumber, leave_code } = req.params;
     const query = `
@@ -1296,7 +1299,7 @@ router.get(
   },
 );
 
-router.post("/leave_assignment", (req, res) => {
+router.post("/leave_assignment", requireAdmin, (req, res) => {
   const {
     employeeNumber,
     leave_code,
@@ -1564,7 +1567,7 @@ router.post("/leave_assignment", (req, res) => {
   );
 });
 
-router.put("/leave_assignment/:id", (req, res) => {
+router.put("/leave_assignment/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   const {
     employeeNumber,
@@ -1684,7 +1687,7 @@ router.put("/leave_assignment/:id", (req, res) => {
   );
 });
 
-router.delete("/leave_assignment/:id", (req, res) => {
+router.delete("/leave_assignment/:id", requireAdmin, (req, res) => {
   const actorEmpNum = getActorEmployeeNumber(req);
   // Fetch first so we have employee info for logging
   db.query(
@@ -1732,7 +1735,7 @@ router.delete("/leave_assignment/:id", (req, res) => {
 // ============================================
 // LEAVE REQUESTS
 // ============================================
-router.get("/leave_request", (req, res) => {
+router.get("/leave_request", requireAdmin, (req, res) => {
   const query = `
     SELECT lr.*, lt.leave_description, p.firstName, p.lastName,
       CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) as fullName,
@@ -1750,7 +1753,7 @@ router.get("/leave_request", (req, res) => {
   });
 });
 
-router.get("/leave_request/transactions", (req, res) => {
+router.get("/leave_request/transactions", requireAdmin, (req, res) => {
   const query = `
     SELECT *
     FROM transaction_table
@@ -1766,7 +1769,7 @@ router.get("/leave_request/transactions", (req, res) => {
 });
 
 // HR: employment category hours/day for leave deduction (LeaveRequest.jsx modal).
-router.post("/leave_request/deduction-suggestion", (req, res) => {
+router.post("/leave_request/deduction-suggestion", requireAdmin, (req, res) => {
   const {
     employeeNumber,
     leave_code,
@@ -1810,7 +1813,7 @@ router.post("/leave_request/deduction-suggestion", (req, res) => {
   })();
 });
 
-router.post("/leave_request/halfday-deduction-suggestion", (req, res) => {
+router.post("/leave_request/halfday-deduction-suggestion", requireAdmin, (req, res) => {
   const { employeeNumber, leave_date, preferred_charge_to = null } = req.body || {};
   if (!employeeNumber || !leave_date) {
     return res
@@ -1833,7 +1836,7 @@ router.post("/leave_request/halfday-deduction-suggestion", (req, res) => {
 });
 
 // Fetch already-applied half-day deductions (used to disable duplicate UI actions after reload)
-router.post("/leave_request/halfday-deduction-applied-dates", (req, res) => {
+router.post("/leave_request/halfday-deduction-applied-dates", requireAdmin, (req, res) => {
   const { employeeNumber, leave_code = "VL", startDate, endDate } = req.body || {};
   if (!employeeNumber || !startDate || !endDate) {
     return res.status(400).json({
@@ -1858,7 +1861,7 @@ router.post("/leave_request/halfday-deduction-applied-dates", (req, res) => {
   })();
 });
 
-router.post("/leave_request/halfday-deduction-apply", (req, res) => {
+router.post("/leave_request/halfday-deduction-apply", requireAdmin, (req, res) => {
   const {
     employeeNumber,
     leave_date,
@@ -2218,7 +2221,7 @@ router.post("/leave_request/halfday-deduction-apply", (req, res) => {
 });
 
 // HR: employment category hours/day for leave deduction (LeaveRequest.jsx modal).
-router.post("/leave_request/hr-deduction-context", (req, res) => {
+router.post("/leave_request/hr-deduction-context", requireAdmin, (req, res) => {
   const { employeeNumber, leave_code } = req.body || {};
   if (!employeeNumber || !leave_code) {
     return res
@@ -2241,7 +2244,7 @@ router.post("/leave_request/hr-deduction-context", (req, res) => {
   })();
 });
 
-router.get("/leave_request/:employeeNumber", (req, res) => {
+router.get("/leave_request/:employeeNumber", requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const query = `
     SELECT lr.*, lt.leave_description,
       DATE_FORMAT(lr.leave_date, '%Y-%m-%d') as leave_date,
@@ -2258,7 +2261,7 @@ router.get("/leave_request/:employeeNumber", (req, res) => {
   });
 });
 
-router.get("/leave_request/transactions/:employeeNumber", (req, res) => {
+router.get("/leave_request/transactions/:employeeNumber", requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const query = `
     SELECT *
     FROM transaction_table
@@ -2380,7 +2383,7 @@ router.post("/leave_request", (req, res) => {
 // HR bulk approve (status 2): requires hr_approval_rate and/or deduction_hours_each
 // in the body. Per row: hours = deduction_hours_each OR hr_approval_rate × hours/day.
 // ============================================================
-router.put("/leave_request/bulk-update", (req, res) => {
+router.put("/leave_request/bulk-update", requireAdmin, (req, res) => {
   const {
     ids,
     status,
@@ -3194,7 +3197,7 @@ router.put("/leave_request/:id", (req, res) => {
 });
 
 // ─── Leave credit usage ledger (transaction history + reconcile) ─────────────
-router.get("/leave_credit_usage", (req, res) => {
+router.get("/leave_credit_usage", requireAdmin, (req, res) => {
   const { employeeNumber, leave_code, leave_assignment_id } = req.query;
   let sql = `
     SELECT lcu.*
@@ -3225,7 +3228,7 @@ router.get("/leave_credit_usage", (req, res) => {
 });
 
 /** Sum leave hours posted for attendance tardiness (ledger: TARDINESS_DEDUCTION or legacy LEAVE_EARNING rows). */
-router.get("/leave_credit_usage/tardiness_posted", (req, res) => {
+router.get("/leave_credit_usage/tardiness_posted", requireAdmin, (req, res) => {
   const { employeeNumber, period_year, period_month, leave_code } = req.query;
   if (!employeeNumber || period_year == null || period_month == null) {
     return res.status(400).json({
@@ -3297,7 +3300,7 @@ router.get("/leave_credit_usage/tardiness_posted", (req, res) => {
   });
 });
 
-router.post("/leave_credit_usage/reconcile", async (req, res) => {
+router.post("/leave_credit_usage/reconcile", requireAdmin, async (req, res) => {
   const applyFix = req.body?.fix === true;
   const conn = await getPromiseConnection();
   try {
@@ -3339,7 +3342,7 @@ router.post("/leave_credit_usage/reconcile", async (req, res) => {
 });
 
 // DELETE leave request
-router.delete("/leave_request/:id", (req, res) => {
+router.delete("/leave_request/:id", requireAdmin, (req, res) => {
   const actorEmpNum = getActorEmployeeNumber(req);
   // Fetch first so we have employee info for logging
   db.query(

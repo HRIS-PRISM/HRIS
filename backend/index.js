@@ -280,6 +280,10 @@ db.query(ensureHolidayTableSQL, (err) => {
 [
   'ALTER TABLE announcements ADD COLUMN date_start DATE NULL',
   'ALTER TABLE announcements ADD COLUMN date_end DATE NULL',
+  'ALTER TABLE announcements ADD COLUMN hr_only TINYINT(1) NOT NULL DEFAULT 0',
+  'ALTER TABLE announcements ADD COLUMN is_flexi TINYINT(1) NOT NULL DEFAULT 0',
+  'ALTER TABLE announcements ADD COLUMN flexi_hours DECIMAL(5,2) NULL',
+  'ALTER TABLE announcements ADD COLUMN flexi_custom_time TIME NULL',
 ].forEach((sql) => {
   db.query(sql, (err) => {
     if (err && err.code !== 'ER_DUP_FIELDNAME')
@@ -434,6 +438,11 @@ app.use('/EmploymentCategoryRoutes', EmployeeCategory);
 app.use('/', authRoutes);
 app.use('/', passwordRoutes);
 app.use('/', settingsRoutes);
+// Public routes (login carousel, MFA prefs, FAQs, etc.) — before routers that use router.use(authenticateToken)
+app.use('/', holidayRoutes);
+app.use('/', announcementsRoutes);
+app.use('/', suspensionsRoutes);
+app.use('/', settingsExtendedRoutes);
 app.use('/', learningRoutes);
 app.use('/', userRoutes);
 app.use('/', pageRoutes);
@@ -444,11 +453,8 @@ app.use('/', salaryRoutes);
 app.use('/', departmentRoutes);
 app.use('/', leaveRoutes);
 app.use('/', supervisorRoutes);
-app.use('/', holidayRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
-app.use('/', announcementsRoutes);
-app.use('/', suspensionsRoutes);
 app.use('/', auditRoutes);
 app.use('/', tasksRoutes);
 app.use('/', dashboardRoutes);
@@ -456,7 +462,6 @@ app.use('/', notesRoutes);
 app.use('/', eventsRoutes);
 app.use('/', notificationsRoutes);
 app.use('/', reportsRoutes);
-app.use('/', settingsExtendedRoutes);
 app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);

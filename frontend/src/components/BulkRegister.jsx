@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
+import { getAuthHeaders } from '../utils/auth';
 import LoadingOverlay from './LoadingOverlay';
 import SuccessfulOverlay from './SuccessfulOverlay';
 import {
@@ -708,7 +709,7 @@ const BulkRegister = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/excel-register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        ...getAuthHeaders(),
         body: JSON.stringify({ users }),
       });
       if (!response.ok) {

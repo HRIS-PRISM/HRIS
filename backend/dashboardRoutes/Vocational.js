@@ -5,10 +5,10 @@ const xlsx = require("xlsx");
 const uploads = multer({ dest: "uploads/" });
 const router = express.Router();
 const fs = require("fs");
-//require('dotenv').config(); // Load environment variables
+const authenticateToken = require("./authMiddleware");
 const socketService = require("../socket/socketService");
 
-//MYSQL CONNECTION
+router.use(authenticateToken);
 
 
 

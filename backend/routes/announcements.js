@@ -9,6 +9,7 @@ const {
   notifyMultipleUsers,
   notifyAnnouncementChanged,
 } = require('../socket/socketService');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -90,7 +91,7 @@ router.get('/api/announcements', (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // POST /api/announcements  – Create
 // ─────────────────────────────────────────────────────────────
-router.post('/api/announcements', upload.single('image'), (req, res) => {
+router.post('/api/announcements', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { title, about, date_start, date_end } = req.body;
   const { hr_only, is_flexi, flexi_hours, flexi_custom_time } = parseFlexiFields(req.body);
 
@@ -232,7 +233,7 @@ router.post('/api/announcements', upload.single('image'), (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // PUT /api/announcements/:id  – Update
 // ─────────────────────────────────────────────────────────────
-router.put('/api/announcements/:id', upload.single('image'), (req, res) => {
+router.put('/api/announcements/:id', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { id } = req.params;
   const { title, about, date_start, date_end } = req.body;
   const { hr_only, is_flexi, flexi_hours, flexi_custom_time } = parseFlexiFields(req.body);
@@ -289,7 +290,7 @@ router.put('/api/announcements/:id', upload.single('image'), (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // DELETE /api/announcements/:id
 // ─────────────────────────────────────────────────────────────
-router.delete('/api/announcements/:id', (req, res) => {
+router.delete('/api/announcements/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
 
   db.query('SELECT image FROM announcements WHERE id = ?', [id], (err, results) => {

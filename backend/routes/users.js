@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, requireSuperAdmin, requireSelfOrAdmin } = require('../middleware/auth');
 const transporter = require('../config/email');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
@@ -51,7 +51,7 @@ router.get('/email-domain-restriction', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update email domain restriction setting
-router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
+router.put('/email-domain-restriction', authenticateToken, requireSuperAdmin, async (req, res) => {
   const { value } = req.body;
 
   if (typeof value !== 'boolean') {
@@ -99,7 +99,7 @@ router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
 // --- NEW: Send Registration Emails Setting ---
 
 // PUT: Update send registration emails setting (DEBUG VERSION)
-router.put('/send-registration-emails', authenticateToken, async (req, res) => {
+router.put('/send-registration-emails', authenticateToken, requireAdmin, async (req, res) => {
   const { value } = req.body;
 
   console.log('--- DEBUG: Received Request ---');
@@ -164,7 +164,7 @@ router.put('/send-registration-emails', authenticateToken, async (req, res) => {
 });
 
 // POST: Broadcast Login Info ONLY to users with Default Password (Last Name)
-router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
+router.post('/broadcast-login-info', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     // Fetch all users. We need their password hash and last name to compare.
     const query = `
@@ -308,7 +308,7 @@ router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update send registration emails setting
-router.put('/send-registration-emails', authenticateToken, async (req, res) => {
+router.put('/send-registration-emails', authenticateToken, requireAdmin, async (req, res) => {
   const { value } = req.body;
 
   if (typeof value !== 'boolean') {
@@ -722,7 +722,7 @@ router.post('/register', async (req, res) => {
 });
 
 // BULK REGISTER WITH EMAIL (Updated logic with email domain validation and EMAIL SENDING TOGGLE)
-router.post('/excel-register', async (req, res) => {
+router.post('/excel-register', authenticateToken, requireAdmin, async (req, res) => {
   const { users } = req.body;
 
   if (!Array.isArray(users) || users.length === 0) {
@@ -1096,7 +1096,7 @@ router.post('/excel-register', async (req, res) => {
 });
 
 // GET ALL REGISTERED USERS WITH PAGE ACCESS AND DEPARTMENT
-router.get('/users', authenticateToken, async (req, res) => {
+router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const query = `
       SELECT 
@@ -1182,7 +1182,7 @@ router.get('/users', authenticateToken, async (req, res) => {
 
 // GET: Search users for password reset (with filtering)
 // NOTE: This route must come BEFORE /users/:employeeNumber to avoid route conflicts
-router.get('/users/search', authenticateToken, (req, res) => {
+router.get('/users/search', authenticateToken, requireAdmin, (req, res) => {
   const { q } = req.query; // Search query parameter
 
   try {
@@ -1286,7 +1286,7 @@ router.post(
 );
 
 // GET SINGLE USER WITH PAGE ACCESS
-router.get('/users/:employeeNumber', authenticateToken, async (req, res) => {
+router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), async (req, res) => {
   const { employeeNumber } = req.params;
 
   try {
@@ -1357,7 +1357,7 @@ router.get('/users/:employeeNumber', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update user role
-router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
+router.put('/users/:employeeNumber/role', authenticateToken, requireSuperAdmin, (req, res) => {
   const { employeeNumber } = req.params;
   const { role } = req.body;
 
@@ -1461,7 +1461,7 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
 });
 
 // POST: Reset password to surname and send email notification
-router.post('/users/reset-password', authenticateToken, async (req, res) => {
+router.post('/users/reset-password', authenticateToken, requireAdmin, async (req, res) => {
   const { employeeNumber } = req.body;
 
   if (!employeeNumber) {
@@ -1661,6 +1661,7 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
 router.put(
   '/users/:employeeNumber/employee-number',
   authenticateToken,
+  requireSuperAdmin,
   (req, res) => {
     const { employeeNumber } = req.params;
     const { newEmployeeNumber } = req.body;
@@ -1845,7 +1846,7 @@ router.put(
 );
 
 // PUT: Update user email (admin)
-router.put('/users/:employeeNumber/email', authenticateToken, (req, res) => {
+router.put('/users/:employeeNumber/email', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber } = req.params;
   const { email } = req.body;
 
@@ -1890,7 +1891,7 @@ router.put('/users/:employeeNumber/email', authenticateToken, (req, res) => {
 });
 
 // DELETE: Delete user
-router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
+router.delete('/users/:employeeNumber', authenticateToken, requireSuperAdmin, (req, res) => {
   const { employeeNumber } = req.params;
 
   if (!employeeNumber) {
@@ -2028,6 +2029,7 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
 router.post(
   '/users/grant-default-access',
   authenticateToken,
+  requireSuperAdmin,
   async (req, res) => {
     try {
       // Get all staff users
@@ -2119,6 +2121,7 @@ router.post(
 router.post(
   '/users/grant-default-access-administrator',
   authenticateToken,
+  requireSuperAdmin,
   async (req, res) => {
     try {
       // Get all administrator users
@@ -2219,6 +2222,7 @@ router.post(
 router.post(
   '/users/grant-role-access/:role',
   authenticateToken,
+  requireSuperAdmin,
   async (req, res) => {
     const { role } = req.params;
 

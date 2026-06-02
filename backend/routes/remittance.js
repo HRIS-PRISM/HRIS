@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
+
+router.use(authenticateToken, requireAdmin);
 
 // GET all employee remittance
 router.get('/employee-remittance', (req, res) => {
@@ -162,7 +165,3 @@ router.delete('/employee-remittance/:id', (req, res) => {
 });
 
 module.exports = router;
-
-
-
-

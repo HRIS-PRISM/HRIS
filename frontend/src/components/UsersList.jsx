@@ -9,6 +9,15 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import { getAuthHeaders } from "../utils/auth";
 import {
+  isPageAccessActive,
+  isPageAuthorizedForRole,
+  isOutOfRoleScopePage,
+  computeExpiresAtFromDuration,
+  validateExceptionDuration,
+  previewExceptionExpiry,
+  formatAccessExpiry,
+} from "../utils/pageAccessUtils";
+import {
   Paper,
   Typography,
   Table,
@@ -81,6 +90,8 @@ import {
   FilterList,
   Lock,
   LockOpen,
+  ContentCopy,
+  Schedule,
   AdminPanelSettings,
   SupervisorAccount,
   Work,
@@ -273,6 +284,24 @@ const getUserRole = () => {
   } catch { return null; }
 };
 
+const normalizePageId = (id) => Number(id);
+
+const buildAccessMap = (accessData) =>
+  (accessData || []).reduce((acc, curr) => {
+    acc[normalizePageId(curr.page_id)] = isPageAccessActive(curr);
+    return acc;
+  }, {});
+
+const buildAccessExpiryMap = (accessData) =>
+  (accessData || []).reduce((acc, curr) => {
+    if (isPageAccessActive(curr)) {
+      acc[normalizePageId(curr.page_id)] = curr.expires_at || null;
+    }
+    return acc;
+  }, {});
+
+const hasPagePrivilege = (accessMap, pageId) => !!accessMap[normalizePageId(pageId)];
+
 const useSystemSettings = () => {
   const [settings, setSettings] = useState(() => {
     try {
@@ -374,6 +403,9 @@ const UsersList = () => {
   const [confidentialPasswordInput, setConfidentialPasswordInput] = useState("");
   const [openConfidentialPassword, setOpenConfidentialPassword] = useState(!isTechnicalUser);
   const [passwordLoading, setPasswordLoading]               = useState(false);
+  const [temporaryPasswordInfo, setTemporaryPasswordInfo]   = useState(null);
+  const [tempPasswordLoading, setTempPasswordLoading]         = useState(false);
+  const [tempPasswordCountdown, setTempPasswordCountdown]     = useState("");
   const [snackbarOpen, setSnackbarOpen]                     = useState(false);
   const [snackbarMessage, setSnackbarMessage]               = useState("");
   const [userRole, setUserRole]                             = useState(detectedRole);
@@ -400,6 +432,11 @@ const UsersList = () => {
   const [selectedUser, setSelectedUser]                     = useState(null);
   const [pages, setPages]                                   = useState([]);
   const [pageAccess, setPageAccess]                         = useState({});
+  const [pageAccessExpiry, setPageAccessExpiry]             = useState({});
+  const [exceptionGrantPage, setExceptionGrantPage]         = useState(null);
+  const [exceptionGrantLoading, setExceptionGrantLoading]   = useState(false);
+  const [exceptionDuration, setExceptionDuration]           = useState("8");
+  const [exceptionDurationUnit, setExceptionDurationUnit]   = useState("hours");
   const [pageAccessLoading, setPageAccessLoading]           = useState(false);
   const [roleFilter, setRoleFilter]                         = useState("");
   const [accessChangeInProgress, setAccessChangeInProgress] = useState({});
@@ -583,13 +620,95 @@ const UsersList = () => {
     }
   };
 
+  const fetchTemporaryPassword = useCallback(async () => {
+    setTempPasswordLoading(true);
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/confidential-password/temporary`,
+        getAuthHeaders(),
+      );
+      setTemporaryPasswordInfo(response.data);
+    } catch (err) {
+      setTemporaryPasswordInfo(null);
+      setSnackbarMessage(
+        err.response?.data?.error || "Could not load temporary password.",
+      );
+      setSnackbarOpen(true);
+    } finally {
+      setTempPasswordLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!openConfidentialPassword || isTechnicalUser || moduleAuthorized) {
+      return undefined;
+    }
+    fetchTemporaryPassword();
+    const refreshTimer = setInterval(fetchTemporaryPassword, 60 * 1000);
+    return () => clearInterval(refreshTimer);
+  }, [
+    openConfidentialPassword,
+    isTechnicalUser,
+    moduleAuthorized,
+    fetchTemporaryPassword,
+  ]);
+
+  useEffect(() => {
+    if (!temporaryPasswordInfo?.validUntil) {
+      setTempPasswordCountdown("");
+      return undefined;
+    }
+    const tick = () => {
+      const remaining = new Date(temporaryPasswordInfo.validUntil).getTime() - Date.now();
+      if (remaining <= 0) {
+        setTempPasswordCountdown("Rotating…");
+        fetchTemporaryPassword();
+        return;
+      }
+      const h = Math.floor(remaining / 3600000);
+      const m = Math.floor((remaining % 3600000) / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      setTempPasswordCountdown(
+        h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`,
+      );
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [temporaryPasswordInfo, fetchTemporaryPassword]);
+
+  const handleCopyTemporaryPassword = async () => {
+    const value = temporaryPasswordInfo?.password;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setSnackbarMessage("Temporary password copied.");
+      setSnackbarOpen(true);
+    } catch {
+      setConfidentialPasswordInput(value);
+      setSnackbarMessage("Copy unavailable — password filled in the field.");
+      setSnackbarOpen(true);
+    }
+  };
+
+  const handleUseTemporaryPassword = () => {
+    if (temporaryPasswordInfo?.password) {
+      setConfidentialPasswordInput(temporaryPasswordInfo.password);
+    }
+  };
+
   // ─── Auth ──────────────────────────────────────────────────────────────────
   const handleModuleAuthorization = async () => {
     if (!confidentialPasswordInput) { setSnackbarMessage("Please enter an authorized password."); setSnackbarOpen(true); return; }
     setPasswordLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/confidential-password/verify`, { password: confidentialPasswordInput }, getAuthHeaders());
-      if (response.data.verified) { setModuleAuthorized(true); setOpenConfidentialPassword(false); setConfidentialPasswordInput(""); fetchUsers(); }
+      if (response.data.verified) {
+        setModuleAuthorized(true);
+        setOpenConfidentialPassword(false);
+        setConfidentialPasswordInput("");
+        fetchUsers();
+      }
       else { setSnackbarMessage("Password verification failed. Please try again."); setSnackbarOpen(true); setConfidentialPasswordInput(""); }
     } catch (err) { setSnackbarMessage(err.response?.data?.error || "Failed to verify password."); setSnackbarOpen(true); setConfidentialPasswordInput(""); }
     finally { setPasswordLoading(false); }
@@ -805,15 +924,16 @@ const UsersList = () => {
       if (accessResponse.ok) {
         const accessDataRaw = await accessResponse.json();
         const accessData    = Array.isArray(accessDataRaw) ? accessDataRaw : accessDataRaw.data || [];
-        const accessMap     = (accessData || []).reduce((acc, curr) => { const privilege = String(curr.page_privilege || "0"); acc[curr.page_id] = privilege !== "0" && privilege !== ""; return acc; }, {});
+        const accessMap     = buildAccessMap(accessData);
         const pagesResponse = await fetch(`${API_BASE_URL}/pages`, { method: "GET", ...authHeaders });
         if (pagesResponse.ok) {
           let pagesData      = await pagesResponse.json();
           pagesData          = Array.isArray(pagesData) ? pagesData : pagesData.pages || pagesData.data || [];
           pagesData          = (pagesData || []).sort((a, b) => (a.id || 0) - (b.id || 0));
-          const accessiblePages = pagesData.filter((page) => accessMap[page.id] === true);
-          setSelectedUserForDetails((prev) => ({ ...prev, accessiblePages, totalPages: pagesData.length, hasAccess: accessiblePages.length > 0 }));
-          const percentage = pagesData.length > 0 ? (accessiblePages.length / pagesData.length) * 100 : 0;
+          const eligiblePages   = pagesData.filter((page) => isPageAuthorizedForRole(page, user.role));
+          const accessiblePages = pagesData.filter((page) => hasPagePrivilege(accessMap, page.id));
+          setSelectedUserForDetails((prev) => ({ ...prev, accessiblePages, totalPages: eligiblePages.length, hasAccess: accessiblePages.length > 0 }));
+          const percentage = eligiblePages.length > 0 ? (accessiblePages.length / eligiblePages.length) * 100 : 0;
           let current = 0; const increment = percentage / 20;
           const timer = setInterval(() => { current += increment; if (current >= percentage) { current = percentage; clearInterval(timer); } setAnimatedValue(current); }, 50);
         }
@@ -835,8 +955,9 @@ const UsersList = () => {
         if (accessResponse.ok) {
           const accessDataRaw = await accessResponse.json();
           const accessData    = Array.isArray(accessDataRaw) ? accessDataRaw : accessDataRaw.data || [];
-          const accessMap     = (accessData || []).reduce((acc, curr) => { const privilege = String(curr.page_privilege || "0"); acc[curr.page_id] = privilege !== "0" && privilege !== ""; return acc; }, {});
+          const accessMap     = buildAccessMap(accessData);
           setPageAccess(accessMap);
+          setPageAccessExpiry(buildAccessExpiryMap(accessData));
           if (pagesData.length > 0) {
             const grouped = pagesData.reduce((acc, page) => { const desc = page.page_description || "Uncategorized"; acc[desc] = true; return acc; }, {});
             const order   = ["General","System Administration","Registration","Information Management","Attendance Management","Payroll Management","Form","Pages Management","Personal Data Sheets","Uncategorized"];
@@ -849,37 +970,174 @@ const UsersList = () => {
     finally { setPageAccessLoading(false); }
   };
 
-  const handleTogglePageAccess = async (pageId, currentAccess) => {
-    const newAccess = !currentAccess;
-    setAccessChangeInProgress((prev) => ({ ...prev, [pageId]: true }));
+  const applyPageAccessChange = async (pageId, newAccess, pageRow, expiresAt = null) => {
+    const normalizedId = normalizePageId(pageId);
+    const page =
+      pageRow || pages.find((p) => normalizePageId(p.id) === normalizedId);
+    const outOfScope =
+      page && selectedUser
+        ? isOutOfRoleScopePage(page, selectedUser.role)
+        : false;
+    setAccessChangeInProgress((prev) => ({ ...prev, [normalizedId]: true }));
     try {
       const authHeaders = getAuthHeaders();
-      if (currentAccess === false) {
-        const existingAccessResponse = await fetch(`${API_BASE_URL}/page_access/${selectedUser.employeeNumber}`, { method: "GET", ...authHeaders });
-        if (existingAccessResponse.ok) {
-          const existingAccess = await existingAccessResponse.json();
-          const existingRecord = (existingAccess || []).find((access) => access.page_id === pageId);
-          if (!existingRecord) { await fetch(`${API_BASE_URL}/page_access`,                                          { method: "POST", ...authHeaders, body: JSON.stringify({ employeeNumber: selectedUser.employeeNumber, page_id: pageId, page_privilege: newAccess ? "1" : "0" }) }); }
-          else                 { await fetch(`${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`, { method: "PUT",  ...authHeaders, body: JSON.stringify({ page_privilege: newAccess ? "1" : "0" }) }); }
+      const privilege = newAccess ? "1" : "0";
+      const existingAccessResponse = await fetch(
+        `${API_BASE_URL}/page_access/${selectedUser.employeeNumber}`,
+        { method: "GET", ...authHeaders },
+      );
+      if (!existingAccessResponse.ok) {
+        const err = await existingAccessResponse.json().catch(() => ({}));
+        setError(err.error || "Failed to load existing page access");
+        return;
+      }
+      const existingAccessRaw = await existingAccessResponse.json();
+      const existingAccess = Array.isArray(existingAccessRaw)
+        ? existingAccessRaw
+        : existingAccessRaw.data || [];
+      const existingRecord = existingAccess.find(
+        (access) => normalizePageId(access.page_id) === normalizedId,
+      );
+      let response;
+      if (existingRecord) {
+        const putBody = { page_privilege: privilege };
+        if (newAccess && outOfScope) {
+          putBody.expires_at = expiresAt;
+        } else if (!newAccess) {
+          putBody.expires_at = null;
+        } else {
+          putBody.expires_at = null;
         }
-      } else { await fetch(`${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${pageId}`, { method: "PUT", ...authHeaders, body: JSON.stringify({ page_privilege: newAccess ? "1" : "0" }) }); }
-      setPageAccess((prev) => ({ ...prev, [pageId]: newAccess }));
-      window.dispatchEvent(new Event("pageAccessUpdated"));
-    } catch { setError("Network error while updating page access"); }
-    finally { setAccessChangeInProgress((prev) => ({ ...prev, [pageId]: false })); }
+        response = await fetch(
+          `${API_BASE_URL}/page_access/${selectedUser.employeeNumber}/${normalizedId}`,
+          {
+            method: "PUT",
+            ...authHeaders,
+            body: JSON.stringify(putBody),
+          },
+        );
+      } else if (newAccess) {
+        response = await fetch(`${API_BASE_URL}/page_access`, {
+          method: "POST",
+          ...authHeaders,
+          body: JSON.stringify({
+            employeeNumber: selectedUser.employeeNumber,
+            page_id: normalizedId,
+            page_privilege: privilege,
+            expires_at: expiresAt,
+          }),
+        });
+      } else {
+        setPageAccess((prev) => ({ ...prev, [normalizedId]: false }));
+        setPageAccessExpiry((prev) => {
+          const next = { ...prev };
+          delete next[normalizedId];
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent("pageAccessUpdated", {
+            detail: { employeeNumber: selectedUser?.employeeNumber },
+          }),
+        );
+        return;
+      }
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        setError(err.error || "Failed to update page access");
+        return;
+      }
+      setPageAccess((prev) => ({ ...prev, [normalizedId]: newAccess }));
+      setPageAccessExpiry((prev) => {
+        const next = { ...prev };
+        if (newAccess && outOfScope) {
+          next[normalizedId] = expiresAt;
+        } else if (newAccess) {
+          delete next[normalizedId];
+        } else {
+          delete next[normalizedId];
+        }
+        return next;
+      });
+      window.dispatchEvent(
+        new CustomEvent("pageAccessUpdated", {
+          detail: { employeeNumber: selectedUser?.employeeNumber },
+        }),
+      );
+    } catch {
+      setError("Network error while updating page access");
+    } finally {
+      setAccessChangeInProgress((prev) => ({ ...prev, [normalizedId]: false }));
+    }
   };
 
-  const isPageAuthorizedForRole = (page, role) => {
-    const roleKey = String(role || "").trim();
-    if (!roleKey) return false;
-    const allowed = String(page?.page_group || "")
-      .split(",")
-      .map((g) => g.trim())
-      .filter(Boolean);
-    return allowed.includes(roleKey);
+  const handleTogglePageAccess = (pageId, currentAccess, pageRow) => {
+    const newAccess = !currentAccess;
+    const normalizedId = normalizePageId(pageId);
+    const page =
+      pageRow || pages.find((p) => normalizePageId(p.id) === normalizedId);
+    const outOfScope =
+      page && selectedUser
+        ? isOutOfRoleScopePage(page, selectedUser.role)
+        : false;
+
+    if (newAccess && outOfScope) {
+      setExceptionDuration("8");
+      setExceptionDurationUnit("hours");
+      setExceptionGrantPage(page);
+      return;
+    }
+
+    applyPageAccessChange(pageId, newAccess, pageRow, null);
   };
 
-  const closePageAccessDialog = () => { window.dispatchEvent(new Event("pageAccessUpdated")); setPageAccessDialog(false); setSelectedUser(null); setPages([]); setPageAccess({}); setActiveAccessCategory(null); };
+  const closeExceptionGrantDialog = () => {
+    setExceptionGrantPage(null);
+    setExceptionGrantLoading(false);
+  };
+
+  const confirmExceptionGrant = async () => {
+    if (!exceptionGrantPage || !selectedUser) return;
+    const durationError = validateExceptionDuration(
+      exceptionDuration,
+      exceptionDurationUnit,
+    );
+    if (durationError) {
+      setError(durationError);
+      return;
+    }
+    const expiresAt = computeExpiresAtFromDuration(
+      exceptionDuration,
+      exceptionDurationUnit,
+    );
+    setExceptionGrantLoading(true);
+    try {
+      await applyPageAccessChange(
+        exceptionGrantPage.id,
+        true,
+        exceptionGrantPage,
+        expiresAt,
+      );
+      closeExceptionGrantDialog();
+    } finally {
+      setExceptionGrantLoading(false);
+    }
+  };
+
+  const exceptionExpiryPreview = useMemo(
+    () => previewExceptionExpiry(exceptionDuration, exceptionDurationUnit),
+    [exceptionDuration, exceptionDurationUnit],
+  );
+
+  const closePageAccessDialog = () => {
+    closeExceptionGrantDialog();
+    window.dispatchEvent(new Event("pageAccessUpdated"));
+    setPageAccessDialog(false);
+    setSelectedUser(null);
+    setPages([]);
+    setPageAccess({});
+    setPageAccessExpiry({});
+    setActiveAccessCategory(null);
+  };
   const openUserDetails  = (user) => { setSelectedUserForDetails(user); setDetailsDrawerOpen(true); setAnimatedValue(0); fetchUserPageAccess(user); };
   const closeUserDetails = () => { setDetailsDrawerOpen(false); setSelectedUserForDetails(null); setActiveTab("info"); setAnimatedValue(0); };
 
@@ -1052,10 +1310,83 @@ const UsersList = () => {
                 <Typography sx={{ fontSize: '0.78rem', color: T.muted, mt: 0.25 }}>User Management · Restricted Module</Typography>
               </Box>
             </Box>
-            <Box sx={{ p: 2.5, mb: 3, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: 2 }}>
-              <Typography sx={{ fontSize: '0.82rem', color: T.text, lineHeight: 1.6 }}>Enter the authorized password to access this module. This action will be logged.</Typography>
+            <Box sx={{ p: 2.5, mb: 2.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: 2 }}>
+              <Typography sx={{ fontSize: '0.82rem', color: T.text, lineHeight: 1.6, mb: 2 }}>
+                Use the <strong>current temporary password</strong> below (it rotates automatically). The permanent confidential password from System Administration also works.
+              </Typography>
+              <Box sx={{ p: 2, bgcolor: T.surface, border: `1px dashed ${T.accentBorder}`, borderRadius: 2 }}>
+                <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', mb: 1 }}>
+                  Current temporary password
+                </Typography>
+                {tempPasswordLoading && !temporaryPasswordInfo ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                    <CircularProgress size={18} sx={{ color: T.accent }} />
+                    <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Loading…</Typography>
+                  </Box>
+                ) : temporaryPasswordInfo?.password ? (
+                  <>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography
+                        component="code"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontSize: '1.35rem',
+                          fontWeight: 800,
+                          letterSpacing: '0.12em',
+                          color: T.accent,
+                          flex: 1,
+                          minWidth: 140,
+                        }}
+                      >
+                        {temporaryPasswordInfo.password}
+                      </Typography>
+                      <Tooltip title="Copy password">
+                        <IconButton size="small" onClick={handleCopyTemporaryPassword} sx={{ color: T.accent }}>
+                          <ContentCopy sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 1.25, flexWrap: 'wrap' }}>
+                      <Schedule sx={{ fontSize: 14, color: T.muted }} />
+                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                        {tempPasswordCountdown
+                          ? `Next change in ${tempPasswordCountdown}`
+                          : 'Rotates on a fixed schedule'}
+                        {temporaryPasswordInfo.windowHours
+                          ? ` · every ${temporaryPasswordInfo.windowHours}h`
+                          : ''}
+                      </Typography>
+                    </Box>
+                    <AccentButton
+                      size="small"
+                      variant="outlined"
+                      onClick={handleUseTemporaryPassword}
+                      sx={{ mt: 1.5, fontSize: '0.75rem', borderColor: T.accentBorder, color: T.accent }}
+                    >
+                      Use this password
+                    </AccentButton>
+                  </>
+                ) : (
+                  <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
+                    Temporary password unavailable. Enter the permanent confidential password or contact superadmin.
+                  </Typography>
+                )}
+              </Box>
             </Box>
-            <FieldInput autoFocus margin="dense" label="Authorized Password" type="password" fullWidth value={confidentialPasswordInput} onChange={(e) => setConfidentialPasswordInput(e.target.value)} onKeyPress={(e) => { if (e.key === "Enter") handleModuleAuthorization(); }} disabled={passwordLoading} size="small" sx={{ mb: 3 }} />
+            <FieldInput
+              autoFocus
+              margin="dense"
+              label="Enter password"
+              type="text"
+              fullWidth
+              value={confidentialPasswordInput}
+              onChange={(e) => setConfidentialPasswordInput(e.target.value)}
+              onKeyPress={(e) => { if (e.key === "Enter") handleModuleAuthorization(); }}
+              disabled={passwordLoading}
+              size="small"
+              sx={{ mb: 3, '& input': { fontFamily: 'monospace', letterSpacing: '0.08em' } }}
+              placeholder="Paste or type the password above"
+            />
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1.5 }}>
               <AccentButton onClick={handleModuleAccessCancel} variant="outlined" disabled={passwordLoading} sx={{ fontSize: '0.82rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Cancel</AccentButton>
               <AccentButton onClick={handleModuleAuthorization} variant="contained" disabled={passwordLoading} startIcon={passwordLoading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Lock sx={{ fontSize: 15 }} />}
@@ -1734,7 +2065,7 @@ const UsersList = () => {
                       const isActive       = activeAccessCategory === desc;
                       const pagesInGroup   = groupedPages[desc] || [];
                       const eligiblePages  = pagesInGroup.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role));
-                      const enabledInGroup = eligiblePages.filter((pg) => pageAccess[pg.id]).length;
+                      const enabledInGroup = eligiblePages.filter((pg) => hasPagePrivilege(pageAccess, pg.id)).length;
                       const allEnabled     = enabledInGroup === eligiblePages.length && eligiblePages.length > 0;
                       return (
                         <Box key={desc} onClick={() => setActiveAccessCategory(desc)} sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 3, py: 1, cursor: 'pointer', borderLeft: isActive ? `3px solid ${T.accent}` : '3px solid transparent', bgcolor: isActive ? T.accentFaint : 'transparent', transition: 'all 0.15s', '&:hover': { bgcolor: isActive ? T.accentFaint : T.accentHover } }}>
@@ -1749,7 +2080,7 @@ const UsersList = () => {
                 </Box>
                 <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${T.divider}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: T.accentFaint }}>
                   <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>Toggle All</Typography>
-                  <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); return eligible.length > 0 && eligible.every((pg) => pageAccess[pg.id] === true); })()} onChange={(e) => { const enableAll = e.target.checked; const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); eligible.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                  <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); return eligible.length > 0 && eligible.every((pg) => hasPagePrivilege(pageAccess, pg.id) === true); })()} onChange={(e) => { const enableAll = e.target.checked; const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); eligible.forEach((page) => { if (hasPagePrivilege(pageAccess, page.id) !== enableAll) handleTogglePageAccess(page.id, !enableAll, page); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
                 </Box>
               </Box>
               {/* Center panel */}
@@ -1767,7 +2098,7 @@ const UsersList = () => {
                   const pagesInGroup  = groupedPages[activeAccessCategory] || [];
                   const descInfo      = getDescriptionColor(activeAccessCategory, settings);
                   const eligiblePages = pagesInGroup.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role));
-                  const enabledCount  = eligiblePages.filter((pg) => pageAccess[pg.id]).length;
+                  const enabledCount  = eligiblePages.filter((pg) => hasPagePrivilege(pageAccess, pg.id)).length;
                   return (
                     <Fade in={!!activeAccessCategory} timeout={250} key={activeAccessCategory}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -1778,29 +2109,52 @@ const UsersList = () => {
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.muted }}>Toggle All</Typography>
-                            <Switch size="small" checked={enabledCount === eligiblePages.length && eligiblePages.length > 0} onChange={(e) => { const enableAll = e.target.checked; eligiblePages.forEach((page) => { if (pageAccess[page.id] !== enableAll) handleTogglePageAccess(page.id, !enableAll); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                            <Switch size="small" checked={enabledCount === eligiblePages.length && eligiblePages.length > 0} onChange={(e) => { const enableAll = e.target.checked; eligiblePages.forEach((page) => { if (hasPagePrivilege(pageAccess, page.id) !== enableAll) handleTogglePageAccess(page.id, !enableAll, page); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
                           </Box>
                         </Box>
                         <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
                           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                             {pagesInGroup.map((page) => {
-                              const userRoleInPageGroup = isPageAuthorizedForRole(page, selectedUser?.role);
-                              const isEnabled = userRoleInPageGroup && !!pageAccess[page.id];
+                              const inScope = isPageAuthorizedForRole(page, selectedUser?.role);
+                              const isEnabled = hasPagePrivilege(pageAccess, page.id);
+                              const isTemporary = isEnabled && !inScope;
+                              const statusLabel = isTemporary
+                                ? 'Temporary'
+                                : inScope
+                                  ? (isEnabled ? 'Enabled' : 'Disabled')
+                                  : 'Not Authorized';
+                              const statusColor = isTemporary
+                                ? '#c2410c'
+                                : isEnabled
+                                  ? '#16a34a'
+                                  : inScope
+                                    ? '#9ca3af'
+                                    : '#ef4444';
                               return (
                                 <Box key={page.id} sx={{ display: 'flex', alignItems: 'center', px: 3, py: 1.75, bgcolor: T.surface, border: `1px solid ${T.accentBorder}`, borderRadius: 2, '&:hover': { boxShadow: `0 2px 8px rgba(0,0,0,0.06)` }, transition: 'box-shadow 0.15s' }}>
                                   <Box sx={{ flex: 1, minWidth: 0 }}>
                                     <Typography sx={{ fontWeight: 600, fontSize: '0.875rem', color: T.text, mb: 0.25 }}>{page.page_name}</Typography>
                                     <Typography sx={{ fontSize: '0.67rem', color: T.faint }}>ID: {page.id}{page.page_url && ` · ${page.page_url}`}</Typography>
+                                    {isTemporary && (
+                                      <Typography sx={{ fontSize: '0.62rem', color: '#c2410c', mt: 0.35 }}>
+                                        Expires: {formatAccessExpiry(pageAccessExpiry[normalizePageId(page.id)])}
+                                      </Typography>
+                                    )}
+                                    {!inScope && !isEnabled && (
+                                      <Typography sx={{ fontSize: '0.62rem', color: T.faint, mt: 0.35 }}>
+                                        Outside {selectedUser?.role} role — enable to open confirmation
+                                      </Typography>
+                                    )}
                                   </Box>
                                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                                    {accessChangeInProgress[page.id] ? <CircularProgress size={18} sx={{ color: T.accent }} /> : (
+                                    {accessChangeInProgress[normalizePageId(page.id)] ? <CircularProgress size={18} sx={{ color: T.accent }} /> : (
                                       <>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.35, borderRadius: '20px', bgcolor: isEnabled ? alpha('#16a34a', 0.08) : userRoleInPageGroup ? alpha('#6b7280', 0.07) : alpha('#ef4444', 0.07), border: `1px solid ${isEnabled ? alpha('#16a34a', 0.25) : userRoleInPageGroup ? alpha('#9ca3af', 0.2) : alpha('#ef4444', 0.25)}` }}>
-                                          {isEnabled ? <LockOpen sx={{ fontSize: 10, color: '#16a34a' }} /> : <Lock sx={{ fontSize: 10, color: userRoleInPageGroup ? '#9ca3af' : '#ef4444' }} />}
-                                          <Typography sx={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: isEnabled ? '#16a34a' : userRoleInPageGroup ? '#9ca3af' : '#ef4444' }}>{isEnabled ? 'Enabled' : userRoleInPageGroup ? 'Disabled' : 'Not Authorized'}</Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.35, borderRadius: '20px', bgcolor: alpha(statusColor, 0.08), border: `1px solid ${alpha(statusColor, 0.25)}` }}>
+                                          {isEnabled ? <LockOpen sx={{ fontSize: 10, color: statusColor }} /> : <Lock sx={{ fontSize: 10, color: statusColor }} />}
+                                          <Typography sx={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: statusColor }}>{statusLabel}</Typography>
                                         </Box>
-                                        <Tooltip title={userRoleInPageGroup ? '' : `Not available for ${selectedUser?.role}`}>
-                                          <Switch checked={isEnabled} disabled={!userRoleInPageGroup} onChange={() => handleTogglePageAccess(page.id, isEnabled)} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                                        <Tooltip title={inScope ? '' : 'Opens a warning — temporary access outside role (max 1 day)'}>
+                                          <Switch checked={isEnabled} onChange={() => handleTogglePageAccess(page.id, isEnabled, page)} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: isTemporary ? '#c2410c' : '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: isTemporary ? '#c2410c' : '#16a34a' } }} />
                                         </Tooltip>
                                       </>
                                     )}
@@ -1822,17 +2176,23 @@ const UsersList = () => {
                     <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#16a34a', flexShrink: 0 }} />
                     <Typography sx={{ fontSize: '0.55rem', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Accessible Pages</Typography>
                   </Box>
-                  <Typography sx={{ fontSize: '0.7rem', color: T.muted, pl: 2.25 }}>{!pageAccessLoading && pages.length > 0 ? (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); const enabled = eligible.filter((pg) => pageAccess[pg.id]).length; return `${enabled} of ${eligible.length} total`; })() : '—'}</Typography>
+                  <Typography sx={{ fontSize: '0.7rem', color: T.muted, pl: 2.25 }}>{!pageAccessLoading && pages.length > 0 ? (() => { const enabled = pages.filter((pg) => hasPagePrivilege(pageAccess, pg.id)).length; const temp = pages.filter((pg) => hasPagePrivilege(pageAccess, pg.id) && isOutOfRoleScopePage(pg, selectedUser?.role)).length; return `${enabled} active${temp ? ` (${temp} temporary)` : ''}`; })() : '—'}</Typography>
                 </Box>
                 <Box sx={{ flex: 1, overflowY: 'auto', py: 1.5, '&::-webkit-scrollbar': { width: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: alpha('#16a34a', 0.2), borderRadius: 2 } }}>
-                  {pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role) && pageAccess[pg.id]).length > 0 ? (
+                  {pages.filter((pg) => hasPagePrivilege(pageAccess, pg.id)).length > 0 ? (
                     <Box sx={{ px: 1.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                      {pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role) && pageAccess[pg.id]).map((page) => {
+                      {pages.filter((pg) => hasPagePrivilege(pageAccess, pg.id)).map((page) => {
                         const isInActiveCategory = activeAccessCategory && (page.page_description || "Uncategorized") === activeAccessCategory;
+                        const isTemp = isOutOfRoleScopePage(page, selectedUser?.role);
                         return (
-                          <Box key={page.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.25, py: 0.75, borderRadius: 1.5, bgcolor: isInActiveCategory ? alpha('#16a34a', 0.1) : alpha('#16a34a', 0.04), border: `1px solid ${isInActiveCategory ? alpha('#16a34a', 0.25) : alpha('#16a34a', 0.1)}`, transition: 'all 0.15s' }}>
-                            <CheckCircle sx={{ fontSize: 10, color: '#16a34a', flexShrink: 0, opacity: isInActiveCategory ? 1 : 0.6 }} />
-                            <Typography sx={{ fontSize: '0.72rem', fontWeight: isInActiveCategory ? 700 : 500, color: isInActiveCategory ? '#15803d' : T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{page.page_name}</Typography>
+                          <Box key={page.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.25, py: 0.75, borderRadius: 1.5, bgcolor: isInActiveCategory ? alpha(isTemp ? '#c2410c' : '#16a34a', 0.1) : alpha(isTemp ? '#c2410c' : '#16a34a', 0.04), border: `1px solid ${isInActiveCategory ? alpha(isTemp ? '#c2410c' : '#16a34a', 0.25) : alpha(isTemp ? '#c2410c' : '#16a34a', 0.1)}`, transition: 'all 0.15s' }}>
+                            <CheckCircle sx={{ fontSize: 10, color: isTemp ? '#c2410c' : '#16a34a', flexShrink: 0, opacity: isInActiveCategory ? 1 : 0.6 }} />
+                            <Box sx={{ minWidth: 0, flex: 1 }}>
+                              <Typography sx={{ fontSize: '0.72rem', fontWeight: isInActiveCategory ? 700 : 500, color: isInActiveCategory ? (isTemp ? '#c2410c' : '#15803d') : T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{page.page_name}</Typography>
+                              {isTemp && (
+                                <Typography sx={{ fontSize: '0.58rem', color: T.faint }}>{formatAccessExpiry(pageAccessExpiry[normalizePageId(page.id)])}</Typography>
+                              )}
+                            </Box>
                           </Box>
                         );
                       })}
@@ -1855,6 +2215,91 @@ const UsersList = () => {
             onClick={() => { window.dispatchEvent(new CustomEvent("pageAccessUpdated", { detail: { employeeNumber: selectedUser?.employeeNumber } })); setSuccessAction("edit"); setSuccessOpen(true); closePageAccessDialog(); }}
             sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}>
             Save & Close
+          </AccentButton>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Out-of-role temporary access warning ── */}
+      <Dialog
+        open={!!exceptionGrantPage}
+        onClose={closeExceptionGrantDialog}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+        slotProps={{ backdrop: { sx: { bgcolor: 'rgba(0,0,0,0.55)' } } }}
+        sx={{ zIndex: (theme) => theme.zIndex.modal + 2 }}
+      >
+        <DialogAccentBar />
+        <Box sx={{ px: 3, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${T.divider}` }}>
+          <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: alpha('#c2410c', 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <WarningAmberRounded sx={{ fontSize: 22, color: '#c2410c' }} />
+          </Box>
+          <Box>
+            <Typography sx={{ fontWeight: 700, fontSize: '0.95rem', color: T.text }}>Outside role scope</Typography>
+            <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2 }}>Temporary access only (max 1 day)</Typography>
+          </Box>
+        </Box>
+        <DialogContent sx={{ p: 3 }}>
+          {exceptionGrantPage && selectedUser && (
+            <>
+              <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2 }} icon={<WarningAmberRounded />}>
+                <Typography sx={{ fontSize: '0.82rem', lineHeight: 1.55 }}>
+                  <strong>{exceptionGrantPage.page_name}</strong> is not normally available for the{' '}
+                  <strong>{selectedUser.role}</strong> role. Continuing grants temporary access only.
+                </Typography>
+              </Alert>
+              <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.muted, mb: 1 }}>How long should access last?</Typography>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Duration"
+                  value={exceptionDuration}
+                  onChange={(e) => setExceptionDuration(e.target.value)}
+                  inputProps={{ min: 1, max: exceptionDurationUnit === 'days' ? 1 : 24, step: 1 }}
+                  sx={{ flex: 1 }}
+                />
+                <FormControl size="small" sx={{ minWidth: 100 }}>
+                  <InputLabel>Unit</InputLabel>
+                  <Select
+                    label="Unit"
+                    value={exceptionDurationUnit}
+                    onChange={(e) => setExceptionDurationUnit(e.target.value)}
+                  >
+                    <MenuItem value="hours">Hours</MenuItem>
+                    <MenuItem value="days">Days</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+              <Typography sx={{ fontSize: '0.68rem', color: T.faint, mb: 1.5 }}>
+                Maximum allowed: 24 hours or 1 day.
+              </Typography>
+              {exceptionExpiryPreview.expiresAt && !exceptionExpiryPreview.error && (
+                <Box sx={{ p: 2, borderRadius: 2, bgcolor: alpha('#c2410c', 0.06), border: `1px solid ${alpha('#c2410c', 0.2)}` }}>
+                  <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.08em', mb: 0.5 }}>Access will expire on</Typography>
+                  <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                    {formatAccessExpiry(exceptionExpiryPreview.expiresAt)}
+                  </Typography>
+                </Box>
+              )}
+              {exceptionExpiryPreview.error && (
+                <Typography sx={{ fontSize: '0.75rem', color: '#b91c1c' }}>{exceptionExpiryPreview.error}</Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2.5, gap: 1.25, borderTop: `1px solid ${T.divider}` }}>
+          <AccentButton onClick={closeExceptionGrantDialog} variant="outlined" disabled={exceptionGrantLoading} sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted }}>
+            Cancel
+          </AccentButton>
+          <AccentButton
+            onClick={confirmExceptionGrant}
+            variant="contained"
+            disabled={exceptionGrantLoading || !!exceptionExpiryPreview.error || !exceptionExpiryPreview.expiresAt}
+            startIcon={exceptionGrantLoading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <CheckCircle sx={{ fontSize: 14 }} />}
+            sx={{ fontSize: '0.8rem', bgcolor: '#c2410c', color: '#fff', '&:hover': { bgcolor: '#9a3412' } }}
+          >
+            {exceptionGrantLoading ? 'Granting…' : 'Continue & grant access'}
           </AccentButton>
         </DialogActions>
       </Dialog>

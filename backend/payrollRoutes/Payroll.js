@@ -1,41 +1,8 @@
 const db = require('../db');
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { logAudit } = require('../middleware/auth');
-
-const getUserDisplayName = (user) => {
-  const parts = [user.firstName, user.lastName].filter(Boolean);
-  return parts.length > 0 ? parts.join(' ') : (user.username || user.employeeNumber || 'Unknown');
-};
-
-// ─────────────────────────────────────────────
-// MIDDLEWARE
-// ─────────────────────────────────────────────
-
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  console.log('Auth header:', authHeader);
-  console.log('Token:', token ? 'Token exists' : 'No token');
-
-  if (!token) return res.status(401).json({ error: 'No token provided' });
-
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
-    if (err) {
-      console.log('JWT verification error:', err.message);
-      return res.status(403).json({ error: 'Invalid token' });
-    }
-    console.log('Decoded JWT:', user);
-    req.user = user;
-    next();
-  });
-}
-
-
-
+const { authenticateToken, requireAdmin, logAudit } = require('../middleware/auth');
 // ─────────────────────────────────────────────
 // UTILITY: time helpers
 // ─────────────────────────────────────────────
@@ -51,11 +18,16 @@ function decimalHoursToClockParts(totalHours) {
   return { h: pad2(hNum), m: pad2(mNum), s: pad2(sNum) };
 }
 
+const getUserDisplayName = (user) => {
+  const parts = [user.firstName, user.lastName].filter(Boolean);
+  return parts.length > 0 ? parts.join(' ') : (user.username || user.employeeNumber || 'Unknown');
+};
+
 // ─────────────────────────────────────────────
 // ROUTES
 // ─────────────────────────────────────────────
 
-router.get('/test-auth', authenticateToken, (req, res) => {
+router.get('/test-auth', authenticateToken, requireAdmin, (req, res) => {
   res.json({
     message: 'Authentication successful',
     user: req.user,
@@ -63,7 +35,7 @@ router.get('/test-auth', authenticateToken, (req, res) => {
   });
 });
 
-router.get('/payroll', authenticateToken, (req, res) => {
+router.get('/payroll', authenticateToken, requireAdmin, (req, res) => {
   const sql = 'SELECT * FROM payroll_processing WHERE rh IS NULL OR rh = ""';
   db.query(sql, (err, results) => {
     if (err) return res.status(500).json({ error: err });
@@ -71,7 +43,7 @@ router.get('/payroll', authenticateToken, (req, res) => {
   });
 });
 
-router.get('/payroll/search', authenticateToken, (req, res) => {
+router.get('/payroll/search', authenticateToken, requireAdmin, (req, res) => {
   const { searchTerm } = req.query;
 
   const query = `
@@ -221,7 +193,7 @@ router.get('/payroll/search', authenticateToken, (req, res) => {
   });
 });
 
-router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
+router.get('/payroll-with-remittance', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber, startDate, endDate, searchTerm } = req.query; // ← add searchTerm
 
   if (employeeNumber && startDate && endDate) {
@@ -399,6 +371,7 @@ router.get('/payroll-with-remittance', authenticateToken, (req, res) => {
 router.put(
   '/payroll-with-remittance/:employeeNumber/:startDate/:endDate',
   authenticateToken,
+  requireAdmin,
   (req, res) => {
     const { employeeNumber, startDate, endDate } = req.params;
     const {
@@ -711,6 +684,7 @@ router.put(
 router.delete(
   '/payroll-with-remittance/:id/:employeeNumber',
   authenticateToken,
+  requireAdmin,
   (req, res) => {
     const { id, employeeNumber } = req.params;
 
@@ -744,7 +718,7 @@ router.delete(
   },
 );
 
-router.post('/add-rendered-time', authenticateToken, async (req, res) => {
+router.post('/add-rendered-time', authenticateToken, requireAdmin, async (req, res) => {
   const attendanceData = req.body;
 
   if (!Array.isArray(attendanceData)) {
@@ -950,7 +924,7 @@ router.post('/add-rendered-time', authenticateToken, async (req, res) => {
 // GET payroll-processed
 // ─────────────────────────────────────────────
 
-router.get('/payroll-processed', authenticateToken, (req, res) => {
+router.get('/payroll-processed', authenticateToken, requireAdmin, (req, res) => {
   const query = `
     SELECT pp.*, COALESCE(ec.employmentCategory, -1) AS employmentCategory
     FROM payroll_processed pp
@@ -969,7 +943,7 @@ router.get('/payroll-processed', authenticateToken, (req, res) => {
 });
 
 
-router.post('/payroll-processed', authenticateToken, async (req, res) => {
+router.post('/payroll-processed', authenticateToken, requireAdmin, async (req, res) => {
   const payrollData = req.body;
 
   if (!Array.isArray(payrollData) || payrollData.length === 0) {
@@ -1082,7 +1056,7 @@ router.post('/payroll-processed', authenticateToken, async (req, res) => {
 // DELETE payroll-processed/:id
 // ─────────────────────────────────────────────
 
-router.delete('/payroll-processed/:id', authenticateToken, async (req, res) => {
+router.delete('/payroll-processed/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   const connection = await db.promise().getConnection();

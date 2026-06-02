@@ -7,8 +7,9 @@ const fs = require("fs"); // Import file system module
 const xlsx = require("xlsx");
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
+const authenticateToken = require("./authMiddleware");
 
-
+router.use(authenticateToken);
 
 
 

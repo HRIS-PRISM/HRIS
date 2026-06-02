@@ -170,30 +170,6 @@ const Register = () => {
       });
 
       if (res.ok) {
-        const roleRes = await fetch(`${API_BASE_URL}/users/${employeeNumber}/role`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role }),
-        });
-        if (!roleRes.ok) console.error("Failed to update role");
-
-        if (["superadmin", "administrator", "technical"].includes(role)) {
-          try {
-            const pagesRes = await fetch(`${API_BASE_URL}/api/pages`);
-            if (pagesRes.ok) {
-              for (const page of await pagesRes.json()) {
-                await fetch(`${API_BASE_URL}/api/page-access`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ employeeNumber, pageId: page.id, privilege: "1" }),
-                });
-              }
-            }
-          } catch (err) {
-            console.error("Error granting page access:", err);
-          }
-        }
-
         setTimeout(() => {
           setIsLoading(false);
           setSuccessMessage("Account created successfully! Redirecting to login…");

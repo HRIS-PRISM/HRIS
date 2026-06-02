@@ -1,4 +1,5 @@
 import API_BASE_URL from "../apiConfig";
+import { getAuthHeaders } from "../utils/auth";
 import React, {
   useState,
   useEffect,
@@ -741,6 +742,7 @@ const useAuth = () => {
       try {
         const res = await axios.get(
           `${API_BASE_URL}/personalinfo/person_table`,
+          getAuthHeaders(),
         );
         const list = Array.isArray(res.data) ? res.data : [];
         const match = list.find(
@@ -844,15 +846,14 @@ const useDashboardData = (settings) => {
   const fetchAllDataRef = useRef(null);
   fetchAllDataRef.current = () => {
     const s = settingsRef.current;
-    const token = localStorage.getItem("token");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const auth = getAuthHeaders();
 
     setLoading(true);
     setLoadingPayroll(true);
     setLoadingCarousel(true);
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/stats`, { headers })
+      .get(`${API_BASE_URL}/api/dashboard/stats`, auth)
       .then((res) => {
         const dashStats = res.data;
         const totalEmp = dashStats.totalEmployees || 0;
@@ -876,7 +877,7 @@ const useDashboardData = (settings) => {
       .finally(() => setLoading(false));
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/payroll-summary`, { headers })
+      .get(`${API_BASE_URL}/api/dashboard/payroll-summary`, auth)
       .then((res) => {
         const p = res.data;
         setStats((prev) => ({
@@ -898,9 +899,9 @@ const useDashboardData = (settings) => {
       .finally(() => setLoadingPayroll(false));
 
     Promise.allSettled([
-      axios.get(`${API_BASE_URL}/api/announcements`, { headers }),
-      axios.get(`${API_BASE_URL}/api/suspensions`, { headers }),
-      axios.get(`${API_BASE_URL}/holiday`, { headers }),
+      axios.get(`${API_BASE_URL}/api/announcements`, auth),
+      axios.get(`${API_BASE_URL}/api/suspensions`, auth),
+      axios.get(`${API_BASE_URL}/holiday`, auth),
     ])
       .then(([annRes, suspRes, holidayRes]) => {
         if (annRes.status === "fulfilled") {
@@ -980,7 +981,7 @@ const useDashboardData = (settings) => {
       .finally(() => setLoadingCarousel(false));
 
     axios
-      .get(`${API_BASE_URL}/PayrollRoute/finalized-payroll`, { headers })
+      .get(`${API_BASE_URL}/PayrollReleasedRoute/released-payroll`, auth)
       .then((res) => {
         const payslipCount = Array.isArray(res.data) ? res.data.length : 0;
         setStats((prev) => ({ ...prev, payslipCount }));
@@ -988,9 +989,7 @@ const useDashboardData = (settings) => {
       .catch((err) => console.error("payslip count failed:", err?.message));
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/attendance-overview?days=5`, {
-        headers,
-      })
+      .get(`${API_BASE_URL}/api/dashboard/attendance-overview?days=5`, auth)
       .then((res) => {
         setWeeklyAttendanceData(
           Array.isArray(res.data)
@@ -1006,7 +1005,7 @@ const useDashboardData = (settings) => {
       .catch((err) => console.error("weekly attendance failed:", err?.message));
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/department-distribution`, { headers })
+      .get(`${API_BASE_URL}/api/dashboard/department-distribution`, auth)
       .then((res) => {
         setDepartmentAttendanceData(
           Array.isArray(res.data)
@@ -1022,7 +1021,7 @@ const useDashboardData = (settings) => {
       .catch((err) => console.error("dept distribution failed:", err?.message));
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/monthly-attendance`, { headers })
+      .get(`${API_BASE_URL}/api/dashboard/monthly-attendance`, auth)
       .then((res) => {
         const monthlyData = res.data;
         if (Array.isArray(monthlyData) && monthlyData.length > 0) {
@@ -1811,7 +1810,7 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
 
   useEffect(() => {
     axios
-      .get(`${API_BASE_URL}/tasks`)
+      .get(`${API_BASE_URL}/tasks`, getAuthHeaders())
       .then((res) => {
         if (Array.isArray(res.data)) setTasks(res.data);
       })
@@ -1821,14 +1820,14 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
   useEffect(() => {
     if (!employeeNumber) return;
     axios
-      .get(`${API_BASE_URL}/api/events/${employeeNumber}`)
+      .get(`${API_BASE_URL}/api/events/${employeeNumber}`, getAuthHeaders())
       .then((res) => setEvents(Array.isArray(res.data) ? res.data : []))
       .catch(() => setEvents([]));
   }, [employeeNumber]);
 
   const handleToggleTask = async (id) => {
     try {
-      await axios.put(`${API_BASE_URL}/tasks/${id}/toggle`);
+      await axios.put(`${API_BASE_URL}/tasks/${id}/toggle`, {}, getAuthHeaders());
       setTasks(
         tasks.map((task) =>
           task.id === id ? { ...task, completed: !task.completed } : task,
@@ -1841,7 +1840,7 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
   const handleAddTask = async () => {
     if (!newTask.title.trim()) return;
     try {
-      const res = await axios.post(`${API_BASE_URL}/tasks`, newTask);
+      const res = await axios.post(`${API_BASE_URL}/tasks`, newTask, getAuthHeaders());
       setTasks([res.data, ...tasks]);
       setNewTask({ title: "", priority: "medium" });
       setAddTaskOpen(false);
@@ -1853,7 +1852,7 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
   };
   const handleDeleteTask = async (id) => {
     try {
-      await axios.delete(`${API_BASE_URL}/tasks/${id}`);
+      await axios.delete(`${API_BASE_URL}/tasks/${id}`, getAuthHeaders());
       setTasks(tasks.filter((task) => task.id !== id));
     } catch (err) {
       console.error("Error deleting task:", err);
@@ -1867,7 +1866,7 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
         date: newEvent.date,
         title: newEvent.title,
         description: newEvent.description || "",
-      });
+      }, getAuthHeaders());
       setEvents([res.data, ...events]);
       setNewEvent({
         date: new Date().toISOString().split("T")[0],
@@ -1883,7 +1882,7 @@ const TasksAndEvents = ({ settings, employeeNumber }) => {
   };
   const handleDeleteEvent = async (id) => {
     try {
-      await axios.delete(`${API_BASE_URL}/api/events/${id}`);
+      await axios.delete(`${API_BASE_URL}/api/events/${id}`, getAuthHeaders());
       setEvents(events.filter((e) => e.id !== id));
     } catch (err) {
       console.error("Error deleting event:", err);
@@ -2408,10 +2407,9 @@ const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
     if (!employeeNumber) return;
     const fetchPayroll = async () => {
       try {
-        const token = localStorage.getItem("token");
         const res = await axios.get(
           `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
-          { headers: { Authorization: `Bearer ${token}` } },
+          getAuthHeaders(),
         );
         setAllPayroll(Array.isArray(res.data) ? res.data : []);
       } catch {}
@@ -2425,8 +2423,8 @@ const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
       setLeaveLoading(true);
       try {
         const [typesRes, assignmentsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_table`),
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`),
+          axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
         ]);
         const userAssignments = assignmentsRes.data.filter(
           (a) => a.employeeNumber?.toString() === employeeNumber?.toString(),
@@ -3236,6 +3234,7 @@ const AdminHome = () => {
     try {
       const notifRes = await axios.get(
         `${API_BASE_URL}/api/notifications/${empNum}`,
+        getAuthHeaders(),
       );
       const filteredNotifications = Array.isArray(notifRes.data)
         ? notifRes.data.filter(
@@ -3256,10 +3255,7 @@ const AdminHome = () => {
       );
       if (contactNotifs.length > 0) {
         try {
-          const token = localStorage.getItem("token");
-          const ticketsRes = await axios.get(`${API_BASE_URL}/api/contact-us`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const ticketsRes = await axios.get(`${API_BASE_URL}/api/contact-us`, getAuthHeaders());
           const ticketList = ticketsRes.data?.data || ticketsRes.data || [];
           const ticketIdMap = {};
           ticketList.forEach((t) => {
@@ -3296,7 +3292,7 @@ const AdminHome = () => {
       );
       if (announcementNotifs.length > 0) {
         try {
-          const annRes = await axios.get(`${API_BASE_URL}/api/announcements`);
+          const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
           const announcementList = Array.isArray(annRes.data)
             ? annRes.data
             : [];
@@ -3340,12 +3336,10 @@ const AdminHome = () => {
   const handleNotificationClick = async (notification) => {
     if (notification.read_status === 0) {
       try {
-        const token = localStorage.getItem("token");
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
         await axios.put(
           `${API_BASE_URL}/api/notifications/${notification.id}/read`,
           {},
-          { headers },
+          getAuthHeaders(),
         );
         setNotifications((prev) =>
           prev.map((n) =>
@@ -3388,11 +3382,7 @@ const AdminHome = () => {
       });
     } else if (type === "announcement" || link.includes("announcement")) {
       try {
-        const token = localStorage.getItem("token");
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, {
-          headers,
-        });
+        const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
         const list = Array.isArray(annRes.data) ? annRes.data : [];
         let match = notification.announcement_id
           ? list.find(
@@ -3466,15 +3456,14 @@ const AdminHome = () => {
   const markAllNotificationsAsRead = useCallback(async () => {
     const unread = (notifications || []).filter((n) => n.read_status === 0);
     if (!unread.length) return;
-    const token = localStorage.getItem("token");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const auth = getAuthHeaders();
     try {
       await Promise.allSettled(
         unread.map((n) =>
           axios.put(
             `${API_BASE_URL}/api/notifications/${n.id}/read`,
             {},
-            { headers },
+            auth,
           ),
         ),
       );

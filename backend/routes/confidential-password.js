@@ -2,34 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
-const { authenticateToken, logAudit } = require('../middleware/auth');
-
-// Middleware to check if user is superadmin
-const requireSuperAdmin = (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  // Get user role from database
-  const query = 'SELECT role FROM users WHERE employeeNumber = ?';
-  db.query(query, [req.user.employeeNumber], (err, results) => {
-    if (err) {
-      console.error('Error checking user role:', err);
-      return res.status(500).json({ error: 'Failed to verify user role' });
-    }
-
-    if (results.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const userRole = results[0].role;
-    if (userRole !== 'superadmin' && userRole !== 'technical') {
-      return res.status(403).json({ error: 'Access denied. Superadmin role required.' });
-    }
-
-    next();
-  });
-};
+const { authenticateToken, logAudit, requireSuperAdmin, requireAdmin } = require('../middleware/auth');
+const {
+  getCurrentTemporaryPassword,
+  verifyTemporaryPassword,
+} = require('../utils/temporaryConfidentialPassword');
 
 // GET: Check if password exists (superadmin only)
 router.get('/api/confidential-password/exists', authenticateToken, requireSuperAdmin, (req, res) => {
@@ -120,7 +97,21 @@ router.post('/api/confidential-password', authenticateToken, requireSuperAdmin, 
   }
 });
 
-// POST: Verify confidential password (for payroll deletion and audit log viewing)
+// GET: Current rotating temporary password (admin roles — shown in module unlock modals)
+router.get('/api/confidential-password/temporary', authenticateToken, requireAdmin, (req, res) => {
+  try {
+    const info = getCurrentTemporaryPassword();
+    res.json({
+      ...info,
+      note: 'This password rotates automatically. The permanent password from System Administration still works.',
+    });
+  } catch (error) {
+    console.error('Error generating temporary password:', error);
+    res.status(500).json({ error: 'Failed to generate temporary password' });
+  }
+});
+
+// POST: Verify confidential password (static or current rotating temporary)
 router.post('/api/confidential-password/verify', authenticateToken, async (req, res) => {
   const { password } = req.body;
 
@@ -129,6 +120,14 @@ router.post('/api/confidential-password/verify', authenticateToken, async (req, 
   }
 
   try {
+    if (verifyTemporaryPassword(password)) {
+      return res.json({
+        verified: true,
+        message: 'Temporary password verified successfully',
+        method: 'temporary',
+      });
+    }
+
     const query = 'SELECT password_hash FROM confidential_password ORDER BY id DESC LIMIT 1';
     db.query(query, async (err, results) => {
       if (err) {
@@ -137,16 +136,23 @@ router.post('/api/confidential-password/verify', authenticateToken, async (req, 
       }
 
       if (results.length === 0) {
-        return res.status(404).json({ error: 'Confidential password not set. Please contact superadmin.' });
+        return res.status(401).json({
+          error:
+            'Incorrect password. Use the current temporary password shown in this dialog, or ask superadmin to set a permanent confidential password.',
+        });
       }
 
       const isMatch = await bcrypt.compare(password, results[0].password_hash);
-      
+
       if (!isMatch) {
         return res.status(401).json({ error: 'Incorrect password' });
       }
 
-      res.json({ verified: true, message: 'Password verified successfully' });
+      res.json({
+        verified: true,
+        message: 'Password verified successfully',
+        method: 'permanent',
+      });
     });
   } catch (error) {
     console.error('Error verifying password:', error);

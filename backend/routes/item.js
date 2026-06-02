@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin } = require('../middleware/auth');
 const { notifyPayrollChanged } = require('../socket/socketService');
+
+router.use(authenticateToken, requireAdmin);
 const {
   fillExemptAttendanceForEmployeeOfficialRanges,
 } = require('../services/autoAttendanceService');
@@ -21,7 +23,7 @@ async function triggerExemptAutoFill(employeeID) {
 }
 
 // GET all item table records
-router.get('/api/item-table', authenticateToken, (req, res) => {
+router.get('/api/item-table', (req, res) => {
   const sql = `
     SELECT 
       id, 
@@ -81,7 +83,7 @@ router.get('/api/item-table', authenticateToken, (req, res) => {
 });
 
 // POST: Add new item
-router.post('/api/item-table', authenticateToken, (req, res) => {
+router.post('/api/item-table', (req, res) => {
   const {
     item_description,
     employeeID,
@@ -191,7 +193,7 @@ router.post('/api/item-table', authenticateToken, (req, res) => {
 });
 
 // PUT: Update item
-router.put('/api/item-table/:id', authenticateToken, (req, res) => {
+router.put('/api/item-table/:id', (req, res) => {
   const { id } = req.params;
   const {
     item_description,
@@ -337,7 +339,7 @@ router.put('/api/item-table/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE: Delete item
-router.delete('/api/item-table/:id', authenticateToken, (req, res) => {
+router.delete('/api/item-table/:id', (req, res) => {
   const { id } = req.params;
   db.query('DELETE FROM item_table WHERE id = ?', [id], (err, result) => {
     if (err) {

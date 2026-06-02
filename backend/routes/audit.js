@@ -33,10 +33,11 @@ const canAccessAuditLogs = (req, callback) => {
     const pageId = pageRows[0].id;
     const accessQuery = `
       SELECT 1
-      FROM page_access
-      WHERE employeeNumber = ?
-        AND page_id = ?
-        AND COALESCE(page_privilege, '') NOT IN ('', '0')
+      FROM page_access pa
+      WHERE pa.employeeNumber = ?
+        AND pa.page_id = ?
+        AND COALESCE(pa.page_privilege, '') NOT IN ('', '0')
+        AND (pa.expires_at IS NULL OR pa.expires_at > NOW())
       LIMIT 1
     `;
 

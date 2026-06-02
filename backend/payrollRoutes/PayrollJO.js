@@ -2,14 +2,14 @@ const db = require("../db");
 const express = require('express');
 const router = express.Router();
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, requireSelfOrAdmin } = require('../middleware/auth');
 
 // =========================
 // CRUD ROUTES
 // =========================
 
 // GET all JO payroll records with item_table and department joins
-router.get('/payroll-jo', authenticateToken, (req, res) => {
+router.get('/payroll-jo', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber, startDate, endDate } = req.query;
 
   // When called with specific params, just check for existence (used by duplicate pre-check)
@@ -105,7 +105,7 @@ router.get('/payroll-jo', authenticateToken, (req, res) => {
 });
 
 // GET specific JO payroll record by ID
-router.get('/payroll-jo/:id', authenticateToken, (req, res) => {
+router.get('/payroll-jo/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const sql = `
   SELECT 
@@ -181,7 +181,7 @@ router.get('/payroll-jo/:id', authenticateToken, (req, res) => {
 });
 
 // SEARCH JO payroll records
-router.get('/payroll-jo/search', authenticateToken, (req, res) => {
+router.get('/payroll-jo/search', authenticateToken, requireAdmin, (req, res) => {
   const { searchTerm } = req.query;
 
   const sql = `
@@ -262,7 +262,7 @@ router.get('/payroll-jo/search', authenticateToken, (req, res) => {
 
 // CREATE JO payroll record
 // CREATE JO payroll record
-router.post('/payroll-jo', authenticateToken, async (req, res) => {
+router.post('/payroll-jo', authenticateToken, requireAdmin, async (req, res) => {
   const {
     employeeNumber,
     startDate,
@@ -360,7 +360,7 @@ router.post('/payroll-jo', authenticateToken, async (req, res) => {
 });
 
 // UPDATE JO payroll record
-router.put('/payroll-jo/:id', authenticateToken, (req, res) => {
+router.put('/payroll-jo/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const {
     employeeNumber,
@@ -425,7 +425,7 @@ router.put('/payroll-jo/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE JO payroll record
-router.delete('/payroll-jo/:id', authenticateToken, (req, res) => {
+router.delete('/payroll-jo/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const sql = `DELETE FROM payroll_processing WHERE id = ?`;
 
@@ -445,7 +445,7 @@ router.delete('/payroll-jo/:id', authenticateToken, (req, res) => {
 });
 
 // UPDATE SSS and PAGIBIG contributions in remittance_table
-router.put('/payroll-jo/:id/contributions', authenticateToken, (req, res) => {
+router.put('/payroll-jo/:id/contributions', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { employeeNumber, sssContribution, pagibigContribution } = req.body;
 
@@ -515,7 +515,7 @@ router.put('/payroll-jo/:id/contributions', authenticateToken, (req, res) => {
 
 // GET official time schedule with time ranges
 // GET official time schedule with smart day formatting
-router.get('/official-time/:employeeNumber', authenticateToken, (req, res) => {
+router.get('/official-time/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber } = req.params;
 
   const sql = `
@@ -617,7 +617,7 @@ router.get('/official-time/:employeeNumber', authenticateToken, (req, res) => {
   });
 });
 
-router.post('/export-to-finalized', authenticateToken, async (req, res) => {
+router.post('/export-to-finalized', authenticateToken, requireAdmin, async (req, res) => {
   const payrollData = req.body;
 
   if (!Array.isArray(payrollData) || payrollData.length === 0) {

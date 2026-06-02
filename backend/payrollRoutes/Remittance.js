@@ -2,7 +2,7 @@ const db = require("../db");
 const express = require('express');
 const router = express.Router();
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, requireSelfOrAdmin } = require('../middleware/auth');
 
 
 // Function to construct full name from person_table columns
@@ -20,7 +20,7 @@ const getFullNameSQL = () => {
 
 
 // NEW: GET employees for autocomplete/dropdown
-router.get('/employees/search', authenticateToken, (req, res) => {
+router.get('/employees/search', authenticateToken, requireAdmin, (req, res) => {
   const { q } = req.query; // Search query parameter
 
 
@@ -63,7 +63,7 @@ router.get('/employees/search', authenticateToken, (req, res) => {
 
 
 // NEW: GET specific employee by employee number
-router.get('/employees/:employeeNumber', authenticateToken, (req, res) => {
+router.get('/employees/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber } = req.params;
 
 
@@ -89,7 +89,7 @@ router.get('/employees/:employeeNumber', authenticateToken, (req, res) => {
 
 
 // CORRECTED: GET remittance records with names from both person_table and payroll_processing
-router.get('/employee-remittance', authenticateToken, (req, res) => {
+router.get('/employee-remittance', authenticateToken, requireAdmin, (req, res) => {
   const sql = `
     SELECT r.id, r.employeeNumber,
            COALESCE(pp.name,
@@ -129,7 +129,7 @@ router.get('/employee-remittance', authenticateToken, (req, res) => {
 
 
 // NEW: GET person_table structure (for debugging)
-router.get('/debug/person-structure', authenticateToken, (req, res) => {
+router.get('/debug/person-structure', authenticateToken, requireAdmin, (req, res) => {
   const sql = `
     SELECT u.employeeNumber,
            p.agencyEmployeeNum,
@@ -161,7 +161,7 @@ router.get('/debug/person-structure', authenticateToken, (req, res) => {
 
 
 // ENHANCED: POST with employee validation, duplicate check, and audit logging
-router.post('/employee-remittance', authenticateToken, (req, res) => {
+router.post('/employee-remittance', authenticateToken, requireAdmin, (req, res) => {
   const {
     employeeNumber,
     liquidatingCash,
@@ -306,7 +306,7 @@ router.post('/employee-remittance', authenticateToken, (req, res) => {
 
 
 // ENHANCED: PUT with employee validation, duplicate check for different employees, and audit logging
-router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
+router.put('/employee-remittance/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const {
     employeeNumber,
@@ -473,7 +473,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
 
 
 // ENHANCED: PUT with employee validation and audit logging
-router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
+router.put('/employee-remittance/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const {
     employeeNumber,
@@ -609,7 +609,7 @@ router.put('/employee-remittance/:id', authenticateToken, (req, res) => {
 
 
 // DELETE with authentication and audit logging
-router.delete('/employee-remittance/:id', authenticateToken, (req, res) => {
+router.delete('/employee-remittance/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const sql = 'DELETE FROM remittance_table WHERE id = ?';
 

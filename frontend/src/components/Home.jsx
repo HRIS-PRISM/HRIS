@@ -9,6 +9,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import { useSocket } from "../contexts/SocketContext";
 import API_BASE_URL from "../apiConfig";
+import { getAuthHeaders } from "../utils/auth";
 import {
   IconButton, Modal, Tooltip, Box, Grid, Typography, Avatar, Button,
   Badge, Card, CardContent, Divider, Chip, TextField, Dialog, DialogTitle,
@@ -389,8 +390,8 @@ const Home = () => {
       if (!employeeNumber) return;
       try {
         const [notesRes, eventsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/api/notes/${employeeNumber}`),
-          axios.get(`${API_BASE_URL}/api/events/${employeeNumber}`),
+          axios.get(`${API_BASE_URL}/api/notes/${employeeNumber}`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/api/events/${employeeNumber}`, getAuthHeaders()),
         ]);
         setNotes((Array.isArray(notesRes.data) ? notesRes.data : []).map((n) => ({ ...n, date: normalizeDate(n.date) })));
         setEvents((Array.isArray(eventsRes.data) ? eventsRes.data : []).map((e) => ({ ...e, date: normalizeDate(e.date) })));
@@ -408,8 +409,8 @@ const Home = () => {
       setLeaveLoading(true);
       try {
         const [typesRes, assignmentsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_table`),
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`),
+          axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
         ]);
         const userAssignments = assignmentsRes.data.filter((a) => a.employeeNumber?.toString() === employeeNumber?.toString());
         const byCode = {};
@@ -443,7 +444,10 @@ const Home = () => {
     const empNum = String(employeeNumber).trim();
     if (!empNum) return;
     try {
-      const notifRes = await axios.get(`${API_BASE_URL}/api/notifications/${empNum}`);
+      const notifRes = await axios.get(
+        `${API_BASE_URL}/api/notifications/${empNum}`,
+        getAuthHeaders(),
+      );
       const filteredNotifications = Array.isArray(notifRes.data) ? notifRes.data.filter((notif) => String(notif.employeeNumber).trim() === empNum) : [];
       setNotifications((prev) => {
         const localReadIds = new Set(prev.filter((n) => n.read_status === 1).map((n) => n.id));
@@ -452,8 +456,7 @@ const Home = () => {
       const contactNotifs = filteredNotifications.filter((n) => n.notification_type === "contact" || n.notification_type === "ticket");
       if (contactNotifs.length > 0) {
         try {
-          const token = localStorage.getItem("token");
-          const ticketsRes = await axios.get(`${API_BASE_URL}/api/contact-us`, { headers: { Authorization: `Bearer ${token}` } });
+          const ticketsRes = await axios.get(`${API_BASE_URL}/api/contact-us`, getAuthHeaders());
           const ticketList = ticketsRes.data?.data || ticketsRes.data || [];
           const ticketIdMap = {};
           ticketList.forEach((t) => { ticketIdMap[t.id] = t; });
@@ -478,7 +481,7 @@ const Home = () => {
       const announcementNotifs = filteredNotifications.filter((n) => n.notification_type === "announcement" && n.announcement_id);
       if (announcementNotifs.length > 0) {
         try {
-          const annRes = await axios.get(`${API_BASE_URL}/api/announcements`);
+          const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
           const announcementList = Array.isArray(annRes.data) ? annRes.data : [];
           const detailsMap = {};
           announcementNotifs.forEach((notif) => {
@@ -528,9 +531,11 @@ const Home = () => {
   const handleNotificationClick = async (notification) => {
     if (notification.read_status === 0) {
       try {
-        const token = localStorage.getItem("token");
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        await axios.put(`${API_BASE_URL}/api/notifications/${notification.id}/read`, {}, { headers });
+        await axios.put(
+          `${API_BASE_URL}/api/notifications/${notification.id}/read`,
+          {},
+          getAuthHeaders(),
+        );
         setNotifications((prev) => prev.map((n) => (n.id === notification.id ? { ...n, read_status: 1 } : n)));
       } catch {}
     }
@@ -547,7 +552,7 @@ const Home = () => {
       navigate("/settings", { state: { section: "contact", ticketId: ticketIdFromLink, ticketStatus: ticketStatusFromLink } });
     } else if (type === "announcement" || link.includes("announcement")) {
       try {
-        const annRes = await axios.get(`${API_BASE_URL}/api/announcements`);
+        const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
         const list = Array.isArray(annRes.data) ? annRes.data : [];
         let match = notification.announcement_id ? list.find((a) => a.id === notification.announcement_id || a.id === parseInt(notification.announcement_id)) : null;
         if (!match && notification.announcement_id) match = announcementDetails[notification.id];
@@ -575,8 +580,10 @@ const Home = () => {
     const fetchPayrollData = async () => {
       if (!employeeNumber) return;
       try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get(`${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await axios.get(
+          `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
+          getAuthHeaders(),
+        );
         setAllPayroll(Array.isArray(res.data) ? res.data : []);
       } catch {}
     };
@@ -595,8 +602,10 @@ const Home = () => {
     const fetchProfilePicture = async () => {
       if (!employeeNumber) return;
       try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get(`${API_BASE_URL}/personalinfo/${employeeNumber}`, { headers: { Authorization: `Bearer ${token}` } });
+        const res = await axios.get(
+          `${API_BASE_URL}/personalinfo/person_table/${employeeNumber}`,
+          getAuthHeaders(),
+        );
         const data = Array.isArray(res.data) ? (res.data[0] ?? {}) : (res.data ?? {});
         if (data.profile_picture) setProfilePicture(data.profile_picture);
         const fullNameFromPerson = `${data.firstName || ""} ${data.middleName || ""} ${data.lastName || ""} ${data.nameExtension || ""}`.trim();
@@ -649,7 +658,11 @@ const Home = () => {
   const handleAddNote = () => { if (!selectedDate) return; setCurrentNote({ date: selectedDate, content: "" }); setOpenNoteDialog(true); };
   const handleSaveNote = async () => {
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/notes`, { employee_number: employeeNumber, date: currentNote.date, content: currentNote.content });
+      const res = await axios.post(
+        `${API_BASE_URL}/api/notes`,
+        { employee_number: employeeNumber, date: currentNote.date, content: currentNote.content },
+        getAuthHeaders(),
+      );
       const normalizedNote = { ...res.data, date: normalizeDate(res.data.date) };
       setNotes((prev) => [...prev, normalizedNote]);
       localStorage.setItem("employeeNotes", JSON.stringify([...notes, normalizedNote]));
@@ -660,13 +673,17 @@ const Home = () => {
     setOpenNoteDialog(false); setCurrentNote({ date: "", content: "" });
   };
   const handleDeleteNote = async (noteId) => {
-    try { await axios.delete(`${API_BASE_URL}/api/notes/${noteId}`); } catch {}
+    try { await axios.delete(`${API_BASE_URL}/api/notes/${noteId}`, getAuthHeaders()); } catch {}
     const updated = notes.filter((n) => n.id !== noteId); setNotes(updated); localStorage.setItem("employeeNotes", JSON.stringify(updated));
   };
   const handleAddEvent = () => { if (!selectedDate) return; setCurrentEvent({ date: selectedDate, title: "", description: "" }); setOpenEventDialog(true); };
   const handleSaveEvent = async () => {
     try {
-      const res = await axios.post(`${API_BASE_URL}/api/events`, { employee_number: employeeNumber, date: currentEvent.date, title: currentEvent.title, description: currentEvent.description });
+      const res = await axios.post(
+        `${API_BASE_URL}/api/events`,
+        { employee_number: employeeNumber, date: currentEvent.date, title: currentEvent.title, description: currentEvent.description },
+        getAuthHeaders(),
+      );
       const normalizedEvent = { ...res.data, date: normalizeDate(res.data.date) };
       setEvents((prev) => [...prev, normalizedEvent]);
       localStorage.setItem("employeeEvents", JSON.stringify([...events, normalizedEvent]));
@@ -677,7 +694,7 @@ const Home = () => {
     setOpenEventDialog(false); setCurrentEvent({ date: "", title: "", description: "" });
   };
   const handleDeleteEvent = async (eventId) => {
-    try { await axios.delete(`${API_BASE_URL}/api/events/${eventId}`); } catch {}
+    try { await axios.delete(`${API_BASE_URL}/api/events/${eventId}`, getAuthHeaders()); } catch {}
     const updated = events.filter((e) => e.id !== eventId); setEvents(updated); localStorage.setItem("employeeEvents", JSON.stringify(updated));
   };
   const getNotesForDate = (dateStr) => notes.filter((n) => n.date === dateStr);
@@ -750,10 +767,13 @@ const Home = () => {
   const markAllNotificationsAsRead = useCallback(async () => {
     const unread = (notifications || []).filter((n) => n.read_status === 0);
     if (!unread.length) return;
-    const token = localStorage.getItem("token");
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const auth = getAuthHeaders();
     try {
-      await Promise.allSettled(unread.map((n) => axios.put(`${API_BASE_URL}/api/notifications/${n.id}/read`, {}, { headers })));
+      await Promise.allSettled(
+        unread.map((n) =>
+          axios.put(`${API_BASE_URL}/api/notifications/${n.id}/read`, {}, auth),
+        ),
+      );
     } finally {
       setNotifications((prev) => prev.map((n) => (n.read_status === 0 ? { ...n, read_status: 1 } : n)));
     }

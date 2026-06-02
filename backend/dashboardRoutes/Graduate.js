@@ -8,8 +8,9 @@ const socketService = require("../socket/socketService");
 
 
 const router = express.Router();
+const authenticateToken = require("./authMiddleware");
 
-
+router.use(authenticateToken);
 
 
 

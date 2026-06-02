@@ -2,14 +2,14 @@ const db = require("../db");
 const express = require('express');
 const router = express.Router();
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin } = require('../middleware/auth');
 const multer = require('multer');
 const { parse } = require('csv-parse/sync');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ── CREATE (single) ──────────────────────────────────────────────────────────
-router.post('/salary-grade', authenticateToken, (req, res) => {
+router.post('/salary-grade', authenticateToken, requireAdmin, (req, res) => {
   const {
     effectivityDate, sg_number,
     step1, step2, step3, step4, step5, step6, step7, step8,
@@ -31,7 +31,7 @@ router.post('/salary-grade', authenticateToken, (req, res) => {
 });
 
 // ── BULK IMPORT via CSV ──────────────────────────────────────────────────────
-router.post('/salary-grade/bulk-import', authenticateToken, upload.single('file'), (req, res) => {
+router.post('/salary-grade/bulk-import', authenticateToken, requireAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded');
 
   let records;
@@ -75,7 +75,7 @@ router.post('/salary-grade/bulk-import', authenticateToken, upload.single('file'
 });
 
 // ── READ (all) ───────────────────────────────────────────────────────────────
-router.get('/salary-grade', authenticateToken, (req, res) => {
+router.get('/salary-grade', authenticateToken, requireAdmin, (req, res) => {
   const query = 'SELECT * FROM salary_grade_table';
   db.query(query, (err, results) => {
     if (err) {
@@ -87,7 +87,7 @@ router.get('/salary-grade', authenticateToken, (req, res) => {
 });
 
 // ── UPDATE ───────────────────────────────────────────────────────────────────
-router.put('/salary-grade/:id', authenticateToken, (req, res) => {
+router.put('/salary-grade/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const {
     effectivityDate, sg_number,
@@ -110,7 +110,7 @@ router.put('/salary-grade/:id', authenticateToken, (req, res) => {
 });
 
 // ── DELETE ───────────────────────────────────────────────────────────────────
-router.delete('/salary-grade/:id', authenticateToken, (req, res) => {
+router.delete('/salary-grade/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const query = 'DELETE FROM salary_grade_table WHERE id = ?';
   db.query(query, [id], (err) => {

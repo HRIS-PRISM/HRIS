@@ -1,6 +1,9 @@
 const db = require('../db');
 const express = require('express');
 const router = express.Router();
+const authenticateToken = require('./authMiddleware');
+
+router.use(authenticateToken);
 
 router.get('/leave_table', (req, res) => {
   db.query('SELECT * FROM leave_table', (err, results) => {

@@ -2,8 +2,9 @@ const db = require("../db");
 const express = require("express");
 const router = express.Router();
 const socketService = require("../socket/socketService");
+const authenticateToken = require("./authMiddleware");
 
-
+router.use(authenticateToken);
 
 
 

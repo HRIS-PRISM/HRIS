@@ -98,9 +98,11 @@ import logo from "../assets/logo.PNG";
 import { getAuthHeaders } from "../utils/auth";
 import usePageAccesses from "../hooks/usePageAccesses";
 import {
-  getAllComponentIdentifiers,
+  ALL_COMPONENT_IDENTIFIERS,
   getComponentIdentifierForRoute,
+  getRouteForMenuItemKey,
 } from "../utils/routeToComponentMapping";
+import { normalizeRole } from "../utils/pageAccessUtils";
 
 const useSystemSettings = () => {
   const [settings, setSettings] = useState({
@@ -218,46 +220,54 @@ const Sidebar = ({
   const [profilePicture, setProfilePicture] = useState("");
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
-  const [hasUsersListAccess, setHasUsersListAccess] = useState(false);
   const [pageAccessVersion, setPageAccessVersion] = useState(0);
   const settings = useSystemSettings();
 
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Get all component identifiers that need access checking
-  const allComponentIdentifiers = getAllComponentIdentifiers();
+  const resolvedEmployeeNumber =
+    employeeNumber || getUserInfo()?.employeeNumber || "";
 
-  // Check page access for all menu items
-  const { hasAccess: checkPageAccess, loading: accessLoading } =
-    usePageAccesses(allComponentIdentifiers, {
-      employeeNumber,
+  const { hasAccess: checkPageAccess, loading: accessLoading, accessMap } =
+    usePageAccesses(ALL_COMPONENT_IDENTIFIERS, {
+      employeeNumber: resolvedEmployeeNumber,
       pageAccessVersion,
     });
 
-  // Helper function to check if a route should be shown based on page access
+  const bypassPageAccessRoles = ["superadmin", "technical"];
+  const normalizedUserRole = normalizeRole(userRole);
+  const accessMapReady = Object.keys(accessMap).length > 0;
+
   const shouldShowMenuItem = (route) => {
-    // Always show home, admin-home, and profile
     if (route === "/home" || route === "/admin-home" || route === "/profile") {
       return true;
     }
 
-    // Don't show anything while loading access data
-    if (accessLoading) {
+    if (accessLoading && !accessMapReady) {
       return false;
     }
 
     const componentIdentifier = getComponentIdentifierForRoute(route);
 
-    // If no component identifier mapping, show by default (for backward compatibility)
     if (!componentIdentifier) {
       return true;
     }
 
-    // Check access using the hook - only show if user has access
-    // Returns false if no access, so item will be completely hidden
+    if (bypassPageAccessRoles.includes(normalizedUserRole)) {
+      return true;
+    }
+
     return checkPageAccess(componentIdentifier) === true;
   };
+
+  const shouldShowMenuItemForKey = (itemKey) => {
+    const route = getRouteForMenuItemKey(itemKey);
+    return route ? shouldShowMenuItem(route) : false;
+  };
+
+  const sectionHasVisibleItems = (items) =>
+    items.some((item) => shouldShowMenuItemForKey(item));
 
   // Menu item arrays for access control
   const informationManagementItems = [
@@ -338,14 +348,14 @@ const Sidebar = ({
   const pdsItems = ["pds1", "pds2", "pds3", "pds4", "file201"];
 
   const systemAdministrationItems = [
-    "reports",
-    "user-management",
-    "system-settings",
+    "users-list",
     "registration",
+    "employee-category",
     "reset-password",
     "payroll-formulas",
     "admin-security",
     "pds-templates",
+    "system-settings",
   ];
 
   useEffect(() => {
@@ -354,17 +364,19 @@ const Sidebar = ({
 
     setUsername(storedUser || username || "");
     setEmployeeNumber(employeeNumber || "");
-    setUserRole(decodedRole || "");
+    setUserRole(normalizeRole(decodedRole) || "");
 
     const fetchProfileData = async () => {
+      if (!localStorage.getItem("token")) {
+        return;
+      }
       try {
         const response = await axios.get(
-          `${API_BASE_URL}/personalinfo/person_table`,
+          `${API_BASE_URL}/personalinfo/person_table/${encodeURIComponent(employeeNumber)}`,
+          getAuthHeaders(),
         );
-        const person = response.data.find(
-          (p) => p.agencyEmployeeNum === employeeNumber,
-        );
-        if (person) {
+        const person = response.data;
+        if (person && person.agencyEmployeeNum) {
           if (person.profile_picture) {
             setProfilePicture(`${API_BASE_URL}${person.profile_picture}`);
           }
@@ -376,158 +388,26 @@ const Sidebar = ({
           }
         }
       } catch (error) {
-        console.error("Error fetching profile data:", error);
+        if (error.response?.status !== 404) {
+          console.error("Error fetching profile data:", error);
+        }
       }
     };
 
     if (employeeNumber) {
       fetchProfileData();
     }
-  }, [employeeNumber, location.pathname]);
-
-  // Check page access for Users List
-  useEffect(() => {
-    const checkUsersListAccess = async () => {
-      if (!employeeNumber) {
-        setHasUsersListAccess(false);
-        return;
-      }
-
-      try {
-        const authHeaders = getAuthHeaders();
-        const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
-          method: "GET",
-          ...authHeaders,
-        });
-
-        if (pagesResponse.ok) {
-          let pagesData = await pagesResponse.json();
-          pagesData = Array.isArray(pagesData)
-            ? pagesData
-            : pagesData.pages || pagesData.data || [];
-
-          const usersListPage = pagesData.find(
-            (page) =>
-              page.page_name &&
-              (page.page_name.toLowerCase().includes("user") ||
-                page.page_name.toLowerCase().includes("users list") ||
-                page.page_name.toLowerCase().includes("user management")),
-          );
-
-          if (usersListPage) {
-            const pageId = usersListPage.id;
-            const accessResponse = await fetch(
-              `${API_BASE_URL}/page_access/${employeeNumber}`,
-              {
-                method: "GET",
-                ...authHeaders,
-              },
-            );
-
-            if (accessResponse.ok) {
-              const accessDataRaw = await accessResponse.json();
-              const accessData = Array.isArray(accessDataRaw)
-                ? accessDataRaw
-                : accessDataRaw.data || [];
-
-              const hasAccess = accessData.some(
-                (access) =>
-                  access.page_id === pageId &&
-                  String(access.page_privilege) === "1",
-              );
-
-              setHasUsersListAccess(hasAccess);
-            } else {
-              setHasUsersListAccess(false);
-            }
-          } else {
-            setHasUsersListAccess(false);
-          }
-        } else {
-          setHasUsersListAccess(false);
-        }
-      } catch (error) {
-        console.error("Error checking Users List access:", error);
-        setHasUsersListAccess(false);
-      }
-    };
-
-    if (employeeNumber) {
-      checkUsersListAccess();
-    }
   }, [employeeNumber]);
 
-  // Listen for page access updates from UsersList dialog
   useEffect(() => {
     const handlePageAccessUpdated = () => {
-      // Increment version to force usePageAccesses to re-run
       setPageAccessVersion((prev) => prev + 1);
-
-      // Also re-check the Users List specific access
-      const recheckAccess = async () => {
-        if (!employeeNumber) return;
-        try {
-          const authHeaders = getAuthHeaders();
-          const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
-            method: "GET",
-            ...authHeaders,
-          });
-
-          if (!pagesResponse.ok) return;
-
-          let pagesData = await pagesResponse.json();
-          pagesData = Array.isArray(pagesData)
-            ? pagesData
-            : pagesData.pages || pagesData.data || [];
-
-          const usersListPage = pagesData.find(
-            (page) =>
-              page.page_name &&
-              (page.page_name.toLowerCase().includes("user") ||
-                page.page_name.toLowerCase().includes("users list") ||
-                page.page_name.toLowerCase().includes("user management")),
-          );
-
-          if (!usersListPage) {
-            setHasUsersListAccess(false);
-            return;
-          }
-
-          const accessResponse = await fetch(
-            `${API_BASE_URL}/page_access/${employeeNumber}`,
-            { method: "GET", ...authHeaders },
-          );
-
-          if (!accessResponse.ok) {
-            setHasUsersListAccess(false);
-            return;
-          }
-
-          const accessDataRaw = await accessResponse.json();
-          const accessData = Array.isArray(accessDataRaw)
-            ? accessDataRaw
-            : accessDataRaw.data || [];
-
-          const hasAccess = accessData.some(
-            (access) =>
-              access.page_id === usersListPage.id &&
-              String(access.page_privilege) === "1",
-          );
-
-          setHasUsersListAccess(hasAccess);
-        } catch (error) {
-          console.error("Error rechecking page access:", error);
-        }
-      };
-
-      recheckAccess();
     };
-
     window.addEventListener("pageAccessUpdated", handlePageAccessUpdated);
     return () => {
       window.removeEventListener("pageAccessUpdated", handlePageAccessUpdated);
     };
-  }, [employeeNumber]);
+  }, []);
 
   const currentPath = location.pathname;
   useEffect(() => {
@@ -2077,9 +1957,7 @@ const Sidebar = ({
                       />
                     </ListItem> */}
 
-                    {/* User Management - Hidden for administrators */}
-                    {shouldShowMenuItem("/users-list") &&
-                      userRole !== "administrator" && (
+                    {shouldShowMenuItem("/users-list") && (
                         <ListItem
                           button
                           component={Link}
@@ -2296,9 +2174,7 @@ const Sidebar = ({
                       </ListItem>
                     )}
 
-                    {/* Payroll Formulas - Hidden for administrators */}
-                    {shouldShowMenuItem("/payroll-formulas") &&
-                      userRole !== "administrator" && (
+                    {shouldShowMenuItem("/payroll-formulas") && (
                         <ListItem
                           button
                           component={Link}
@@ -2351,9 +2227,7 @@ const Sidebar = ({
                         </ListItem>
                       )}
 
-                    {/* Admin Security - Hidden for administrators */}
-                    {shouldShowMenuItem("/admin-security") &&
-                      userRole !== "administrator" && (
+                    {shouldShowMenuItem("/admin-security") && (
                         <ListItem
                           button
                           component={Link}
@@ -3101,11 +2975,7 @@ const Sidebar = ({
               )}
 
             {/* LEAVE DROPDOWN */}
-            {(shouldShowMenuItem("/leave-table") ||
-              shouldShowMenuItem("/leave-assignment") ||
-              shouldShowMenuItem("/leave-request") ||
-              shouldShowMenuItem("/supervisor-assignment") ||
-              shouldShowMenuItem("/leave-request-supervisor")) && (
+            {sectionHasVisibleItems(leaveManagementItems) && (
               <>
                 <ListItem
                   button

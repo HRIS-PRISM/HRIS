@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import API_BASE_URL from '../apiConfig';
 import { getAuthHeaders, getUserInfo } from '../utils/auth';
+import { isPageAccessActive } from '../utils/pageAccessUtils';
 
 /**
  * Custom hook for dynamic page access checking
@@ -128,13 +129,11 @@ const usePageAccess = (componentIdentifier, options = {}) => {
 
         // Check if page_privilege indicates any level of access (not "0" or empty)
         // Privileges like "1", "12", "2", etc. all indicate access
-        const hasPageAccess = accessArray.some((access) => {
-          if (access.page_id === fetchedPageId) {
-            const privilege = String(access.page_privilege || '0');
-            return privilege !== '0' && privilege !== '';
-          }
-          return false;
-        });
+        const hasPageAccess = accessArray.some(
+          (access) =>
+            Number(access.page_id) === Number(fetchedPageId) &&
+            isPageAccessActive(access),
+        );
 
         setHasAccess(hasPageAccess);
       } catch (err) {
@@ -147,6 +146,14 @@ const usePageAccess = (componentIdentifier, options = {}) => {
     };
 
     checkAccess();
+
+    const onPageAccessUpdated = () => {
+      checkAccess();
+    };
+    window.addEventListener('pageAccessUpdated', onPageAccessUpdated);
+    return () => {
+      window.removeEventListener('pageAccessUpdated', onPageAccessUpdated);
+    };
   }, [componentIdentifier, autoCheck, overrideEmployeeNumber, location.pathname]);
 
   return { hasAccess, pageId, loading, error };

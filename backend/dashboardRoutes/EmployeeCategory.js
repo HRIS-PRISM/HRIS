@@ -2,6 +2,7 @@ const db = require("../db");
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const { requireAdmin } = require('../middleware/auth');
 
 // Authentication middleware
 function authenticateToken(req, res, next) {
@@ -65,7 +66,7 @@ router.get('/employment-type-config/groups', authenticateToken, (req, res) => {
 });
 
 // CREATE new employment type config
-router.post('/employment-type-config', authenticateToken, (req, res) => {
+router.post('/employment-type-config', authenticateToken, requireAdmin, (req, res) => {
   const { parentGroup, typeName, colorHex, sortOrder } = req.body;
 
   if (!parentGroup || !parentGroup.trim())
@@ -110,7 +111,7 @@ router.post('/employment-type-config', authenticateToken, (req, res) => {
 });
 
 // UPDATE employment type config
-router.put('/employment-type-config/:id', authenticateToken, (req, res) => {
+router.put('/employment-type-config/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { parentGroup, typeName, colorHex, sortOrder, isActive } = req.body;
 
@@ -160,7 +161,7 @@ router.put('/employment-type-config/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE employment type config
-router.delete('/employment-type-config/:id', authenticateToken, (req, res) => {
+router.delete('/employment-type-config/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
 
   const checkUsageSql = `SELECT COUNT(*) as count FROM employment_category WHERE employmentCategory = ?`;
@@ -328,7 +329,7 @@ router.get('/employment-category/search/:searchTerm', authenticateToken, (req, r
 });
 
 // CREATE - Add new employment category
-router.post('/employment-category', authenticateToken, (req, res) => {
+router.post('/employment-category', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber, employmentCategory } = req.body;
 
   if (!employeeNumber)
@@ -384,7 +385,7 @@ router.post('/employment-category', authenticateToken, (req, res) => {
 });
 
 // UPDATE - Update employment category
-router.put('/employment-category/:id', authenticateToken, (req, res) => {
+router.put('/employment-category/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { employeeNumber, employmentCategory } = req.body;
 
@@ -453,7 +454,7 @@ router.put('/employment-category/:id', authenticateToken, (req, res) => {
 });
 
 // POST /employee-category — alias used by UsersList create/edit path (upsert)
-router.post('/employee-category', authenticateToken, (req, res) => {
+router.post('/employee-category', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber, employmentCategory } = req.body;
 
   if (!employeeNumber)
@@ -516,7 +517,7 @@ router.post('/employee-category', authenticateToken, (req, res) => {
 });
 
 // DELETE - Delete employment category
-router.delete('/employment-category/:id', authenticateToken, (req, res) => {
+router.delete('/employment-category/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
 
   if (!id || isNaN(id))
@@ -621,6 +622,7 @@ router.get(
 router.put(
   '/employment-category-deduction-types/:employmentCategoryId',
   authenticateToken,
+  requireAdmin,
   (req, res) => {
     const id = parseInt(req.params.employmentCategoryId, 10);
     if (!Number.isFinite(id) || id < 1)

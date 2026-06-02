@@ -5,8 +5,9 @@ const fs = require("fs"); // Import file system module
 const router = express.Router();
 const xlsx = require("xlsx");
 const socketService = require("../socket/socketService");
+const authenticateToken = require("./authMiddleware");
 
-
+router.use(authenticateToken);
 
 
 
