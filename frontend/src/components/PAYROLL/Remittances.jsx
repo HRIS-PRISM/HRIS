@@ -394,19 +394,6 @@ const getAuthHeaders = () => {
   };
 };
 
-// Add axios response interceptor for global error handling
-axios.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      console.error('Authentication error:', error.response?.data?.message || 'Unauthorized');
-    } else if (error.response?.status === 403) {
-      console.error('Authorization error: Insufficient permissions');
-    }
-    return Promise.reject(error);
-  }
-);
-
 // ─── Employee Autocomplete Component ──────────────────────────────────────────
 const EmployeeAutocomplete = ({
   value,

@@ -260,15 +260,6 @@ const getAuthHeaders = () => {
   return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, withCredentials: true };
 };
 
-axios.interceptors.response.use(
-  (r) => r,
-  (error) => {
-    if (error.response?.status === 401) console.error('Auth error:', error.response?.data?.message);
-    else if (error.response?.status === 403) console.error('Authorization error');
-    return Promise.reject(error);
-  }
-);
-
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const getInitials = (name = '') => {
   const parts = name.trim().split(' ').filter(Boolean);
