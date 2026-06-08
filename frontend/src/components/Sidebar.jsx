@@ -2713,7 +2713,7 @@ const Sidebar = ({
                           <BadgeRounded />
                         </ListItemIcon>
                         <ListItemText
-                          primary="Overall Daily Time Record"
+                          primary="Overall Daily Time Record (DTR)"
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>
