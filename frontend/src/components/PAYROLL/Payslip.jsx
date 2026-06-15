@@ -411,16 +411,28 @@ const Payslip = forwardRef(({ employee }, ref) => {
     if (isJO) {
       bodyHTML = `<div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">${secHead('EMPLOYEE INFORMATION')}<div style="display:grid;grid-template-columns:1fr 1fr;">${infoCell('Employee Number', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${emp.employeeNumber ? parseFloat(emp.employeeNumber) : '&mdash;'}</div>`, true, true)}${infoCell('Name', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${escapeHtml(emp.name || '&mdash;')}</div>`, false, true)}${infoCell('Period', `<div style="font-size:21px;font-weight:700;color:#1a1a1a;font-family:Poppins,sans-serif;">${period}</div>`, true, false)}${infoCell('Rendered Days', `<div style="font-size:21px;font-weight:700;color:#1a1a1a;font-family:Poppins,sans-serif;">${frd(emp.rh) || '&mdash;'}</div>`, false, false)}</div></div><div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">${secHead('DEDUCTIONS')}${[['SSS', fc(emp.sss)], ['Pag-IBIG', fc(emp.pagibigFundCont)]].map(([lbl, val]) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1.5px solid #ddd;"><span style="font-size:18px;font-weight:700;color:#333;font-family:Poppins,sans-serif;">${lbl}</span><span style="font-size:20px;font-weight:900;color:#111;font-family:Poppins,sans-serif;min-width:140px;text-align:right;">${val || '&mdash;'}</span></div>`).join('')}</div>${summaryCards(fc(emp.netSalary), fc(emp.totalDeductions), netPayCalc)}${footer}`;
     } else {
+      // ── UPDATED deduction rows ──
+      // Row 1: Withholding Tax | GSIS Salary Loan  | Life & Retirement
+      // Row 2: PhilHealth      | GSIS Policy Loan  | ECC               ← ECC moved here (was PhilHealth Diff)
+      // Row 3: Pag-IBIG        | GSIS Housing Loan | Pag-IBIG 2
+      // Row 4: SSS             | GSIS Arrears      | LBP Loan
+      // Row 5: PhilHealth Diff | GFAL              | MTSLAI            ← PhilHealth Diff moved here (was ECC)
+      // Row 6: Pag-IBIG 2      | CPL               | ESLAI             ← Pag-IBIG 2 moved here (was To Be Refunded)
+      // Row 7: FEU             | MPL               | ABS
+      // Row 8: (empty)         | MPL Lite          | ELA
+      // Row 9: (empty)         | (empty)           | To Be Refunded    ← moved below ELA
       const rows = [
         [['Withholding Tax', fc(emp.withholdingTax)], ['GSIS Salary Loan', fc(emp.gsisSalaryLoan)], ['Life & Retirement', fc(emp.personalLifeRetIns)]],
-        [['PhilHealth', fc(emp.PhilHealthContribution)], ['GSIS Policy Loan', fc(emp.gsisPolicyLoan)], ['PhilHealth Diff', fc(emp.philhealthDiff)]],
-        [['Pag-IBIG', fc(emp.pagibigFundCont)], ['GSIS Housing Loan', fc(emp.gsisHousingLoan)], ['Pag-IBIG 2', fc(emp.pagibig2)]],
-        [['SSS', fc(emp.sss)], ['GSIS Arrears', fc(emp.gsisArrears)], ['LBP Loan', fc(emp.lbpLoan)]],
-        [['ECC', fc(emp.ecc)], ['GFAL', fc(emp.gfal)], ['MTSLAI', fc(emp.mtslai)]],
-        [['To Be Refunded', fc(emp.toBeRefunded)], ['CPL', fc(emp.cpl)], ['ESLAI', fc(emp.eslai)]],
-        [['FEU', fc(emp.feu)], ['MPL', fc(emp.mpl)], ['ABS', fcAbs(emp.abs)]],
-        [['', ''], ['MPL Lite', fc(emp.mplLite)], ['ELA', fc(emp.ela)]],
+        [['PhilHealth', fc(emp.PhilHealthContribution)], ['GSIS Policy Loan', fc(emp.gsisPolicyLoan)], ['ECC', fc(emp.ecc)]],
+        [['Pag-IBIG', fc(emp.pagibigFundCont)], ['GSIS Housing Loan', fc(emp.gsisHousingLoan)], ['LBP Loan', fc(emp.lbpLoan)]],
+        [['SSS', fc(emp.sss)], ['GSIS Arrears', fc(emp.gsisArrears)], ['MTSLAI', fc(emp.mtslai)]],
+        [['PhilHealth Diff', fc(emp.philhealthDiff)], ['GFAL', fc(emp.gfal)], ['ESLAI', fc(emp.eslai)]],
+        [['Pag-IBIG 2', fc(emp.pagibig2)], ['CPL', fc(emp.cpl)], ['ABS', fcAbs(emp.abs)]],
+        [['FEU', fc(emp.feu)], ['MPL', fc(emp.mpl)], ['ELA', fc(emp.ela)]],
+        [['', ''], ['MPL Lite', fc(emp.mplLite)], ['To Be Refunded', fc(emp.toBeRefunded)]],
       ];
+      // Note: "Other Deductions" column order (top to bottom):
+      // Life & Retirement → ECC → LBP Loan → MTSLAI → ESLAI → ABS → ELA → To Be Refunded
       bodyHTML = `<div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">${secHead('EMPLOYEE INFORMATION')}<div style="display:grid;grid-template-columns:1fr 1fr;">${infoCell('Period', `<div style="font-size:21px;font-weight:700;color:#1a1a1a;font-family:Poppins,sans-serif;">${period}</div>`, true, true)}${infoCell('Employee Number', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${emp.employeeNumber ? parseFloat(emp.employeeNumber) : '&mdash;'}</div>`, false, true)}${infoCell('Name', `<div style="font-size:26px;color:#c0392b;font-weight:900;font-family:Poppins,sans-serif;">${escapeHtml(emp.name || '&mdash;')}</div>`, false, false, true)}</div></div><div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">${secHead('DEDUCTIONS BREAKDOWN')}<div style="display:grid;grid-template-columns:repeat(3,1fr);background:#f5eaea;border-bottom:2px solid #c9a8a8;">${['Government & Tax', 'GSIS Loans', 'Other Deductions'].map((h, i) => `<div style="font-size:18px;font-weight:800;color:#6d2323;letter-spacing:0.06em;text-transform:uppercase;padding:8px 16px;font-family:Poppins,sans-serif;${i < 2 ? 'border-right:2px solid #c9a8a8;' : ''}">${h}</div>`).join('')}</div>${rows.map((row, ri) => `<div style="display:grid;grid-template-columns:repeat(3,1fr);background:${ri % 2 === 0 ? '#fdf6f6' : '#fff'};border-bottom:1.5px solid #c9a8a8;">${row.map(([lbl, val], ci) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;${ci < 2 ? 'border-right:1.5px solid #c9a8a8;' : ''}min-height:38px;gap:4px;"><span style="font-size:20px;color:#1a1a1a;font-family:Poppins,sans-serif;font-weight:700;flex:1;">${lbl || ''}</span><span style="font-size:20px;font-weight:900;color:${val ? '#6d2323' : '#aaa'};font-family:Poppins,sans-serif;min-width:100px;text-align:right;">${val || '&mdash;'}</span></div>`).join('')}</div>`).join('')}</div>${summaryCards(fc(emp.netSalary), fc(emp.totalDeductions), netPayCalc)}<div style="border:2.5px solid #6d2323;border-radius:6px;margin-bottom:16px;overflow:hidden;">${secHead('PAYMENT BREAKDOWN')}<div style="display:grid;grid-template-columns:1fr 1fr;">${[['1ST QUINCENA', fc(emp.pay1st)], ['2ND QUINCENA', fc(emp.pay2nd)]].map(([lbl, val], i) => `<div style="padding:16px;${i === 0 ? 'border-right:2px solid #e0c8c8;' : ''}min-height:70px;"><div style="font-size:18px;font-weight:800;color:#6d2323;letter-spacing:0.1em;text-transform:uppercase;font-family:Poppins,sans-serif;margin-bottom:4px;">${lbl}</div><div style="font-size:26px;font-weight:900;color:#1a1a1a;font-family:Poppins,sans-serif;line-height:1.1;">${val || '&mdash;'}</div></div>`).join('')}</div></div>${footer}`;
     }
     return `<div style="font-family:Poppins,sans-serif;background:#fff;width:1100px;padding:24px 24px 32px;box-sizing:border-box;position:relative;"><div style="position:relative;z-index:1;">${headerHTML}${bodyHTML}</div>${hrisLogoSrc ? `<img data-watermark="1" src="${hrisLogoSrc}" crossorigin="anonymous" style="position:absolute;left:50%;width:70%;opacity:0.08;pointer-events:none;z-index:2;mix-blend-mode:multiply;top:50%;transform:translate(-50%,-50%);"/>` : ''}</div>`;
@@ -437,7 +449,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
     const images = await Promise.all(containers.map((container) => { const root = container.firstElementChild || container; const h = root.scrollHeight || root.offsetHeight || 1700; return html2canvas(root, { scale: 1.0, useCORS: true, allowTaint: true, logging: false, backgroundColor: '#ffffff', imageTimeout: 15000, windowWidth: 1100, windowHeight: h, height: h, foreignObjectRendering: false }).then((c) => c.toDataURL('image/jpeg', 0.82)); }));
     containers.forEach((c) => document.body.removeChild(c));
     const pdf = new jsPDF('l', 'in', 'a4');
-const cw = 3.5, ch = 6, gap = 0.2;
+    const cw = 3.5, ch = 6, gap = 0.2;
     const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
     const tw = cw * 3 + gap * 2, yo = (ph - ch) / 2;
     const pos = [(pw - tw) / 2, (pw - tw) / 2 + cw + gap, (pw - tw) / 2 + (cw + gap) * 2];
@@ -529,6 +541,8 @@ const cw = 3.5, ch = 6, gap = 0.2;
             ))}
           </Grid>
         </Box>
+
+        {/* ── DEDUCTIONS BREAKDOWN (updated row order) ── */}
         <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
           <SecHead title="DEDUCTIONS BREAKDOWN" />
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', backgroundColor: '#f5eaea', borderBottom: '2px solid #c9a8a8' }}>
@@ -536,8 +550,26 @@ const cw = 3.5, ch = 6, gap = 0.2;
               <Typography key={i} sx={{ fontSize: '18px', fontWeight: 800, color: '#6d2323', letterSpacing: '0.06em', textTransform: 'uppercase', px: 2, py: 1, fontFamily: '"Poppins",sans-serif', borderRight: i < 2 ? '2px solid #c9a8a8' : 'none' }}>{h}</Typography>
             ))}
           </Box>
-          {[[['Withholding Tax', formatCurrency(emp.withholdingTax)], ['GSIS Salary Loan', formatCurrency(emp.gsisSalaryLoan)], ['Life & Retirement', formatCurrency(emp.personalLifeRetIns)]], [['PhilHealth', formatCurrency(emp.PhilHealthContribution)], ['GSIS Policy Loan', formatCurrency(emp.gsisPolicyLoan)], ['PhilHealth Diff', formatCurrency(emp.philhealthDiff)]], [['Pag-IBIG', formatCurrency(emp.pagibigFundCont)], ['GSIS Housing Loan', formatCurrency(emp.gsisHousingLoan)], ['Pag-IBIG 2', formatCurrency(emp.pagibig2)]], [['SSS', formatCurrency(emp.sss)], ['GSIS Arrears', formatCurrency(emp.gsisArrears)], ['LBP Loan', formatCurrency(emp.lbpLoan)]], [['ECC', formatCurrency(emp.ecc)], ['GFAL', formatCurrency(emp.gfal)], ['MTSLAI', formatCurrency(emp.mtslai)]], [['To Be Refunded', formatCurrency(emp.toBeRefunded)], ['CPL', formatCurrency(emp.cpl)], ['ESLAI', formatCurrency(emp.eslai)]], [['FEU', formatCurrency(emp.feu)], ['MPL', formatCurrency(emp.mpl)], ['ABS', formatAbs(emp.abs)]], [['', ''], ['MPL Lite', formatCurrency(emp.mplLite)], ['ELA', formatCurrency(emp.ela)]]].map((row, i) => <DeductionRow key={i} items={row} isEven={i % 2 === 0} />)}
+          {[
+            // Row 1
+            [['Withholding Tax', formatCurrency(emp.withholdingTax)], ['GSIS Salary Loan', formatCurrency(emp.gsisSalaryLoan)], ['Life & Retirement', formatCurrency(emp.personalLifeRetIns)]],
+            // Row 2
+            [['PhilHealth', formatCurrency(emp.PhilHealthContribution)], ['GSIS Policy Loan', formatCurrency(emp.gsisPolicyLoan)], ['ECC', formatCurrency(emp.ecc)]],
+            // Row 3 — Other Deductions shifts up: LBP Loan (was row 4)
+            [['Pag-IBIG', formatCurrency(emp.pagibigFundCont)], ['GSIS Housing Loan', formatCurrency(emp.gsisHousingLoan)], ['LBP Loan', formatCurrency(emp.lbpLoan)]],
+            // Row 4 — MTSLAI shifts up (was row 5)
+            [['SSS', formatCurrency(emp.sss)], ['GSIS Arrears', formatCurrency(emp.gsisArrears)], ['MTSLAI', formatCurrency(emp.mtslai)]],
+            // Row 5 — ESLAI shifts up (was row 6)
+            [['PhilHealth Diff', formatCurrency(emp.philhealthDiff)], ['GFAL', formatCurrency(emp.gfal)], ['ESLAI', formatCurrency(emp.eslai)]],
+            // Row 6 — Pag-IBIG 2 in Gov & Tax; ABS shifts up (was row 7)
+            [['Pag-IBIG 2', formatCurrency(emp.pagibig2)], ['CPL', formatCurrency(emp.cpl)], ['ABS', formatAbs(emp.abs)]],
+            // Row 7 — ELA shifts up (was row 8)
+            [['FEU', formatCurrency(emp.feu)], ['MPL', formatCurrency(emp.mpl)], ['ELA', formatCurrency(emp.ela)]],
+            // Row 8 — To Be Refunded shifts up (was row 9)
+            [['', ''], ['MPL Lite', formatCurrency(emp.mplLite)], ['To Be Refunded', formatCurrency(emp.toBeRefunded)]],
+          ].map((row, i) => <DeductionRow key={i} items={row} isEven={i % 2 === 0} />)}
         </Box>
+
         <Box sx={{ display: 'flex', gap: 1.5, mb: 3 }}><SummaryCard label="Net Salary" value={formatCurrency(emp.netSalary)} /><SummaryCard label="Total Deductions" value={formatCurrency(emp.totalDeductions)} /><SummaryCard label="Net Pay" value={computeNetPay(emp)} accent /></Box>
         <Box sx={{ border: '2.5px solid #6d2323', borderRadius: '6px', mb: 2, overflow: 'hidden' }}>
           <SecHead title="PAYMENT BREAKDOWN" />
@@ -766,13 +798,11 @@ const cw = 3.5, ch = 6, gap = 0.2;
                       bgcolor: '#e8e0e0',
                       p: 2,
                       minHeight: '100%',
-                      // horizontal flex row of 3 slips
                       display: 'flex',
                       flexDirection: 'row',
                       gap: 1.5,
                       alignItems: 'flex-start',
                       justifyContent: 'center',
-                      // allow horizontal scroll on very small viewports
                       minWidth: 'max-content',
                       width: '100%',
                     }}>
