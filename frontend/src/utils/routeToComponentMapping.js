@@ -97,6 +97,7 @@ export const routeToComponentMap = {
   '/earnings-management': 'earnings-management',
   '/supervisor-assignment': 'supervisor-assignment',
   '/leave-request-supervisor': 'leave-request-supervisor',
+  '/daily-time-record-supervisor': 'daily-time-record-supervisor',
 };
 
 /**

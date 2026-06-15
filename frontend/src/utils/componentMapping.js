@@ -517,6 +517,13 @@ export const componentMapping = {
     description: 'Leave Request Approval - Supervisor',
     icon: SupervisedUserCircle,
   },
+  'daily-time-record-supervisor': {
+    componentPath: 'components/ATTENDANCE/DailyTimeRecordSupervisor.jsx',
+    routePath: '/daily-time-record-supervisor',
+    componentName: 'DailyTimeRecordSupervisor',
+    description: 'Daily Time Record - Supervisor',
+    icon: SupervisedUserCircle,
+  },
     file201: {
     componentPath: 'components/FILE201/File201Admin.jsx',
     routePath: '/file201',

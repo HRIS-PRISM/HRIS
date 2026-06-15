@@ -436,6 +436,7 @@ app.use('/PayrollReleasedRoute', PayrollReleased);
 app.use('/PayrollJORoutes', PayrollJO);
 app.use('/EmploymentCategoryRoutes', EmployeeCategory);
 app.use('/', authRoutes);
+app.use('/', supervisorRoutes);
 app.use('/', passwordRoutes);
 app.use('/', settingsRoutes);
 // Public routes (login carousel, MFA prefs, FAQs, etc.) — before routers that use router.use(authenticateToken)
@@ -452,7 +453,6 @@ app.use('/', itemRoutes);
 app.use('/', salaryRoutes);
 app.use('/', departmentRoutes);
 app.use('/', leaveRoutes);
-app.use('/', supervisorRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
 app.use('/', auditRoutes);

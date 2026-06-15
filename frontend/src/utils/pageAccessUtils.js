@@ -2,6 +2,17 @@
  * Page access helpers (aligned with backend/utils/pageAccess.js).
  */
 
+/** Pages whose access is granted/revoked via Supervisor Assignment, not UsersList. */
+export const ASSIGNMENT_MANAGED_PAGE_IDENTIFIERS = [
+  'leave-request-supervisor',
+  'daily-time-record-supervisor',
+];
+
+export function isAssignmentManagedPage(page) {
+  const identifier = String(page?.component_identifier || '').trim();
+  return ASSIGNMENT_MANAGED_PAGE_IDENTIFIERS.includes(identifier);
+}
+
 export function normalizeRole(role) {
   const key = String(role || '').trim().toLowerCase();
   if (key === 'admin') return 'administrator';
