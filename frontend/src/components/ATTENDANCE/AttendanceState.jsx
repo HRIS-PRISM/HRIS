@@ -2,14 +2,16 @@ import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from "react";
 import axios from "axios";
 import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
+import useAttendanceWorkflow from "../../hooks/useAttendanceWorkflow";
+import AttendanceWorkflowNav from "./AttendanceWorkflowNav";
+import { navigateAttendanceWorkflow } from "../../utils/attendanceWorkflow";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Typography,
   Alert,
   Collapse,
   Fade,
-  FormControl,
-  Select,
   MenuItem,
   alpha,
   styled,
@@ -37,10 +39,25 @@ import {
   Close,
   SearchOutlined,
   Assignment,
+  Edit,
   Male as MaleIcon,
   Female as FemaleIcon,
 } from "@mui/icons-material";
 import { DeptBadge, EmpCatBadge } from "../LEAVE/EARNINGS/RecordsList";
+import {
+  AttendanceFilterHeader,
+  AttendanceFilterSectionLabel,
+  AttendanceFilterDateControls,
+  AttendanceFilterSummaryBox,
+  filterPanelBoxSx,
+  filterSidebarCardSx,
+  attendanceMainPanelHeightSx,
+  ATTENDANCE_COMPACT_PAGE_SX,
+  MONTHS_SHORT,
+  AttendanceEmployeeSearchSection,
+  useAttendanceCompactPage,
+} from "./attendanceFilterLayout";
+import AttendanceEmployeeSearchField from "./AttendanceEmployeeSearchField";
 import { Grid } from "@mui/material";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
@@ -49,6 +66,7 @@ import SuccessfulOverlay from "../SuccessfulOverlay";
 import {
   buildAuditPeriodLabel,
   logAttendanceStateView,
+  logAttendanceStateChange,
 } from "../../utils/moduleEmployeeSearchAudit";
 import {
   Paper,
@@ -56,7 +74,13 @@ import {
   ListItemButton,
   CircularProgress,
   InputAdornment,
+  Menu,
+  Dialog,
+  DialogContent,
+  DialogActions,
+  Tooltip,
 } from "@mui/material";
+import { List as VirtualList } from "react-window";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -263,6 +287,84 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   </button>
 );
 
+const DetailsActionButton = ({ onClick }) => (
+  <Tooltip title="View punch details and edit status" placement="top">
+    <Box
+      component="button"
+      type="button"
+      onClick={onClick}
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 0.5,
+        px: 1.35,
+        py: 0.6,
+        borderRadius: "8px",
+        border: `1px solid ${T.accent}`,
+        bgcolor: T.accent,
+        color: "#FEF9E1",
+        fontSize: "0.72rem",
+        fontWeight: 700,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        transition: "all 0.15s",
+        whiteSpace: "nowrap",
+        boxShadow: `0 2px 6px ${alpha(T.accent, 0.28)}`,
+        "&:hover": {
+          bgcolor: T.accentDark,
+          borderColor: T.accentDark,
+          boxShadow: `0 4px 12px ${alpha(T.accent, 0.32)}`,
+          transform: "translateY(-1px)",
+        },
+        "&:active": {
+          transform: "translateY(0)",
+          boxShadow: `0 1px 4px ${alpha(T.accent, 0.22)}`,
+        },
+      }}
+    >
+      <Info sx={{ fontSize: 14 }} />
+      Details
+    </Box>
+  </Tooltip>
+);
+
+const DetailField = ({ label, value, children }) => (
+  <Box
+    sx={{
+      p: 1.5,
+      borderRadius: "10px",
+      bgcolor: "#fafafa",
+      border: `1px solid ${T.divider}`,
+      minWidth: 0,
+    }}
+  >
+    <Typography
+      sx={{
+        fontSize: "0.62rem",
+        color: T.faint,
+        mb: 0.5,
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        fontWeight: 700,
+      }}
+    >
+      {label}
+    </Typography>
+    {children || (
+      <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: T.text, lineHeight: 1.3 }}>
+        {value}
+      </Typography>
+    )}
+  </Box>
+);
+
+const dialogPaperSx = {
+  borderRadius: "14px",
+  overflow: "hidden",
+  boxShadow: `0 24px 48px ${alpha(T.accent, 0.2)}`,
+};
+
 // ─── Attendance helpers ────────────────────────────────────────────────────
 const getAttendanceIcon = (state) => {
   switch (state) {
@@ -270,6 +372,8 @@ const getAttendanceIcon = (state) => {
     case 2: return <AccessTime  sx={{ fontSize: 13, color: "#ff9800" }} />;
     case 3: return <AccessTime  sx={{ fontSize: 13, color: "#ff9800" }} />;
     case 4: return <CheckCircle sx={{ fontSize: 13, color: "#4caf50" }} />;
+    case 5: return <AccessTime  sx={{ fontSize: 13, color: "#1565C0" }} />;
+    case 6: return <AccessTime  sx={{ fontSize: 13, color: "#1565C0" }} />;
     default: return <Cancel     sx={{ fontSize: 13, color: "#f44336" }} />;
   }
 };
@@ -277,6 +381,7 @@ const getAttendanceColor = (state) => {
   switch (state) {
     case 1: return "#4caf50"; case 2: return "#ff9800";
     case 3: return "#ff9800"; case 4: return "#4caf50";
+    case 5: return "#1565C0"; case 6: return "#1565C0";
     default: return "#f44336";
   }
 };
@@ -284,9 +389,240 @@ const getAttendanceLabel = (state) => {
   switch (state) {
     case 1: return "Time IN";      case 2: return "Breaktime OUT";
     case 3: return "Breaktime IN"; case 4: return "Time OUT";
+    case 5: return "Special Time IN"; case 6: return "Special Time OUT";
     default: return "Uncategorized";
   }
 };
+
+const ATTENDANCE_STATE_OPTIONS = [
+  { value: 1, label: "Time IN" },
+  { value: 2, label: "Breaktime OUT" },
+  { value: 3, label: "Breaktime IN" },
+  { value: 4, label: "Time OUT" },
+  { value: 5, label: "Special Time IN" },
+  { value: 6, label: "Special Time OUT" },
+];
+
+const STATE_ROW_HEIGHT = 52;
+
+const AttendanceStatusChip = ({
+  value,
+  saving = false,
+  editable = false,
+  onOpenMenu,
+}) => {
+  const state = Number(value) || 0;
+  const stateColor = getAttendanceColor(state);
+  return (
+    <Box
+      component={editable ? "button" : "div"}
+      type={editable ? "button" : undefined}
+      disabled={editable && saving}
+      onClick={
+        editable
+          ? (e) => {
+              e.stopPropagation();
+              onOpenMenu?.(e);
+            }
+          : undefined
+      }
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.6,
+        px: 1.25,
+        py: 0.4,
+        borderRadius: "12px",
+        bgcolor: alpha(stateColor, 0.1),
+        border: `1px solid ${alpha(stateColor, 0.25)}`,
+        cursor: editable && !saving ? "pointer" : "default",
+        font: "inherit",
+        outline: "none",
+        opacity: saving ? 0.7 : 1,
+        "&:hover": editable && !saving ? { bgcolor: alpha(stateColor, 0.16) } : {},
+      }}
+    >
+      {saving ? (
+        <CircularProgress size={12} sx={{ color: stateColor }} />
+      ) : (
+        getAttendanceIcon(state)
+      )}
+      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: stateColor }}>
+        {getAttendanceLabel(state)}
+      </Typography>
+      {editable && !saving && (
+        <KeyboardArrowDown sx={{ fontSize: 14, color: stateColor, ml: -0.25 }} />
+      )}
+    </Box>
+  );
+};
+
+const AttendanceStateDetailsDialog = ({ record, open, onClose, onStatusMenuOpen, savingStatus }) => {
+  if (!record) return null;
+  const state = record.AttendanceState;
+  const canEditStatus = Boolean(record.AttendanceDateTime);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{ sx: dialogPaperSx }}
+    >
+      <Box
+        sx={{
+          px: 2.5,
+          py: 2,
+          bgcolor: T.accent,
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 1.5,
+        }}
+      >
+        <Box
+          sx={{
+            width: 42,
+            height: 42,
+            borderRadius: "10px",
+            bgcolor: alpha("#fff", 0.14),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Assignment sx={{ fontSize: 22, color: "#FEF9E1" }} />
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0, pt: 0.15 }}>
+          <Typography sx={{ color: "#FEF9E1", fontWeight: 800, fontSize: "1rem", lineHeight: 1.2 }}>
+            Punch Details
+          </Typography>
+          <Typography sx={{ color: alpha("#FEF9E1", 0.82), fontSize: "0.74rem", mt: 0.35 }}>
+            Review this device punch and correct its status if needed.
+          </Typography>
+        </Box>
+        <IconButton
+          onClick={onClose}
+          size="small"
+          sx={{
+            color: alpha("#FEF9E1", 0.9),
+            bgcolor: alpha("#fff", 0.1),
+            "&:hover": { bgcolor: alpha("#fff", 0.18) },
+          }}
+        >
+          <Close sx={{ fontSize: 18 }} />
+        </IconButton>
+      </Box>
+
+      <DialogContent sx={{ px: 2.5, py: 2.5, bgcolor: "#fff" }}>
+        <Grid container spacing={1.5}>
+          <Grid item xs={12} sm={6}>
+            <DetailField label="Employee ID" value={record.PersonID} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <DetailField label="Date" value={record._dateLabel || record.Date} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <DetailField label="Time" value={record.Time} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <DetailField label="Status">
+              <AttendanceStatusChip
+                value={state}
+                saving={savingStatus}
+                editable={canEditStatus}
+                onOpenMenu={(e) => onStatusMenuOpen?.(e, record)}
+              />
+            </DetailField>
+          </Grid>
+        </Grid>
+        {canEditStatus && (
+          <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 2, lineHeight: 1.45 }}>
+            Click the status chip above to change the punch type. The daily time record will rebuild after you save.
+          </Typography>
+        )}
+      </DialogContent>
+
+      <DialogActions
+        sx={{
+          px: 2.5,
+          py: 1.75,
+          bgcolor: T.accentFaint,
+          borderTop: `1px solid ${T.divider}`,
+        }}
+      >
+        <Button
+          onClick={onClose}
+          variant="contained"
+          sx={{
+            textTransform: "none",
+            fontWeight: 700,
+            borderRadius: "8px",
+            px: 2.5,
+            bgcolor: T.accent,
+            boxShadow: `0 2px 8px ${alpha(T.accent, 0.25)}`,
+            "&:hover": { bgcolor: T.accentDark },
+          }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+const StatusUpdateSuccessDialog = ({ open, message, onClose }) => (
+  <Dialog
+    open={open}
+    onClose={onClose}
+    maxWidth="xs"
+    fullWidth
+    PaperProps={{ sx: dialogPaperSx }}
+  >
+    <DialogContent sx={{ px: 3, pt: 4, pb: 2, textAlign: "center", bgcolor: "#fff" }}>
+      <Box
+        sx={{
+          width: 58,
+          height: 58,
+          borderRadius: "50%",
+          bgcolor: alpha("#2e7d32", 0.1),
+          border: `2px solid ${alpha("#2e7d32", 0.2)}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          mx: "auto",
+          mb: 2,
+        }}
+      >
+        <CheckCircle sx={{ fontSize: 34, color: "#2e7d32" }} />
+      </Box>
+      <Typography sx={{ fontWeight: 800, fontSize: "1.05rem", color: T.text, mb: 1 }}>
+        Status Updated
+      </Typography>
+      <Typography sx={{ fontSize: "0.84rem", color: T.muted, lineHeight: 1.55 }}>
+        {message}
+      </Typography>
+    </DialogContent>
+    <DialogActions sx={{ justifyContent: "center", pb: 3, pt: 0, bgcolor: "#fff" }}>
+      <Button
+        onClick={onClose}
+        variant="contained"
+        sx={{
+          textTransform: "none",
+          fontWeight: 700,
+          borderRadius: "8px",
+          px: 4,
+          bgcolor: T.accent,
+          boxShadow: `0 2px 8px ${alpha(T.accent, 0.25)}`,
+          "&:hover": { bgcolor: T.accentDark },
+        }}
+      >
+        OK
+      </Button>
+    </DialogActions>
+  </Dialog>
+);
 
 const getEmployeeIdentifier = (emp) => {
   if (!emp || typeof emp !== "object") return "";
@@ -502,7 +838,7 @@ const enrichAttendanceRecords = (rows) =>
       _isoDate: iso,
       _sortTs: sortTs,
       _dateLabel: dateLabel,
-      _rowKey: `${record?.PersonID ?? ""}|${record?.Date ?? ""}|${record?.Time ?? ""}|${record?.AttendanceState ?? ""}|${index}`,
+      _rowKey: `${record?.AttendanceDateTime ?? record?.PersonID ?? ""}|${record?.Date ?? ""}|${record?.Time ?? ""}`,
     };
   });
 
@@ -510,267 +846,88 @@ const enrichAttendanceRecords = (rows) =>
 const AttendanceStateRow = React.memo(function AttendanceStateRow({
   record,
   rowIndex,
-  expanded,
-  onToggle,
+  onStatusMenuOpen,
+  onDetailsOpen,
+  savingStatus,
 }) {
   const state = record.AttendanceState;
-  const stateColor = getAttendanceColor(state);
+  const canEditStatus = Boolean(record.AttendanceDateTime) && typeof onStatusMenuOpen === "function";
   return (
-    <>
-      <Box
-        onClick={onToggle}
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
+        px: 2.5,
+        py: 1.5,
+        gap: 2,
+        alignItems: "center",
+        height: STATE_ROW_HEIGHT,
+        boxSizing: "border-box",
+        bgcolor: rowIndex % 2 === 0 ? "#fff" : T.rowOdd,
+        borderBottom: `1px solid ${T.divider}`,
+        transition: "background 0.12s",
+        "&:hover": { bgcolor: T.rowHover },
+      }}
+    >
+      <Typography
         sx={{
-          display: "grid",
-          gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
-          px: 2.5,
-          py: 1.5,
-          gap: 2,
-          alignItems: "center",
-          bgcolor: rowIndex % 2 === 0 ? "#fff" : T.rowOdd,
-          borderBottom: `1px solid ${T.divider}`,
-          cursor: "pointer",
-          transition: "background 0.12s",
-          "&:hover": { bgcolor: T.rowHover },
-          "&:last-child": { borderBottom: "none" },
+          fontWeight: 600,
+          fontSize: "0.82rem",
+          color: T.text,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
         }}
       >
-        <Typography sx={{ fontWeight: 600, fontSize: "0.82rem", color: T.text }}>
-          {record._dateLabel}
-        </Typography>
-        <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontWeight: 500 }}>
-          {record.Time}
-        </Typography>
-        <Box
-          sx={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 0.6,
-            px: 1.25,
-            py: 0.4,
-            borderRadius: "12px",
-            bgcolor: alpha(stateColor, 0.1),
-            border: `1px solid ${alpha(stateColor, 0.25)}`,
-          }}
-        >
-          {getAttendanceIcon(state)}
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: stateColor }}>
-            {getAttendanceLabel(state)}
-          </Typography>
-        </Box>
-        <RowBtn
-          icon={
-            expanded ? (
-              <KeyboardArrowUp sx={{ fontSize: 13 }} />
-            ) : (
-              <KeyboardArrowDown sx={{ fontSize: 13 }} />
-            )
-          }
-          label={expanded ? "Collapse" : "Details"}
-          color={T.accent}
-          hoverBg={T.accentFaint}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
+        {record._dateLabel}
+      </Typography>
+      <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontWeight: 500 }}>
+        {record.Time}
+      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center" }}>
+        <AttendanceStatusChip
+          value={state}
+          saving={savingStatus}
+          editable={canEditStatus}
+          onOpenMenu={(e) => onStatusMenuOpen?.(e, record)}
         />
       </Box>
-      {expanded && (
-        <Box sx={{ px: 2.5, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>
-          <Typography
-            sx={{
-              fontSize: "0.7rem",
-              fontWeight: 700,
-              color: T.accent,
-              mb: 1.25,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-            }}
-          >
-            Record Details
-          </Typography>
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-            {[
-              { label: "Employee ID", value: record.PersonID },
-              { label: "Date", value: record.Date },
-              { label: "Time", value: record.Time },
-              { label: "Status", value: getAttendanceLabel(state) },
-            ].map(({ label, value }) => (
-              <Box key={label}>
-                <Typography
-                  sx={{
-                    fontSize: "0.68rem",
-                    color: T.faint,
-                    mb: 0.3,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}
-                >
-                  {label}
-                </Typography>
-                <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>
-                  {value}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
-        </Box>
-      )}
-    </>
+      <DetailsActionButton
+        onClick={(e) => {
+          e.stopPropagation();
+          onDetailsOpen?.(record);
+        }}
+      />
+    </Box>
   );
 });
 
-// ─── Employee search field ─────────────────────────────────────────────────
-const EmployeeSearchField = ({
-  value,
-  onSelectEmployee,
-  deptMap = {},
-  empCatMap = {},
-  sexMap = {},
-  disabled = false,
-}) => {
-  const [query, setQuery]               = useState(value || "");
-  const [debouncedQuery, setDebouncedQuery] = useState(value || "");
-  const [results, setResults]           = useState([]);
-  const [loading, setLoading]           = useState(false);
-  const [open, setOpen]                 = useState(false);
-  const debounceRef  = useRef(null);
-  const containerRef = useRef(null);
-  const abortRef     = useRef(null);
-
-  useEffect(() => { setQuery(value || ""); setDebouncedQuery(value || ""); }, [value]);
-
-  useEffect(() => {
-    const handleOutside = (e) => { if (!containerRef.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, []);
-
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    if (abortRef.current) abortRef.current.abort();
-    const q = debouncedQuery.trim();
-    if (q.length < 2) { setResults([]); setLoading(false); return; }
-    setLoading(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    axios
-      .get(`${API_BASE_URL}/Remittance/employees/search`, {
-        params: { q },
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json" },
-        signal: controller.signal,
-      })
-      .then((res) => { const list = Array.isArray(res.data) ? res.data : []; setResults(list.slice(0, 20)); })
-      .catch((err) => { if (err?.code === "ERR_CANCELED") return; setResults([]); })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
-  }, [debouncedQuery, open]);
-
-  const queueSearch = (nextValue) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { setDebouncedQuery(nextValue); setOpen(true); }, 220);
-  };
-
-  const handleInputChange = (e) => {
-    const next = e.target.value;
-    onSelectEmployee?.(null, next);
-    setQuery(next);
-    queueSearch(next);
-  };
-  const handleSelect = (emp) => {
-    const num = getEmployeeIdentifier(emp) || "";
-    onSelectEmployee?.(emp || null, num);
-    setQuery(num);
-    setDebouncedQuery(num);
-    setOpen(false);
-  };
-  const handleClear = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-    setQuery(""); setDebouncedQuery(""); setResults([]); setOpen(false);
-    onSelectEmployee?.(null, "");
-  };
-
+const AttendanceStateVirtualRow = React.memo(function AttendanceStateVirtualRow({
+  index,
+  style,
+  records,
+  savingStatusKey,
+  onStatusMenuOpen,
+  onDetailsOpen,
+}) {
+  const record = records[index];
+  if (!record) return null;
   return (
-    <Box sx={{ position: "relative", width: "100%" }} ref={containerRef}>
-      <FieldInput
-        fullWidth size="small" value={query}
-        onChange={handleInputChange}
-        onFocus={() => setOpen(true)}
-        placeholder="Type name or employee number..."
-        disabled={disabled}
-        autoComplete="off"
-        inputProps={{ autoComplete: "new-password" }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchOutlined sx={{ color: T.muted, fontSize: 16 }} />
-            </InputAdornment>
-          ),
-          endAdornment: (
-            <InputAdornment position="end">
-              {loading ? (
-                <CircularProgress size={14} sx={{ color: T.accent }} />
-              ) : query ? (
-                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
-                  <Close sx={{ fontSize: 14, color: T.faint }} />
-                </IconButton>
-              ) : null}
-            </InputAdornment>
-          ),
-        }}
+    <Box style={style} sx={{ width: "100%", boxSizing: "border-box" }}>
+      <AttendanceStateRow
+        record={record}
+        rowIndex={index}
+        savingStatus={savingStatusKey === record._rowKey}
+        onStatusMenuOpen={onStatusMenuOpen}
+        onDetailsOpen={onDetailsOpen}
       />
-      {open && (
-        <Paper elevation={6} sx={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 1300, mt: 0.5, maxHeight: 280, overflow: "auto", borderRadius: "10px", border: `1px solid ${T.accentBorder}` }}>
-          {loading ? (
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 2.5 }}>
-              <CircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: "0.8rem", color: T.muted }}>Searching...</Typography>
-            </Box>
-          ) : results.length > 0 ? (
-            <List dense disablePadding>
-              {results.map((emp) => (
-                <ListItemButton
-                  key={getEmployeeIdentifier(emp)}
-                  onClick={() => handleSelect(emp)}
-                  sx={{
-                    py: 1,
-                    px: 1.5,
-                    borderBottom: `1px solid ${T.divider}`,
-                    "&:hover": { bgcolor: T.accentFaint },
-                    "&:last-child": { borderBottom: "none" },
-                  }}
-                >
-                  <EmployeeProfileRow
-                    employee={toProfileEmployee(emp)}
-                    deptMap={deptMap}
-                    empCatMap={empCatMap}
-                    sexMap={sexMap}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ py: 2.5, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>
-                {query.trim().length >= 2
-                  ? `No results for "${query.trim()}"`
-                  : "Type at least 2 characters to search"}
-              </Typography>
-            </Box>
-          )}
-        </Paper>
-      )}
     </Box>
   );
-};
+});
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const AllAttendanceRecord = () => {
+  const navigate = useNavigate();
   const [personID, setPersonID]           = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [startDate, setStartDate]         = useState("");
@@ -778,7 +935,8 @@ const AllAttendanceRecord = () => {
   const [records, setRecords]             = useState([]);
   const [loading, setLoading]             = useState(false);
   const [error, setError]                 = useState("");
-  const [expandedRow, setExpandedRow]     = useState(null);
+  const [detailsRecord, setDetailsRecord] = useState(null);
+  const [statusMenu, setStatusMenu]       = useState({ anchor: null, record: null });
   const [sortOrder, setSortOrder]         = useState("desc");
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
@@ -787,6 +945,9 @@ const AllAttendanceRecord = () => {
   const [pageLoading, setPageLoading]     = useState(true);
   const [hasSearched, setHasSearched]     = useState(false);
   const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
+  const [statusSuccessDialog, setStatusSuccessDialog] = useState({ open: false, message: "" });
+  const [savingStatusKey, setSavingStatusKey] = useState(null);
+  const [listHeight, setListHeight]       = useState(420);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
   const [sexMap, setSexMap] = useState({});
@@ -796,12 +957,14 @@ const AllAttendanceRecord = () => {
   const loadingRequestIdRef   = useRef(0);
   const isLoadingFetchRef     = useRef(false);
   const queryCacheRef         = useRef(new Map());
+  const listContainerRef      = useRef(null);
+  const listViewportRef       = useRef(null);
 
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
-  const monthsShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthsShort = MONTHS_SHORT;
 
   const { hasAccess, loading: accessLoading } = usePageAccess("attendance-form");
 
@@ -927,7 +1090,7 @@ const AllAttendanceRecord = () => {
     const normalizedID = String(personID || "").trim();
     const queryKey = `${normalizedID}|${startDate}|${endDate}`;
 
-    setExpandedRow(null);
+    setDetailsRecord(null);
 
     if (!force && queryCacheRef.current.has(queryKey)) {
       const cached = queryCacheRef.current.get(queryKey) || [];
@@ -1078,8 +1241,91 @@ const AllAttendanceRecord = () => {
     }
   };
 
-  const handleSort      = () => setSortOrder(sortOrder === "asc" ? "desc" : "asc");
-  const handleRowExpand = (i) => setExpandedRow(expandedRow === i ? null : i);
+  const handleSort = () => setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+
+  const handleStatusMenuOpen = useCallback((event, record) => {
+    event.stopPropagation();
+    setStatusMenu({ anchor: event.currentTarget, record });
+  }, []);
+
+  const handleStatusMenuClose = useCallback(() => {
+    setStatusMenu({ anchor: null, record: null });
+  }, []);
+
+  const handleDetailsOpen = useCallback((record) => {
+    setDetailsRecord(record);
+  }, []);
+
+  const handleStatusChange = useCallback(async (record, newState) => {
+    const ts = record?.AttendanceDateTime;
+    const previousState = Number(record?.AttendanceState);
+    const nextState = Number(newState);
+    if (!ts || !Number.isFinite(nextState) || previousState === nextState) return;
+
+    const rowKey = record._rowKey;
+    setSavingStatusKey(rowKey);
+    setError("");
+    setStatusSuccessDialog({ open: false, message: "" });
+
+    try {
+      await axios.patch(
+        `${API_BASE_URL}/attendance/api/attendance-record-state`,
+        {
+          personID: record.PersonID,
+          attendanceDateTime: ts,
+          attendanceState: nextState,
+        },
+        getAuthHeaders(),
+      );
+
+      const applyUpdate = (rows) =>
+        rows.map((r) =>
+          r._rowKey === rowKey ? { ...r, AttendanceState: nextState } : r,
+        );
+
+      startTransition(() => {
+        setRecords((prev) => {
+          const updated = applyUpdate(prev);
+          const queryKey = `${String(personID || "").trim()}|${startDate}|${endDate}`;
+          if (queryCacheRef.current.has(queryKey)) {
+            queryCacheRef.current.set(queryKey, applyUpdate(queryCacheRef.current.get(queryKey) || []));
+          }
+          return updated;
+        });
+      });
+
+      setStatusSuccessDialog({
+        open: true,
+        message: `Status updated to ${getAttendanceLabel(nextState)}. DTR will reflect the corrected punch.`,
+      });
+
+      logAttendanceStateChange({
+        targetEmployeeNumber: String(record.PersonID || personID || "").trim(),
+        targetUsername: getStateTargetUsername(),
+        periodStart: startDate,
+        periodEnd: endDate,
+        monthLabel: getStateMonthLabel(),
+        punchDate: record.Date,
+        punchTime: record.Time,
+        previousState,
+        newState: nextState,
+      });
+
+      setDetailsRecord((prev) =>
+        prev?._rowKey === rowKey ? { ...prev, AttendanceState: nextState } : prev,
+      );
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to update attendance status");
+    } finally {
+      setSavingStatusKey(null);
+    }
+  }, [personID, startDate, endDate, getStateTargetUsername, getStateMonthLabel]);
+
+  const handleStatusPick = useCallback((newState) => {
+    const record = statusMenu.record;
+    handleStatusMenuClose();
+    if (record) handleStatusChange(record, newState);
+  }, [statusMenu.record, handleStatusMenuClose, handleStatusChange]);
 
   const filteredRecords = useMemo(() => {
     const visibleRecords = recordDateFilter
@@ -1091,11 +1337,76 @@ const AllAttendanceRecord = () => {
     });
   }, [records, sortOrder, recordDateFilter]);
 
+  const virtualListRowProps = useMemo(
+    () => ({
+      records: filteredRecords,
+      savingStatusKey,
+      onStatusMenuOpen: handleStatusMenuOpen,
+      onDetailsOpen: handleDetailsOpen,
+    }),
+    [filteredRecords, savingStatusKey, handleStatusMenuOpen, handleDetailsOpen],
+  );
+
+  useEffect(() => {
+    const el = listViewportRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const next = Math.max(240, Math.floor(el.clientHeight));
+      setListHeight((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasSearched, records.length, filteredRecords.length]);
+
   const displayEmployee = useMemo(() => {
     if (selectedEmployee) return toProfileEmployee(selectedEmployee);
     if (!personID) return null;
     return { employeeNumber: personID };
   }, [selectedEmployee, personID]);
+
+  const handleWorkflowHydrate = useCallback((payload) => {
+    setPersonID(payload.employeeNumber);
+    setStartDate(payload.startDate);
+    setEndDate(payload.endDate);
+    if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
+    if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    setHasSearched(true);
+    setTimeout(() => {
+      fetchRecordsRef.current?.(true, { force: true });
+    }, 250);
+  }, []);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow("state", {
+    employeeNumber: personID,
+    startDate,
+    endDate,
+    onHydrate: handleWorkflowHydrate,
+  });
+
+  useAttendanceCompactPage();
+
+  const handleGoToModification = () => {
+    if (!personID || !startDate || !endDate) {
+      setError("Please enter an employee number and select a period.");
+      return;
+    }
+    const fullName = selectedEmployee
+      ? String(selectedEmployee.name || selectedEmployee.fullName || "").trim()
+      : "";
+    navigateAttendanceWorkflow(navigate, "modification", {
+      employeeNumber: personID,
+      fullName,
+      startDate,
+      endDate,
+    });
+  };
 
   const handleEmployeeSelect = (emp, num) => {
     if (emp && typeof emp === "object") {
@@ -1122,180 +1433,115 @@ const AllAttendanceRecord = () => {
 
   // ─── Left panel ────────────────────────────────────────────────────────
   const renderLeftPanel = () => (
-    <Box sx={{ px: 3, py: 1, flexGrow: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0, ...scrollbarSx }}>
-
-      {/* Year */}
-      <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-      <Box sx={{ mb: 2.5 }}>
-        <select
-          value={selectedYear}
-          onChange={(e) => {
-            setSelectedYear(parseInt(e.target.value));
-            setSelectedMonth(null);
-            setHasSearched(false);
-            setRecords([]);
-          }}
-          style={{
-            width: "100%", padding: "9px 13px", borderRadius: "8px",
-            border: `1px solid ${T.accentBorder}`, fontSize: "0.82rem",
-            outline: "none", fontFamily: "inherit", background: "#fff",
-            color: T.text, cursor: "pointer",
-          }}
-        >
-          {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-        </select>
-      </Box>
-
-      {/* Month */}
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: alpha(T.accent, 0.45) }}>
-            Month
-          </Typography>
-        </Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <FormControl size="small" sx={{ minWidth: 118 }}>
-            <Select
-              value=""
-              displayEmpty
-              onChange={(e) => handleQuickDateSelect(e.target.value)}
-              sx={{ ...selectSx, fontSize: "0.72rem", "& .MuiSelect-select": { py: "6px", pr: "24px !important" } }}
-              renderValue={() => "Quick Dates"}
-            >
-              <MenuItem value="today"     sx={{ fontSize: "0.78rem" }}>Today</MenuItem>
-              <MenuItem value="yesterday" sx={{ fontSize: "0.78rem" }}>Yesterday</MenuItem>
-              <MenuItem value="last7"     sx={{ fontSize: "0.78rem" }}>Last 7 Days</MenuItem>
-              <MenuItem value="last15"    sx={{ fontSize: "0.78rem" }}>Last 15 Days</MenuItem>
-              <MenuItem value="last30"    sx={{ fontSize: "0.78rem" }}>Last 30 Days</MenuItem>
-            </Select>
-          </FormControl>
-          {selectedMonth !== null && (
-            <Box
-              onClick={() => {
-                setSelectedMonth(null);
-                setStartDate("");
-                setEndDate("");
-                setRecords([]);
-                setHasSearched(false);
-              }}
-              sx={{ fontSize: "0.65rem", color: T.accent, cursor: "pointer", fontWeight: 700, "&:hover": { textDecoration: "underline" } }}
-            >
-              Clear
-            </Box>
-          )}
-        </Box>
-      </Box>
-
-      {/* Month grid — border always visible, matching AttendanceUserState */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "6px", mb: 2.5 }}>
-        {monthsShort.map((m, idx) => {
-          const isSelected = selectedMonth === idx;
-          return (
-            <Box
-              key={m}
-              onClick={() => handleMonthClick(idx)}
-              sx={{
-                display: "flex", alignItems: "center", justifyContent: "center",
-                minHeight: 38, px: 1, py: 0.75, borderRadius: "7px", cursor: "pointer",
-                // Always-visible border — accent when selected, faint otherwise
-                border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
-                bgcolor: isSelected ? T.accent : "transparent",
-                transition: "all 0.14s ease",
-                "&:hover": isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accent}` },
-              }}
-            >
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: isSelected ? 700 : 600, color: isSelected ? "#fff" : T.text, lineHeight: 1, letterSpacing: "0.03em", textAlign: "center", width: "100%" }}>
-                {m}
-              </Typography>
-            </Box>
-          );
-        })}
-      </Box>
-
-      {/* Employee */}
-      <Box sx={{ mt: 0.5 }}>
-        <FormSectionLabel icon={SearchOutlined}>Employee</FormSectionLabel>
-        <Box sx={{ mb: 1.5 }}>
-          <EmployeeSearchField
-            value={personID}
+    <Box sx={filterPanelBoxSx}>
+      <AttendanceEmployeeSearchSection selected={Boolean(displayEmployee)}>
+        <AttendanceEmployeeSearchField
+          searchApi="remittance"
+          value={personID}
+          selectedEmployee={selectedEmployee}
+          onSelectEmployee={handleEmployeeSelect}
+          onClear={() => handleEmployeeSelect(null, "")}
+          deptMap={departmentAssignmentsMap}
+          empCatMap={empCatMap}
+          sexMap={sexMap}
+        />
+      </AttendanceEmployeeSearchSection>
+      {displayEmployee && (
+        <Box sx={{ mb: 0.75 }}>
+          <EmployeeProfileCard
+            employee={displayEmployee}
             deptMap={departmentAssignmentsMap}
             empCatMap={empCatMap}
             sexMap={sexMap}
-            onSelectEmployee={handleEmployeeSelect}
+            loading={loading}
           />
         </Box>
-        {displayEmployee && (
-          <Box sx={{ mb: 1.25 }}>
-            <EmployeeProfileCard
-              employee={displayEmployee}
-              deptMap={departmentAssignmentsMap}
-              empCatMap={empCatMap}
-              sexMap={sexMap}
-              loading={loading}
-            />
-          </Box>
-        )}
-        <AccentButton
+      )}
+
+      <AttendanceFilterDateControls
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value));
+          setSelectedMonth(null);
+          setHasSearched(false);
+          setRecords([]);
+        }}
+        yearOptions={yearOptions}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+        onMonthClear={() => {
+          setSelectedMonth(null);
+          setStartDate("");
+          setEndDate("");
+          setRecords([]);
+          setHasSearched(false);
+        }}
+        onQuickDate={handleQuickDateSelect}
+      />
+
+      <AccentButton
           variant="contained"
           fullWidth
           onClick={handleSearch}
-          startIcon={<Search sx={{ fontSize: "16px !important" }} />}
+          startIcon={<Search sx={{ fontSize: "14px !important" }} />}
           sx={{
-            bgcolor: T.accent, color: "#fff",
-            boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+            borderRadius: "6px",
+            textTransform: "none",
+            fontWeight: 600,
+            fontSize: "0.74rem",
+            py: 0.6,
+            mb: 0.75,
+            bgcolor: T.accent,
+            color: "#fff",
+            boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
             "&:hover": { bgcolor: T.accentDark },
           }}
         >
           Fetch Records
         </AccentButton>
 
-        {/* Summary */}
-        <Box sx={{ mt: 1.25, px: 1.5, py: 1.35, borderRadius: 1.75, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-          <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: alpha(T.accent, 0.65), mb: 0.5, lineHeight: 1 }}>
-            Record Summary
-          </Typography>
-          <Typography sx={{ fontSize: "0.98rem", fontWeight: 800, color: T.text, lineHeight: 1.2 }}>
-            {loading
+        <AttendanceFilterSummaryBox
+          title="Record Summary"
+          primary={
+            loading
               ? "Loading records..."
               : hasSearched
                 ? recordDateFilter
                   ? `${filteredRecords.length} of ${records.length} ${records.length === 1 ? "record" : "records"} shown`
                   : `${records.length} ${records.length === 1 ? "record" : "records"} found`
-                : "No records loaded"}
-          </Typography>
-          <Typography sx={{ fontSize: "0.75rem", color: T.muted, mt: 0.35, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {loading
+                : "No records loaded"
+          }
+          secondary={
+            loading
               ? "Fetching attendance data..."
               : hasSearched
                 ? startDate && endDate ? `${startDate} → ${endDate}` : "Search complete."
-                : "Select month and fetch records."}
-          </Typography>
+                : "Select month and fetch records."
+          }
+        />
 
-          <Box sx={{ mt: 1.2, pt: 1, borderTop: `1px dashed ${T.accentBorder}` }}>
-            <Typography sx={{ fontSize: "0.64rem", fontWeight: 700, color: alpha(T.accent, 0.75), mb: 0.5, letterSpacing: "0.03em", textTransform: "uppercase" }}>
-              Search Date (Within Loaded Records)
+        <Box sx={{ mt: 1, px: 0.25 }}>
+          <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: alpha(T.accent, 0.75), mb: 0.5, letterSpacing: "0.03em", textTransform: "uppercase" }}>
+            Search Date (Within Loaded Records)
+          </Typography>
+          <FieldInput
+            fullWidth
+            size="small"
+            type="date"
+            value={recordDateFilter}
+            disabled={!hasSearched || records.length === 0}
+            onChange={(e) => setRecordDateFilter(e.target.value)}
+            inputProps={{ min: startDate || undefined, max: endDate || undefined }}
+          />
+          {recordDateFilter && (
+            <Typography
+              onClick={() => setRecordDateFilter("")}
+              sx={{ fontSize: "0.68rem", color: T.accent, fontWeight: 700, mt: 0.45, cursor: "pointer", width: "fit-content", "&:hover": { textDecoration: "underline" } }}
+            >
+              Clear date filter
             </Typography>
-            <FieldInput
-              fullWidth
-              size="small"
-              type="date"
-              value={recordDateFilter}
-              disabled={!hasSearched || records.length === 0}
-              onChange={(e) => setRecordDateFilter(e.target.value)}
-              inputProps={{ min: startDate || undefined, max: endDate || undefined }}
-            />
-            {recordDateFilter && (
-              <Typography
-                onClick={() => setRecordDateFilter("")}
-                sx={{ fontSize: "0.68rem", color: T.accent, fontWeight: 700, mt: 0.45, cursor: "pointer", width: "fit-content", "&:hover": { textDecoration: "underline" } }}
-              >
-                Clear date filter
-              </Typography>
-            )}
-          </Box>
+          )}
         </Box>
-      </Box>
     </Box>
   );
 
@@ -1305,14 +1551,7 @@ const AllAttendanceRecord = () => {
       <Box>
         <style>{shimmerKf}</style>
 
-        <Box
-          sx={{
-            py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
-            width: "100vw", maxWidth: "100%",
-            position: "relative", left: "63%", transform: "translateX(-61%)",
-            px: { xs: 2, sm: 3, md: 6 },
-          }}
-        >
+        <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
           {/* ── Page Header ── */}
           <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
             <Box
@@ -1337,6 +1576,13 @@ const AllAttendanceRecord = () => {
                 </Box>
               </Box>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
+                <AttendanceWorkflowNav
+                  inline
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  onPrevious={goPrevious}
+                  onNext={goNext}
+                />
                 <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
                   <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>System Generated</Typography>
                 </Box>
@@ -1370,20 +1616,15 @@ const AllAttendanceRecord = () => {
 
             {/* LEFT: Sidebar */}
             <Grid item xs={12} lg={3}>
-              <SectionCard sx={{ height: { xs: "auto", lg: "calc(100vh - 280px)" }, display: "flex", flexDirection: "column" }}>
-                <Box sx={{ px: 3, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint }}>
-                  <FilterList sx={{ fontSize: 15, color: T.accent }} />
-                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>
-                    Attendance Filter
-                  </Typography>
-                </Box>
+              <SectionCard sx={filterSidebarCardSx}>
+                <AttendanceFilterHeader />
                 {renderLeftPanel()}
               </SectionCard>
             </Grid>
 
             {/* RIGHT: Records */}
             <Grid item xs={12} lg={9}>
-              <SectionCard sx={{ height: { xs: "auto", lg: "calc(100vh - 280px)" }, display: "flex", flexDirection: "column", position: "relative" }}>
+              <SectionCard sx={{ ...attendanceMainPanelHeightSx, display: "flex", flexDirection: "column", position: "relative" }}>
 
                 {/* Toolbar */}
                 <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
@@ -1393,60 +1634,53 @@ const AllAttendanceRecord = () => {
                       <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>
                         Attendance States
                       </Typography>
-                      {displayEmployee && (hasSearched || loading) && (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                            flex: 1,
-                            minWidth: 0,
-                            maxWidth: 520,
-                          }}
-                        >
-                          <EmployeeProfileCard
-                            employee={displayEmployee}
-                            deptMap={departmentAssignmentsMap}
-                            empCatMap={empCatMap}
-                            sexMap={sexMap}
-                            loading={loading}
-                          />
-                          {selectedMonth !== null && (
-                            <Box
-                              sx={{
-                                fontSize: "0.65rem",
-                                fontWeight: 700,
-                                color: T.accent,
-                                bgcolor: alpha(T.accent, 0.08),
-                                border: `1px solid ${T.accentBorder}`,
-                                borderRadius: "5px",
-                                px: "6px",
-                                py: "2px",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {monthsShort[selectedMonth]}
-                            </Box>
-                          )}
-                        </Box>
-                      )}
                     </Box>
                     {records.length > 0 && (
-                      <RowBtn
-                        icon={sortOrder === "asc"
-                          ? <KeyboardArrowUp sx={{ fontSize: 13 }} />
-                          : <KeyboardArrowDown sx={{ fontSize: 13 }} />}
-                        label={`Sort ${sortOrder === "asc" ? "Newest First" : "Oldest First"}`}
-                        color={T.accent}
-                        hoverBg={T.accentFaint}
-                        onClick={handleSort}
-                      />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>
+                          {filteredRecords.length.toLocaleString()} punch{filteredRecords.length === 1 ? "" : "es"}
+                        </Typography>
+                        <AccentButton
+                          variant="contained"
+                          size="small"
+                          startIcon={<Edit sx={{ fontSize: "13px !important" }} />}
+                          onClick={handleGoToModification}
+                          sx={{
+                            fontSize: "0.78rem",
+                            bgcolor: T.accent,
+                            color: "#fff",
+                            boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+                            "&:hover": { bgcolor: T.accentDark },
+                          }}
+                        >
+                          Go to Attendance Modification
+                        </AccentButton>
+                        <RowBtn
+                          icon={sortOrder === "asc"
+                            ? <KeyboardArrowUp sx={{ fontSize: 13 }} />
+                            : <KeyboardArrowDown sx={{ fontSize: 13 }} />}
+                          label={`Sort ${sortOrder === "asc" ? "Newest First" : "Oldest First"}`}
+                          color={T.accent}
+                          hoverBg={T.accentFaint}
+                          onClick={handleSort}
+                        />
+                      </Box>
                     )}
                   </Box>
                 </Box>
 
                 {/* Records area */}
-                <Box sx={{ flexGrow: 1, overflowY: "auto", position: "relative", ...scrollbarSx }}>
+                <Box
+                  ref={listContainerRef}
+                  sx={{
+                    flexGrow: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}
+                >
                   {!hasSearched || !personID ? (
                     <Box sx={{ py: 10, textAlign: "center" }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
@@ -1476,7 +1710,7 @@ const AllAttendanceRecord = () => {
                       </Typography>
                     </Box>
                   ) : (
-                    <Box>
+                    <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
                       {/* Column headers */}
                       <Box
                         sx={{
@@ -1486,9 +1720,7 @@ const AllAttendanceRecord = () => {
                           py: 1.25,
                           bgcolor: T.accent,
                           gap: 2,
-                          position: "sticky",
-                          top: 0,
-                          zIndex: 2,
+                          flexShrink: 0,
                         }}
                       >
                         {[
@@ -1524,18 +1756,53 @@ const AllAttendanceRecord = () => {
                         ))}
                       </Box>
 
-                      {filteredRecords.map((record, idx) => (
-                        <AttendanceStateRow
-                          key={record._rowKey}
-                          record={record}
-                          rowIndex={idx}
-                          expanded={expandedRow === idx}
-                          onToggle={() => handleRowExpand(idx)}
+                      <Box ref={listViewportRef} sx={{ flex: 1, minHeight: 0 }}>
+                        <VirtualList
+                          rowCount={filteredRecords.length}
+                          rowHeight={STATE_ROW_HEIGHT}
+                          rowComponent={AttendanceStateVirtualRow}
+                          rowProps={virtualListRowProps}
+                          overscanCount={12}
+                          style={{ height: listHeight, width: "100%" }}
                         />
-                      ))}
+                      </Box>
                     </Box>
                   )}
                 </Box>
+
+                <Menu
+                  anchorEl={statusMenu.anchor}
+                  open={Boolean(statusMenu.anchor)}
+                  onClose={handleStatusMenuClose}
+                >
+                  {ATTENDANCE_STATE_OPTIONS.map((opt) => (
+                    <MenuItem
+                      key={opt.value}
+                      selected={Number(statusMenu.record?.AttendanceState) === opt.value}
+                      onClick={() => handleStatusPick(opt.value)}
+                      sx={{ fontSize: "0.78rem" }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        {getAttendanceIcon(opt.value)}
+                        {opt.label}
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </Menu>
+
+                <AttendanceStateDetailsDialog
+                  record={detailsRecord}
+                  open={Boolean(detailsRecord)}
+                  onClose={() => setDetailsRecord(null)}
+                  onStatusMenuOpen={handleStatusMenuOpen}
+                  savingStatus={Boolean(detailsRecord && savingStatusKey === detailsRecord._rowKey)}
+                />
+
+                <StatusUpdateSuccessDialog
+                  open={statusSuccessDialog.open}
+                  message={statusSuccessDialog.message}
+                  onClose={() => setStatusSuccessDialog({ open: false, message: "" })}
+                />
 
                 {/* Footer legend */}
                 {records.length > 0 && (
@@ -1544,7 +1811,8 @@ const AllAttendanceRecord = () => {
                       { icon: <CheckCircle sx={{ fontSize: 13, color: "#4caf50" }} />, label: "Time IN / Time OUT" },
                       { icon: <AccessTime  sx={{ fontSize: 13, color: "#ff9800" }} />, label: "Breaktime OUT / Breaktime IN" },
                       { icon: <Cancel      sx={{ fontSize: 13, color: "#f44336" }} />, label: "Uncategorized" },
-                      { icon: <KeyboardArrowDown sx={{ fontSize: 13, color: T.accent }} />, label: "Click row to expand details" },
+                      { icon: <Assignment sx={{ fontSize: 13, color: T.accent }} />, label: "Click status to change punch type" },
+                      { icon: <Info sx={{ fontSize: 13, color: T.accent }} />, label: "Details opens a single record panel" },
                     ].map((item, i) => (
                       <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
                         {item.icon}

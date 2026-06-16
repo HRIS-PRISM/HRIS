@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -49,6 +49,9 @@ import {
   KeyboardArrowRight as KeyboardArrowRightIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { ATTENDANCE_PAGE_BOTTOM_PAD } from './attendanceFilterLayout';
 import {
   fetchEmploymentCategoryRow,
   isJobOrderEmploymentCategory,
@@ -565,23 +568,18 @@ const OverallAttendance = () => {
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
   };
 
-  // Restore inputs from navigation state or localStorage
+  // Restore inputs from workflow navigation only (not logged-in user localStorage).
   useEffect(() => {
     const st = location.state;
-    if (st?.employeeNumber != null && String(st.employeeNumber).trim() !== '') {
-      const en = String(st.employeeNumber).trim();
-      setEmployeeNumber(en);
-      localStorage.setItem('employeeNumber', en);
-      if (st.startDate) { setStartDate(st.startDate); localStorage.setItem('startDate', st.startDate); }
-      if (st.endDate)   { setEndDate(st.endDate);     localStorage.setItem('endDate', st.endDate); }
-      return;
-    }
-    const en = localStorage.getItem('employeeNumber');
-    const sd = localStorage.getItem('startDate');
-    const ed = localStorage.getItem('endDate');
-    if (en) setEmployeeNumber(en);
-    if (sd) setStartDate(sd);
-    if (ed) setEndDate(ed);
+    const inWorkflow = st?.fromAttendanceWorkflow === true || st?.fromDevice === true;
+    if (!inWorkflow) return;
+
+    const en = st?.employeeNumber != null ? String(st.employeeNumber).trim() : '';
+    if (!en) return;
+
+    setEmployeeNumber(en);
+    if (st.startDate) setStartDate(String(st.startDate).slice(0, 10));
+    if (st.endDate) setEndDate(String(st.endDate).slice(0, 10));
   }, [location.key]);
 
   // ── Month picker ──────────────────────────────────────────────────────────
@@ -671,6 +669,33 @@ const OverallAttendance = () => {
       setLoading(false);
     }
   };
+
+  const fetchAttendanceDataRef = useRef(fetchAttendanceData);
+  useEffect(() => { fetchAttendanceDataRef.current = fetchAttendanceData; });
+
+  const handleWorkflowHydrate = useCallback((payload) => {
+    const en = String(payload.employeeNumber || '').trim();
+    setEmployeeNumber(en);
+    setStartDate(payload.startDate);
+    setEndDate(payload.endDate);
+    if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
+    if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    setTimeout(() => {
+      fetchAttendanceDataRef.current?.();
+    }, 300);
+  }, []);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('summary', {
+    employeeNumber,
+    startDate,
+    endDate,
+    onHydrate: handleWorkflowHydrate,
+  });
 
   useAttendanceRealtimeRefresh(fetchAttendanceData, {
     personId: employeeNumber,
@@ -947,6 +972,7 @@ const OverallAttendance = () => {
         py: { xs: 1, md: 2 },
         mt: { xs: 0, md: -2 },
         mb: { xs: 1, md: 2 },
+        pb: ATTENDANCE_PAGE_BOTTOM_PAD,
         width: '100vw', maxWidth: '100%',
         position: 'relative', left: '53%',
         transform: 'translateX(-51%)',
@@ -978,6 +1004,13 @@ const OverallAttendance = () => {
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              <AttendanceWorkflowNav
+                inline
+                prevStep={prevStep}
+                nextStep={nextStep}
+                onPrevious={goPrevious}
+                onNext={goNext}
+              />
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <CheckCircleIcon sx={{ fontSize: 12 }} /> System Generated

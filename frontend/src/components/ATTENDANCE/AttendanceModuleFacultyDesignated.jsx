@@ -63,6 +63,10 @@ import {
   RestartAlt,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
@@ -331,9 +335,10 @@ const AttendanceDesignatedWireframe = () => (
     <style>{shimmerKf}</style>
     <Box
       sx={{
-        py: { xs: 1, md: 2 },
-        mt: { xs: 0, md: -2 },
-        mb: { xs: 1, md: 2 },
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          mb: { xs: 1, md: 2 },
+          pb: ATTENDANCE_PAGE_BOTTOM_PAD,
         width: '100vw',
         maxWidth: '100%',
         position: 'relative',
@@ -2822,15 +2827,15 @@ const AttendanceModuleFacultyDesignated = () => {
   }, []);
 
   useEffect(() => {
-    if (attendanceData.length > 0 && resultsRef.current)
-      setTimeout(
-        () =>
-          resultsRef.current.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          }),
-        300,
-      );
+    if (attendanceData.length === 0) return;
+    const timer = setTimeout(() => {
+      document.body.style.removeProperty('overflow');
+      document.documentElement.style.removeProperty('overflow');
+      if (resultsRef.current) {
+        resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [attendanceData]);
 
   useEffect(() => {
@@ -2841,6 +2846,8 @@ const AttendanceModuleFacultyDesignated = () => {
 
   useEffect(() => {
     const s = location.state;
+    if (!s?.fromAttendanceWorkflow && !s?.fromDevice) return;
+
     const en = s?.employeeNumber != null ? String(s.employeeNumber).trim() : '';
     const sd = s?.startDate ? String(s.startDate).slice(0, 10) : '';
     const ed = s?.endDate ? String(s.endDate).slice(0, 10) : '';
@@ -3624,12 +3631,10 @@ const AttendanceModuleFacultyDesignated = () => {
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const navigateToOverallAttendanceSummary = useCallback(() => {
-    const en = String(employeeNumber ?? '').trim();
-    if (en) localStorage.setItem('employeeNumber', en);
-    if (startDate) localStorage.setItem('startDate', startDate);
-    if (endDate) localStorage.setItem('endDate', endDate);
-    navigate('/attendance_summary', {
-      state: { employeeNumber: en, startDate, endDate },
+    navigateAttendanceWorkflow(navigate, 'summary', {
+      employeeNumber,
+      startDate,
+      endDate,
     });
   }, [employeeNumber, startDate, endDate, navigate]);
 
@@ -3789,6 +3794,29 @@ const AttendanceModuleFacultyDesignated = () => {
     handleSubmitRef.current = handleSubmit;
   });
 
+  const handleWorkflowHydrate = useCallback((payload) => {
+    setEmployeeNumber(payload.employeeNumber);
+    setStartDate(payload.startDate);
+    setEndDate(payload.endDate);
+    if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
+    if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    setTimeout(() => {
+      handleSubmitRef.current?.();
+    }, 300);
+  }, []);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('faculty_designated', {
+    employeeNumber,
+    startDate,
+    endDate,
+    onHydrate: handleWorkflowHydrate,
+  });
+
   useAttendanceRealtimeRefresh(
     useCallback(() => {
       if (!employeeNumber || !startDate || !endDate) return;
@@ -3802,6 +3830,8 @@ const AttendanceModuleFacultyDesignated = () => {
       matchMode: 'strict',
     },
   );
+
+  useAttendancePageScroll(loading, attendanceData.length > 0);
 
   const handleCompareClose = () => {
     setCompareOpen(false);
@@ -4333,16 +4363,16 @@ const AttendanceModuleFacultyDesignated = () => {
           py: { xs: 1, md: 2 },
           mt: { xs: 0, md: -2 },
           mb: 0,
+          pb: ATTENDANCE_PAGE_BOTTOM_PAD,
           width: '100vw',
           maxWidth: '100%',
           position: 'relative',
           left: '53%',
           transform: 'translateX(-51%)',
           px: { xs: 2, sm: 3, md: 6 },
-          pb: attendanceData.length > 0 ? '160px' : undefined,
         }}
       >
-        <style>{shimmerKf}</style>
+        <style>{`${ATTENDANCE_PAGE_SCROLL_CSS}${shimmerKf}`}</style>
 
         <Snackbar
           open={snackbar.open}
@@ -4469,6 +4499,13 @@ const AttendanceModuleFacultyDesignated = () => {
                 zIndex: 1,
               }}
             >
+              <AttendanceWorkflowNav
+                inline
+                prevStep={prevStep}
+                nextStep={nextStep}
+                onPrevious={goPrevious}
+                onNext={goNext}
+              />
               <Box
                 sx={{
                   px: 2,

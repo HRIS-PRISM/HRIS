@@ -71,6 +71,8 @@ const fieldToAdjustmentType = (field = '') => {
   if (f === 'timeout')       return 'Time Out';
   if (f === 'breaktimein')   return 'Breaktime In';
   if (f === 'breaktimeout')  return 'Breaktime Out';
+  if (f === 'remarks')       return 'Remarks';
+  if (f === 'autofill_remarks') return 'AutoFill Remarks';
   return 'Manual Entry';
 };
 
@@ -157,6 +159,43 @@ const safeSpecialTypeForDb = (type) => {
   if (!type || type === 'UNCATEGORIZED') return null;
   return ALLOWED_SPECIAL_TYPES.has(type) ? type : null;
 };
+
+const DEVICE_RESTORE_REMARK =
+  'Returned data from the device · Device data restored';
+
+const STATE_CORRECTION_REMARK_PREFIX = 'Updated in Attendance State';
+
+const attendanceStateLabel = (state) => {
+  switch (Number(state)) {
+    case 1: return 'Time IN';
+    case 2: return 'Breaktime OUT';
+    case 3: return 'Breaktime IN';
+    case 4: return 'Time OUT';
+    case 5: return 'Special Time IN';
+    case 6: return 'Special Time OUT';
+    default: return `State ${state}`;
+  }
+};
+
+const buildStateCorrectionRemark = (previousState, newState) =>
+  `${STATE_CORRECTION_REMARK_PREFIX} · punch status updated: ${attendanceStateLabel(previousState)} → ${attendanceStateLabel(newState)}`;
+
+/** SQL snippet: resolve display name for attendancerecord.modified_by */
+const MODIFIER_NAME_SELECT = `
+  COALESCE(
+    NULLIF(TRIM(CONCAT_WS(' ', modp.firstName, modp.middleName, modp.lastName)), ''),
+    NULLIF(TRIM(CONCAT_WS(' ', modu_p.firstName, modu_p.middleName, modu_p.lastName)), ''),
+    modu.username
+  ) AS modified_by_name`;
+
+const MODIFIER_NAME_JOINS = `
+  LEFT JOIN person_table modp
+    ON CAST(ar.modified_by AS CHAR) = CAST(modp.agencyEmployeeNum AS CHAR)
+  LEFT JOIN users modu
+    ON CAST(ar.modified_by AS CHAR) = CAST(modu.employeeNumber AS CHAR)
+    OR ar.modified_by = modu.username
+  LEFT JOIN person_table modu_p
+    ON modu.employeeNumber = modu_p.agencyEmployeeNum`;
 
 // Helper function to get day of week
 const getDayOfWeek = (dateString) => {
@@ -641,6 +680,7 @@ router.post('/api/attendance', authenticateToken, (req, res) => {
         Date: manilaDate.split(',')[0],
         Time: manilaDate.split(',')[1].trim(),
         AttendanceState: record.AttendanceState,
+        AttendanceDateTime: record.AttendanceDateTime,
       };
     });
 
@@ -837,6 +877,8 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
       DAYNAME(ar.date) AS Day,
       ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
       ar.remarks, ar.autofill_remarks,
+      ar.manually_modified, ar.modified_at, ar.modified_by,
+      ${MODIFIER_NAME_SELECT},
       ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
       p.*,
       ot.officialTimeIN,
@@ -865,6 +907,7 @@ router.post('/api/view-attendance', authenticateToken, (req, res) => {
         AND AttendanceDateTime < UNIX_TIMESTAMP(DATE_ADD(?, INTERVAL 1 DAY)) * 1000
       GROUP BY PersonID, DATE(FROM_UNIXTIME(AttendanceDateTime / 1000))
     ) ari_daily ON ari_daily.PersonID = ar.personID AND ari_daily.attDate = ar.date
+    ${MODIFIER_NAME_JOINS}
     LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
       AND ar.personID = ot.employeeID
       AND ar.date BETWEEN ot.startDate AND ot.endDate
@@ -1183,7 +1226,21 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
             ? String(record.autofill_remarks).trim() || null
             : null;
 
-        const updateQuery = `
+        const modifiedBy =
+          (req.user && (req.user.employeeNumber || req.user.username)) || null;
+
+        const updateQuery = hasChanged
+          ? `
+          UPDATE attendancerecord
+          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
+              remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
+              autofill_remarks = COALESCE(?, autofill_remarks),
+              manually_modified = 1,
+              modified_at = NOW(),
+              modified_by = ?
+          WHERE personID = ? AND date = ?
+        `
+          : `
           UPDATE attendancerecord
           SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
               remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
@@ -1192,17 +1249,30 @@ router.put('/api/view-attendance', authenticateToken, (req, res) => {
         `;
 
         // remarks written with a conditional: only overwrite when remarksToWrite is non-null
-        const params = [
-          record.timeIN,
-          record.breaktimeIN,
-          record.breaktimeOUT,
-          record.timeOUT,
-          remarksToWrite,   // IS NOT NULL check
-          remarksToWrite,   // the actual value to write
-          autofillRemarks,
-          record.personID,
-          record.date,
-        ];
+        const params = hasChanged
+          ? [
+              record.timeIN,
+              record.breaktimeIN,
+              record.breaktimeOUT,
+              record.timeOUT,
+              remarksToWrite,
+              remarksToWrite,
+              autofillRemarks,
+              modifiedBy,
+              record.personID,
+              record.date,
+            ]
+          : [
+              record.timeIN,
+              record.breaktimeIN,
+              record.breaktimeOUT,
+              record.timeOUT,
+              remarksToWrite,
+              remarksToWrite,
+              autofillRemarks,
+              record.personID,
+              record.date,
+            ];
 
         db.query(updateQuery, params, (updateErr, result) => {
           if (updateErr) return reject(updateErr);
@@ -2230,7 +2300,7 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               );
             });
 
-            const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
+            const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day, manually_modified FROM attendancerecord WHERE personID = ? AND date = ?`;
             const existingRecord = await new Promise((resolve, reject) => {
               db.query(
                 checkSql,
@@ -2291,6 +2361,9 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
               });
             } else {
               const existing = existingRecord[0];
+              if (Number(existing.manually_modified) === 1) {
+                continue;
+              }
               const hasChanges =
                 (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
                 (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
@@ -2419,9 +2492,12 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
           await new Promise((resolve, reject) => {
             const placeholders = uniqueDates.map(() => '?').join(',');
             const batchSql = `
-              SELECT date, specialType, specialTimeIN, specialTimeOUT
-              FROM attendancerecord
-              WHERE personID = ? AND date IN (${placeholders})
+              SELECT ar.date, ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
+                     ar.manually_modified, ar.modified_at, ar.modified_by,
+                     ${MODIFIER_NAME_SELECT}
+              FROM attendancerecord ar
+              ${MODIFIER_NAME_JOINS}
+              WHERE ar.personID = ? AND ar.date IN (${placeholders})
             `;
             db.query(
               batchSql,
@@ -2445,6 +2521,10 @@ router.post('/api/all-attendance', authenticateToken, async (req, res) => {
             specialType: specialData?.specialType || null,
             savedSpecialTimeIN: specialData?.specialTimeIN || null,
             savedSpecialTimeOUT: specialData?.specialTimeOUT || null,
+            manually_modified: specialData?.manually_modified ?? 0,
+            modified_at: specialData?.modified_at ?? null,
+            modified_by: specialData?.modified_by ?? null,
+            modified_by_name: specialData?.modified_by_name ?? null,
           };
         });
       }
@@ -2533,7 +2613,7 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
             });
           });
 
-          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day FROM attendancerecord WHERE personID = ? AND date = ?`;
+          const checkSql = `SELECT id, timeIN, breaktimeIN, breaktimeOUT, timeOUT, specialType, specialTimeIN, specialTimeOUT, day, manually_modified FROM attendancerecord WHERE personID = ? AND date = ?`;
           const existingRecord = await new Promise((resolve, reject) => {
             db.query(checkSql, [record.PersonID, record.Date], (err, result) => {
               if (err) reject(err);
@@ -2573,6 +2653,9 @@ router.post('/api/bulk-auto-save', authenticateToken, async (req, res) => {
             });
           } else {
             const existing = existingRecord[0];
+            if (Number(existing.manually_modified) === 1) {
+              continue;
+            }
             const hasChanges =
               (existing.timeIN || 'N/A') !== (newTimeIN || 'N/A') ||
               (existing.breaktimeIN || 'N/A') !== (newBreaktimeIN || 'N/A') ||
@@ -2910,6 +2993,8 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
       ar.id          AS recordId,
       ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
       ar.remarks, ar.autofill_remarks,
+      ar.manually_modified, ar.modified_at, ar.modified_by,
+      ${MODIFIER_NAME_SELECT},
       ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
       p.firstName, p.lastName, p.middleName, p.agencyEmployeeNum,
       ot.officialTimeIN, ot.officialTimeOUT,
@@ -2920,6 +3005,7 @@ router.post('/api/view-attendance-full', authenticateToken, (req, res) => {
     FROM date_series ds
     LEFT JOIN person_table p   ON p.agencyEmployeeNum = ?
     LEFT JOIN attendancerecord ar ON ar.personID = ? AND ar.date = DATE_FORMAT(ds.cal_date, '%Y-%m-%d')
+    ${MODIFIER_NAME_JOINS}
     LEFT JOIN officialtime ot
            ON ot.employeeID = ?
           AND ot.day        = DAYNAME(ds.cal_date)
@@ -2970,6 +3056,8 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
 
   try {
     let inserted = 0, updated = 0, skipped = 0;
+    const modifiedBy =
+      (req.user && (req.user.employeeNumber || req.user.username)) || null;
 
     for (const record of records) {
       const allEmpty =
@@ -3010,7 +3098,10 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
             UPDATE attendancerecord
             SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
                 remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
-                autofill_remarks = COALESCE(?, autofill_remarks)
+                autofill_remarks = COALESCE(?, autofill_remarks),
+                manually_modified = 1,
+                modified_at = NOW(),
+                modified_by = ?
             WHERE id = ?
           `;
           await new Promise((resolve, reject) => {
@@ -3021,6 +3112,7 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
                 record.breaktimeOUT || null, record.timeOUT || null,
                 remarksToWrite, remarksToWrite,
                 autofillRemarks,
+                modifiedBy,
                 existing.id,
               ],
               (err) => { if (err) reject(err); else resolve(); },
@@ -3043,8 +3135,8 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
           const insertSql = `
             INSERT INTO attendancerecord
               (personID, date, Day, timeIN, breaktimeIN, breaktimeOUT, timeOUT,
-               remarks, autofill_remarks)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               remarks, autofill_remarks, manually_modified, modified_at, modified_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), ?)
           `;
           await new Promise((resolve, reject) => {
             db.query(
@@ -3055,6 +3147,7 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
                 record.breaktimeOUT || null, record.timeOUT || null,
                 remarksToWrite,
                 autofillRemarks,
+                modifiedBy,
               ],
               (err) => { if (err) reject(err); else resolve(); },
             );
@@ -3106,7 +3199,18 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
           )
           .join(' | ');
 
-        const updateSql = `
+        const updateSql = changes.length > 0
+          ? `
+          UPDATE attendancerecord
+          SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
+              remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
+              autofill_remarks = COALESCE(?, autofill_remarks),
+              manually_modified = 1,
+              modified_at = NOW(),
+              modified_by = ?
+          WHERE personID = ? AND date = ?
+        `
+          : `
           UPDATE attendancerecord
           SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
               remarks = CASE WHEN ? IS NOT NULL THEN ? ELSE remarks END,
@@ -3116,13 +3220,22 @@ router.put('/api/view-attendance-full', authenticateToken, async (req, res) => {
         await new Promise((resolve, reject) => {
           db.query(
             updateSql,
-            [
-              record.timeIN || null, record.breaktimeIN || null,
-              record.breaktimeOUT || null, record.timeOUT || null,
-              remarksToWrite, remarksToWrite,
-              autofillRemarks,
-              record.personID, record.date,
-            ],
+            changes.length > 0
+              ? [
+                  record.timeIN || null, record.breaktimeIN || null,
+                  record.breaktimeOUT || null, record.timeOUT || null,
+                  remarksToWrite, remarksToWrite,
+                  autofillRemarks,
+                  modifiedBy,
+                  record.personID, record.date,
+                ]
+              : [
+                  record.timeIN || null, record.breaktimeIN || null,
+                  record.breaktimeOUT || null, record.timeOUT || null,
+                  remarksToWrite, remarksToWrite,
+                  autofillRemarks,
+                  record.personID, record.date,
+                ],
             (err) => { if (err) reject(err); else resolve(); },
           );
         });
@@ -3219,6 +3332,486 @@ router.get('/api/attendance_adjustment', authenticateToken, (req, res) => {
 
     res.json(rows);
   });
+});
+
+/**
+ * Restore one attendancerecord row from raw AttendanceRecordInfo punches.
+ * @returns {{ success: boolean, personID: string, date: string, error?: string, restoredFromManual?: boolean, remarksCleared?: boolean }}
+ */
+const restoreSingleRowFromDevice = async (db, req, personID, date, opts = {}) => {
+  const {
+    skipAudit = false,
+    skipNotify = false,
+    remarksOverride = null,
+    operationType = 'DEVICE-RESTORE',
+    adjustmentNote = null,
+  } = opts;
+  const personKey = String(personID ?? '').trim();
+  const dateYmd = normalizeDateYmd(date);
+  if (!personKey || !dateYmd) {
+    return { success: false, personID: personKey, date: dateYmd, error: 'Invalid personID or date' };
+  }
+
+  const startTimestamp = new Date(`${dateYmd}T00:00:00Z`).getTime();
+  const endTimestamp = new Date(`${dateYmd}T23:59:59Z`).getTime();
+
+  const deviceQuery = `
+    SELECT
+      PersonID, PersonName,
+      DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+      MIN(CASE WHEN AttendanceState = 1 THEN AttendanceDateTime END) AS Time1,
+      MIN(CASE WHEN AttendanceState = 2 THEN AttendanceDateTime END) AS Time2,
+      MIN(CASE WHEN AttendanceState = 3 THEN AttendanceDateTime END) AS Time3,
+      MAX(CASE WHEN AttendanceState = 4 THEN AttendanceDateTime END) AS Time4,
+      MIN(CASE WHEN AttendanceState = 5 THEN AttendanceDateTime END) AS Time5,
+      MAX(CASE WHEN AttendanceState = 6 THEN AttendanceDateTime END) AS Time6
+    FROM AttendanceRecordInfo
+    WHERE PersonID = ? AND AttendanceDateTime BETWEEN ? AND ?
+    GROUP BY Date, PersonID, PersonName
+    LIMIT 1
+  `;
+
+  const deviceRows = await new Promise((resolve, reject) => {
+    db.query(deviceQuery, [personKey, startTimestamp, endTimestamp], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+
+  if (deviceRows.length === 0) {
+    return {
+      success: false,
+      personID: personKey,
+      date: dateYmd,
+      error: 'No device punch data found for this employee and date',
+    };
+  }
+
+  const raw = deviceRows[0];
+
+  const officialTimeQuery = `
+    SELECT 
+      officialTimeIN, officialTimeOUT,
+      officialBreaktimeIN, officialBreaktimeOUT,
+      officialHonorariumTimeIN, officialHonorariumTimeOUT,
+      officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
+      officialOverTimeIN, officialOverTimeOUT
+    FROM officialtime
+    WHERE employeeID = ? 
+      AND DAYNAME(?) = day
+      AND ? BETWEEN startDate AND endDate
+  `;
+
+  const officialTimeData = await new Promise((resolve, reject) => {
+    db.query(officialTimeQuery, [personKey, dateYmd, dateYmd], (err, result) => {
+      if (err) reject(err);
+      else resolve(result[0] || null);
+    });
+  });
+
+  const fetchSql = `
+    SELECT timeIN, breaktimeIN, breaktimeOUT, timeOUT, day,
+           specialType, specialTimeIN, specialTimeOUT,
+           remarks, autofill_remarks, manually_modified
+    FROM attendancerecord
+    WHERE personID = ? AND date = ?
+    LIMIT 1
+  `;
+  const oldRow = await new Promise((resolve, reject) => {
+    db.query(fetchSql, [personKey, dateYmd], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows[0] || null);
+    });
+  });
+
+  const newTimeIN = formatTime(convertDeviceMillisToManila(raw.Time1));
+  const newBreaktimeIN = formatTime(convertDeviceMillisToManila(raw.Time3));
+  const newBreaktimeOUT = formatTime(convertDeviceMillisToManila(raw.Time2));
+  const newTimeOUT = formatTime(convertDeviceMillisToManila(raw.Time4));
+  const newDay = getDayOfWeek(dateYmd);
+
+  let specialType = null;
+  let specialTimeIN = null;
+  let specialTimeOUT = null;
+
+  if (raw.Time5 || raw.Time6) {
+    const specialTime = convertDeviceMillisToManila(raw.Time5 || raw.Time6);
+    const specialResult = determineSpecialType(specialTime, officialTimeData);
+    specialType = safeSpecialTypeForDb(specialResult.type);
+    specialTimeIN = raw.Time5
+      ? formatTime(convertDeviceMillisToManila(raw.Time5))
+      : null;
+    specialTimeOUT = raw.Time6
+      ? formatTime(convertDeviceMillisToManila(raw.Time6))
+      : null;
+  }
+
+  const normalize = (v) => (v == null ? '' : String(v).trim());
+  const wasManuallyModified = Number(oldRow?.manually_modified) === 1;
+  const hadRemarks =
+    !!normalize(oldRow?.remarks) || !!normalize(oldRow?.autofill_remarks);
+  const shouldSetRestoreRemark = wasManuallyModified || hadRemarks;
+  const restoreRemarkText = remarksOverride
+    ?? (shouldSetRestoreRemark ? DEVICE_RESTORE_REMARK : '');
+  const restoreNote = adjustmentNote
+    ?? 'Restored from raw device punches — returned to default (admin remarks cleared)';
+
+  const newValues = {
+    timeIN: newTimeIN,
+    breaktimeIN: newBreaktimeIN,
+    breaktimeOUT: newBreaktimeOUT,
+    timeOUT: newTimeOUT,
+    specialType,
+    specialTimeIN,
+    specialTimeOUT,
+    remarks: restoreRemarkText,
+    autofill_remarks: '',
+  };
+  const TRACK_FIELDS = [
+    'timeIN', 'breaktimeIN', 'breaktimeOUT', 'timeOUT',
+    'specialType', 'specialTimeIN', 'specialTimeOUT',
+    'remarks', 'autofill_remarks',
+  ];
+  const changes = TRACK_FIELDS
+    .filter((f) => normalize(oldRow?.[f]) !== normalize(newValues[f]))
+    .map((f) => ({
+      field: f,
+      before: normalize(oldRow?.[f]),
+      after: normalize(newValues[f]),
+    }));
+
+  if (oldRow) {
+    const updateSql = `
+      UPDATE attendancerecord
+      SET timeIN = ?, breaktimeIN = ?, breaktimeOUT = ?, timeOUT = ?,
+          specialType = ?, specialTimeIN = ?, specialTimeOUT = ?, day = ?,
+          remarks = ?, autofill_remarks = NULL,
+          manually_modified = 0, modified_at = NULL, modified_by = NULL
+      WHERE personID = ? AND date = ?
+    `;
+    await new Promise((resolve, reject) => {
+      db.query(
+        updateSql,
+        [
+          newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
+          specialType, specialTimeIN, specialTimeOUT, newDay,
+          restoreRemarkText || null,
+          personKey, dateYmd,
+        ],
+        (err) => { if (err) reject(err); else resolve(); },
+      );
+    });
+  } else {
+    const insertSql = `
+      INSERT INTO attendancerecord
+        (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT,
+         specialType, specialTimeIN, specialTimeOUT,
+         remarks, manually_modified, modified_at, modified_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)
+    `;
+    await new Promise((resolve, reject) => {
+      db.query(
+        insertSql,
+        [
+          personKey, dateYmd, newDay,
+          newTimeIN, newBreaktimeIN, newBreaktimeOUT, newTimeOUT,
+          specialType, specialTimeIN, specialTimeOUT,
+          restoreRemarkText || null,
+        ],
+        (err) => { if (err) reject(err); else resolve(); },
+      );
+    });
+  }
+
+  const diffStr = changes
+    .map(({ field, before, after }) => `${field}: [${before || 'empty'} → ${after || 'empty'}]`)
+    .join(' | ');
+
+  if (!skipAudit) {
+    logAudit(
+      req.user,
+      `Restored Attendance from Device | ${dateYmd}${diffStr ? ` | ${diffStr}` : ''}${hadRemarks ? ' | Remarks cleared' : ''}`,
+      'Attendance Device',
+      dateYmd,
+      personKey,
+    );
+  }
+
+  if (changes.length > 0) {
+    writeAdjustmentLog(db, req, {
+      personID: personKey,
+      date: dateYmd,
+      dayOfWeek: oldRow?.day || newDay,
+      operationType,
+      remarks: restoreNote,
+      autofillRemarks: null,
+      changes,
+    });
+  }
+
+  if (!skipNotify) {
+    notifyAttendanceChanged('device-restore', {
+      scope: 'force-sync-from-device',
+      personID: personKey,
+      date: dateYmd,
+    });
+  }
+
+  return {
+    success: true,
+    personID: personKey,
+    date: dateYmd,
+    restoredFromManual: wasManuallyModified || hadRemarks,
+    remarksCleared: hadRemarks,
+    timeIN: newTimeIN,
+    breaktimeIN: newBreaktimeIN,
+    breaktimeOUT: newBreaktimeOUT,
+    timeOUT: newTimeOUT,
+    specialType,
+    specialTimeIN,
+    specialTimeOUT,
+  };
+};
+
+// Update a single raw device punch status (AttendanceRecordInfo.AttendanceState)
+router.patch('/api/attendance-record-state', authenticateToken, async (req, res) => {
+  const { personID, attendanceDateTime, attendanceState } = req.body || {};
+  const personKey = String(personID ?? '').trim();
+  const ts = Number(attendanceDateTime);
+  const newState = Number(attendanceState);
+
+  if (
+    !personKey ||
+    !Number.isFinite(ts) ||
+    !Number.isInteger(newState) ||
+    newState < 1 ||
+    newState > 6
+  ) {
+    return res.status(400).json({
+      error: 'personID, attendanceDateTime, and attendanceState (1–6) are required',
+    });
+  }
+
+  try {
+    const existing = await new Promise((resolve, reject) => {
+      db.query(
+        `SELECT AttendanceState FROM AttendanceRecordInfo WHERE PersonID = ? AND AttendanceDateTime = ? LIMIT 1`,
+        [personKey, ts],
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows[0] || null);
+        },
+      );
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Attendance record not found' });
+    }
+
+    const previousState = Number(existing.AttendanceState);
+    if (previousState === newState) {
+      return res.json({
+        message: 'No change',
+        previousState,
+        attendanceState: newState,
+      });
+    }
+
+    await new Promise((resolve, reject) => {
+      db.query(
+        `UPDATE AttendanceRecordInfo SET AttendanceState = ? WHERE PersonID = ? AND AttendanceDateTime = ?`,
+        [newState, personKey, ts],
+        (err) => {
+          if (err) reject(err);
+          else resolve();
+        },
+      );
+    });
+
+    const dateYmd = new Date(ts).toLocaleDateString('en-CA', {
+      timeZone: 'Asia/Manila',
+    });
+    const stateRemark = buildStateCorrectionRemark(previousState, newState);
+
+    let dtrRestored = false;
+    try {
+      const restoreResult = await restoreSingleRowFromDevice(db, req, personKey, dateYmd, {
+        skipAudit: true,
+        skipNotify: true,
+        remarksOverride: stateRemark,
+        operationType: 'STATE-STATUS',
+        adjustmentNote: `Punch status corrected in Attendance State (${attendanceStateLabel(previousState)} → ${attendanceStateLabel(newState)})`,
+      });
+      dtrRestored = restoreResult?.success === true;
+    } catch (restoreErr) {
+      console.warn('attendance-record-state: DTR restore skipped:', restoreErr.message);
+    }
+
+    await new Promise((resolve, reject) => {
+      db.query(
+        `UPDATE attendancerecord SET remarks = ? WHERE personID = ? AND date = ?`,
+        [stateRemark, personKey, dateYmd],
+        (err, result) => {
+          if (err) reject(err);
+          else resolve(result);
+        },
+      );
+    });
+
+    logAudit(
+      req.user,
+      `Updated punch state ${previousState} → ${newState} | ${dateYmd}`,
+      'Attendance State',
+      `${personKey}|${ts}`,
+      personKey,
+      {
+        personID: personKey,
+        attendanceDateTime: ts,
+        previousState,
+        newState,
+        date: dateYmd,
+        dtrRestored,
+      },
+    );
+
+    notifyAttendanceChanged('attendance-state-updated', {
+      scope: 'attendancerecordinfo',
+      personIDs: [personKey],
+      personID: personKey,
+      date: dateYmd,
+    });
+
+    res.json({
+      message: 'Attendance status updated',
+      previousState,
+      attendanceState: newState,
+      date: dateYmd,
+      dtrRestored,
+    });
+  } catch (err) {
+    console.error('PATCH /api/attendance-record-state error:', err);
+    res.status(500).json({ error: err.message || 'Failed to update attendance status' });
+  }
+});
+
+// Force-restore a single row from raw device punches (clears manual lock)
+router.post('/api/force-sync-from-device', authenticateToken, async (req, res) => {
+  const { personID, date } = req.body || {};
+
+  if (!personID || !date) {
+    return res.status(400).json({ error: 'personID and date are required' });
+  }
+
+  try {
+    const result = await restoreSingleRowFromDevice(db, req, personID, date);
+    if (!result.success) {
+      return res.status(result.error?.includes('No device') ? 404 : 400).json({ error: result.error });
+    }
+
+    res.json({
+      ...result,
+      message: result.restoredFromManual
+        ? 'Returned data from the device — admin remarks cleared'
+        : 'Row restored from device data',
+    });
+  } catch (err) {
+    console.error('force-sync-from-device error:', err);
+    res.status(500).json({ error: err.message || 'Failed to restore from device' });
+  }
+});
+
+// Bulk force-restore locked rows from raw device punches
+router.post('/api/bulk-force-sync-from-device', authenticateToken, async (req, res) => {
+  const { rows } = req.body || {};
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'rows array is required' });
+  }
+  if (rows.length > 200) {
+    return res.status(400).json({ error: 'Maximum 200 rows per bulk restore request' });
+  }
+
+  let restored = 0;
+  let failed = 0;
+  const errors = [];
+  const restoredRows = [];
+
+  try {
+    for (const row of rows) {
+      const personID = row?.personID;
+      const date = row?.date;
+      if (!personID || !date) {
+        failed++;
+        errors.push({ personID, date, error: 'personID and date are required' });
+        continue;
+      }
+
+      try {
+        const result = await restoreSingleRowFromDevice(db, req, personID, date, {
+          skipAudit: true,
+          skipNotify: true,
+        });
+        if (result.success) {
+          restored++;
+          restoredRows.push({
+            personID: result.personID,
+            date: result.date,
+            restoredFromManual: result.restoredFromManual,
+          });
+        } else {
+          failed++;
+          errors.push({
+            personID: result.personID,
+            date: result.date,
+            error: result.error || 'Restore failed',
+          });
+        }
+      } catch (rowErr) {
+        failed++;
+        errors.push({
+          personID,
+          date,
+          error: rowErr?.message || String(rowErr),
+        });
+      }
+    }
+
+    if (restored > 0) {
+      const personIDs = [...new Set(restoredRows.map((r) => r.personID).filter(Boolean))];
+      const dates = [...new Set(restoredRows.map((r) => r.date).filter(Boolean))];
+
+      logAudit(
+        req.user,
+        `Bulk Restored Attendance from Device | ${restored} row(s)${failed ? `, ${failed} failed` : ''}`,
+        'Attendance Device',
+        dates.length === 1 ? dates[0] : `${dates[0]} to ${dates[dates.length - 1]}`,
+        personIDs.length === 1 ? personIDs[0] : personIDs.join(', '),
+      );
+
+      notifyAttendanceChanged('device-restore-bulk', {
+        scope: 'bulk-force-sync-from-device',
+        personIDs,
+        dates,
+        restored,
+        failed,
+      });
+    }
+
+    res.json({
+      success: true,
+      restored,
+      failed,
+      restoredRows,
+      errors: errors.slice(0, 20),
+      message:
+        restored > 0
+          ? `Restored ${restored} row(s) from device data${failed ? ` (${failed} failed)` : ''}`
+          : 'No rows were restored',
+    });
+  } catch (err) {
+    console.error('bulk-force-sync-from-device error:', err);
+    res.status(500).json({ error: err.message || 'Bulk restore failed' });
+  }
 });
 
 module.exports = router;

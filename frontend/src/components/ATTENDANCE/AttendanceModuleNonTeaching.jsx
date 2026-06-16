@@ -63,6 +63,10 @@ import {
   UnfoldLess,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
@@ -1091,7 +1095,11 @@ const AttendanceModuleNonTeachingStaff = () => {
 
   useEffect(() => {
     if (attendanceData.length === 0) return;
-    const timer = setTimeout(() => { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 300);
+    const timer = setTimeout(() => {
+      document.body.style.removeProperty('overflow');
+      document.documentElement.style.removeProperty('overflow');
+      if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
     return () => clearTimeout(timer);
   }, [attendanceData]);
 
@@ -1466,11 +1474,11 @@ const AttendanceModuleNonTeachingStaff = () => {
   }, [halfDayReviewByDate, attendanceData, employeeNumber, startDate, endDate]);
 
   const navigateToOverallAttendanceSummary = useCallback(() => {
-    const en = String(employeeNumber ?? '').trim();
-    if (en) localStorage.setItem('employeeNumber', en);
-    if (startDate) localStorage.setItem('startDate', startDate);
-    if (endDate) localStorage.setItem('endDate', endDate);
-    navigate('/attendance_summary', { state: { employeeNumber: en, startDate, endDate } });
+    navigateAttendanceWorkflow(navigate, 'summary', {
+      employeeNumber,
+      startDate,
+      endDate,
+    });
   }, [employeeNumber, startDate, endDate, navigate]);
 
   const buildOverallRecordPayload = () => {
@@ -1587,6 +1595,29 @@ const AttendanceModuleNonTeachingStaff = () => {
   const handleSubmitRef = useRef(handleSubmit);
   useEffect(() => { handleSubmitRef.current = handleSubmit; });
 
+  const handleWorkflowHydrate = useCallback((payload) => {
+    setEmployeeNumber(payload.employeeNumber);
+    setStartDate(payload.startDate);
+    setEndDate(payload.endDate);
+    if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
+    if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    setTimeout(() => {
+      handleSubmitRef.current?.();
+    }, 300);
+  }, []);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('non_teaching', {
+    employeeNumber,
+    startDate,
+    endDate,
+    onHydrate: handleWorkflowHydrate,
+  });
+
   useAttendanceRealtimeRefresh(
     useCallback(() => {
       if (!employeeNumber || !startDate || !endDate) return;
@@ -1594,6 +1625,8 @@ const AttendanceModuleNonTeachingStaff = () => {
     }, [employeeNumber, startDate, endDate]),
     { personId: employeeNumber, startDate, endDate, requireDateRange: true, matchMode: 'strict' },
   );
+
+  useAttendancePageScroll(loading, attendanceData.length > 0);
 
   const handleCompareClose = () => { setCompareOpen(false); setPendingSavedOverall(null); setPendingProposedOverall(null); };
   const handleCompareConfirm = async (choices) => {
@@ -1816,12 +1849,12 @@ const AttendanceModuleNonTeachingStaff = () => {
     <Fade in timeout={400}>
       <Box sx={{
         py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
+        pb: ATTENDANCE_PAGE_BOTTOM_PAD,
         width: '100vw', maxWidth: '100%',
         position: 'relative', left: '53%', transform: 'translateX(-51%)',
         px: { xs: 2, sm: 3, md: 6 },
-        pb: attendanceData.length > 0 ? '160px' : undefined,
       }}>
-        <style>{shimmerKf}</style>
+        <style>{`${ATTENDANCE_PAGE_SCROLL_CSS}${shimmerKf}`}</style>
 
         <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
           <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
@@ -1850,6 +1883,13 @@ const AttendanceModuleNonTeachingStaff = () => {
               </Box>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              <AttendanceWorkflowNav
+                inline
+                prevStep={prevStep}
+                nextStep={nextStep}
+                onPrevious={goPrevious}
+                onNext={goNext}
+              />
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <CheckCircleIcon sx={{ fontSize: 12 }} /> Non-Teaching

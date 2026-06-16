@@ -37,6 +37,15 @@ import {
 import { Grid } from '@mui/material';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import {
+  AttendanceFilterHeader,
+  AttendanceFilterSectionLabel,
+  AttendanceFilterDateControls,
+  AttendanceFilterSummaryBox,
+  filterPanelBoxSx,
+  filterSidebarCardSx,
+  MONTHS_SHORT,
+} from './attendanceFilterLayout';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 
@@ -440,7 +449,7 @@ const AttendanceUserState = () => {
 
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
-  const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthsShort = MONTHS_SHORT;
 
   useEffect(() => {
     if (!accessLoading) setPageLoading(false);
@@ -668,174 +677,31 @@ const AttendanceUserState = () => {
     );
 
   const renderLeftPanel = () => (
-    <Box
-      sx={{
-        px: 3,
-        py: 1,
-        flexGrow: 1,
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0,
-        ...scrollbarSx,
-      }}
-    >
-      <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-      <Box sx={{ mb: 2.5 }}>
-        <select
-          value={selectedYear}
-          onChange={(e) => {
-            setSelectedYear(parseInt(e.target.value, 10));
-            setSelectedMonth(null);
-            setHasSearched(false);
-            setRecords([]);
-          }}
-          style={{
-            width: '100%',
-            padding: '9px 13px',
-            borderRadius: '8px',
-            border: `1px solid ${T.accentBorder}`,
-            fontSize: '0.82rem',
-            outline: 'none',
-            fontFamily: 'inherit',
-            background: '#fff',
-            color: T.text,
-            cursor: 'pointer',
-          }}
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </Box>
-
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-          <Typography
-            sx={{
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              letterSpacing: '0.09em',
-              textTransform: 'uppercase',
-              color: alpha(T.accent, 0.45),
-            }}
-          >
-            Month
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <FormControl size="small" sx={{ minWidth: 118 }}>
-            <Select
-              value=""
-              displayEmpty
-              onChange={(e) => handleQuickDateSelect(e.target.value)}
-              sx={{
-                ...selectSx,
-                fontSize: '0.72rem',
-                '& .MuiSelect-select': { py: '6px', pr: '24px !important' },
-              }}
-              renderValue={() => 'Quick Dates'}
-            >
-              <MenuItem value="today" sx={{ fontSize: '0.78rem' }}>
-                Today
-              </MenuItem>
-              <MenuItem value="yesterday" sx={{ fontSize: '0.78rem' }}>
-                Yesterday
-              </MenuItem>
-              <MenuItem value="last7" sx={{ fontSize: '0.78rem' }}>
-                Last 7 Days
-              </MenuItem>
-              <MenuItem value="last15" sx={{ fontSize: '0.78rem' }}>
-                Last 15 Days
-              </MenuItem>
-              <MenuItem value="last30" sx={{ fontSize: '0.78rem' }}>
-                Last 30 Days
-              </MenuItem>
-            </Select>
-          </FormControl>
-          {selectedMonth !== null && (
-            <Box
-              onClick={() => {
-                setSelectedMonth(null);
-                setStartDate(formattedToday);
-                setEndDate(formattedToday);
-                setRecords([]);
-                setHasSearched(false);
-              }}
-              sx={{
-                fontSize: '0.65rem',
-                color: T.accent,
-                cursor: 'pointer',
-                fontWeight: 700,
-                '&:hover': { textDecoration: 'underline' },
-              }}
-            >
-              Clear
-            </Box>
-          )}
-        </Box>
-      </Box>
-
-      {/* Month grid — border always visible */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          gap: '6px',
-          mb: 2.5,
+    <Box sx={filterPanelBoxSx}>
+      <AttendanceFilterDateControls
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value, 10));
+          setSelectedMonth(null);
+          setHasSearched(false);
+          setRecords([]);
         }}
-      >
-        {monthsShort.map((m, idx) => {
-          const isSelected = selectedMonth === idx;
-          return (
-            <Box
-              key={m}
-              onClick={() => handleMonthClick(idx)}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 38,
-                px: 1,
-                py: 0.75,
-                borderRadius: '7px',
-                cursor: 'pointer',
-                // Border is always visible — accent color when selected, faint border otherwise
-                border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
-                bgcolor: isSelected ? T.accent : 'transparent',
-                transition: 'all 0.14s ease',
-                '&:hover': isSelected
-                  ? {}
-                  : {
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accent}`,
-                    },
-              }}
-            >
-              <Typography
-                sx={{
-                  fontSize: '0.84rem',
-                  fontWeight: isSelected ? 700 : 600,
-                  color: isSelected ? '#fff' : T.text,
-                  lineHeight: 1,
-                  letterSpacing: '0.03em',
-                  textAlign: 'center',
-                  width: '100%',
-                }}
-              >
-                {m}
-              </Typography>
-            </Box>
-          );
-        })}
-      </Box>
+        yearOptions={yearOptions}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+        onMonthClear={() => {
+          setSelectedMonth(null);
+          setStartDate(formattedToday);
+          setEndDate(formattedToday);
+          setRecords([]);
+          setHasSearched(false);
+        }}
+        onQuickDate={handleQuickDateSelect}
+      />
 
       <Box sx={{ mt: 0.5 }}>
-        <FormSectionLabel icon={Person}>Employee</FormSectionLabel>
-        <Box sx={{ mb: 1.5 }}>
+        <AttendanceFilterSectionLabel icon={Person}>Employee</AttendanceFilterSectionLabel>
+        <Box sx={{ mb: 0.75 }}>
           <FieldInput fullWidth size="small" value={personID} disabled />
         </Box>
 
@@ -843,108 +709,64 @@ const AttendanceUserState = () => {
           variant="contained"
           fullWidth
           onClick={handleSearch}
-          startIcon={<EventNote sx={{ fontSize: '16px !important' }} />}
+          startIcon={<EventNote sx={{ fontSize: '14px !important' }} />}
           sx={{
+            borderRadius: '6px',
+            textTransform: 'none',
+            fontWeight: 600,
+            fontSize: '0.74rem',
+            py: 0.6,
+            mb: 0.75,
             bgcolor: T.accent,
             color: '#fff',
-            boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+            boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
             '&:hover': { bgcolor: T.accentDark },
           }}
         >
           Fetch Records
         </AccentButton>
 
-        <Box
-          sx={{
-            mt: 1.25,
-            px: 1.5,
-            py: 1.35,
-            borderRadius: 1.75,
-            bgcolor: T.accentFaint,
-            border: `1px solid ${T.accentBorder}`,
-          }}
-        >
-          <Typography
-            sx={{
-              fontSize: '0.68rem',
-              fontWeight: 800,
-              letterSpacing: '0.07em',
-              textTransform: 'uppercase',
-              color: alpha(T.accent, 0.65),
-              mb: 0.5,
-              lineHeight: 1,
-            }}
-          >
-            Record Summary
-          </Typography>
-          <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, color: T.text, lineHeight: 1.2 }}>
-            {loading
+        <AttendanceFilterSummaryBox
+          title="Record Summary"
+          primary={
+            loading
               ? 'Loading records...'
               : hasSearched
                 ? recordDateFilter
                   ? `${filteredRecords.length} of ${records.length} ${records.length === 1 ? 'record' : 'records'} shown`
                   : `${records.length} ${records.length === 1 ? 'record' : 'records'} found`
-                : 'No records loaded'}
-          </Typography>
-          <Typography
-            sx={{
-              fontSize: '0.75rem',
-              color: T.muted,
-              mt: 0.35,
-              lineHeight: 1.2,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {loading
+                : 'No records loaded'
+          }
+          secondary={
+            loading
               ? 'Fetching attendance data...'
               : hasSearched
-                ? startDate && endDate
-                  ? `${startDate} -> ${endDate}`
-                  : 'Search complete.'
-                : 'Select month and fetch records.'}
-          </Typography>
+                ? startDate && endDate ? `${startDate} → ${endDate}` : 'Search complete.'
+                : 'Select month and fetch records.'
+          }
+        />
 
-          <Box sx={{ mt: 1.2, pt: 1, borderTop: `1px dashed ${T.accentBorder}` }}>
+        <Box sx={{ mt: 1, px: 0.25 }}>
+          <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, color: alpha(T.accent, 0.75), mb: 0.5, letterSpacing: '0.03em', textTransform: 'uppercase' }}>
+            Search Date (Within Loaded Records)
+          </Typography>
+          <FieldInput
+            fullWidth
+            size="small"
+            type="date"
+            value={recordDateFilter}
+            disabled={!hasSearched || records.length === 0}
+            onChange={(e) => setRecordDateFilter(e.target.value)}
+            inputProps={{ min: startDate || undefined, max: endDate || undefined }}
+          />
+          {recordDateFilter && (
             <Typography
-              sx={{
-                fontSize: '0.64rem',
-                fontWeight: 700,
-                color: alpha(T.accent, 0.75),
-                mb: 0.5,
-                letterSpacing: '0.03em',
-                textTransform: 'uppercase',
-              }}
+              onClick={() => setRecordDateFilter('')}
+              sx={{ fontSize: '0.68rem', color: T.accent, fontWeight: 700, mt: 0.45, cursor: 'pointer', width: 'fit-content', '&:hover': { textDecoration: 'underline' } }}
             >
-              Search Date (Within Loaded Records)
+              Clear date filter
             </Typography>
-            <FieldInput
-              fullWidth
-              size="small"
-              type="date"
-              value={recordDateFilter}
-              disabled={!hasSearched || records.length === 0}
-              onChange={(e) => setRecordDateFilter(e.target.value)}
-              inputProps={{ min: startDate || undefined, max: endDate || undefined }}
-            />
-            {recordDateFilter && (
-              <Typography
-                onClick={() => setRecordDateFilter('')}
-                sx={{
-                  fontSize: '0.68rem',
-                  color: T.accent,
-                  fontWeight: 700,
-                  mt: 0.45,
-                  cursor: 'pointer',
-                  width: 'fit-content',
-                  '&:hover': { textDecoration: 'underline' },
-                }}
-              >
-                Clear date filter
-              </Typography>
-            )}
-          </Box>
+          )}
         </Box>
       </Box>
     </Box>
@@ -1086,23 +908,8 @@ const AttendanceUserState = () => {
 
           <Grid container spacing={2}>
             <Grid item xs={12} lg={3}>
-              <SectionCard sx={{ height: { xs: 'auto', lg: 'calc(100vh - 280px)' }, display: 'flex', flexDirection: 'column' }}>
-                <Box
-                  sx={{
-                    px: 3,
-                    py: 1.25,
-                    borderBottom: `1px solid ${T.divider}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1.5,
-                    bgcolor: T.accentFaint,
-                  }}
-                >
-                  <FilterList sx={{ fontSize: 15, color: T.accent }} />
-                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>
-                    Attendance Filter
-                  </Typography>
-                </Box>
+              <SectionCard sx={filterSidebarCardSx}>
+                <AttendanceFilterHeader />
                 {renderLeftPanel()}
               </SectionCard>
             </Grid>

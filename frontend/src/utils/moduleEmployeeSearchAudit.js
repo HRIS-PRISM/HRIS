@@ -286,6 +286,34 @@ export function logAttendanceStateView({
   });
 }
 
+/** After admin corrects a raw punch status in Attendance State. */
+export function logAttendanceStateChange({
+  targetEmployeeNumber,
+  targetUsername,
+  periodStart,
+  periodEnd,
+  monthLabel,
+  punchDate,
+  punchTime,
+  previousState,
+  newState,
+}) {
+  const prev = previousState ?? '?';
+  const next = newState ?? '?';
+  logAttendanceModuleAction({
+    module: ATTENDANCE_AUDIT_MODULES.STATE,
+    auditButton: 'Updated punch status',
+    targetEmployeeNumber,
+    targetUsername: targetUsername || null,
+    targetEmployeeName: targetUsername || null,
+    periodStart,
+    periodEnd,
+    monthLabel,
+    auditEvent: 'state_status_change',
+    changesSummary: `${punchDate || ''} ${punchTime || ''}: state ${prev} → ${next}`.trim(),
+  });
+}
+
 /** After Search in Daily Time Record (Overall) — single employee. */
 export function logDtrOverallSearch({
   targetEmployeeNumber,

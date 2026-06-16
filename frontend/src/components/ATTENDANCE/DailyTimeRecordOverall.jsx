@@ -51,7 +51,11 @@ import {
   List,
   ListItemButton,
   Typography,
+  Avatar,
+  CircularProgress,
 } from '@mui/material';
+import { Male as MaleIcon, Female as FemaleIcon } from '@mui/icons-material';
+import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 import earistLogo from '../../assets/earistLogo.png';
 import hrisLogo from '../../assets/hrisLogo.png';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -67,7 +71,25 @@ import {
   ATTENDANCE_AUDIT_MODULES,
 } from '../../utils/moduleEmployeeSearchAudit';
 import AccessDenied from '../AccessDenied';
+import {
+  AttendanceFilterHeader,
+  AttendanceFilterSectionLabel,
+  AttendanceFilterDateControls,
+  AttendanceFilterToggleRow,
+  applyQuickDateRange,
+  filterPanelScrollSx,
+  filterSidebarCardSx,
+  attendanceMainPanelHeightSx,
+  ATTENDANCE_COMPACT_PAGE_SX,
+  MONTHS_SHORT,
+  AttendanceEmployeeSearchSection,
+  useAttendanceCompactPage,
+} from './attendanceFilterLayout';
+import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
 import LoadingOverlay from '../LoadingOverlay';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import {
   fetchDailyLateUndertime,
   fetchDailyLateUndertimeBatch,
@@ -244,6 +266,173 @@ const FormSectionLabel = ({ icon: Icon, children }) => (
   </Box>
 );
 
+const getEmployeeIdentifier = (emp) => {
+  if (!emp || typeof emp !== 'object') return '';
+  const raw =
+    emp.personID ?? emp.PersonID ?? emp.employeeNum ??
+    emp.employeeNumber ?? emp.agencyEmployeeNum ?? '';
+  return String(raw).trim();
+};
+
+const toProfileEmployee = (emp) => {
+  if (!emp) return null;
+  const num = getEmployeeIdentifier(emp);
+  return { ...emp, employeeNumber: num };
+};
+
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  if (!last && !first) {
+    const raw = String(e?.name || e?.fullName || '').trim();
+    if (!raw) {
+      const num = getEmployeeIdentifier(e);
+      return num ? `#${num}` : '';
+    }
+    if (raw.includes(',')) return raw;
+    return raw;
+  }
+  return last
+    ? `${last.toUpperCase()}, ${[first, mid].filter(Boolean).join(' ')}`
+    : [first, mid].filter(Boolean).join(' ');
+};
+
+const getEmployeeInitials = (e) => {
+  const last = e?.lastName?.[0];
+  const first = e?.firstName?.[0];
+  if (last || first) {
+    return `${last || ''}${first || ''}`.toUpperCase() || '?';
+  }
+  const nm = String(e?.name || e?.fullName || '').trim();
+  if (!nm) return '?';
+  const parts = nm.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return nm[0]?.toUpperCase() || '?';
+};
+
+const GenderBadge = ({ gender }) => {
+  if (!gender) return null;
+  const isMale = String(gender).trim().toLowerCase() === 'male';
+  return (
+    <Chip
+      size="small"
+      icon={
+        isMale ? (
+          <MaleIcon style={{ fontSize: 11, color: '#1565C0' }} />
+        ) : (
+          <FemaleIcon style={{ fontSize: 11, color: '#c2185b' }} />
+        )
+      }
+      label={gender}
+      sx={{
+        height: 18,
+        fontSize: '0.6rem',
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        bgcolor: isMale ? 'rgba(21,101,192,0.08)' : 'rgba(194,24,91,0.08)',
+        color: isMale ? '#1565C0' : '#c2185b',
+        border: `1px solid ${isMale ? 'rgba(21,101,192,0.25)' : 'rgba(194,24,91,0.25)'}`,
+        borderRadius: '4px',
+      }}
+    />
+  );
+};
+
+const EmployeeProfileRow = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  avatarSize = 30,
+}) => {
+  if (!employee) return null;
+  const num = getEmployeeIdentifier(employee);
+  const initials = getEmployeeInitials(employee);
+  const name = buildDisplayName(employee);
+  const dc = deptMap[num];
+  const ec = empCatMap[num];
+  const gender = sexMap[num] || employee.sex || employee.gender;
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+      <Avatar
+        sx={{
+          width: avatarSize,
+          height: avatarSize,
+          bgcolor: T.accent,
+          fontSize: avatarSize <= 30 ? '0.65rem' : '0.8rem',
+          fontWeight: 800,
+          borderRadius: avatarSize <= 30 ? '4px' : '8px',
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </Avatar>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          sx={{
+            fontWeight: 700,
+            fontSize: avatarSize <= 30 ? '0.78rem' : '0.84rem',
+            color: T.text,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {name}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', mt: 0.2 }}>
+          <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 600 }}>
+            #{num}
+          </Typography>
+          {gender && <GenderBadge gender={gender} />}
+          {dc && <DeptBadge code={dc} />}
+          {ec && <EmpCatBadge label={ec.label} colorHex={ec.colorHex} />}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const EmployeeProfileCard = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  loading = false,
+}) => {
+  if (!employee) return null;
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.25,
+        px: 1.25,
+        py: 1,
+        borderRadius: 2,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fafafa',
+      }}
+    >
+      <EmployeeProfileRow
+        employee={employee}
+        deptMap={deptMap}
+        empCatMap={empCatMap}
+        sexMap={sexMap}
+        avatarSize={44}
+      />
+      {loading && (
+        <CircularProgress size={14} sx={{ color: T.accent, flexShrink: 0 }} />
+      )}
+    </Box>
+  );
+};
+
 const scrollbarSx = {
   '&::-webkit-scrollbar': { width: 4 },
   '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
@@ -260,236 +449,6 @@ const selectSx = {
     borderColor: T.accent,
     borderWidth: '1.5px',
   },
-};
-
-// ─── Employee search field ─────────────────────────────────────────────────
-const EmployeeSearchField = ({
-  value,
-  onSelectEmployeeNumber,
-  onSelectEmployee,
-  disabled = false,
-  onLoadingChange,
-}) => {
-  const [query, setQuery] = useState(value || '');
-  const [debouncedQuery, setDebouncedQuery] = useState(value || '');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-
-  const debounceRef = useRef(null);
-  const containerRef = useRef(null);
-  const abortRef = useRef(null);
-
-  useEffect(() => {
-    setQuery(value || '');
-    setDebouncedQuery(value || '');
-  }, [value]);
-
-  useEffect(() => {
-    const handleOutside = (event) => {
-      if (!containerRef.current?.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    if (abortRef.current) abortRef.current.abort();
-    const q = debouncedQuery.trim();
-    if (q.length < 2) {
-      setResults([]);
-      setLoading(false);
-      onLoadingChange?.(false);
-      return;
-    }
-    setLoading(true);
-    onLoadingChange?.(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    axios
-      .get(`${API_BASE_URL}/users/search`, {
-        params: { q },
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-      })
-      .then((res) => {
-        const list = Array.isArray(res.data) ? res.data : [];
-        setResults(list.slice(0, 20));
-      })
-      .catch((err) => {
-        if (err?.code === 'ERR_CANCELED') return;
-        setResults([]);
-      })
-      .finally(() => {
-        setLoading(false);
-        onLoadingChange?.(false);
-      });
-    return () => controller.abort();
-  }, [debouncedQuery, open, onLoadingChange]);
-
-  const queueSearch = (nextValue) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedQuery(nextValue);
-      setOpen(true);
-    }, 220);
-  };
-
-  const getDisplayName = (emp) => {
-    if (!emp) return '';
-    const full = (emp.fullName || '').trim();
-    if (full) return full;
-    return (
-      `${emp.firstName || ''} ${emp.middleName || ''} ${emp.lastName || ''}`
-        .replace(/\s+/g, ' ')
-        .trim() || String(emp.employeeNumber || '')
-    );
-  };
-
-  const handleInputChange = (event) => {
-    const next = event.target.value;
-    onSelectEmployeeNumber(next);
-    setQuery(next);
-    queueSearch(next);
-  };
-
-  const handleSelect = (employee) => {
-    const employeeNumber = employee?.employeeNumber
-      ? String(employee.employeeNumber)
-      : '';
-    onSelectEmployeeNumber(employeeNumber);
-    onSelectEmployee?.(employee || null);
-    setQuery(employeeNumber);
-    setDebouncedQuery(employeeNumber);
-    setOpen(false);
-  };
-
-  const handleClear = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-    setQuery('');
-    setDebouncedQuery('');
-    setResults([]);
-    setOpen(false);
-    setLoading(false);
-    onLoadingChange?.(false);
-    onSelectEmployeeNumber('');
-    onSelectEmployee?.(null);
-  };
-
-  return (
-    <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
-      <FieldInput
-        fullWidth
-        size="small"
-        value={query}
-        onChange={handleInputChange}
-        onFocus={() => setOpen(true)}
-        placeholder="Type name or employee number..."
-        disabled={disabled}
-        autoComplete="off"
-        inputProps={{ autoComplete: 'new-password' }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchOutlined sx={{ color: T.muted, fontSize: 16 }} />
-            </InputAdornment>
-          ),
-          endAdornment: query ? (
-            <InputAdornment position="end">
-              <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
-                <Close sx={{ fontSize: 14, color: T.faint }} />
-              </IconButton>
-            </InputAdornment>
-          ) : null,
-        }}
-      />
-      {open && (
-        <Paper
-          elevation={6}
-          sx={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 1300,
-            mt: 0.5,
-            maxHeight: 280,
-            overflow: 'auto',
-            borderRadius: '10px',
-            border: `1px solid ${T.accentBorder}`,
-          }}
-        >
-          {loading ? (
-            <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
-                Searching…
-              </Typography>
-            </Box>
-          ) : results.length > 0 ? (
-            <List dense disablePadding>
-              {results.map((emp) => (
-                <ListItemButton
-                  key={emp.employeeNumber}
-                  onClick={() => handleSelect(emp)}
-                  sx={{
-                    py: 1,
-                    px: 1.5,
-                    borderBottom: `1px solid ${T.divider}`,
-                    '&:hover': { bgcolor: T.accentFaint },
-                    '&:last-child': { borderBottom: 'none' },
-                  }}
-                >
-                  <Box
-                    sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.83rem',
-                        fontWeight: 700,
-                        color: T.text,
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {getDisplayName(emp)}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
-                      #{emp.employeeNumber}
-                    </Typography>
-                  </Box>
-                </ListItemButton>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography
-                sx={{
-                  fontSize: '0.78rem',
-                  color: T.faint,
-                  fontStyle: 'italic',
-                }}
-              >
-                {query.trim().length >= 2
-                  ? `No registered user found for "${query.trim()}"`
-                  : 'Type at least 2 characters to search users'}
-              </Typography>
-            </Box>
-          )}
-        </Paper>
-      )}
-    </Box>
-  );
 };
 
 const generateHash = (data) => {
@@ -670,6 +629,9 @@ const DailyTimeRecordFaculty = ({
   const [singlePrintLoading, setSinglePrintLoading] = useState(false);
   const [singlePrintStatus, setSinglePrintStatus] = useState('');
   const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
+  const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [sexMap, setSexMap] = useState({});
 
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
@@ -677,34 +639,64 @@ const DailyTimeRecordFaculty = ({
 
   const { hasAccess, loading: accessLoading } = usePageAccess(pageAccessIdentifier);
 
-  const monthsShort = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  const months = [
-    'JAN',
-    'FEB',
-    'MAR',
-    'APR',
-    'MAY',
-    'JUN',
-    'JUL',
-    'AUG',
-    'SEP',
-    'OCT',
-    'NOV',
-    'DEC',
-  ];
+  useEffect(() => {
+    if (accessLoading || hasAccess === false) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+          axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/personalinfo/person_table`, getAuthHeaders()),
+        ]);
+        if (cancelled) return;
+        if (assignRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(assignRes.value.data) ? assignRes.value.data : []).forEach((a) => {
+            if (!a?.employeeNumber) return;
+            map[String(a.employeeNumber)] = a.code || '';
+          });
+          setDepartmentAssignmentsMap(map);
+        }
+        if (empCatRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach((item) => {
+            if (!item.employeeNumber) return;
+            const label =
+              item.parentGroup && item.typeName
+                ? `${item.parentGroup} | ${item.typeName}`
+                : item.categoryLabel || '';
+            if (label) {
+              map[String(item.employeeNumber)] = {
+                label,
+                colorHex: item.colorHex || '#757575',
+              };
+            }
+          });
+          setEmpCatMap(map);
+        }
+        if (personsRes.status === 'fulfilled') {
+          const list = Array.isArray(personsRes.value.data)
+            ? personsRes.value.data
+            : personsRes.value.data?.data || [];
+          const gMap = {};
+          list.forEach((p) => {
+            const num = p.agencyEmployeeNum?.toString() || p.employeeNumber?.toString();
+            if (num && p.sex) gMap[num] = p.sex;
+          });
+          setSexMap(gMap);
+        }
+      } catch (err) {
+        console.error('Error loading employee reference data:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessLoading, hasAccess]);
+
+  const monthsShort = MONTHS_SHORT;
+  const months = MONTHS_SHORT;
 
   const inboundDtrNavState = useMemo(() => {
     const st = location.state;
@@ -767,6 +759,8 @@ const DailyTimeRecordFaculty = ({
       const emp = st.employeeNumber ?? st.personID;
       if (emp != null && String(emp).trim() !== '') return;
     }
+    const wf = readAttendanceWorkflow();
+    if (wf.employeeNumber && wf.startDate && wf.endDate) return;
     setPersonID('');
     setStartDate('');
     setEndDate('');
@@ -796,6 +790,32 @@ const DailyTimeRecordFaculty = ({
     setCurrentPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleWorkflowHydrate = useCallback((payload) => {
+    setViewMode('single');
+    setPersonID(payload.employeeNumber);
+    if (payload.fullName) setEmployeeName(payload.fullName);
+    setStartDate(payload.startDate);
+    setEndDate(payload.endDate);
+    if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
+    if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    setHasSearchedSingle(true);
+  }, []);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('dtr', {
+    employeeNumber: personID,
+    fullName: employeeName,
+    startDate,
+    endDate,
+    onHydrate: handleWorkflowHydrate,
+  });
+
+  useAttendanceCompactPage();
 
   // ─── Format helpers ────────────────────────────────────────────────────
   const formatFullName = (user = {}) => {
@@ -1596,6 +1616,15 @@ const DailyTimeRecordFaculty = ({
       setRecords([]);
       setEmployeeName('');
       setMonthLoading(false);
+    }
+  };
+
+  const handleQuickDateSelect = (value) => {
+    applyQuickDateRange(value, setStartDate, setEndDate, setSelectedMonth);
+    if (viewMode === 'single') {
+      setHasSearchedSingle(false);
+      setRecords([]);
+      setEmployeeName('');
     }
   };
 
@@ -3236,91 +3265,29 @@ const DailyTimeRecordFaculty = ({
   );
 
   // ─── Left panel ────────────────────────────────────────────────────────
+  const displayEmployee = useMemo(() => {
+    if (selectedEmployee) return toProfileEmployee(selectedEmployee);
+    const id = String(personID || '').trim();
+    if (!id) return null;
+    if (employeeName) {
+      return { employeeNumber: id, name: employeeName, fullName: employeeName };
+    }
+    return { employeeNumber: id, name: '' };
+  }, [selectedEmployee, personID, employeeName]);
+
   const renderLeftPanelContent = () => (
-    <Box
-      sx={{
-        px: 3.5,
-        py: 1,
-        flexGrow: 1,
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0,
-        ...scrollbarSx,
-      }}
-    >
-      {/* Mode toggle */}
-      <FormSectionLabel icon={AccessTime}>View Mode</FormSectionLabel>
-      <Box
-        sx={{ display: 'flex', flexDirection: 'column', gap: '2px', mb: 2.5 }}
-      >
-        {[
+    <Box sx={filterPanelScrollSx}>
+      <AttendanceFilterSectionLabel icon={AccessTime}>View Mode</AttendanceFilterSectionLabel>
+      <AttendanceFilterToggleRow
+        options={[
           { val: 'single', label: 'Individual DTR' },
           { val: 'multiple', label: 'Batch Printing' },
-        ].map(({ val, label }) => {
-          const isActive = viewMode === val;
-          return (
-            <Box
-              key={val}
-              onClick={() => setViewMode(val)}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                px: 1.75,
-                py: 0.9,
-                borderRadius: '7px',
-                cursor: 'pointer',
-                border: `1px solid ${isActive ? T.accent : 'transparent'}`,
-                bgcolor: isActive ? T.accent : 'transparent',
-                transition: 'all 0.14s ease',
-                '&:hover': isActive
-                  ? {}
-                  : {
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
-                    },
-              }}
-            >
-              <Typography
-                sx={{
-                  fontSize: '0.8rem',
-                  fontWeight: isActive ? 700 : 500,
-                  color: isActive ? '#fff' : T.text,
-                  lineHeight: 1,
-                }}
-              >
-                {label}
-              </Typography>
-              {isActive && (
-                <Box
-                  sx={{
-                    px: 0.75,
-                    py: 0.2,
-                    borderRadius: '4px',
-                    bgcolor: 'rgba(255,255,255,0.2)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: '0.6rem',
-                      fontWeight: 700,
-                      color: '#fff',
-                      lineHeight: 1,
-                    }}
-                  >
-                    Active
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          );
-        })}
-      </Box>
+        ]}
+        value={viewMode}
+        onChange={setViewMode}
+      />
 
-      {/* DTR Type */}
-      <FormSectionLabel icon={PrintIcon}>DTR Type</FormSectionLabel>
+      <AttendanceFilterSectionLabel icon={PrintIcon}>DTR Type</AttendanceFilterSectionLabel>
       <Box
         sx={{
           display: 'grid',
@@ -3389,143 +3356,84 @@ const DailyTimeRecordFaculty = ({
         })}
       </Box>
 
-      {/* Year */}
-      <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-      <Box sx={{ mb: 2.5 }}>
-        <select
-          value={selectedYear}
-          onChange={(e) => {
-            setSelectedYear(parseInt(e.target.value));
-            setSelectedMonth(null);
-            setHasSearchedSingle(false);
-            setRecords([]);
-            setEmployeeName('');
-            setSnackbar({
-              open: true,
-              message:
-                'Year changed — select month and click Search to load records.',
-              severity: 'info',
-            });
-          }}
-          style={{
-            width: '100%',
-            padding: '9px 13px',
-            borderRadius: '8px',
-            border: `1px solid ${T.accentBorder}`,
-            fontSize: '0.82rem',
-            outline: 'none',
-            fontFamily: 'inherit',
-            background: '#fff',
-            color: T.text,
-            cursor: 'pointer',
-          }}
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </Box>
-
-      {/* Month */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          mb: 1.5,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-          <Typography
-            sx={{
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              letterSpacing: '0.09em',
-              textTransform: 'uppercase',
-              color: alpha(T.accent, 0.45),
-            }}
-          >
-            Month
-          </Typography>
-        </Box>
-        {selectedMonth !== null && (
-          <Box
-            onClick={() => {
-              setSelectedMonth(null);
-              setHasSearchedSingle(false);
-              setRecords([]);
-              setEmployeeName('');
-              setStartDate('');
-              setEndDate('');
-              setAllUsersDTR([]);
-              setBatchOfficialTimesMap({});
-            }}
-            sx={{
-              fontSize: '0.65rem',
-              color: T.accent,
-              cursor: 'pointer',
-              fontWeight: 700,
-              '&:hover': { textDecoration: 'underline' },
-            }}
-          >
-            Clear
-          </Box>
-        )}
-      </Box>
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          gap: '4px',
-          mb: 0.5,
-        }}
-      >
-        {monthsShort.map((m, idx) => {
-          const isSelected = selectedMonth === idx;
-          return (
-            <Box
-              key={m}
-              onClick={() => handleMonthClick(idx)}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 30,
-                px: 0.75,
-                py: 0.45,
-                borderRadius: '6px',
-                cursor: 'pointer',
-                border: `1px solid ${isSelected ? T.accent : 'transparent'}`,
-                bgcolor: isSelected ? T.accent : 'transparent',
-                transition: 'all 0.14s ease',
-                '&:hover': isSelected
-                  ? {}
-                  : {
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
-                    },
+      {viewMode === 'single' && (
+        <Box sx={{ mb: 1.25 }}>
+          <AttendanceEmployeeSearchSection selected={Boolean(displayEmployee)}>
+            <AttendanceEmployeeSearchField
+              searchApi="users"
+              value={personID}
+              selectedEmployee={selectedEmployee}
+              onLoadingChange={setEmployeeSearchLoading}
+              onSelectEmployee={(emp, num) => {
+                if (emp) {
+                  setSelectedEmployee(emp);
+                  setPersonID(num || '');
+                  return;
+                }
+                setPersonID(num || '');
+                if (!num) {
+                  setSelectedEmployee(null);
+                  setHasSearchedSingle(false);
+                  setRecords([]);
+                  setEmployeeName('');
+                }
               }}
-            >
-              <Typography
-                sx={{
-                  fontSize: '0.72rem',
-                  fontWeight: isSelected ? 700 : 600,
-                  color: isSelected ? '#fff' : T.text,
-                  lineHeight: 1,
-                  letterSpacing: '0.03em',
-                  textAlign: 'center',
-                  width: '100%',
-                }}
-              >
-                {m}
-              </Typography>
+              onClear={() => {
+                setPersonID('');
+                setSelectedEmployee(null);
+                setHasSearchedSingle(false);
+                setRecords([]);
+                setEmployeeName('');
+              }}
+              deptMap={departmentAssignmentsMap}
+              empCatMap={empCatMap}
+              sexMap={sexMap}
+            />
+          </AttendanceEmployeeSearchSection>
+          {displayEmployee && (
+            <Box sx={{ mb: 0.75 }}>
+              <EmployeeProfileCard
+                employee={displayEmployee}
+                deptMap={departmentAssignmentsMap}
+                empCatMap={empCatMap}
+                sexMap={sexMap}
+                loading={employeeSearchLoading || monthLoading}
+              />
             </Box>
-          );
-        })}
-      </Box>
+          )}
+        </Box>
+      )}
+
+      <AttendanceFilterDateControls
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value));
+          setSelectedMonth(null);
+          setHasSearchedSingle(false);
+          setRecords([]);
+          setEmployeeName('');
+          setSnackbar({
+            open: true,
+            message: 'Year changed — select month and click Search to load records.',
+            severity: 'info',
+          });
+        }}
+        yearOptions={yearOptions}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+        onMonthClear={() => {
+          setSelectedMonth(null);
+          setHasSearchedSingle(false);
+          setRecords([]);
+          setEmployeeName('');
+          setStartDate('');
+          setEndDate('');
+          setAllUsersDTR([]);
+          setBatchOfficialTimesMap({});
+        }}
+        onQuickDate={handleQuickDateSelect}
+        months={monthsShort}
+      />
 
       {/* ── Show official time checkbox ── */}
       <Box
@@ -3624,21 +3532,6 @@ const DailyTimeRecordFaculty = ({
       {/* Individual-only: employee number field */}
       {viewMode === 'single' && (
         <Box sx={{ mt: 2.5 }}>
-          <FormSectionLabel icon={SearchOutlined}>Employee</FormSectionLabel>
-          <Box sx={{ mb: 1.5 }}>
-            <EmployeeSearchField
-              value={personID}
-              onLoadingChange={setEmployeeSearchLoading}
-              onSelectEmployee={setSelectedEmployee}
-              onSelectEmployeeNumber={(next) => {
-                setPersonID(next);
-                if (!next) setSelectedEmployee(null);
-                setHasSearchedSingle(false);
-                setRecords([]);
-                setEmployeeName('');
-              }}
-            />
-          </Box>
           <AccentButton
             variant="contained"
             fullWidth
@@ -3705,7 +3598,7 @@ const DailyTimeRecordFaculty = ({
         <Fade in timeout={500}>
           <Box>
             <style>{`
-              html { overflow-y: scroll; }
+              html, body { overflow: hidden; }
               table td .dtr-cell-watermark {
                 position: absolute !important;
                 left: 0 !important; top: 0 !important; right: 0 !important; bottom: 0 !important;
@@ -3730,19 +3623,7 @@ const DailyTimeRecordFaculty = ({
               }
             `}</style>
 
-            <Box
-              sx={{
-                py: { xs: 1, md: 2 },
-                mt: { xs: 0, md: -2 },
-                mb: { xs: 1, md: 2 },
-                width: '100vw',
-                maxWidth: '100%',
-                position: 'relative',
-                left: '63%',
-                transform: 'translateX(-61%)',
-                px: { xs: 2, sm: 3, md: 6 },
-              }}
-            >
+            <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
               {/* ── Page Header ── */}
               <SectionCard
                 className="no-print"
@@ -3829,6 +3710,13 @@ const DailyTimeRecordFaculty = ({
                       zIndex: 1,
                     }}
                   >
+                    <AttendanceWorkflowNav
+                      inline
+                      prevStep={prevStep}
+                      nextStep={nextStep}
+                      onPrevious={goPrevious}
+                      onNext={goNext}
+                    />
                     {viewMode === 'multiple' && allUsersDTR.length > 0 && (
                       <Box
                         sx={{
@@ -3893,35 +3781,8 @@ const DailyTimeRecordFaculty = ({
               <Grid container spacing={2}>
                 {/* LEFT: Sidebar */}
                 <Grid item xs={12} lg={3} className="no-print">
-                  <SectionCard
-                    sx={{
-                      height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        px: 3.5,
-                        py: 1.25,
-                        borderBottom: `1px solid ${T.divider}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        bgcolor: T.accentFaint,
-                      }}
-                    >
-                      <CalendarToday sx={{ fontSize: 15, color: T.accent }} />
-                      <Typography
-                        sx={{
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          color: T.accent,
-                        }}
-                      >
-                        DTR Period
-                      </Typography>
-                    </Box>
+                  <SectionCard sx={filterSidebarCardSx}>
+                    <AttendanceFilterHeader />
                     {renderLeftPanelContent()}
                   </SectionCard>
                 </Grid>
@@ -3930,7 +3791,7 @@ const DailyTimeRecordFaculty = ({
                 <Grid item xs={12} lg={9}>
                   <SectionCard
                     sx={{
-                      height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
+                      ...attendanceMainPanelHeightSx,
                       display: 'flex',
                       flexDirection: 'column',
                       position: 'relative',
