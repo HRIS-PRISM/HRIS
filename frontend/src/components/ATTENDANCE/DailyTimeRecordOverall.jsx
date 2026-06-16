@@ -574,7 +574,11 @@ const recordMatchesDay = (record, dayPadded) => {
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
-const DailyTimeRecordFaculty = () => {
+const DailyTimeRecordFaculty = ({
+  pageAccessIdentifier = 'daily-time-record-faculty',
+  accessDeniedMessage = 'You do not have permission to access Daily Time Record.',
+  accessDeniedReturnPath = '/admin-home',
+} = {}) => {
   const location = useLocation();
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
@@ -671,9 +675,7 @@ const DailyTimeRecordFaculty = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
 
-  const { hasAccess, loading: accessLoading } = usePageAccess(
-    'daily-time-record-faculty',
-  );
+  const { hasAccess, loading: accessLoading } = usePageAccess(pageAccessIdentifier);
 
   const monthsShort = [
     'Jan',
@@ -1188,12 +1190,12 @@ const DailyTimeRecordFaculty = () => {
   useEffect(() => {
     const fetchAllStaticData = async () => {
       try {
-        const [deptRes, hRes, sRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders()),
+        const deptRes = await axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders());
+        setDepartments(Array.isArray(deptRes.data) ? deptRes.data : []);
+        const [hRes, sRes] = await Promise.all([
           axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()),
           axios.get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders()),
         ]);
-        setDepartments(Array.isArray(deptRes.data) ? deptRes.data : []);
         setHolidays(Array.isArray(hRes.data) ? hRes.data : []);
         setSuspensions(Array.isArray(sRes.data) ? sRes.data : []);
       } catch (e) {
@@ -1390,10 +1392,12 @@ const DailyTimeRecordFaculty = () => {
     setCurrentPage(1);
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
+      const empListParams = { startDate, endDate };
+
       const [empRes, deptRes, catRes] = await Promise.all([
         axios
           .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
-            params: { startDate, endDate },
+            params: empListParams,
             ...cfg(),
           })
           .catch((e) => {
@@ -1570,6 +1574,7 @@ const DailyTimeRecordFaculty = () => {
     startDate,
     endDate,
     dtrType,
+    departmentFilter,
     fetchBatchOfficialTimes,
     loadComputedLateBatch,
   ]);
@@ -1577,7 +1582,7 @@ const DailyTimeRecordFaculty = () => {
   useEffect(() => {
     if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode]);
+  }, [startDate, endDate, viewMode, departmentFilter]);
 
   // ─── Month click ────────────────────────────────────────────────────────
   const handleMonthClick = (idx) => {
@@ -2257,8 +2262,8 @@ const DailyTimeRecordFaculty = () => {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Daily Time Record."
-        returnPath="/admin-home"
+        message={accessDeniedMessage}
+        returnPath={accessDeniedReturnPath}
         returnButtonText="Return to Home"
       />
     );

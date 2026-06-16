@@ -31,23 +31,90 @@ const {
   logAudit,
   requireAdmin,
   requireSupervisorSelfOrAdmin,
+  requireSupervisorModuleAccess,
   ADMIN_ROLES,
 } = require('../middleware/auth');
+const {
+  empMatchSql: supervisorEmpMatchSql,
+  bindEmpMatchParams,
+  resolveCanonicalEmployeeNumber,
+  fetchSupervisorDepartments,
+  grantSupervisorLeavePageAccess,
+  revokeSupervisorLeavePageAccessIfUnassigned,
+  DTR_SUPERVISOR_IDENTIFIER,
+} = require('../utils/supervisorPageAccess');
+
+const sanitizeAssignmentTitle = (role) => {
+  const title = String(role || '').trim();
+  if (!title) return 'Supervisor';
+  return title.slice(0, 100);
+};
+
+const respondSupervisorContext = async (res, supervisorEmployeeNumber) => {
+  try {
+    const { supervisorEmployeeNumber: resolvedEmp, departments } =
+      await fetchSupervisorDepartments(supervisorEmployeeNumber);
+
+    if (!departments.length) {
+      return res.json({ isSupervisor: false, departments: [] });
+    }
+
+    try {
+      await grantSupervisorLeavePageAccess(resolvedEmp);
+    } catch (e) {
+      console.error('[supervisor-leave] context page access grant error:', e.message);
+    }
+
+    return res.json({
+      isSupervisor: true,
+      supervisorEmployeeNumber: String(resolvedEmp).trim(),
+      departments,
+    });
+  } catch (err) {
+    console.error('[supervisor-leave] context fetch error:', err.message);
+    return res.status(500).json({ error: 'Failed to fetch supervisor context' });
+  }
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getActorEmployeeNumber = (req, fallback = null) => {
-  if (req.user?.employeeNumber) return String(req.user.employeeNumber);
+  if (req.user?.employeeNumber != null && String(req.user.employeeNumber).trim()) {
+    return String(req.user.employeeNumber).trim();
+  }
   const authHeader = req.headers?.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
   if (token) {
     try {
       const decoded = jwt.decode(token);
-      if (decoded?.employeeNumber) return String(decoded.employeeNumber);
-      if (decoded?.username)       return String(decoded.username);
+      if (decoded?.employeeNumber != null && String(decoded.employeeNumber).trim()) {
+        return String(decoded.employeeNumber).trim();
+      }
     } catch { /* silent */ }
   }
-  return fallback ? String(fallback) : 'unknown';
+  return fallback ? String(fallback).trim() : 'unknown';
+};
+
+const resolveActorEmployeeNumber = async (req) => {
+  const raw = getActorEmployeeNumber(req);
+  if (raw && raw !== 'unknown') {
+    const canonical = await resolveCanonicalEmployeeNumber(raw);
+    if (canonical) return canonical;
+  }
+  const userId = req.user?.id;
+  if (userId) {
+    const rows = await new Promise((resolve, reject) => {
+      db.query(
+        'SELECT employeeNumber FROM users WHERE id = ? LIMIT 1',
+        [userId],
+        (err, result) => (err ? reject(err) : resolve(result)),
+      );
+    });
+    if (rows[0]?.employeeNumber) {
+      return String(rows[0].employeeNumber).trim();
+    }
+  }
+  return raw && raw !== 'unknown' ? raw : null;
 };
 
 const getEmployeeFullName = (employeeNumber) =>
@@ -142,10 +209,14 @@ router.get('/api/supervisor-assignment/by-supervisor/:employeeNumber', authentic
     WHERE sa.supervisorEmployeeNumber = ?
     ORDER BY sa.departmentCode
   `;
-  db.query(sql, [req.params.employeeNumber], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch assignments' });
-    res.json(Array.isArray(rows) ? rows : []);
-  });
+  db.query(
+    sql.replace('sa.supervisorEmployeeNumber = ?', supervisorEmpMatchSql('sa.supervisorEmployeeNumber')),
+    bindEmpMatchParams(req.params.employeeNumber),
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: 'Failed to fetch assignments' });
+      res.json(Array.isArray(rows) ? rows : []);
+    },
+  );
 });
 
 /**
@@ -160,39 +231,60 @@ router.post('/api/supervisor-assignment', authenticateToken, requireAdmin, async
   if (!supervisorEmployeeNumber || !departmentCode) {
     return res.status(400).json({ error: 'supervisorEmployeeNumber and departmentCode are required' });
   }
-  const validRoles = ['Dean', 'Department Head', 'Supervisor'];
-  const assignedRole = validRoles.includes(role) ? role : 'Supervisor';
+  const assignedRole = sanitizeAssignmentTitle(role);
+
+  let canonicalSupervisor;
+  try {
+    canonicalSupervisor = await resolveCanonicalEmployeeNumber(supervisorEmployeeNumber);
+  } catch (e) {
+    console.error('[supervisor-leave] resolve supervisor employee error:', e.message);
+    return res.status(500).json({ error: 'Failed to resolve supervisor employee' });
+  }
+  if (!canonicalSupervisor) {
+    return res.status(400).json({ error: 'Supervisor employee not found in users table.' });
+  }
 
   const sql = `
     INSERT INTO supervisor_assignment (supervisorEmployeeNumber, departmentCode, role)
     VALUES (?, ?, ?)
   `;
-  db.query(sql, [supervisorEmployeeNumber, departmentCode, assignedRole], async (err, result) => {
+  db.query(sql, [canonicalSupervisor, departmentCode, assignedRole], async (err, result) => {
     if (err) {
       if (err.code === 'ER_DUP_ENTRY') {
+        try {
+          await grantSupervisorLeavePageAccess(canonicalSupervisor);
+        } catch (grantErr) {
+          console.error('[supervisor-leave] duplicate assign page access grant error:', grantErr.message);
+        }
         return res.status(409).json({ error: 'This supervisor is already assigned to this department.' });
       }
-      logAudit({ employeeNumber: actorEmpNum }, 'Insert Failed', 'supervisor_assignment', null, supervisorEmployeeNumber);
+      logAudit({ employeeNumber: actorEmpNum }, 'Insert Failed', 'supervisor_assignment', null, canonicalSupervisor);
       return res.status(500).json({ error: 'Failed to create supervisor assignment' });
     }
     const insertedId = result.insertId;
     try {
       const [supName, actorName] = await Promise.all([
-        getEmployeeFullName(supervisorEmployeeNumber),
+        getEmployeeFullName(canonicalSupervisor),
         getEmployeeFullName(actorEmpNum),
       ]);
       const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-      const supDisplay   = formatUserDisplayName(supervisorEmployeeNumber, supName);
-      logAudit({ employeeNumber: actorEmpNum }, `Assign Supervisor - ${assignedRole} for dept ${departmentCode}`, 'supervisor_assignment', insertedId, supervisorEmployeeNumber);
+      const supDisplay   = formatUserDisplayName(canonicalSupervisor, supName);
+      logAudit({ employeeNumber: actorEmpNum }, `Assign Supervisor - ${assignedRole} for dept ${departmentCode}`, 'supervisor_assignment', insertedId, canonicalSupervisor);
       await insertTransactionLog(
-        String(supervisorEmployeeNumber),
+        String(canonicalSupervisor),
         `${actorDisplay} assigned ${supDisplay} as ${assignedRole} for department ${departmentCode}.`,
         actorEmpNum,
         { action: 'supervisor_assigned', departmentCode, role: assignedRole, assignment_id: insertedId },
       );
     } catch (e) { console.error('[supervisor-leave] post-insert log error:', e.message); }
 
-    res.status(201).json({ id: insertedId, supervisorEmployeeNumber, departmentCode, role: assignedRole });
+    try {
+      await grantSupervisorLeavePageAccess(canonicalSupervisor);
+    } catch (e) {
+      console.error('[supervisor-leave] page access grant error:', e.message);
+    }
+
+    res.status(201).json({ id: insertedId, supervisorEmployeeNumber: canonicalSupervisor, departmentCode, role: assignedRole });
   });
 });
 
@@ -205,8 +297,7 @@ router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, as
   const { id }  = req.params;
   const { role } = req.body;
   const actorEmpNum = getActorEmployeeNumber(req);
-  const validRoles  = ['Dean', 'Department Head', 'Supervisor'];
-  const assignedRole = validRoles.includes(role) ? role : 'Supervisor';
+  const assignedRole = sanitizeAssignmentTitle(role);
 
   db.query(
     'SELECT * FROM supervisor_assignment WHERE id = ?',
@@ -275,6 +366,13 @@ router.delete('/api/supervisor-assignment/:id', authenticateToken, requireAdmin,
           { action: 'supervisor_removed', departmentCode: current.departmentCode, role: current.role },
         );
       } catch (e) { console.error('[supervisor-leave] delete log error:', e.message); }
+
+      try {
+        await revokeSupervisorLeavePageAccessIfUnassigned(current.supervisorEmployeeNumber);
+      } catch (e) {
+        console.error('[supervisor-leave] page access revoke error:', e.message);
+      }
+
       res.json({ message: 'Supervisor assignment removed successfully' });
     });
   });
@@ -285,47 +383,36 @@ router.delete('/api/supervisor-assignment/:id', authenticateToken, requireAdmin,
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/supervisor-leave/context/:supervisorEmployeeNumber
- * Returns the supervisor's department codes and assigned role.
- * Used by the front-end to scope which departments' leave requests are visible.
+ * GET /api/supervisor-leave/context/me
+ * Returns supervisor context for the logged-in user (avoids employee-number URL mismatches).
  */
-router.get('/api/supervisor-leave/context/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
-  const { supervisorEmployeeNumber } = req.params;
-  const sql = `
-    SELECT sa.departmentCode, sa.role, dt.description AS departmentDescription
-    FROM supervisor_assignment sa
-    LEFT JOIN department_table dt ON dt.code = sa.departmentCode
-    WHERE sa.supervisorEmployeeNumber = ?
-  `;
-  db.query(sql, [supervisorEmployeeNumber], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'Failed to fetch supervisor context' });
-    if (!rows || !rows.length) return res.json({ isSupervisor: false, departments: [] });
-    res.json({
-      isSupervisor: true,
-      supervisorEmployeeNumber,
-      departments: rows.map((r) => ({
-        code: r.departmentCode,
-        description: r.departmentDescription || r.departmentCode,
-        role: r.role,
-      })),
-    });
-  });
+router.get('/api/supervisor-leave/context/me', authenticateToken, async (req, res) => {
+  try {
+    const actorEmployeeNumber = await resolveActorEmployeeNumber(req);
+    if (!actorEmployeeNumber) {
+      return res.json({ isSupervisor: false, departments: [] });
+    }
+    return respondSupervisorContext(res, actorEmployeeNumber);
+  } catch (e) {
+    console.error('[supervisor-leave] context/me resolve error:', e.message);
+    return res.status(500).json({ error: 'Failed to fetch supervisor context' });
+  }
 });
 
 /**
- * GET /api/supervisor-leave/requests/:supervisorEmployeeNumber
- * Returns all leave requests that fall under the supervisor's department(s).
- * Joins department_assignment to determine which employees belong to the dept.
- * Optional query params: ?status=0&departmentCode=DEPT01
+ * GET /api/supervisor-leave/context/:supervisorEmployeeNumber
+ * Returns the supervisor's department codes and assigned title.
  */
-router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
-  const { supervisorEmployeeNumber } = req.params;
-  const { status, departmentCode }   = req.query;
+router.get('/api/supervisor-leave/context/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
+  respondSupervisorContext(res, req.params.supervisorEmployeeNumber);
+});
 
-  // Step 1: Get supervisor's departments
+const respondSupervisorLeaveRequests = (res, supervisorEmployeeNumber, query = {}) => {
+  const { status, departmentCode } = query;
+
   db.query(
-    'SELECT departmentCode, role FROM supervisor_assignment WHERE supervisorEmployeeNumber = ?',
-    [supervisorEmployeeNumber],
+    `SELECT departmentCode, role FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}`,
+    bindEmpMatchParams(supervisorEmployeeNumber),
     (err, depts) => {
       if (err) return res.status(500).json({ error: 'Failed to resolve supervisor departments' });
       if (!depts || !depts.length) return res.json([]);
@@ -337,7 +424,6 @@ router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authentic
 
       const placeholders = deptFilter.map(() => '?').join(',');
 
-      // Step 2: Fetch leave requests for employees in those departments
       let sql = `
         SELECT
           lr.id,
@@ -355,8 +441,8 @@ router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authentic
         FROM leave_request lr
         LEFT JOIN leave_table lt   ON lt.leave_code = lr.leave_code
         LEFT JOIN person_table p   ON p.agencyEmployeeNum = lr.employeeNumber
-        LEFT JOIN department_assignment da
-          ON CAST(da.employeeNumber AS CHAR) = CAST(lr.employeeNumber AS CHAR)
+        INNER JOIN department_assignment da
+          ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(lr.employeeNumber AS CHAR))
           AND da.code IN (${placeholders})
         LEFT JOIN department_table dt ON dt.code = da.code
         WHERE da.code IN (${placeholders})
@@ -375,6 +461,30 @@ router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authentic
       });
     },
   );
+};
+
+/**
+ * GET /api/supervisor-leave/requests/me
+ * Leave requests for employees in the logged-in supervisor's assigned department(s).
+ */
+router.get('/api/supervisor-leave/requests/me', authenticateToken, async (req, res) => {
+  try {
+    const supervisorEmployeeNumber = await resolveActorEmployeeNumber(req);
+    if (!supervisorEmployeeNumber) {
+      return res.json([]);
+    }
+    return respondSupervisorLeaveRequests(res, supervisorEmployeeNumber, req.query);
+  } catch (e) {
+    console.error('[supervisor-leave] requests/me resolve error:', e.message);
+    return res.status(500).json({ error: 'Failed to fetch supervisor leave requests' });
+  }
+});
+
+/**
+ * GET /api/supervisor-leave/requests/:supervisorEmployeeNumber
+ */
+router.get('/api/supervisor-leave/requests/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
+  respondSupervisorLeaveRequests(res, req.params.supervisorEmployeeNumber, req.query);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,10 +541,10 @@ router.put('/api/supervisor-leave/action/:leaveRequestId', authenticateToken, re
       INNER JOIN department_assignment da
         ON da.code = sa.departmentCode
         AND CAST(da.employeeNumber AS CHAR) = CAST(? AS CHAR)
-      WHERE sa.supervisorEmployeeNumber = ?
+      WHERE ${supervisorEmpMatchSql('sa.supervisorEmployeeNumber')}
       LIMIT 1
     `;
-    db.query(verifySQL, [request.employeeNumber, actingSupervisor], async (vErr, vRows) => {
+    db.query(verifySQL, [request.employeeNumber, ...bindEmpMatchParams(actingSupervisor)], async (vErr, vRows) => {
       if (vErr) return res.status(500).json({ error: 'Failed to verify supervisor authority' });
       if (!vRows.length) {
         return res.status(403).json({
@@ -551,10 +661,10 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, requireSuperv
         SELECT DISTINCT da.employeeNumber
         FROM supervisor_assignment sa
         INNER JOIN department_assignment da ON da.code = sa.departmentCode
-        WHERE sa.supervisorEmployeeNumber = ?
+        WHERE ${supervisorEmpMatchSql('sa.supervisorEmployeeNumber')}
           AND CAST(da.employeeNumber AS CHAR) IN (${empPlaceholders})
       `;
-      db.query(verifySql, [actingSupervisor, ...empNums.map(String)], async (vErr, vRows) => {
+      db.query(verifySql, [...bindEmpMatchParams(actingSupervisor), ...empNums.map(String)], async (vErr, vRows) => {
         if (vErr) return res.status(500).json({ error: 'Failed to verify supervisor authority' });
         const authorizedEmps = new Set(vRows.map((r) => String(r.employeeNumber)));
         const unauthorized   = empNums.filter((n) => !authorizedEmps.has(String(n)));
@@ -575,8 +685,8 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, requireSuperv
               const supDisplay = formatUserDisplayName(actingSupervisor, supName);
               const [supRole]  = await new Promise((resolve) =>
                 db.query(
-                  'SELECT role FROM supervisor_assignment WHERE supervisorEmployeeNumber = ? LIMIT 1',
-                  [actingSupervisor],
+                  `SELECT role FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')} LIMIT 1`,
+                  bindEmpMatchParams(actingSupervisor),
                   (e, r) => resolve([r && r[0] && r[0].role ? r[0].role : 'Supervisor']),
                 ),
               );
@@ -622,9 +732,9 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, requireSuperv
 router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
   const { supervisorEmployeeNumber } = req.params;
   const deptSql = `
-    SELECT departmentCode FROM supervisor_assignment WHERE supervisorEmployeeNumber = ?
+    SELECT departmentCode FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}
   `;
-  db.query(deptSql, [supervisorEmployeeNumber], (err, depts) => {
+  db.query(deptSql, bindEmpMatchParams(supervisorEmployeeNumber), (err, depts) => {
     if (err) return res.status(500).json({ error: 'Failed to resolve supervisor departments' });
     if (!depts.length) return res.json([]);
     const codes        = depts.map((d) => d.departmentCode);
@@ -655,15 +765,10 @@ router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenti
 // SECTION E — Transaction log fetch for supervisor view
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * GET /api/supervisor-leave/transactions/:supervisorEmployeeNumber
- * Returns transaction logs for employees under the supervisor's departments.
- */
-router.get('/api/supervisor-leave/transactions/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
-  const { supervisorEmployeeNumber } = req.params;
+const respondSupervisorTransactions = (res, supervisorEmployeeNumber) => {
   db.query(
-    'SELECT departmentCode FROM supervisor_assignment WHERE supervisorEmployeeNumber = ?',
-    [supervisorEmployeeNumber],
+    `SELECT departmentCode FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}`,
+    bindEmpMatchParams(supervisorEmployeeNumber),
     (err, depts) => {
       if (err) return res.status(500).json({ error: 'Failed to resolve departments' });
       if (!depts.length) return res.json([]);
@@ -673,7 +778,7 @@ router.get('/api/supervisor-leave/transactions/:supervisorEmployeeNumber', authe
         SELECT DISTINCT tt.*
         FROM transaction_table tt
         INNER JOIN department_assignment da
-          ON CAST(da.employeeNumber AS CHAR) = CAST(tt.employee_id AS CHAR)
+          ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(tt.employee_id AS CHAR))
           AND da.code IN (${ph})
         ORDER BY tt.id DESC
         LIMIT 500
@@ -684,6 +789,114 @@ router.get('/api/supervisor-leave/transactions/:supervisorEmployeeNumber', authe
       });
     },
   );
+};
+
+/**
+ * GET /api/supervisor-leave/transactions/me
+ */
+router.get('/api/supervisor-leave/transactions/me', authenticateToken, async (req, res) => {
+  try {
+    const supervisorEmployeeNumber = await resolveActorEmployeeNumber(req);
+    if (!supervisorEmployeeNumber) {
+      return res.json([]);
+    }
+    return respondSupervisorTransactions(res, supervisorEmployeeNumber);
+  } catch (e) {
+    console.error('[supervisor-leave] transactions/me resolve error:', e.message);
+    return res.status(500).json({ error: 'Failed to fetch supervisor transactions' });
+  }
+});
+
+/**
+ * GET /api/supervisor-leave/transactions/:supervisorEmployeeNumber
+ */
+router.get('/api/supervisor-leave/transactions/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
+  respondSupervisorTransactions(res, req.params.supervisorEmployeeNumber);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION F — Supervisor DTR (department-scoped employee list)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/supervisor-dtr/context/me
+ * Same supervisor_assignment context as leave (shared departments).
+ * Staff with supervisor_assignment may access (role stays staff).
+ */
+router.get('/api/supervisor-dtr/context/me', authenticateToken, async (req, res) => {
+  try {
+    const actorEmployeeNumber = await resolveActorEmployeeNumber(req);
+    if (!actorEmployeeNumber) {
+      return res.json({ isSupervisor: false, departments: [] });
+    }
+    return respondSupervisorContext(res, actorEmployeeNumber);
+  } catch (e) {
+    console.error('[supervisor-dtr] context/me resolve error:', e.message);
+    return res.status(500).json({ error: 'Failed to fetch supervisor context' });
+  }
+});
+
+/**
+ * GET /api/supervisor-dtr/employees/me
+ * All employees in the supervisor's assigned department(s) (department_assignment).
+ * startDate/endDate are accepted for client compatibility; attendance is loaded separately.
+ */
+router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervisorModuleAccess(DTR_SUPERVISOR_IDENTIFIER), async (req, res) => {
+  const { departmentCode } = req.query;
+
+  try {
+    const actorEmployeeNumber = await resolveActorEmployeeNumber(req);
+    if (!actorEmployeeNumber) return res.json([]);
+
+    const { departments } = await fetchSupervisorDepartments(actorEmployeeNumber);
+    if (!departments.length) return res.json([]);
+
+    let codes = departments.map((d) => d.code);
+    if (departmentCode && codes.includes(departmentCode)) {
+      codes = [departmentCode];
+    }
+
+    const placeholders = codes.map(() => '?').join(',');
+    const sql = `
+      SELECT DISTINCT
+        da.employeeNumber AS personID,
+        p.firstName,
+        p.lastName,
+        p.middleName,
+        CASE
+          WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
+          ELSE 'Not Registered'
+        END AS registrationStatus,
+        ari_names.PersonName AS devicePersonName,
+        da.code AS departmentCode
+      FROM department_assignment da
+      LEFT JOIN person_table p
+        ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(p.agencyEmployeeNum AS CHAR))
+      LEFT JOIN (
+        SELECT PersonID, MAX(PersonName) AS PersonName
+        FROM attendancerecordinfo
+        GROUP BY PersonID
+      ) ari_names
+        ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(ari_names.PersonID AS CHAR))
+      WHERE da.code IN (${placeholders})
+      ORDER BY
+        CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
+        p.lastName ASC,
+        p.firstName ASC,
+        da.employeeNumber ASC
+    `;
+
+    db.query(sql, codes, (err, rows) => {
+      if (err) {
+        console.error('[supervisor-dtr] employees/me error:', err.message);
+        return res.status(500).json({ error: 'Failed to fetch supervisor DTR employees' });
+      }
+      res.json(Array.isArray(rows) ? rows : []);
+    });
+  } catch (e) {
+    console.error('[supervisor-dtr] employees/me resolve error:', e.message);
+    return res.status(500).json({ error: 'Failed to fetch supervisor DTR employees' });
+  }
 });
 
 module.exports = router;

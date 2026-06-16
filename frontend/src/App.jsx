@@ -138,6 +138,7 @@ import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
 import ServiceCredits from "./components/LEAVE/ServiceCredits";
 import LeaveRequestSupervisor from "./components/LEAVE/LeaveRequestSupervisor";
 import SupervisorAssignment from "./components/LEAVE/SupervisorAssignment";
+import DailyTimeRecordSupervisor from "./components/ATTENDANCE/DailyTimeRecordSupervisor";
 
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
@@ -1663,16 +1664,19 @@ function App() {
               path="/leave-request-supervisor"
               element={
                 <ProtectedRoute
-                  allowedRoles={[
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                    "supervisor",
-                    "dean",
-                    "department_head",
-                  ]}
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
                 >
                   <LeaveRequestSupervisor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily-time-record-supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
+                >
+                  <DailyTimeRecordSupervisor />
                 </ProtectedRoute>
               }
             />

@@ -11,6 +11,7 @@ import { getAuthHeaders } from "../utils/auth";
 import {
   isPageAccessActive,
   isPageAuthorizedForRole,
+  isAssignmentManagedPage,
   isOutOfRoleScopePage,
   computeExpiresAtFromDuration,
   validateExceptionDuration,
@@ -974,6 +975,14 @@ const UsersList = () => {
     const normalizedId = normalizePageId(pageId);
     const page =
       pageRow || pages.find((p) => normalizePageId(p.id) === normalizedId);
+
+    if (page && isAssignmentManagedPage(page)) {
+      setError(
+        'This page is managed via Supervisor Assignment. Add or remove department assignments there to grant or revoke access.',
+      );
+      return;
+    }
+
     const outOfScope =
       page && selectedUser
         ? isOutOfRoleScopePage(page, selectedUser.role)
@@ -1075,6 +1084,14 @@ const UsersList = () => {
     const normalizedId = normalizePageId(pageId);
     const page =
       pageRow || pages.find((p) => normalizePageId(p.id) === normalizedId);
+
+    if (page && isAssignmentManagedPage(page)) {
+      setError(
+        'This page is managed via Supervisor Assignment. Add or remove department assignments there to grant or revoke access.',
+      );
+      return;
+    }
+
     const outOfScope =
       page && selectedUser
         ? isOutOfRoleScopePage(page, selectedUser.role)
@@ -2080,7 +2097,7 @@ const UsersList = () => {
                 </Box>
                 <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${T.divider}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: T.accentFaint }}>
                   <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>Toggle All</Typography>
-                  <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); return eligible.length > 0 && eligible.every((pg) => hasPagePrivilege(pageAccess, pg.id) === true); })()} onChange={(e) => { const enableAll = e.target.checked; const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role)); eligible.forEach((page) => { if (hasPagePrivilege(pageAccess, page.id) !== enableAll) handleTogglePageAccess(page.id, !enableAll, page); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                  <Switch size="small" checked={!pageAccessLoading && pages.length > 0 && (() => { const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role) && !isAssignmentManagedPage(pg)); return eligible.length > 0 && eligible.every((pg) => hasPagePrivilege(pageAccess, pg.id) === true); })()} onChange={(e) => { const enableAll = e.target.checked; const eligible = pages.filter((pg) => isPageAuthorizedForRole(pg, selectedUser?.role) && !isAssignmentManagedPage(pg)); eligible.forEach((page) => { if (hasPagePrivilege(pageAccess, page.id) !== enableAll) handleTogglePageAccess(page.id, !enableAll, page); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
                 </Box>
               </Box>
               {/* Center panel */}
@@ -2109,38 +2126,48 @@ const UsersList = () => {
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.muted }}>Toggle All</Typography>
-                            <Switch size="small" checked={enabledCount === eligiblePages.length && eligiblePages.length > 0} onChange={(e) => { const enableAll = e.target.checked; eligiblePages.forEach((page) => { if (hasPagePrivilege(pageAccess, page.id) !== enableAll) handleTogglePageAccess(page.id, !enableAll, page); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
+                            <Switch size="small" checked={(() => { const manual = eligiblePages.filter((pg) => !isAssignmentManagedPage(pg)); return manual.length > 0 && manual.every((pg) => hasPagePrivilege(pageAccess, pg.id)); })()} onChange={(e) => { const enableAll = e.target.checked; eligiblePages.filter((pg) => !isAssignmentManagedPage(pg)).forEach((page) => { if (hasPagePrivilege(pageAccess, page.id) !== enableAll) handleTogglePageAccess(page.id, !enableAll, page); }); }} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#16a34a' } }} />
                           </Box>
                         </Box>
                         <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
                           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                             {pagesInGroup.map((page) => {
+                              const assignmentManaged = isAssignmentManagedPage(page);
                               const inScope = isPageAuthorizedForRole(page, selectedUser?.role);
                               const isEnabled = hasPagePrivilege(pageAccess, page.id);
-                              const isTemporary = isEnabled && !inScope;
-                              const statusLabel = isTemporary
-                                ? 'Temporary'
-                                : inScope
-                                  ? (isEnabled ? 'Enabled' : 'Disabled')
-                                  : 'Not Authorized';
-                              const statusColor = isTemporary
-                                ? '#c2410c'
-                                : isEnabled
-                                  ? '#16a34a'
+                              const isTemporary = isEnabled && !inScope && !assignmentManaged;
+                              const statusLabel = assignmentManaged
+                                ? (isEnabled ? 'Auto (Assigned)' : 'Auto (Unassigned)')
+                                : isTemporary
+                                  ? 'Temporary'
                                   : inScope
-                                    ? '#9ca3af'
-                                    : '#ef4444';
+                                    ? (isEnabled ? 'Enabled' : 'Disabled')
+                                    : 'Not Authorized';
+                              const statusColor = assignmentManaged
+                                ? (isEnabled ? '#1565C0' : '#9ca3af')
+                                : isTemporary
+                                  ? '#c2410c'
+                                  : isEnabled
+                                    ? '#16a34a'
+                                    : inScope
+                                      ? '#9ca3af'
+                                      : '#ef4444';
                               return (
                                 <Box key={page.id} sx={{ display: 'flex', alignItems: 'center', px: 3, py: 1.75, bgcolor: T.surface, border: `1px solid ${T.accentBorder}`, borderRadius: 2, '&:hover': { boxShadow: `0 2px 8px rgba(0,0,0,0.06)` }, transition: 'box-shadow 0.15s' }}>
                                   <Box sx={{ flex: 1, minWidth: 0 }}>
                                     <Typography sx={{ fontWeight: 600, fontSize: '0.875rem', color: T.text, mb: 0.25 }}>{page.page_name}</Typography>
                                     <Typography sx={{ fontSize: '0.67rem', color: T.faint }}>ID: {page.id}{page.page_url && ` · ${page.page_url}`}</Typography>
+                                    {assignmentManaged && (
+                                      <Typography sx={{ fontSize: '0.62rem', color: '#1565C0', mt: 0.35 }}>
+                                        Managed via Supervisor Assignment — not editable here
+                                      </Typography>
+                                    )}
                                     {isTemporary && (
                                       <Typography sx={{ fontSize: '0.62rem', color: '#c2410c', mt: 0.35 }}>
                                         Expires: {formatAccessExpiry(pageAccessExpiry[normalizePageId(page.id)])}
                                       </Typography>
                                     )}
-                                    {!inScope && !isEnabled && (
+                                    {!assignmentManaged && !inScope && !isEnabled && (
                                       <Typography sx={{ fontSize: '0.62rem', color: T.faint, mt: 0.35 }}>
                                         Outside {selectedUser?.role} role — enable to open confirmation
                                       </Typography>
@@ -2153,8 +2180,10 @@ const UsersList = () => {
                                           {isEnabled ? <LockOpen sx={{ fontSize: 10, color: statusColor }} /> : <Lock sx={{ fontSize: 10, color: statusColor }} />}
                                           <Typography sx={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: statusColor }}>{statusLabel}</Typography>
                                         </Box>
-                                        <Tooltip title={inScope ? '' : 'Opens a warning — temporary access outside role (max 1 day)'}>
-                                          <Switch checked={isEnabled} onChange={() => handleTogglePageAccess(page.id, isEnabled, page)} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: isTemporary ? '#c2410c' : '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: isTemporary ? '#c2410c' : '#16a34a' } }} />
+                                        <Tooltip title={assignmentManaged ? 'Use Supervisor Assignment to grant or revoke this page' : (inScope ? '' : 'Opens a warning — temporary access outside role (max 1 day)')}>
+                                          <span>
+                                            <Switch checked={isEnabled} disabled={assignmentManaged} onChange={() => handleTogglePageAccess(page.id, isEnabled, page)} sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: isTemporary ? '#c2410c' : '#16a34a' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: isTemporary ? '#c2410c' : '#16a34a' } }} />
+                                          </span>
                                         </Tooltip>
                                       </>
                                     )}

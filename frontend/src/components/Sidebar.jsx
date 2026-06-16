@@ -103,6 +103,7 @@ import {
   getRouteForMenuItemKey,
 } from "../utils/routeToComponentMapping";
 import { normalizeRole } from "../utils/pageAccessUtils";
+import { useSocket } from "../contexts/SocketContext";
 
 const useSystemSettings = () => {
   const [settings, setSettings] = useState({
@@ -225,6 +226,7 @@ const Sidebar = ({
 
   const navigate = useNavigate();
   const location = useLocation();
+  const { socket, connected } = useSocket();
 
   const resolvedEmployeeNumber =
     employeeNumber || getUserInfo()?.employeeNumber || "";
@@ -289,6 +291,7 @@ const Sidebar = ({
     "attendance_form",
     "search_attendance",
     "daily_time_record_faculty",
+    "daily-time-record-supervisor",
     "attendance_module",
     "attendance_module_faculty",
     "attendance_module_faculty_40hrs",
@@ -315,19 +318,26 @@ const Sidebar = ({
 
   ];
 
-  const leaveManagementItems = [
-    "leave-table",
-    "leave-assignment",
-    "leave-request",
-    "leave-request-user",
-    "leave-commutation",
-    "service-credits",
-    "compensatory-time-off",
-    "assignment-management",
-    "earnings-management",
-    "supervisor-assignment",
-    "leave-request-supervisor",
+  /** Routes actually rendered inside the Leave Management dropdown (not leave-request-user — that lives under DTR). */
+  const leaveDropdownAdminRoutes = [
+    "/assignment-management",
+    "/earnings-management",
+    "/leave-request",
+    "/leave-commutation",
+    "/leave-table",
+    "/supervisor-assignment",
   ];
+
+  const leaveDropdownHasVisibleItems = () => {
+    const isStaff = normalizedUserRole === "staff";
+    if (
+      !isStaff &&
+      leaveDropdownAdminRoutes.some((route) => shouldShowMenuItem(route))
+    ) {
+      return true;
+    }
+    return shouldShowMenuItem("/leave-request-supervisor");
+  };
 
   const formsItems = [
     "assessment-clearance",
@@ -409,6 +419,17 @@ const Sidebar = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (!socket || !connected) return;
+    const refreshAccess = () => setPageAccessVersion((prev) => prev + 1);
+    socket.on("pageAccessGranted", refreshAccess);
+    socket.on("pageAccessRevoked", refreshAccess);
+    return () => {
+      socket.off("pageAccessGranted", refreshAccess);
+      socket.off("pageAccessRevoked", refreshAccess);
+    };
+  }, [socket, connected]);
+
   const currentPath = location.pathname;
   useEffect(() => {
     // ... (all the path checks remain the same)
@@ -477,6 +498,10 @@ const Sidebar = ({
       setSelectedItem("daily_time_record_service_credits");
     } else if (currentPath === "/daily_time_record_overtime") {
       setSelectedItem("daily_time_record_overtime");
+    } else if (currentPath === "/daily-time-record-supervisor") {
+      setSelectedItem("daily-time-record-supervisor");
+    } else if (currentPath === "/leave-request-supervisor") {
+      setSelectedItem("leave-request-supervisor");
     } else if (currentPath === "/attendance_module") {
       setSelectedItem("attendance_module");
     } else if (currentPath === "/attendance_module_faculty") {
@@ -1080,7 +1105,8 @@ const Sidebar = ({
               shouldShowMenuItem("/daily_time_record_faculty") ||
               shouldShowMenuItem("/daily_time_record_honorarium") ||
               shouldShowMenuItem("/daily_time_record_service_credits") ||
-              shouldShowMenuItem("/daily_time_record_overtime")) && (
+              shouldShowMenuItem("/daily_time_record_overtime") ||
+              shouldShowMenuItem("/daily-time-record-supervisor")) && (
               <>
                 <ListItem
                   button
@@ -1349,6 +1375,65 @@ const Sidebar = ({
                         </ListItemIcon>
                         <ListItemText
                           primary="Overtime"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                    )}
+
+                    {shouldShowMenuItem("/daily-time-record-supervisor") && (
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/daily-time-record-supervisor"
+                        onClick={() =>
+                          handleItemClick("daily-time-record-supervisor")
+                        }
+                        sx={{
+                          bgcolor:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          color:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+                          "& .MuiListItemIcon-root": {
+                            color:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "& .MuiListItemText-primary": {
+                            color:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? "15px"
+                              : 0,
+                        }}
+                      >
+                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                          <SupervisedUserCircle />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Supervisor DTR"
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>
@@ -2718,6 +2803,65 @@ const Sidebar = ({
                         />
                       </ListItem>
 
+                      {shouldShowMenuItem("/daily-time-record-supervisor") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/daily-time-record-supervisor"
+                          onClick={() =>
+                            handleItemClick("daily-time-record-supervisor")
+                          }
+                          sx={{
+                            bgcolor:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "daily-time-record-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "daily-time-record-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? "15px"
+                                : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? "15px"
+                                : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <SupervisedUserCircle />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Daily Time Record - Supervisor"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
                       {/* Attendance Module (Non-teaching) */}
                       <ListItem
                         button
@@ -2975,7 +3119,7 @@ const Sidebar = ({
               )}
 
             {/* LEAVE DROPDOWN */}
-            {sectionHasVisibleItems(leaveManagementItems) && (
+            {leaveDropdownHasVisibleItems() && (
               <>
                 <ListItem
                   button

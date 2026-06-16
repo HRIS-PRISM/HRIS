@@ -8,6 +8,7 @@ const {
   parseExpiresAt,
   roleInPageGroup,
 } = require('../utils/pageAccess');
+const { assertNotAssignmentManagedPage } = require('../utils/supervisorPageAccess');
 
 function resolvePageAccessExpiry({ pageGroup, userRole, page_privilege, expires_at }) {
   const granting =
@@ -285,6 +286,16 @@ router.post('/page_access', authenticateToken, requireSuperAdmin, async (req, re
     });
   }
 
+  try {
+    const guard = await assertNotAssignmentManagedPage(page_id);
+    if (!guard.ok) {
+      return res.status(guard.status || 403).json({ error: guard.error });
+    }
+  } catch (guardErr) {
+    console.error('Error validating assignment-managed page access:', guardErr);
+    return res.status(500).json({ error: 'Failed to validate page access' });
+  }
+
   fetchUserRoleAndPage(page_id, employeeNumber, (metaErr, userRole, pageGroup) => {
     if (metaErr) {
       console.error('Error resolving page access context:', metaErr);
@@ -358,6 +369,16 @@ router.put('/page_access/:employeeNumber/:pageId', authenticateToken, requireSup
   const { employeeNumber, pageId } = req.params;
   const { page_privilege, expires_at } = req.body;
   const hasExpiresField = Object.prototype.hasOwnProperty.call(req.body, 'expires_at');
+
+  try {
+    const guard = await assertNotAssignmentManagedPage(pageId);
+    if (!guard.ok) {
+      return res.status(guard.status || 403).json({ error: guard.error });
+    }
+  } catch (guardErr) {
+    console.error('Error validating assignment-managed page access:', guardErr);
+    return res.status(500).json({ error: 'Failed to validate page access' });
+  }
 
   fetchUserRoleAndPage(pageId, employeeNumber, (metaErr, userRole, pageGroup) => {
     if (metaErr) {

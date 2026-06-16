@@ -408,15 +408,15 @@ const Home = () => {
       if (!employeeNumber) return;
       setLeaveLoading(true);
       try {
-        const [typesRes, assignmentsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders()),
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
-        ]);
-        const userAssignments = assignmentsRes.data.filter((a) => a.employeeNumber?.toString() === employeeNumber?.toString());
+        const assignmentsRes = await axios.get(
+          `${API_BASE_URL}/leaveRoute/leave_assignment/employee/${employeeNumber}`,
+          getAuthHeaders(),
+        );
+        const userAssignments = Array.isArray(assignmentsRes.data) ? assignmentsRes.data : [];
         const byCode = {};
         userAssignments.forEach((a) => { if (!byCode[a.leave_code]) byCode[a.leave_code] = []; byCode[a.leave_code].push(a); });
         const grouped = Object.entries(byCode).map(([code, entries]) => {
-          const leaveType = typesRes.data.find((lt) => lt.leave_code === code);
+          const leaveType = entries[0];
           const sorted = entries.sort((a, b) => {
             const yearDiff = (b.period_year || 0) - (a.period_year || 0);
             if (yearDiff !== 0) return yearDiff;
@@ -430,7 +430,7 @@ const Home = () => {
           const currAllocated = (parseFloat(current?.allocated_hours) || parseFloat(current?.total_hours) || 0) / 8;
           const prevRemaining = previous.reduce((s, e) => s + (parseFloat(e.remaining_hours) || 0) / 8, 0);
           const prevTotal = previous.reduce((s, e) => s + (parseFloat(e.total_hours) || 0) / 8, 0);
-          return { code, name: leaveType?.leave_description || code, grandRemaining: currRemaining + prevRemaining, grandTotal: currTotal + prevTotal, currRemaining, currTotal, currAllocated, prevRemaining, period: current?.period_year ? `${current.period_year}${current.period_semester ? ` ${current.period_semester}` : ""}` : null };
+          return { code, name: leaveType?.leave_description || current?.leave_description || code, grandRemaining: currRemaining + prevRemaining, grandTotal: currTotal + prevTotal, currRemaining, currTotal, currAllocated, prevRemaining, period: current?.period_year ? `${current.period_year}${current.period_semester ? ` ${current.period_semester}` : ""}` : null };
         });
         setLeaveCredits(grouped);
       } catch { setLeaveCredits([]); }

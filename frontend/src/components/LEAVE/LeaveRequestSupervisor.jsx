@@ -34,6 +34,8 @@ import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import usePageAccess from '../../hooks/usePageAccess';
+import { normalizeRole } from '../../utils/pageAccessUtils';
+import { getUserInfo } from '../../utils/auth';
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -41,12 +43,10 @@ const getAuthHeaders = () => {
 };
 
 const getSupervisorEmployeeNumber = () => {
-  try {
-    const token = localStorage.getItem('token');
-    if (!token) return null;
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.employeeNumber ? String(payload.employeeNumber) : null;
-  } catch { return null; }
+  const fromToken = getUserInfo()?.employeeNumber;
+  const fromStorage = localStorage.getItem('employeeNumber');
+  const resolved = fromToken || fromStorage;
+  return resolved ? String(resolved).trim() : null;
 };
 
 const getUserRole = () => {
@@ -256,12 +256,13 @@ const StatusPill = ({ status }) => {
 };
 
 const RoleBadge = ({ role }) => {
+  const label = (role || 'Supervisor').trim() || 'Supervisor';
   const cfg = { Dean: { color: '#6d2323', bg: 'rgba(109,35,35,0.08)' }, 'Department Head': { color: '#1B5E20', bg: 'rgba(27,94,32,0.08)' }, Supervisor: { color: '#1565C0', bg: 'rgba(21,101,192,0.08)' } };
-  const c   = cfg[role] || cfg.Supervisor;
+  const c   = cfg[label] || { color: '#5D4037', bg: 'rgba(93,64,55,0.08)' };
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.3, borderRadius: 6, bgcolor: c.bg }}>
       <BadgeIcon sx={{ fontSize: 11, color: c.color }} />
-      <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: c.color }}>{role}</Typography>
+      <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: c.color }}>{label}</Typography>
     </Box>
   );
 };
@@ -577,6 +578,7 @@ const SupervisorLeaveApproval = () => {
   const userRole = getUserRole();
 
   const [supervisorCtx,   setSupervisorCtx]   = useState(null);
+  const [ctxLoading,      setCtxLoading]       = useState(true);
   const [requests,        setRequests]         = useState([]);
   const [loading,         setLoading]          = useState(true);
   const [actionLoading,   setActionLoading]    = useState(false);
@@ -604,24 +606,30 @@ const SupervisorLeaveApproval = () => {
   const closeConfirm = () => setConfirmModal((p) => ({ ...p, open: false, loading: false }));
 
   const fetchContext = useCallback(async () => {
-    if (!supervisorEmpNum) return;
+    setCtxLoading(true);
     try {
-      const r = await axios.get(`${API_BASE_URL}/api/supervisor-leave/context/${supervisorEmpNum}`, getAuthHeaders());
-      setSupervisorCtx(r.data);
-    } catch { setSupervisorCtx({ isSupervisor: false, departments: [] }); }
-  }, [supervisorEmpNum]);
+      const r = await axios.get(`${API_BASE_URL}/api/supervisor-leave/context/me`, getAuthHeaders());
+      const data = r.data || { isSupervisor: false, departments: [] };
+      setSupervisorCtx(data);
+      return data;
+    } catch {
+      setSupervisorCtx({ isSupervisor: false, departments: [] });
+      return null;
+    } finally {
+      setCtxLoading(false);
+    }
+  }, []);
 
   const fetchRequests = useCallback(async () => {
-    if (!supervisorEmpNum) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (deptFilter   !== 'all') params.set('departmentCode', deptFilter);
-      const r = await axios.get(`${API_BASE_URL}/api/supervisor-leave/requests/${supervisorEmpNum}?${params.toString()}`, getAuthHeaders());
+      const r = await axios.get(`${API_BASE_URL}/api/supervisor-leave/requests/me?${params.toString()}`, getAuthHeaders());
       setRequests(Array.isArray(r.data) ? r.data : []);
     } catch { setRequests([]); } finally { setLoading(false); }
-  }, [supervisorEmpNum, statusFilter, deptFilter]);
+  }, [statusFilter, deptFilter]);
 
   const fetchTxLogs = useCallback(async () => {
     if (!supervisorEmpNum) return;
@@ -636,13 +644,26 @@ const SupervisorLeaveApproval = () => {
         const deptCodes = supervisorCtx.departments.map((d) => d.code);
         if (deptCodes.length > 0) params.set('departmentCodes', deptCodes.join(','));
       }
-      const r = await axios.get(`${API_BASE_URL}/api/supervisor-leave/transactions/${supervisorEmpNum}?${params.toString()}`, getAuthHeaders());
+      const r = await axios.get(`${API_BASE_URL}/api/supervisor-leave/transactions/me?${params.toString()}`, getAuthHeaders());
       setTxLogs(Array.isArray(r.data) ? r.data : []);
     } catch { setTxError('Failed to load transaction logs.'); } finally { setTxLoading(false); }
   }, [supervisorEmpNum, supervisorCtx, deptFilter]);
 
-  useEffect(() => { fetchContext(); }, [fetchContext]);
-  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const ctx = await fetchContext();
+      if (cancelled) return;
+      if (ctx?.isSupervisor || ctx?.departments?.length > 0) {
+        window.dispatchEvent(new CustomEvent('pageAccessUpdated', {
+          detail: { employeeNumber: ctx.supervisorEmployeeNumber || supervisorEmpNum },
+        }));
+      }
+      await fetchRequests();
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [fetchContext, fetchRequests, supervisorEmpNum, statusFilter, deptFilter]);
   useEffect(() => { refreshRef.current = fetchRequests; });
   useEffect(() => {
     if (!socket || !connected) return;
@@ -653,11 +674,14 @@ const SupervisorLeaveApproval = () => {
   useEffect(() => { if (txOpen) fetchTxLogs(); }, [txOpen, fetchTxLogs]);
   useEffect(() => { setPage(0); }, [searchTerm, statusFilter, deptFilter]);
 
+  const actingSupervisorEmp =
+    supervisorCtx?.supervisorEmployeeNumber || supervisorEmpNum;
+
   const handleAction = async (req, newStatus, remarks = '') => {
     setActionLoading(true);
     try {
       await axios.put(`${API_BASE_URL}/api/supervisor-leave/action/${req.id}`, {
-        newStatus, supervisorEmployeeNumber: supervisorEmpNum, remarks,
+        newStatus, supervisorEmployeeNumber: actingSupervisorEmp, remarks,
       }, getAuthHeaders());
       setViewRequest(null);
       setSuccessAction('status'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
@@ -682,7 +706,7 @@ const SupervisorLeaveApproval = () => {
         setBulkLoading(true);
         try {
           await axios.put(`${API_BASE_URL}/api/supervisor-leave/bulk-action`, {
-            ids: selectedIds, newStatus, supervisorEmployeeNumber: supervisorEmpNum,
+            ids: selectedIds, newStatus, supervisorEmployeeNumber: actingSupervisorEmp,
           }, getAuthHeaders());
           setSuccessAction('bulk'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
           setSelectedIds([]); setSelectMode(false); fetchRequests();
@@ -721,23 +745,20 @@ const SupervisorLeaveApproval = () => {
   }, [supervisorCtx]);
 
   // Show wireframe while loading initial data
-  if (accessLoading || loading) return <Wireframe />;
+  if (accessLoading || ctxLoading || loading) return <Wireframe />;
 
-  const isTechAdmin = ['superadmin', 'technical', 'administrator'].includes(userRole);
-  const hasPermission = isTechAdmin || hasAccess === true;
+  const normalizedRole = normalizeRole(userRole);
+  const isTechAdmin = ['superadmin', 'technical', 'administrator'].includes(normalizedRole);
+  const isAssignedSupervisor =
+    supervisorCtx?.isSupervisor === true ||
+    (Array.isArray(supervisorCtx?.departments) && supervisorCtx.departments.length > 0);
+  // Match sidebar: page_access is granted only via Supervisor Assignment; context/me re-checks supervisor_assignment by employeeNumber.
+  const hasPermission =
+    isTechAdmin || isAssignedSupervisor || hasAccess === true;
 
-  if (hasPermission === false && !supervisorCtx) {
-    return <AccessDenied title="Access Denied" message="You do not have permission to access Supervisor Leave Approval. Contact your HR administrator if you believe this is an error." returnPath="/home" returnButtonText="Return to Home" />;
+  if (!hasPermission) {
+    return <AccessDenied title="Access Denied" message="You do not have permission to access Supervisor Leave Approval. You must be assigned as a supervisor in Supervisor Assignment. Contact your HR administrator if you believe this is an error." returnPath="/home" returnButtonText="Return to Home" />;
   }
-  if (supervisorCtx && !supervisorCtx.isSupervisor && !isTechAdmin) return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 12 }}>
-      <SupervisorIcon sx={{ fontSize: 56, color: alpha(T.accent, 0.2), mb: 2 }} />
-      <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: T.muted, mb: 1 }}>Not a Supervisor</Typography>
-      <Typography sx={{ fontSize: '0.88rem', color: T.faint, textAlign: 'center', maxWidth: 400 }}>
-        Your account is not assigned as a supervisor, department head, or dean for any department. Contact your HR administrator to be assigned.
-      </Typography>
-    </Box>
-  );
 
   return (
     <Fade in timeout={400}>

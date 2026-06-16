@@ -61,11 +61,13 @@ const T = {
   divider: 'rgba(0,0,0,0.08)',
 };
 
-const roleColors = {
+const titleStylePresets = {
   'Dean':             { color: '#6d2323', bg: 'rgba(109,35,35,0.08)', border: 'rgba(109,35,35,0.25)' },
   'Department Head':  { color: '#1B5E20', bg: 'rgba(27,94,32,0.08)',  border: 'rgba(27,94,32,0.25)'  },
   'Supervisor':       { color: '#1565C0', bg: 'rgba(21,101,192,0.08)', border: 'rgba(21,101,192,0.25)' },
 };
+const defaultTitleStyle = { color: '#5D4037', bg: 'rgba(93,64,55,0.08)', border: 'rgba(93,64,55,0.22)' };
+const TITLE_SUGGESTIONS = ['Supervisor', 'Department Head', 'Dean', 'Coordinator', 'Unit Head'];
 
 // ── Shimmer / Wireframe ────────────────────────────────────────────────────────
 const shimmerKf = `
@@ -214,12 +216,13 @@ const Wireframe = () => (
 
 // ── Components ─────────────────────────────────────────────────────────────────
 
-const RolePill = ({ role }) => {
-  const cfg = roleColors[role] || roleColors['Supervisor'];
+const TitleBadge = ({ title }) => {
+  const label = (title || 'Supervisor').trim() || 'Supervisor';
+  const cfg = titleStylePresets[label] || defaultTitleStyle;
   return (
     <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.3, borderRadius: 6, bgcolor: cfg.bg, border: `1px solid ${cfg.border}` }}>
       <BadgeIcon sx={{ fontSize: 11, color: cfg.color }} />
-      <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: cfg.color }}>{role}</Typography>
+      <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: cfg.color }}>{label}</Typography>
     </Box>
   );
 };
@@ -435,12 +438,12 @@ const SupervisorAssignment = () => {
   const [formEmployee,        setFormEmployee]        = useState(null);
   const [formEmployeeNum,     setFormEmployeeNum]     = useState('');
   const [formDepartmentCode,  setFormDepartmentCode]  = useState('');
-  const [formRole,            setFormRole]            = useState('Supervisor');
+  const [formTitle,           setFormTitle]           = useState('');
 
   // Modal state
   const [modalOpen,          setModalOpen]          = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
-  const [editRole,           setEditRole]           = useState('Supervisor');
+  const [editTitle,          setEditTitle]          = useState('');
   const [isEditing,          setIsEditing]          = useState(false);
   const [deleteConfirmId,    setDeleteConfirmId]    = useState(null);
 
@@ -476,9 +479,9 @@ const SupervisorAssignment = () => {
       await axios.post(`${API_BASE_URL}/api/supervisor-assignment`, {
         supervisorEmployeeNumber: formEmployee.employeeNumber,
         departmentCode:           formDepartmentCode,
-        role:                     formRole,
+        role:                     formTitle.trim() || 'Supervisor',
       }, getAuthHeaders());
-      setFormEmployee(null); setFormEmployeeNum(''); setFormDepartmentCode(''); setFormRole('Supervisor');
+      setFormEmployee(null); setFormEmployeeNum(''); setFormDepartmentCode(''); setFormTitle('');
       setSuccessAction('create'); setSuccessOpen(true);
       fetchAssignments();
     } catch (e) {
@@ -490,13 +493,13 @@ const SupervisorAssignment = () => {
     if (!selectedAssignment) return;
     setLoading(true);
     try {
-      await axios.put(`${API_BASE_URL}/api/supervisor-assignment/${selectedAssignment.id}`, { role: editRole }, getAuthHeaders());
+      await axios.put(`${API_BASE_URL}/api/supervisor-assignment/${selectedAssignment.id}`, { role: editTitle.trim() || 'Supervisor' }, getAuthHeaders());
       setSuccessAction('edit'); setSuccessOpen(true);
       setIsEditing(false);
       fetchAssignments();
-      setSelectedAssignment((p) => p ? { ...p, role: editRole } : p);
+      setSelectedAssignment((p) => p ? { ...p, role: editTitle.trim() || 'Supervisor' } : p);
     } catch (e) {
-      setSnackMsg(e.response?.data?.error || 'Failed to update role.');
+      setSnackMsg(e.response?.data?.error || 'Failed to update title.');
     } finally { setLoading(false); }
   };
 
@@ -515,7 +518,7 @@ const SupervisorAssignment = () => {
 
   const handleOpenModal = (assignment) => {
     setSelectedAssignment(assignment);
-    setEditRole(assignment.role);
+    setEditTitle(assignment.role || '');
     setIsEditing(false);
     setModalOpen(true);
   };
@@ -574,13 +577,40 @@ const SupervisorAssignment = () => {
             <SectionCard sx={{ display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ px: 3, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint }}>
                 <AddIcon sx={{ fontSize: 15, color: T.accent }} />
-                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>Assign Supervisor / Head / Dean</Typography>
+                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>Assign Department Supervisor</Typography>
               </Box>
               <Box sx={{ px: 3, py: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {/* Role */}
+                {/* Title (display only — not login role) */}
                 <Box>
-                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Role</Typography>
-                  <RolePill role="Supervisor" />
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                    Title <Typography component="span" sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 500 }}>(optional label)</Typography>
+                  </Typography>
+                  <FieldInput
+                    size="small"
+                    fullWidth
+                    placeholder="e.g. Supervisor, Department Head, Coordinator…"
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                  />
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1 }}>
+                    {TITLE_SUGGESTIONS.map((suggestion) => (
+                      <Chip
+                        key={suggestion}
+                        label={suggestion}
+                        size="small"
+                        onClick={() => setFormTitle(suggestion)}
+                        sx={{
+                          height: 24,
+                          fontSize: '0.68rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          bgcolor: formTitle === suggestion ? T.accentFaint : '#fafafa',
+                          border: `1px solid ${formTitle === suggestion ? T.accentBorder : T.divider}`,
+                          color: formTitle === suggestion ? T.accent : T.muted,
+                        }}
+                      />
+                    ))}
+                  </Box>
                 </Box>
 
                 {/* Department */}
@@ -621,14 +651,9 @@ const SupervisorAssignment = () => {
                   {loading ? 'Assigning…' : 'Assign'}
                 </AccentButton>
 
-                {/* Role Info */}
-                <Box sx={{ mt: 1, p: 1.5, borderRadius: 2, border: `1px solid ${T.divider}`, bgcolor: '#fafafa' }}>
-                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.muted, mb: 1, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Role</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <RolePill role="Supervisor" />
-                    <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>Team-level leave approval and department management</Typography>
-                  </Box>
-                </Box>
+                <Typography sx={{ fontSize: '0.72rem', color: T.muted, lineHeight: 1.5 }}>
+                  Assigned employees can approve leave requests for staff in the selected department. Title is for display only and does not change login role.
+                </Typography>
               </Box>
             </SectionCard>
           </Grid>
@@ -653,7 +678,7 @@ const SupervisorAssignment = () => {
                     </ToggleButtonGroup>
                   </Box>
                 </Box>
-                <FieldInput size="small" placeholder="Search by name, employee ID, department, or role…"
+                <FieldInput size="small" placeholder="Search by name, employee ID, department, or title…"
                   value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} fullWidth
                   InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }} />
               </Box>
@@ -674,14 +699,14 @@ const SupervisorAssignment = () => {
                 ) : viewMode === 'grid' ? (
                   <Grid container spacing={1.5}>
                     {filtered.map((a) => {
-                      const roleCfg = roleColors[a.role] || roleColors['Supervisor'];
+                      const roleCfg = titleStylePresets[a.role] || defaultTitleStyle;
                       return (
                         <Grid item xs={6} sm={4} md={3} key={a.id}>
                           <Box onClick={() => handleOpenModal(a)}
                             sx={{ p: '12px 14px', borderRadius: 2, cursor: 'pointer', bgcolor: '#fff', border: `1px solid ${T.accentBorder}`, transition: 'all 0.15s ease', '&:hover': { bgcolor: T.rowHover, borderColor: T.accent, transform: 'translateY(-2px)', boxShadow: `0 4px 16px ${alpha(T.accent, 0.12)}` }, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                               <Avatar sx={{ width: 30, height: 30, bgcolor: roleCfg.bg, color: roleCfg.color, border: `1px solid ${roleCfg.border}`, fontSize: '0.78rem', fontWeight: 700 }}>{(a.supervisorName || '?').charAt(0).toUpperCase()}</Avatar>
-                              <RolePill role={a.role} />
+                              <TitleBadge title={a.role} />
                             </Box>
                             <Box>
                               <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{a.supervisorName || `#${a.supervisorEmployeeNumber}`}</Typography>
@@ -720,7 +745,7 @@ const SupervisorAssignment = () => {
                             {a.departmentDescription && <Typography sx={{ fontSize: '0.68rem', color: T.muted }} noWrap>{a.departmentDescription}</Typography>}
                           </Box>
                         </Box>
-                        <RolePill role={a.role} />
+                        <TitleBadge title={a.role} />
                         <Box sx={{ display: 'flex', gap: 0.75 }}>
                           <Tooltip title="View / Edit">
                             <IconButton size="small" onClick={() => handleOpenModal(a)} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, '&:hover': { bgcolor: T.accentFaint } }}>
@@ -769,8 +794,34 @@ const SupervisorAssignment = () => {
                     </Box>
 
                     <Box>
-                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Role</Typography>
-                      <RolePill role="Supervisor" />
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.75 }}>
+                        <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent }}>Title</Typography>
+                        {!isEditing && (
+                          <AccentButton onClick={() => setIsEditing(true)} variant="text" size="small"
+                            startIcon={<EditIcon sx={{ fontSize: '14px !important' }} />}
+                            sx={{ fontSize: '0.72rem', color: T.accent, minWidth: 0, p: 0, '&:hover': { bgcolor: 'transparent', transform: 'none' } }}>
+                            Edit
+                          </AccentButton>
+                        )}
+                      </Box>
+                      {isEditing ? (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <FieldInput size="small" fullWidth value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Enter title…" />
+                          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                            <AccentButton onClick={() => { setIsEditing(false); setEditTitle(selectedAssignment.role || ''); }} variant="outlined" size="small"
+                              sx={{ fontSize: '0.75rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { transform: 'none' } }}>
+                              Cancel
+                            </AccentButton>
+                            <AccentButton onClick={handleUpdateRole} variant="contained" size="small" disabled={loading}
+                              startIcon={<SaveIcon sx={{ fontSize: '14px !important' }} />}
+                              sx={{ fontSize: '0.75rem', bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } }}>
+                              Save
+                            </AccentButton>
+                          </Box>
+                        </Box>
+                      ) : (
+                        <TitleBadge title={selectedAssignment.role} />
+                      )}
                     </Box>
                   </Box>
 

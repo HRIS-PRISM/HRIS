@@ -2,23 +2,65 @@ const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { broadcastNewAuditLog } = require('../socket/socketService');
 const { PAGE_ACCESS_ACTIVE_SQL } = require('../utils/pageAccess');
+const {
+  resolveCanonicalEmployeeNumber,
+  fetchSupervisorDepartments,
+  empMatchSql,
+  bindEmpMatchParams,
+} = require('../utils/supervisorPageAccess');
 
 const ADMIN_ROLES = ['admin', 'administrator', 'superadmin', 'technical'];
 const SUPERADMIN_ROLES = ['superadmin', 'technical'];
 const TECHNICAL_ROLES = ['technical'];
 
+async function enrichUserFromDb(user) {
+  if (!user) return user;
+
+  if (user.id) {
+    const [rows] = await db.promise().query(
+      'SELECT employeeNumber, role, email FROM users WHERE id = ? LIMIT 1',
+      [user.id],
+    );
+    if (rows[0]?.employeeNumber) {
+      const canonical = await resolveCanonicalEmployeeNumber(rows[0].employeeNumber);
+      return {
+        ...user,
+        employeeNumber: canonical || String(rows[0].employeeNumber).trim(),
+        role: rows[0].role || user.role,
+        email: rows[0].email || user.email,
+      };
+    }
+  }
+
+  if (user.employeeNumber) {
+    const canonical = await resolveCanonicalEmployeeNumber(user.employeeNumber);
+    return { ...user, employeeNumber: canonical || String(user.employeeNumber).trim() };
+  }
+
+  return user;
+}
+
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) return res.status(401).json({ error: 'No token provided' });
+  if (!token || token === 'null' || token === 'undefined') {
+    return res.status(401).json({ error: 'No token provided' });
+  }
 
   jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    req.user = user;
-    next();
+    enrichUserFromDb(user)
+      .then((enriched) => {
+        req.user = enriched;
+        next();
+      })
+      .catch(() => {
+        req.user = user;
+        next();
+      });
   });
 }
 
@@ -61,24 +103,99 @@ function requireTechnical(req, res, next) {
   }
 }
 
+function normalizeEmployeeNumber(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d+$/.test(raw)) {
+    const stripped = raw.replace(/^0+/, '') || '0';
+    return stripped;
+  }
+  return raw;
+}
+
+function employeeNumbersMatch(a, b) {
+  const left = normalizeEmployeeNumber(a);
+  const right = normalizeEmployeeNumber(b);
+  if (!left || !right) return false;
+  return left === right;
+}
+
 function requireSelfOrAdmin(paramName = 'employeeNumber') {
   return (req, res, next) => {
-    const target =
-      req.params[paramName] ||
-      req.body?.[paramName] ||
-      req.query?.[paramName];
-    const caller = String(req.user?.employeeNumber || '').trim();
-    const role = String(req.user?.role || '').toLowerCase();
+    (async () => {
+      const target =
+        req.params[paramName] ||
+        req.body?.[paramName] ||
+        req.query?.[paramName];
+      const role = String(req.user?.role || '').toLowerCase();
 
-    if (ADMIN_ROLES.includes(role)) {
-      return next();
-    }
+      if (ADMIN_ROLES.includes(role)) {
+        return next();
+      }
 
-    if (target && caller && String(target).trim() === caller) {
-      return next();
-    }
+      let caller = String(req.user?.employeeNumber || '').trim();
+      if (!caller && req.user) {
+        const enriched = await enrichUserFromDb(req.user);
+        req.user = enriched;
+        caller = String(enriched?.employeeNumber || '').trim();
+      }
 
-    return res.status(403).json({ error: 'Access denied' });
+      if (target && caller && employeeNumbersMatch(target, caller)) {
+        return next();
+      }
+
+      return res.status(403).json({ error: 'Access denied' });
+    })().catch(next);
+  };
+}
+
+/** Staff supervisors: allow when supervisor_assignment or active page_access exists. */
+function requireSupervisorModuleAccess(...componentIdentifiers) {
+  const identifiers = componentIdentifiers.flat().filter(Boolean);
+  return (req, res, next) => {
+    (async () => {
+      const role = String(req.user?.role || '').toLowerCase();
+      if (ADMIN_ROLES.includes(role)) {
+        return next();
+      }
+
+      let emp = String(req.user?.employeeNumber || '').trim();
+      if (!emp && req.user) {
+        const enriched = await enrichUserFromDb(req.user);
+        req.user = enriched;
+        emp = String(enriched?.employeeNumber || '').trim();
+      }
+      if (!emp) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const { departments } = await fetchSupervisorDepartments(emp);
+      if (departments.length > 0) {
+        return next();
+      }
+
+      for (const identifier of identifiers) {
+        const [pageRows] = await db.promise().query(
+          'SELECT id FROM pages WHERE component_identifier = ? LIMIT 1',
+          [identifier],
+        );
+        if (!pageRows[0]?.id) continue;
+
+        const [accessRows] = await db.promise().query(
+          `SELECT 1 FROM page_access pa
+           WHERE ${empMatchSql('pa.employeeNumber')}
+             AND pa.page_id = ?
+             AND ${PAGE_ACCESS_ACTIVE_SQL}
+           LIMIT 1`,
+          [...bindEmpMatchParams(emp), pageRows[0].id],
+        );
+        if (accessRows.length > 0) {
+          return next();
+        }
+      }
+
+      return res.status(403).json({ error: 'Supervisor assignment required' });
+    })().catch(next);
   };
 }
 
@@ -96,22 +213,38 @@ function scopeEmployeeNumberFromUser(req) {
 /** Supervisor workflow: JWT user must match supervisorEmployeeNumber param/body (admins bypass). */
 function requireSupervisorSelfOrAdmin(paramName = 'supervisorEmployeeNumber') {
   return (req, res, next) => {
-    const role = String(req.user?.role || '').toLowerCase();
-    if (ADMIN_ROLES.includes(role)) {
-      return next();
-    }
+    (async () => {
+      const role = String(req.user?.role || '').toLowerCase();
+      if (ADMIN_ROLES.includes(role)) {
+        return next();
+      }
 
-    const target =
-      req.params[paramName] ||
-      req.body?.[paramName] ||
-      req.query?.[paramName];
-    const caller = String(req.user?.employeeNumber || '').trim();
+      const target =
+        req.params[paramName] ||
+        req.body?.[paramName] ||
+        req.query?.[paramName];
 
-    if (target && caller && String(target).trim() === caller) {
-      return next();
-    }
+      let caller = String(req.user?.employeeNumber || '').trim();
+      if (!caller && req.user) {
+        const enriched = await enrichUserFromDb(req.user);
+        req.user = enriched;
+        caller = String(enriched?.employeeNumber || '').trim();
+      }
 
-    return res.status(403).json({ error: 'Access denied' });
+      // Safety: /context/me may match :param routes if /me handler is missing — treat as self.
+      if (target && String(target).toLowerCase() === 'me') {
+        if (!caller) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+        return next();
+      }
+
+      if (target && caller && employeeNumbersMatch(target, caller)) {
+        return next();
+      }
+
+      return res.status(403).json({ error: 'Access denied' });
+    })().catch(next);
   };
 }
 
@@ -257,9 +390,13 @@ module.exports = {
   requireTechnical,
   requireSelfOrAdmin,
   requireSupervisorSelfOrAdmin,
+  requireSupervisorModuleAccess,
   requirePageAccess,
+  enrichUserFromDb,
   isAdminRole,
   scopeEmployeeNumberFromUser,
+  normalizeEmployeeNumber,
+  employeeNumbersMatch,
   logAudit,
   insertAuditLog,
   ADMIN_ROLES,
