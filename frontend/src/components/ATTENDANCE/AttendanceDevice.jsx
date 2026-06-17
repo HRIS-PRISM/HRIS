@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
 import LoadingOverlay from '../LoadingOverlay';
@@ -66,13 +66,28 @@ import {
   Close,
   Male as MaleIcon,
   Female as FemaleIcon,
+  Lock,
+  Sync,
+  Restore,
 } from '@mui/icons-material';
 import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 import { Grid } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import {
+  AttendanceFilterDateControls,
+  MONTHS_SHORT,
+  AttendanceEmployeeSearchSection,
+  ATTENDANCE_COMPACT_PAGE_SX,
+  attendanceMainPanelHeightSx,
+  useAttendanceCompactPage,
+} from './attendanceFilterLayout';
+import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 
 
@@ -496,8 +511,11 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   </button>
 );
 
-// ─── Uncategorized badge ───────────────────────────────────────────────────
-const UncategorizedBadge = () => (
+// ─── Missing time IN/OUT badge ───────────────────────────────────────────
+const NO_TIME_IN_LABEL = 'No TimeIN';
+const NO_TIME_OUT_LABEL = 'No TimeOUT';
+
+const MissingTimeBadge = ({ label }) => (
   <Box
     sx={{
       display: 'inline-flex',
@@ -511,14 +529,14 @@ const UncategorizedBadge = () => (
     }}
   >
     <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
-    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: '#f44336' }}>
-      Uncategorized
+    <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#f44336', lineHeight: 1.2 }}>
+      {label}
     </Typography>
   </Box>
 );
 
 // ─── Time cell renderer ────────────────────────────────────────────────────
-const TimeCell = ({ time, isUncategorized }) => {
+const TimeCell = ({ time, isUncategorized, missingLabel }) => {
   const formatted = formatTime(time);
   if (formatted)
     return (
@@ -526,7 +544,7 @@ const TimeCell = ({ time, isUncategorized }) => {
         {formatted}
       </Typography>
     );
-  if (isUncategorized) return <UncategorizedBadge />;
+  if (isUncategorized) return <MissingTimeBadge label={missingLabel} />;
   return (
     <Typography sx={{ fontSize: '0.75rem', color: '#a0a0a0' }}>—</Typography>
   );
@@ -547,6 +565,194 @@ const formatTime = (time) => {
 
 const getDayOfWeek = (dateString) =>
   new Date(dateString).toLocaleDateString('en-US', { weekday: 'long' });
+
+const formatModifiedAt = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const isManuallyLocked = (record) => Number(record?.manually_modified) === 1;
+
+const makeRecordKey = (personID, date) => `${personID}::${date}`;
+
+const parseRecordKey = (key) => {
+  const sep = String(key).indexOf('::');
+  if (sep === -1) return { personID: key, date: '' };
+  return { personID: key.slice(0, sep), date: key.slice(sep + 2) };
+};
+
+/** Grid columns: checkbox + data columns */
+const RECORDS_GRID_COLS =
+  '32px 0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr';
+
+const formatModifierLabel = (modifiedBy, modifiedByName) => {
+  const num = String(modifiedBy || '').trim();
+  const name = String(modifiedByName || '').trim();
+  if (name && num) return `By ${name} (#${num})`;
+  if (name) return `By ${name}`;
+  if (num) return `By #${num}`;
+  return null;
+};
+
+const LockStatusChip = ({ modifiedBy, modifiedByName, modifiedAt }) => {
+  const [open, setOpen] = useState(false);
+  const modifierLabel = formatModifierLabel(modifiedBy, modifiedByName);
+
+  return (
+    <Box sx={{ mt: 0.35, width: 'fit-content', maxWidth: '100%' }}>
+      <Box
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 0.35,
+          px: 0.65,
+          py: 0.2,
+          borderRadius: open ? '6px 6px 0 0' : '6px',
+          bgcolor: 'rgba(33,150,243,0.10)',
+          border: '1px solid rgba(33,150,243,0.22)',
+          cursor: 'pointer',
+          width: 'fit-content',
+          userSelect: 'none',
+          '&:hover': { bgcolor: 'rgba(33,150,243,0.14)' },
+        }}
+      >
+        <Lock sx={{ fontSize: 10, color: '#1976d2' }} />
+        <Typography
+          sx={{
+            fontSize: '0.58rem',
+            fontWeight: 700,
+            color: '#1976d2',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Locked
+        </Typography>
+        {open ? (
+          <ExpandLess sx={{ fontSize: 13, color: '#1976d2' }} />
+        ) : (
+          <ExpandMore sx={{ fontSize: 13, color: '#1976d2' }} />
+        )}
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box
+          sx={{
+            px: 0.75,
+            py: 0.55,
+            borderRadius: '0 0 6px 6px',
+            border: '1px solid rgba(33,150,243,0.22)',
+            borderTop: 'none',
+            bgcolor: 'rgba(33,150,243,0.06)',
+            maxWidth: 200,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.58rem',
+              fontWeight: 700,
+              color: '#1565c0',
+              lineHeight: 1.35,
+              mb: 0.35,
+            }}
+          >
+            Admin modified · Sync paused
+          </Typography>
+          {modifierLabel && (
+            <Typography sx={{ fontSize: '0.55rem', color: '#1976d2', lineHeight: 1.35 }}>
+              {modifierLabel}
+            </Typography>
+          )}
+          {modifiedAt && (
+            <Typography sx={{ fontSize: '0.55rem', color: '#1565c0', lineHeight: 1.35 }}>
+              {formatModifiedAt(modifiedAt)}
+            </Typography>
+          )}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+};
+
+const RestoredStatusChip = () => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Box sx={{ mt: 0.35, width: 'fit-content', maxWidth: '100%' }}>
+      <Box
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 0.35,
+          px: 0.65,
+          py: 0.2,
+          borderRadius: open ? '6px 6px 0 0' : '6px',
+          bgcolor: 'rgba(76,175,80,0.10)',
+          border: '1px solid rgba(76,175,80,0.22)',
+          cursor: 'pointer',
+          width: 'fit-content',
+          userSelect: 'none',
+          '&:hover': { bgcolor: 'rgba(76,175,80,0.14)' },
+        }}
+      >
+        <Restore sx={{ fontSize: 10, color: '#2e7d32' }} />
+        <Typography
+          sx={{
+            fontSize: '0.58rem',
+            fontWeight: 700,
+            color: '#2e7d32',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Restored
+        </Typography>
+        {open ? (
+          <ExpandLess sx={{ fontSize: 13, color: '#2e7d32' }} />
+        ) : (
+          <ExpandMore sx={{ fontSize: 13, color: '#2e7d32' }} />
+        )}
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box
+          sx={{
+            px: 0.75,
+            py: 0.55,
+            borderRadius: '0 0 6px 6px',
+            border: '1px solid rgba(76,175,80,0.22)',
+            borderTop: 'none',
+            bgcolor: 'rgba(76,175,80,0.06)',
+            maxWidth: 160,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.58rem',
+              fontWeight: 700,
+              color: '#2e7d32',
+              lineHeight: 1.35,
+            }}
+          >
+            Returned data from the device
+          </Typography>
+          <Typography sx={{ fontSize: '0.55rem', color: '#388e3c', lineHeight: 1.35, mt: 0.25 }}>
+            Device data restored. Admin remarks cleared.
+          </Typography>
+        </Box>
+      </Collapse>
+    </Box>
+  );
+};
 
 const formatFullName = (fullName) => {
   if (!fullName) return '';
@@ -747,226 +953,12 @@ const EmployeeProfileCard = ({
   );
 };
 
-// ─── Employee search field ─────────────────────────────────────────────────
-const EmployeeSearchField = ({
-  value,
-  onSelectEmployee,
-  onSearchQueryChange,
-  deptMap = {},
-  empCatMap = {},
-  sexMap = {},
-  disabled = false,
-}) => {
-  const [query, setQuery] = useState(value || '');
-  const [debouncedQuery, setDebouncedQuery] = useState(value || '');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-  const debounceRef = useRef(null);
-  const containerRef = useRef(null);
-  const abortRef = useRef(null);
-
-  useEffect(() => {
-    setQuery(value || '');
-    setDebouncedQuery(value || '');
-  }, [value]);
-
-  useEffect(() => {
-    const handleOutside = (event) => {
-      if (!containerRef.current?.contains(event.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    if (abortRef.current) abortRef.current.abort();
-    const q = debouncedQuery.trim();
-    if (q.length < 2) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    axios
-      .get(`${API_BASE_URL}/users/search`, {
-        params: { q },
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-      })
-      .then((res) => {
-        const list = Array.isArray(res.data) ? res.data : [];
-        setResults(list.slice(0, 20));
-      })
-      .catch((err) => {
-        if (err?.code === 'ERR_CANCELED') return;
-        setResults([]);
-      })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
-  }, [debouncedQuery, open]);
-
-  const queueSearch = (nextValue) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedQuery(nextValue);
-      setOpen(true);
-    }, 220);
-  };
-
-  const handleInputChange = (e) => {
-    const next = e.target.value;
-    onSelectEmployee?.(null, next);
-    setQuery(next);
-    onSearchQueryChange?.(next.trim());
-    queueSearch(next);
-  };
-  const handleSelect = (emp) => {
-    const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
-    onSelectEmployee?.(emp, num);
-    setQuery(num);
-    setDebouncedQuery(num);
-    setOpen(false);
-    onSearchQueryChange?.(query.trim());
-  };
-  const handleClear = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-    setQuery('');
-    setDebouncedQuery('');
-    setResults([]);
-    setOpen(false);
-    onSearchQueryChange?.('');
-    onSelectEmployee?.(null, '');
-  };
-
-  return (
-    <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
-      <TextField
-        fullWidth
-        size="small"
-        value={query}
-        onChange={handleInputChange}
-        onFocus={() => setOpen(true)}
-        placeholder="Name or employee no..."
-        disabled={disabled}
-        autoComplete="off"
-        inputProps={{ autoComplete: 'new-password', style: { fontSize: '0.76rem', padding: '5px 8px' } }}
-        sx={{
-          '& .MuiOutlinedInput-root': {
-            borderRadius: 8,
-            backgroundColor: '#fff',
-            '& fieldset': { borderColor: T.accentBorder },
-            '&:hover fieldset': { borderColor: T.accent },
-            '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
-          },
-        }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchOutlined sx={{ color: T.muted, fontSize: 14 }} />
-            </InputAdornment>
-          ),
-          endAdornment: (
-            <InputAdornment position="end">
-              {loading ? (
-                <CircularProgress size={12} sx={{ color: T.accent }} />
-              ) : query ? (
-                <IconButton size="small" onClick={handleClear} sx={{ p: 0.2 }}>
-                  <Close sx={{ fontSize: 12, color: T.faint }} />
-                </IconButton>
-              ) : null}
-            </InputAdornment>
-          ),
-        }}
-      />
-      {open && (
-        <Paper
-          elevation={6}
-          sx={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 1300,
-            mt: 0.5,
-            maxHeight: 240,
-            overflow: 'auto',
-            borderRadius: '10px',
-            border: `1px solid ${T.accentBorder}`,
-          }}
-        >
-          {loading ? (
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 1,
-                py: 2,
-              }}
-            >
-              <CircularProgress size={14} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.76rem', color: T.muted }}>
-                Searching...
-              </Typography>
-            </Box>
-          ) : results.length > 0 ? (
-            <List dense disablePadding>
-              {results.map((emp) => (
-                <ListItemButton
-                  key={emp.employeeNumber}
-                  onClick={() => handleSelect(emp)}
-                  sx={{
-                    py: 1,
-                    px: 1.5,
-                    borderBottom: `1px solid ${T.divider}`,
-                    '&:hover': { bgcolor: T.accentFaint },
-                    '&:last-child': { borderBottom: 'none' },
-                  }}
-                >
-                  <EmployeeProfileRow
-                    employee={emp}
-                    deptMap={deptMap}
-                    empCatMap={empCatMap}
-                    sexMap={sexMap}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ py: 2, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: '0.74rem', color: T.faint, fontStyle: 'italic' }}>
-                {query.trim().length >= 2
-                  ? `No user found for "${query.trim()}"`
-                  : 'Type at least 2 characters'}
-              </Typography>
-            </Box>
-          )}
-        </Paper>
-      )}
-    </Box>
-  );
-};
-
 // ─── Main Component ────────────────────────────────────────────────────────
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const renderSubmitToAttendanceNav = () => (
     <Box
@@ -974,77 +966,54 @@ const ViewAttendanceRecord = () => {
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'center',
-        gap: 0.75,
-        rowGap: 0.75,
+        gap: 0.5,
+        rowGap: 0.5,
       }}
     >
       <Typography
         component="span"
         sx={{
-          fontSize: '0.7rem',
+          fontSize: '0.62rem',
           fontWeight: 700,
           color: T.muted,
-          letterSpacing: '0.06em',
+          letterSpacing: '0.05em',
           textTransform: 'uppercase',
           whiteSpace: 'nowrap',
+          mr: 0.25,
         }}
       >
         Submit to
       </Typography>
-      <Button
-        variant="outlined"
-        size="small"
-        startIcon={<People sx={{ fontSize: 15 }} />}
-        onClick={() => goToComputationModule('/attendance_module', 'NONTEACHING')}
-        sx={{
-          textTransform: 'none',
-          fontWeight: 700,
-          fontSize: '0.7rem',
-          py: 0.35,
-          minHeight: 30,
-          borderColor: T.accentBorder,
-          color: T.accent,
-          '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
-        }}
-      >
-        Non-teaching
-      </Button>
-      <Button
-        variant="outlined"
-        size="small"
-        startIcon={<AccessTime sx={{ fontSize: 15 }} />}
-        onClick={() => goToComputationModule('/attendance_module_faculty', 'FACULTY_30')}
-        sx={{
-          textTransform: 'none',
-          fontWeight: 700,
-          fontSize: '0.7rem',
-          py: 0.35,
-          minHeight: 30,
-          borderColor: T.accentBorder,
-          color: T.accent,
-          '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
-        }}
-      >
-        Faculty 30 hrs
-      </Button>
-      <Button
-        variant="outlined"
-        size="small"
-        startIcon={<Assignment sx={{ fontSize: 15 }} />}
-        onClick={() => goToComputationModule('/attendance_module_faculty_40hrs', 'FACULTY_DESIGNATED')}
-        sx={{
-          textTransform: 'none',
-          fontWeight: 700,
-          fontSize: '0.7rem',
-          py: 0.35,
-          minHeight: 30,
-          borderColor: T.accentBorder,
-          color: T.accent,
-          '&:hover': { borderColor: T.accent, bgcolor: 'rgba(255,255,255,0.85)' },
-        }}
-      >
-        Faculty designated
-      </Button>
+      {[
+        { icon: People, label: 'Non-teaching', path: '/attendance_module', type: 'NONTEACHING' },
+        { icon: AccessTime, label: 'Faculty 30 hrs', path: '/attendance_module_faculty', type: 'FACULTY_30' },
+        { icon: Assignment, label: 'Faculty designated', path: '/attendance_module_faculty_40hrs', type: 'FACULTY_DESIGNATED' },
+      ].map(({ icon: Icon, label, path, type }) => (
+        <Button
+          key={type}
+          variant="contained"
+          size="small"
+          startIcon={<Icon sx={{ fontSize: 14 }} />}
+          onClick={() => goToComputationModule(path, type)}
+          sx={{
+            textTransform: 'none',
+            fontWeight: 700,
+            fontSize: '0.68rem',
+            py: 0.35,
+            px: 1.1,
+            minHeight: 28,
+            bgcolor: T.accent,
+            color: '#FEF9E1',
+            boxShadow: `0 2px 8px ${alpha(T.accent, 0.32)}`,
+            '&:hover': {
+              bgcolor: T.accentDark,
+              boxShadow: `0 3px 10px ${alpha(T.accent, 0.42)}`,
+            },
+          }}
+        >
+          {label}
+        </Button>
+      ))}
     </Box>
   );
 
@@ -1104,9 +1073,41 @@ const ViewAttendanceRecord = () => {
 
   const [recordsPage, setRecordsPage] = useState(1);
   const [recordsRowsPerPage, setRecordsRowsPerPage] = useState(50);
+  const [restoringKey, setRestoringKey] = useState(null);
+  const [recentlyRestoredKeys, setRecentlyRestoredKeys] = useState(() => new Set());
+  const [selectedLockedRows, setSelectedLockedRows] = useState(() => new Set());
+  const [bulkRestoring, setBulkRestoring] = useState(false);
 
   const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
+
+  // Returning to Device via workflow Back — clear filters; admin must search again.
+  useLayoutEffect(() => {
+    if (location.state?.workflowNavDirection !== 'back') return;
+    setPersonID('');
+    setSelectedEmployee(null);
+    setPersonName('');
+    setStartDate('');
+    setEndDate('');
+    setRecords([]);
+    setHasSearchedSingle(false);
+    setSelectedMonth(null);
+    setError('');
+  }, [location.key, location.state?.workflowNavDirection]);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('device', {
+    employeeNumber: personID,
+    fullName: personName,
+    startDate,
+    endDate,
+  });
+
+  useAttendanceCompactPage();
 
   const { hasAccess, loading: accessLoading } =
     usePageAccess('view-attendance');
@@ -1114,10 +1115,7 @@ const ViewAttendanceRecord = () => {
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  const monthsShort = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
+  const monthsShort = MONTHS_SHORT;
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -1387,6 +1385,118 @@ const ViewAttendanceRecord = () => {
     }
   };
 
+  const handleForceSync = async (syncPersonID, syncDate) => {
+    const key = makeRecordKey(syncPersonID, syncDate);
+    setRestoringKey(key);
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/force-sync-from-device`,
+        { personID: syncPersonID, date: syncDate },
+        getAuthHeaders(),
+      );
+      await fetchRecords(false);
+      setSelectedLockedRows((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      if (res.data?.restoredFromManual) {
+        setRecentlyRestoredKeys((prev) => new Set([...prev, key]));
+        setTimeout(() => {
+          setRecentlyRestoredKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+        }, 12000);
+      }
+      showSnackbar(
+        res.data?.message || 'Row restored from device data',
+        'success',
+      );
+    } catch (err) {
+      console.error('Force sync from device failed:', err);
+      showSnackbar(
+        err.response?.data?.error || 'Failed to restore from device',
+        'error',
+      );
+    } finally {
+      setRestoringKey(null);
+    }
+  };
+
+  const markRecentlyRestored = (keys) => {
+    if (!keys?.length) return;
+    setRecentlyRestoredKeys((prev) => new Set([...prev, ...keys]));
+    setTimeout(() => {
+      setRecentlyRestoredKeys((prev) => {
+        const next = new Set(prev);
+        keys.forEach((k) => next.delete(k));
+        return next;
+      });
+    }, 12000);
+  };
+
+  const handleBulkForceSync = async () => {
+    if (selectedLockedRows.size === 0) return;
+    setBulkRestoring(true);
+    try {
+      const rows = [...selectedLockedRows].map((key) => parseRecordKey(key));
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/bulk-force-sync-from-device`,
+        { rows },
+        getAuthHeaders(),
+      );
+      const { restored = 0, failed = 0, restoredRows = [], message } = res.data || {};
+      await fetchRecords(false);
+      setSelectedLockedRows(new Set());
+      const restoredKeys = restoredRows.map((r) =>
+        makeRecordKey(r.personID, r.date),
+      );
+      markRecentlyRestored(
+        restoredKeys.filter((_, i) => restoredRows[i]?.restoredFromManual),
+      );
+      if (failed > 0 && restored === 0) {
+        const errHint = res.data?.errors?.[0]?.error || 'Some rows could not be restored';
+        showSnackbar(errHint, 'error');
+      } else {
+        showSnackbar(
+          message || `Restored ${restored} row(s)${failed ? `, ${failed} failed` : ''}`,
+          failed > 0 ? 'warning' : 'success',
+        );
+      }
+    } catch (err) {
+      console.error('Bulk force sync failed:', err);
+      showSnackbar(
+        err.response?.data?.error || 'Bulk restore failed',
+        'error',
+      );
+    } finally {
+      setBulkRestoring(false);
+    }
+  };
+
+  const toggleLockedRowSelection = (key, checked) => {
+    setSelectedLockedRows((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const handleSelectAllLockedInPeriod = () => {
+    setSelectedLockedRows(
+      new Set(
+        records
+          .filter((r) => isManuallyLocked(r))
+          .map((r) => makeRecordKey(r.PersonID, r.Date)),
+      ),
+    );
+  };
+
+  const handleClearLockedSelection = () => setSelectedLockedRows(new Set());
+
   const fetchAllUsersDTR = async () => {
     if (!startDate || !endDate) {
       showSnackbar('Please select a month first', 'warning');
@@ -1538,13 +1648,11 @@ const ViewAttendanceRecord = () => {
       );
       if (res.data.success) {
         showSnackbar(res.data.message, 'success');
-        navigate('/daily_time_record_faculty', {
-          state: {
-            employeeNumber: personID,
-            fullName: personName,
-            startDate,
-            endDate,
-          },
+        navigateAttendanceWorkflow(navigate, 'dtr', {
+          employeeNumber: personID,
+          fullName: personName,
+          startDate,
+          endDate,
         });
       }
     } catch (err) {
@@ -1553,6 +1661,19 @@ const ViewAttendanceRecord = () => {
         'error',
       );
     }
+  };
+
+  const handleGoToState = () => {
+    if (!personID || !startDate || !endDate) {
+      showSnackbar('Please fill in all fields first', 'warning');
+      return;
+    }
+    navigateAttendanceWorkflow(navigate, 'state', {
+      employeeNumber: personID,
+      fullName: personName,
+      startDate,
+      endDate,
+    });
   };
 
   const handleBulkSendToDTR = async () => {
@@ -1651,15 +1772,30 @@ const goToComputationModule = async (path, selectedComputationType) => {
         selectedComputationType,
         ...buildDeviceAuditPayload(auditButtonLabel),
       }, getAuthHeaders());
-      navigate(path, {
-        state: {
-          fromDevice: true,
+      const moduleByPath = {
+        '/attendance_module': 'non_teaching',
+        '/attendance_module_faculty': 'faculty_30',
+        '/attendance_module_faculty_40hrs': 'faculty_designated',
+      };
+      const targetModuleId = moduleByPath[path];
+      if (targetModuleId) {
+        navigateAttendanceWorkflow(navigate, targetModuleId, {
           employeeNumber: personID,
           fullName: personName,
           startDate,
           endDate,
-        },
-      });
+        });
+      } else {
+        navigate(path, {
+          state: {
+            fromDevice: true,
+            employeeNumber: personID,
+            fullName: personName,
+            startDate,
+            endDate,
+          },
+        });
+      }
     } catch (err) {
       console.error('Error saving computation view state:', err);
       showSnackbar('Failed to save computation selection', 'error');
@@ -1750,16 +1886,26 @@ const goToComputationModule = async (path, selectedComputationType) => {
     }
   };
 
-  const uncategorizedRowCount = useMemo(
+  const missingTimeInCount = useMemo(
     () =>
       records.filter((r) => {
-        const t1 = !!r.Time1;
-        const t2 = !!r.Time2;
-        const t3 = !!r.Time3;
-        const t4 = !!r.Time4;
-        const hasAnyTime = t1 || t2 || t3 || t4;
-        return hasAnyTime && (!t1 || !t4);
+        const hasAnyTime = r.Time1 || r.Time2 || r.Time3 || r.Time4;
+        return hasAnyTime && !r.Time1;
       }).length,
+    [records],
+  );
+
+  const missingTimeOutCount = useMemo(
+    () =>
+      records.filter((r) => {
+        const hasAnyTime = r.Time1 || r.Time2 || r.Time3 || r.Time4;
+        return hasAnyTime && !r.Time4;
+      }).length,
+    [records],
+  );
+
+  const lockedRowCount = useMemo(
+    () => records.filter((r) => isManuallyLocked(r)).length,
     [records],
   );
 
@@ -1772,6 +1918,46 @@ const goToComputationModule = async (path, selectedComputationType) => {
     const s = (recordsPage - 1) * recordsRowsPerPage;
     return records.slice(s, s + recordsRowsPerPage);
   }, [records, recordsPage, recordsRowsPerPage]);
+
+  const lockedRowsOnPage = useMemo(
+    () => paginatedRecords.filter((r) => isManuallyLocked(r)),
+    [paginatedRecords],
+  );
+
+  const selectedLockedOnPageCount = useMemo(() => {
+    let c = 0;
+    for (const r of lockedRowsOnPage) {
+      if (selectedLockedRows.has(makeRecordKey(r.PersonID, r.Date))) c++;
+    }
+    return c;
+  }, [lockedRowsOnPage, selectedLockedRows]);
+
+  const handleSelectAllLockedOnPage = (checked) => {
+    setSelectedLockedRows((prev) => {
+      const next = new Set(prev);
+      for (const record of lockedRowsOnPage) {
+        const key = makeRecordKey(record.PersonID, record.Date);
+        if (checked) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setSelectedLockedRows((prev) => {
+      const validKeys = new Set(
+        records
+          .filter((r) => isManuallyLocked(r))
+          .map((r) => makeRecordKey(r.PersonID, r.Date)),
+      );
+      const next = new Set();
+      for (const key of prev) {
+        if (validKeys.has(key)) next.add(key);
+      }
+      return next;
+    });
+  }, [records]);
 
   useEffect(() => {
     setRecordsPage(1);
@@ -1889,132 +2075,60 @@ const goToComputationModule = async (path, selectedComputationType) => {
         })}
       </Box>
 
-      {/* Year + Quick Dates inline */}
-      <Box sx={{ display: 'flex', gap: '6px', mb: 1 }}>
-        <Box sx={{ flex: 1 }}>
-          <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-          <select
-            value={selectedYear}
-            onChange={(e) => {
-              setSelectedYear(parseInt(e.target.value));
-              setSelectedMonth(null);
-              setHasSearchedSingle(false);
-              setRecords([]);
-              if (viewMode === 'single') setPersonName('');
-              showSnackbar('Year changed — select a month to load records.', 'info');
-            }}
-            style={{
-              width: '100%',
-              padding: '5px 8px',
-              borderRadius: '6px',
-              border: `1px solid ${T.accentBorder}`,
-              fontSize: '0.74rem',
-              outline: 'none',
-              fontFamily: 'inherit',
-              background: '#fff',
-              color: T.text,
-              cursor: 'pointer',
-            }}
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <FormSectionLabel icon={AccessTime}>Quick</FormSectionLabel>
-          <FormControl size="small" fullWidth>
-            <Select
-              value=""
-              displayEmpty
-              onChange={(e) => handleQuickDateSelect(e.target.value)}
-              sx={{
-                ...compactSelectSx,
-                '& .MuiSelect-select': { py: '5px !important', fontSize: '0.72rem' },
-              }}
-              renderValue={() => 'Quick Dates'}
-            >
-              <MenuItem value="today" sx={{ fontSize: '0.76rem' }}>Today</MenuItem>
-              <MenuItem value="yesterday" sx={{ fontSize: '0.76rem' }}>Yesterday</MenuItem>
-              <MenuItem value="last7" sx={{ fontSize: '0.76rem' }}>Last 7 Days</MenuItem>
-              <MenuItem value="last15" sx={{ fontSize: '0.76rem' }}>Last 15 Days</MenuItem>
-              <MenuItem value="last30" sx={{ fontSize: '0.76rem' }}>Last 30 Days</MenuItem>
-            </Select>
-          </FormControl>
-        </Box>
-      </Box>
-
-      {/* Month label row */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.6 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <CalendarToday sx={{ fontSize: 10, color: alpha(T.accent, 0.45) }} />
-          <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>
-            Month
-          </Typography>
-        </Box>
-        {selectedMonth !== null && (
-          <Box
-            onClick={() => {
-              setSelectedMonth(null);
-              setStartDate('');
-              setEndDate('');
-              setRecords([]);
-              if (viewMode === 'single') setPersonName('');
-              setAllUsersDTR([]);
-              setHasSearchedSingle(false);
-            }}
-            sx={{ fontSize: '0.62rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}
-          >
-            Clear
-          </Box>
-        )}
-      </Box>
-
-      {/* Month grid — compact */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          gap: '4px',
-          mb: 1.25,
-        }}
-      >
-        {monthsShort.map((m, idx) => {
-          const isSelected = selectedMonth === idx;
-          return (
-            <Box
-              key={m}
-              onClick={() => handleMonthClick(idx)}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 28,
-                px: 0.5,
-                py: 0.4,
-                borderRadius: '5px',
-                cursor: 'pointer',
-                border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
-                bgcolor: isSelected ? T.accent : 'transparent',
-                transition: 'all 0.14s ease',
-                '&:hover': isSelected ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accent}` },
-              }}
-            >
-              <Typography
-                sx={{
-                  fontSize: '0.74rem',
-                  fontWeight: isSelected ? 700 : 600,
-                  color: isSelected ? '#fff' : T.text,
-                  lineHeight: 1,
-                  letterSpacing: '0.02em',
-                }}
-              >
-                {m}
-              </Typography>
+      {viewMode === 'single' && (
+        <Box sx={{ mb: 0.75 }}>
+          <AttendanceEmployeeSearchSection selected={Boolean(displayEmployee)}>
+            <AttendanceEmployeeSearchField
+              searchApi="users"
+              value={personID}
+              selectedEmployee={selectedEmployee}
+              onSearchQueryChange={setEmployeeSearchQuery}
+              onSelectEmployee={handleEmployeeSelect}
+              onClear={() => handleEmployeeSelect(null, '')}
+              deptMap={departmentAssignmentsMap}
+              empCatMap={empCatMap}
+              sexMap={sexMap}
+            />
+          </AttendanceEmployeeSearchSection>
+          {displayEmployee && (
+            <Box sx={{ mb: 0.75 }}>
+              <EmployeeProfileCard
+                employee={displayEmployee}
+                deptMap={departmentAssignmentsMap}
+                empCatMap={empCatMap}
+                sexMap={sexMap}
+                loading={loading}
+              />
             </Box>
-          );
-        })}
-      </Box>
+          )}
+        </Box>
+      )}
+
+      <AttendanceFilterDateControls
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value));
+          setSelectedMonth(null);
+          setHasSearchedSingle(false);
+          setRecords([]);
+          if (viewMode === 'single') setPersonName('');
+          showSnackbar('Year changed — select a month to load records.', 'info');
+        }}
+        yearOptions={yearOptions}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+        onMonthClear={() => {
+          setSelectedMonth(null);
+          setStartDate('');
+          setEndDate('');
+          setRecords([]);
+          if (viewMode === 'single') setPersonName('');
+          setAllUsersDTR([]);
+          setHasSearchedSingle(false);
+        }}
+        onQuickDate={handleQuickDateSelect}
+        months={monthsShort}
+      />
 
       {/* ── Multiple mode extras ── */}
       {viewMode === 'multiple' && (
@@ -2087,28 +2201,6 @@ const goToComputationModule = async (path, selectedComputationType) => {
       {/* ── Single mode extras ── */}
       {viewMode === 'single' && (
         <Box>
-          <FormSectionLabel icon={SearchOutlined}>Employee</FormSectionLabel>
-          <Box sx={{ mb: 0.75 }}>
-            <EmployeeSearchField
-              value={personID}
-              deptMap={departmentAssignmentsMap}
-              empCatMap={empCatMap}
-              sexMap={sexMap}
-              onSearchQueryChange={setEmployeeSearchQuery}
-              onSelectEmployee={handleEmployeeSelect}
-            />
-          </Box>
-          {displayEmployee && (
-            <Box sx={{ mb: 0.75 }}>
-              <EmployeeProfileCard
-                employee={displayEmployee}
-                deptMap={departmentAssignmentsMap}
-                empCatMap={empCatMap}
-                sexMap={sexMap}
-                loading={loading}
-              />
-            </Box>
-          )}
           <Button
             variant="contained"
             fullWidth
@@ -2178,19 +2270,7 @@ const goToComputationModule = async (path, selectedComputationType) => {
           </Alert>
         </Snackbar>
 
-        <Box
-          sx={{
-            py: { xs: 1, md: 2 },
-            mt: { xs: 0, md: -2 },
-            mb: { xs: 1, md: 2 },
-            width: '100vw',
-            maxWidth: '100%',
-            position: 'relative',
-            left: '63%',
-            transform: 'translateX(-61%)',
-            px: { xs: 2, sm: 3, md: 6 },
-          }}
-        >
+        <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
           {/* ── Page Header ── */}
           <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
             <Box
@@ -2219,6 +2299,13 @@ const goToComputationModule = async (path, selectedComputationType) => {
                 </Box>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <AttendanceWorkflowNav
+                  inline
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  onPrevious={goPrevious}
+                  onNext={goNext}
+                />
                 <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                   <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <CheckCircle sx={{ fontSize: 12 }} /> Auto-Save Enabled
@@ -2263,7 +2350,7 @@ const goToComputationModule = async (path, selectedComputationType) => {
             <Grid item xs={12} lg={3}>
               <SectionCard
                 sx={{
-                  height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
+                  ...attendanceMainPanelHeightSx,
                   display: 'flex',
                   flexDirection: 'column',
                   overflow: 'hidden',
@@ -2294,7 +2381,7 @@ const goToComputationModule = async (path, selectedComputationType) => {
             <Grid item xs={12} lg={9}>
               <SectionCard
                 sx={{
-                  height: { xs: 'auto', lg: 'calc(100vh - 280px)' },
+                  ...attendanceMainPanelHeightSx,
                   display: 'flex',
                   flexDirection: 'column',
                   position: 'relative',
@@ -2319,45 +2406,66 @@ const goToComputationModule = async (path, selectedComputationType) => {
                           <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
                             Attendance Records
                           </Typography>
-                          {displayEmployee && (hasSearchedSingle || loading) && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0, maxWidth: 520 }}>
-                              <EmployeeProfileCard
-                                employee={displayEmployee}
-                                deptMap={departmentAssignmentsMap}
-                                empCatMap={empCatMap}
-                                sexMap={sexMap}
-                                loading={loading}
-                              />
-                              {selectedMonth !== null && (
-                                <Box
-                                  sx={{
-                                    fontSize: '0.65rem',
-                                    fontWeight: 700,
-                                    color: T.accent,
-                                    bgcolor: alpha(T.accent, 0.08),
-                                    border: `1px solid ${T.accentBorder}`,
-                                    borderRadius: '5px',
-                                    px: '6px',
-                                    py: '2px',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {monthsShort[selectedMonth]}
-                                </Box>
-                              )}
-                            </Box>
-                          )}
                         </Box>
                         {records.length > 0 && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {uncategorizedRowCount > 0 && (
+                            {missingTimeInCount > 0 && (
                               <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
                                 <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
-                                  {uncategorizedRowCount} Uncategorized
+                                  {missingTimeInCount} {NO_TIME_IN_LABEL}
                                 </Typography>
                               </Box>
                             )}
+                            {missingTimeOutCount > 0 && (
+                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
+                                <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
+                                  {missingTimeOutCount} {NO_TIME_OUT_LABEL}
+                                </Typography>
+                              </Box>
+                            )}
+                            {lockedRowCount > 0 && (
+                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(33,150,243,0.10)', border: '1px solid rgba(33,150,243,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Lock sx={{ fontSize: 11, color: '#1976d2' }} />
+                                <Typography sx={{ fontSize: '0.72rem', color: '#1976d2', fontWeight: 700 }}>
+                                  {lockedRowCount} Admin Modified
+                                </Typography>
+                              </Box>
+                            )}
+                            {selectedLockedRows.size > 0 && (
+                              <AccentButton
+                                variant="contained"
+                                size="small"
+                                startIcon={
+                                  bulkRestoring ? (
+                                    <CircularProgress size={13} sx={{ color: '#fff' }} />
+                                  ) : (
+                                    <Sync sx={{ fontSize: '13px !important' }} />
+                                  )
+                                }
+                                disabled={bulkRestoring || restoringKey !== null}
+                                onClick={handleBulkForceSync}
+                                sx={{
+                                  fontSize: '0.78rem',
+                                  bgcolor: '#1976d2',
+                                  color: '#fff',
+                                  boxShadow: '0 2px 8px rgba(25,118,210,0.3)',
+                                  '&:hover': { bgcolor: '#1565c0' },
+                                }}
+                              >
+                                Restore Selected ({selectedLockedRows.size})
+                              </AccentButton>
+                            )}
+                            <AccentButton
+                              variant="contained"
+                              size="small"
+                              startIcon={<Assignment sx={{ fontSize: '13px !important' }} />}
+                              onClick={handleGoToState}
+                              sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`, '&:hover': { bgcolor: T.accentDark } }}
+                            >
+                              Go to Attendance State
+                            </AccentButton>
                             <AccentButton
                               variant="contained"
                               size="small"
@@ -2407,7 +2515,7 @@ const goToComputationModule = async (path, selectedComputationType) => {
                             <Box
                               sx={{
                                 display: 'grid',
-                                gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                                gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
                                 px: 2.5,
                                 py: 1.25,
                                 bgcolor: T.accent,
@@ -2415,9 +2523,31 @@ const goToComputationModule = async (path, selectedComputationType) => {
                                 position: 'sticky',
                                 top: 0,
                                 zIndex: 2,
-                                minWidth: 900,
+                                minWidth: lockedRowCount > 0 ? 932 : 900,
+                                alignItems: 'center',
                               }}
                             >
+                              {lockedRowCount > 0 && (
+                                <Checkbox
+                                  size="small"
+                                  checked={
+                                    lockedRowsOnPage.length > 0 &&
+                                    selectedLockedOnPageCount === lockedRowsOnPage.length
+                                  }
+                                  indeterminate={
+                                    selectedLockedOnPageCount > 0 &&
+                                    selectedLockedOnPageCount < lockedRowsOnPage.length
+                                  }
+                                  disabled={lockedRowsOnPage.length === 0}
+                                  onChange={(e) => handleSelectAllLockedOnPage(e.target.checked)}
+                                  sx={{
+                                    color: 'rgba(255,255,255,0.7)',
+                                    p: 0,
+                                    '&.Mui-checked': { color: '#fff' },
+                                    '&.MuiCheckbox-indeterminate': { color: '#fff' },
+                                  }}
+                                />
+                              )}
                               {['EMP ID', 'DATE', 'DAY', 'TIME IN', 'BREAK IN', 'BREAK OUT', 'TIME OUT', 'SPECIAL TYPE', 'SP. IN', 'SP. OUT'].map((h) => (
                                 <Typography key={h} sx={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.07em' }}>
                                   {h}
@@ -2441,6 +2571,51 @@ const goToComputationModule = async (path, selectedComputationType) => {
                                   ? `Showing ${(recordsPage - 1) * recordsRowsPerPage + 1}–${Math.min(records.length, recordsPage * recordsRowsPerPage)} of ${records.length}`
                                   : `${records.length} row${records.length === 1 ? '' : 's'}`}
                               </Typography>
+                              {lockedRowCount > 0 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                  <Typography
+                                    component="button"
+                                    type="button"
+                                    onClick={handleSelectAllLockedInPeriod}
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      color: '#1976d2',
+                                      bgcolor: 'transparent',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      p: 0,
+                                      fontFamily: 'inherit',
+                                      '&:hover': { textDecoration: 'underline' },
+                                    }}
+                                  >
+                                    Select all {lockedRowCount} locked
+                                  </Typography>
+                                  {selectedLockedRows.size > 0 && (
+                                    <>
+                                      <Typography sx={{ fontSize: '0.68rem', color: T.faint }}>·</Typography>
+                                      <Typography
+                                        component="button"
+                                        type="button"
+                                        onClick={handleClearLockedSelection}
+                                        sx={{
+                                          fontSize: '0.68rem',
+                                          fontWeight: 600,
+                                          color: T.muted,
+                                          bgcolor: 'transparent',
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          p: 0,
+                                          fontFamily: 'inherit',
+                                          '&:hover': { textDecoration: 'underline' },
+                                        }}
+                                      >
+                                        Clear ({selectedLockedRows.size})
+                                      </Typography>
+                                    </>
+                                  )}
+                                </Box>
+                              )}
                               <FormControl size="small" sx={{ minWidth: 92 }}>
                                 <Select
                                   value={recordsRowsPerPage}
@@ -2484,6 +2659,10 @@ const goToComputationModule = async (path, selectedComputationType) => {
                                 const timeInUncategorized = hasAnyTime && !hasTimeIn;
                                 const timeOutUncategorized = hasAnyTime && !hasTimeOut;
                                 const hasAnyUncategorized = timeInUncategorized || timeOutUncategorized;
+                                const isLocked = isManuallyLocked(record);
+                                const rowRestoreKey = makeRecordKey(record.PersonID, record.Date);
+                                const wasRecentlyRestored = recentlyRestoredKeys.has(rowRestoreKey);
+                                const isRowSelected = selectedLockedRows.has(rowRestoreKey);
 
                                 let specialTypeBadge = null;
                                 if (record.Time5 || record.Time6) {
@@ -2500,34 +2679,105 @@ const goToComputationModule = async (path, selectedComputationType) => {
                                   );
                                 }
 
+                                const rowBg = isLocked
+                                  ? 'rgba(33, 150, 243, 0.06)'
+                                  : wasRecentlyRestored
+                                    ? 'rgba(76, 175, 80, 0.06)'
+                                    : hasAnyUncategorized
+                                      ? 'rgba(244,67,54,0.03)'
+                                      : globalIndex % 2 === 0
+                                        ? '#fff'
+                                        : T.rowOdd;
+                                const rowHoverBg = isLocked
+                                  ? 'rgba(33, 150, 243, 0.10)'
+                                  : wasRecentlyRestored
+                                    ? 'rgba(76, 175, 80, 0.10)'
+                                    : hasAnyUncategorized
+                                      ? 'rgba(244,67,54,0.07)'
+                                      : T.rowHover;
+
                                 return (
                                   <Box
                                     key={`${record.PersonID}-${record.Date}-${globalIndex}`}
                                     sx={{
                                       display: 'grid',
-                                      gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                                      gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
                                       px: 2.5,
                                       py: 1.5,
                                       gap: 1,
                                       alignItems: 'center',
-                                      minWidth: 900,
-                                      bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.03)' : globalIndex % 2 === 0 ? '#fff' : T.rowOdd,
-                                      borderBottom: hasAnyUncategorized ? '1px solid rgba(244,67,54,0.12)' : `1px solid ${T.divider}`,
+                                      minWidth: lockedRowCount > 0 ? 932 : 900,
+                                      bgcolor: rowBg,
+                                      borderBottom: isLocked
+                                        ? '1px solid rgba(33,150,243,0.18)'
+                                        : wasRecentlyRestored
+                                          ? '1px solid rgba(76,175,80,0.22)'
+                                          : hasAnyUncategorized
+                                            ? '1px solid rgba(244,67,54,0.12)'
+                                            : `1px solid ${T.divider}`,
                                       transition: 'background 0.12s',
-                                      '&:hover': { bgcolor: hasAnyUncategorized ? 'rgba(244,67,54,0.07)' : T.rowHover },
+                                      '&:hover': { bgcolor: rowHoverBg },
                                       '&:last-child': { borderBottom: 'none' },
                                     }}
                                   >
+                                    {lockedRowCount > 0 && (
+                                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {isLocked ? (
+                                          <Checkbox
+                                            size="small"
+                                            checked={isRowSelected}
+                                            disabled={bulkRestoring}
+                                            onChange={(e) =>
+                                              toggleLockedRowSelection(rowRestoreKey, e.target.checked)
+                                            }
+                                            sx={{
+                                              p: 0,
+                                              color: '#1976d2',
+                                              '&.Mui-checked': { color: '#1976d2' },
+                                            }}
+                                          />
+                                        ) : null}
+                                      </Box>
+                                    )}
                                     <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{record.PersonID}</Typography>
-                                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+                                    <Box>
+                                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+                                      {isLocked && (
+                                        <LockStatusChip
+                                          modifiedBy={record.modified_by}
+                                          modifiedByName={record.modified_by_name}
+                                          modifiedAt={record.modified_at}
+                                        />
+                                      )}
+                                      {!isLocked && wasRecentlyRestored && <RestoredStatusChip />}
+                                    </Box>
                                     <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{getDayOfWeek(record.Date)}</Typography>
-                                    <TimeCell time={record.Time1} isUncategorized={timeInUncategorized} />
+                                    <TimeCell time={record.Time1} isUncategorized={timeInUncategorized} missingLabel={NO_TIME_IN_LABEL} />
                                     <TimeCell time={record.Time3} isUncategorized={false} />
                                     <TimeCell time={record.Time2} isUncategorized={false} />
-                                    <TimeCell time={record.Time4} isUncategorized={timeOutUncategorized} />
+                                    <TimeCell time={record.Time4} isUncategorized={timeOutUncategorized} missingLabel={NO_TIME_OUT_LABEL} />
                                     <Box>{specialTypeBadge || <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>—</Typography>}</Box>
                                     <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time5 ? formatTime(record.Time5) : '—'}</Typography>
-                                    <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.35 }}>
+                                      <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
+                                      {isLocked && (
+                                        <Tooltip title="Restore raw device data for this day" placement="left" arrow>
+                                          <span>
+                                            <RowBtn
+                                              icon={<Sync sx={{ fontSize: 11 }} />}
+                                              label="Restore"
+                                              color="#1976d2"
+                                              hoverBg="rgba(33,150,243,0.08)"
+                                              disabled={
+                                                bulkRestoring ||
+                                                restoringKey === rowRestoreKey
+                                              }
+                                              onClick={() => handleForceSync(record.PersonID, record.Date)}
+                                            />
+                                          </span>
+                                        </Tooltip>
+                                      )}
+                                    </Box>
                                   </Box>
                                 );
                               })}
@@ -2541,16 +2791,16 @@ const goToComputationModule = async (path, selectedComputationType) => {
                     {records.length > 0 && (
                       <Box
                         sx={{
-                          px: 3,
-                          py: 1.25,
+                          px: 2,
+                          py: 0.65,
                           borderTop: `1px solid ${T.divider}`,
                           bgcolor: T.accentFaint,
                           display: 'flex',
                           flexWrap: 'wrap',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          columnGap: 2.5,
-                          rowGap: 1.25,
+                          columnGap: 1.5,
+                          rowGap: 0.65,
                           flexShrink: 0,
                         }}
                       >
@@ -2558,7 +2808,7 @@ const goToComputationModule = async (path, selectedComputationType) => {
                           sx={{
                             display: 'flex',
                             flexWrap: 'wrap',
-                            gap: 2.5,
+                            gap: 1.25,
                             alignItems: 'center',
                             minWidth: 0,
                             flex: '1 1 auto',
@@ -2566,43 +2816,68 @@ const goToComputationModule = async (path, selectedComputationType) => {
                         >
                           {[
                             {
-                              icon: (
-                                <CheckCircle
-                                  sx={{ fontSize: 13, color: '#4caf50' }}
-                                />
-                              ),
-                              label: 'Auto-saved from biometric device',
+                              icon: CheckCircle,
+                              color: '#4caf50',
+                              label: 'Auto-saved',
+                              show: true,
                             },
                             {
-                              icon: (
-                                <Info sx={{ fontSize: 13, color: T.accent }} />
-                              ),
-                              label: 'Times in 12-hour format',
+                              icon: Info,
+                              color: T.accent,
+                              label: '12h format',
+                              show: true,
                             },
                             {
-                              icon: (
-                                <Cancel sx={{ fontSize: 13, color: '#f44336' }} />
-                              ),
-                              label:
-                                'Uncategorized — scanned but no button pressed',
+                              icon: Cancel,
+                              color: '#f44336',
+                              label: NO_TIME_IN_LABEL,
+                              show: true,
                             },
-                          ].map((item, i) => (
-                            <Box
-                              key={i}
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 0.6,
-                              }}
-                            >
-                              {item.icon}
-                              <Typography
-                                sx={{ fontSize: '0.7rem', color: T.faint }}
-                              >
-                                {item.label}
-                              </Typography>
-                            </Box>
-                          ))}
+                            {
+                              icon: Cancel,
+                              color: '#f44336',
+                              label: NO_TIME_OUT_LABEL,
+                              show: true,
+                            },
+                            {
+                              icon: Lock,
+                              color: '#1976d2',
+                              label: 'Locked',
+                              show: lockedRowCount > 0,
+                            },
+                            {
+                              icon: Restore,
+                              color: '#2e7d32',
+                              label: 'Restored',
+                              show: true,
+                            },
+                          ]
+                            .filter((item) => item.show)
+                            .map((item, i) => {
+                              const Icon = item.icon;
+                              return (
+                                <Box
+                                  key={i}
+                                  sx={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 0.35,
+                                  }}
+                                >
+                                  <Icon sx={{ fontSize: 11, color: item.color }} />
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.62rem',
+                                      color: T.faint,
+                                      lineHeight: 1,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {item.label}
+                                  </Typography>
+                                </Box>
+                              );
+                            })}
                         </Box>
                         <Box
                           sx={{
@@ -2772,7 +3047,12 @@ const goToComputationModule = async (path, selectedComputationType) => {
                                         color="#2e7d32"
                                         hoverBg="rgba(46,125,50,0.08)"
                                         disabled={!user.hasRecords}
-                                        onClick={() => navigate('/daily_time_record_faculty', { state: { employeeNumber: user.employeeNumber, fullName: user.fullName, startDate, endDate } })}
+                                        onClick={() => navigateAttendanceWorkflow(navigate, 'dtr', {
+                                          employeeNumber: user.employeeNumber,
+                                          fullName: user.fullName,
+                                          startDate,
+                                          endDate,
+                                        })}
                                       />
                                     </TableCell>
                                   </TableRow>
@@ -2887,233 +3167,282 @@ const goToComputationModule = async (path, selectedComputationType) => {
         </Zoom>
 
         {/* ── Unified overlays ── */}
-{/* Computation type mismatch dialog */}
-<Dialog
-  open={computationChangeDialog.open}
-  onClose={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
-  aria-labelledby="computation-type-mismatch-title"
-  PaperProps={{ sx: { borderRadius: 2, maxWidth: 440, width: '100%', overflow: 'hidden' } }}
->
-  {/* Header */}
-  <Box
-    sx={{
-      px: 2.5,
-      py: 1.75,
-      borderBottom: '0.5px solid #e5e7eb',
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: 1.5,
-    }}
-  >
-    <Box
-      sx={{
-        width: 36,
-        height: 36,
-        borderRadius: '50%',
-        bgcolor: '#fef3c7',
-        border: '0.5px solid #d97706',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        mt: '2px',
-      }}
-    >
-      <WarningAmberRoundedIcon sx={{ fontSize: 18, color: '#d97706' }} />
-    </Box>
-    <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Typography id="computation-type-mismatch-title" sx={{ fontSize: '15px', fontWeight: 500, lineHeight: 1.3, color: '#111827' }}>
-        Computation type mismatch
-      </Typography>
-      <Typography sx={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.4, mt: '4px' }}>
-        A different type was previously saved for this employee and period.
-      </Typography>
-    </Box>
-    <IconButton
-      size="small"
-      onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
-      aria-label="Close"
-      sx={{ color: '#9ca3af', p: '4px' }}
-    >
-      <Close sx={{ fontSize: 16 }} />
-    </IconButton>
-  </Box>
-
-  {/* Body */}
-  <DialogContent sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
-    {/* Warning banner */}
-    <Box
-      sx={{
-        px: 2,
-        py: 1.25,
-        borderRadius: 1.5,
-        bgcolor: '#fef9ec',
-        border: '0.5px solid #f0c060',
-        mb: 2,
-      }}
-    >
-      <Typography sx={{ fontSize: '13px', color: '#92400e', lineHeight: 1.55 }}>
-        Records for{' '}
-        <strong style={{ color: '#92400e' }}>
-          {computationChangeDialog.employeeName || 'this employee'}
-        </strong>{' '}
-        in this period were first saved as{' '}
-        <Box
-          component="span"
-          sx={{
-            display: 'inline-block',
-            px: '7px',
-            py: '1px',
-            borderRadius: 1,
-            bgcolor: 'rgba(0,0,0,0.08)',
-            fontWeight: 500,
-            fontSize: '12px',
+        {/* Computation type mismatch dialog */}
+        <Dialog
+          open={computationChangeDialog.open}
+          onClose={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+          aria-labelledby="computation-type-mismatch-title"
+          maxWidth="xs"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: '12px',
+              overflow: 'hidden',
+              border: `1.5px solid ${T.accentBorder}`,
+              boxShadow: `0 20px 60px ${alpha(T.accent, 0.22)}`,
+            },
           }}
         >
-          {computationChangeDialog.existingType || '—'}
-        </Box>
-        . Switching will overwrite that with{' '}
-        <Box
-          component="span"
-          sx={{
-            display: 'inline-block',
-            px: '7px',
-            py: '1px',
-            borderRadius: 1,
-            bgcolor: 'rgba(0,0,0,0.08)',
-            fontWeight: 500,
-            fontSize: '12px',
-          }}
-        >
-          {computationChangeDialog.newType || '—'}
-        </Box>
-        .
-      </Typography>
-    </Box>
+          {/* Header */}
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 2,
+              position: 'relative',
+              overflow: 'hidden',
+              borderBottom: `1px solid ${T.accentBorder}`,
+            }}
+          >
+            <Box
+              sx={{
+                position: 'absolute',
+                top: -40,
+                right: -40,
+                width: 140,
+                height: 140,
+                borderRadius: '50%',
+                background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`,
+                pointerEvents: 'none',
+              }}
+            />
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                bgcolor: alpha(T.accent, 0.12),
+                border: `1.5px solid ${T.accentBorder}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                zIndex: 1,
+              }}
+            >
+              <WarningAmberRoundedIcon sx={{ fontSize: 22, color: T.accent }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0, zIndex: 1 }}>
+              <Typography
+                id="computation-type-mismatch-title"
+                sx={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1.25, color: T.accent }}
+              >
+                Computation type mismatch
+              </Typography>
+              <Typography sx={{ fontSize: '0.76rem', color: T.accentMid, lineHeight: 1.45, mt: 0.4, fontWeight: 600 }}>
+                A different type was previously saved for this employee and period.
+              </Typography>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+              aria-label="Close"
+              sx={{ color: T.accentMid, p: '4px', zIndex: 1, '&:hover': { bgcolor: alpha(T.accent, 0.08) } }}
+            >
+              <Close sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Box>
 
-    {/* From → To cards */}
-    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 1.25 }}>
-      {/* Previously saved */}
-      <Box
-        sx={{
-          py: 1.5,
-          px: 1.25,
-          borderRadius: 1.5,
-          bgcolor: '#f9fafb',
-          border: '0.5px solid #e5e7eb',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 1,
-          textAlign: 'center',
-        }}
-      >
-        <Typography sx={{ fontSize: '11px', color: '#9ca3af', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          Previously saved
-        </Typography>
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: '50%',
-            bgcolor: '#fef3c7',
-            border: '0.5px solid #d97706',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <CheckCircle sx={{ fontSize: 16, color: '#d97706' }} />
-        </Box>
-        <Typography sx={{ fontSize: '13px', fontWeight: 500, color: '#6b7280', lineHeight: 1.25 }}>
-          {computationChangeDialog.existingType || '—'}
-        </Typography>
-      </Box>
+          {/* Body */}
+          <DialogContent sx={{ px: 3, pt: 2.5, pb: 2, bgcolor: '#fff' }}>
+            <Box
+              sx={{
+                px: 2,
+                py: 1.5,
+                borderRadius: '10px',
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                mb: 2.5,
+              }}
+            >
+              <Typography sx={{ fontSize: '0.8rem', color: T.text, lineHeight: 1.6 }}>
+                Records for{' '}
+                <Box component="span" sx={{ fontWeight: 800, color: T.accent }}>
+                  {computationChangeDialog.employeeName || 'this employee'}
+                </Box>{' '}
+                in this period were first saved as{' '}
+                <Chip
+                  label={computationChangeDialog.existingType || '—'}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    mx: 0.25,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    bgcolor: alpha(T.accent, 0.1),
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                  }}
+                />
+                . Switching will overwrite that with{' '}
+                <Chip
+                  label={computationChangeDialog.newType || '—'}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    mx: 0.25,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    bgcolor: T.accent,
+                    color: '#FEF9E1',
+                    border: `1px solid ${T.accentDark}`,
+                  }}
+                />
+                .
+              </Typography>
+            </Box>
 
-      {/* Arrow */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
-        <ArrowForward sx={{ fontSize: 18 }} />
-      </Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 1.5 }}>
+              {/* Previously saved */}
+              <Box
+                sx={{
+                  py: 1.75,
+                  px: 1.25,
+                  borderRadius: '10px',
+                  bgcolor: '#fafafa',
+                  border: `1px solid ${T.divider}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                  textAlign: 'center',
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.62rem',
+                    color: T.faint,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    fontWeight: 700,
+                  }}
+                >
+                  Previously saved
+                </Typography>
+                <Box
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <CheckCircle sx={{ fontSize: 18, color: T.accentMid }} />
+                </Box>
+                <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.muted, lineHeight: 1.3 }}>
+                  {computationChangeDialog.existingType || '—'}
+                </Typography>
+              </Box>
 
-      {/* Switching to */}
-      <Box
-        sx={{
-          py: 1.5,
-          px: 1.25,
-          borderRadius: 1.5,
-          bgcolor: '#eff6ff',
-          border: '2px solid #3b82f6',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 1,
-          textAlign: 'center',
-        }}
-      >
-        <Typography sx={{ fontSize: '11px', color: '#1d4ed8', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          Switching to
-        </Typography>
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: '50%',
-            bgcolor: '#fff',
-            border: '0.5px solid #3b82f6',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <AccessTime sx={{ fontSize: 16, color: '#3b82f6' }} />
-        </Box>
-        <Typography sx={{ fontSize: '13px', fontWeight: 500, color: '#1d4ed8', lineHeight: 1.25 }}>
-          {computationChangeDialog.newType || '—'}
-        </Typography>
-      </Box>
-    </Box>
-  </DialogContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.accentMid }}>
+                <ArrowForward sx={{ fontSize: 20 }} />
+              </Box>
 
-  {/* Actions */}
-  <DialogActions
-    sx={{
-      px: 2.5,
-      py: 1.5,
-      borderTop: '0.5px solid #e5e7eb',
-      gap: 1,
-    }}
-  >
-    <Button
-      onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
-      sx={{ fontSize: '13px', color: '#6b7280', height: 36 }}
-    >
-      Cancel
-    </Button>
-    <Button
-      variant="contained"
-      onClick={async () => {
-        const next = { ...computationChangeDialog };
-        setComputationChangeDialog((p) => ({ ...p, open: false }));
-        await proceedToComputationModule(
-          next.path,
-          next.rawNewType,
-          next.auditButtonLabel ||
-            COMPUTATION_BUTTON_LABELS[next.rawNewType] ||
-            next.rawNewType,
-        );
-      }}
-      sx={{
-        fontSize: '13px',
-        fontWeight: 500,
-        height: 36,
-        bgcolor: '#6d2323',
-        '&:hover': { bgcolor: '#5a1c1c' },
-      }}
-    >
-      Yes, switch &amp; continue
-    </Button>
-  </DialogActions>
-</Dialog>
+              {/* Switching to */}
+              <Box
+                sx={{
+                  py: 1.75,
+                  px: 1.25,
+                  borderRadius: '10px',
+                  bgcolor: T.accentFaint,
+                  border: `2px solid ${T.accent}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                  textAlign: 'center',
+                  boxShadow: `0 4px 14px ${alpha(T.accent, 0.12)}`,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.62rem',
+                    color: T.accent,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    fontWeight: 800,
+                  }}
+                >
+                  Switching to
+                </Typography>
+                <Box
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    bgcolor: T.accent,
+                    border: `1px solid ${T.accentDark}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <AccessTime sx={{ fontSize: 18, color: '#FEF9E1' }} />
+                </Box>
+                <Typography sx={{ fontSize: '0.78rem', fontWeight: 800, color: T.accent, lineHeight: 1.3 }}>
+                  {computationChangeDialog.newType || '—'}
+                </Typography>
+              </Box>
+            </Box>
+          </DialogContent>
+
+          {/* Actions */}
+          <DialogActions
+            sx={{
+              px: 3,
+              py: 2,
+              borderTop: `1px solid ${T.divider}`,
+              gap: 1.5,
+              bgcolor: '#fff',
+            }}
+          >
+            <Button
+              onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+              sx={{
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                color: T.muted,
+                px: 2,
+                '&:hover': { bgcolor: alpha(T.accent, 0.06), color: T.accent },
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={async () => {
+                const next = { ...computationChangeDialog };
+                setComputationChangeDialog((p) => ({ ...p, open: false }));
+                await proceedToComputationModule(
+                  next.path,
+                  next.rawNewType,
+                  next.auditButtonLabel ||
+                    COMPUTATION_BUTTON_LABELS[next.rawNewType] ||
+                    next.rawNewType,
+                );
+              }}
+              sx={{
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                px: 2.5,
+                borderRadius: '8px',
+                bgcolor: T.accent,
+                color: '#FEF9E1',
+                boxShadow: `0 4px 14px ${alpha(T.accent, 0.28)}`,
+                '&:hover': { bgcolor: T.accentDark, boxShadow: `0 6px 18px ${alpha(T.accent, 0.35)}` },
+              }}
+            >
+              Yes, switch &amp; continue
+            </Button>
+          </DialogActions>
+        </Dialog>
         <LoadingOverlay
           open={loading || loadingAllUsers}
           message={
