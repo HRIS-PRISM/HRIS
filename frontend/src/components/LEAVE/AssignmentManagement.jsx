@@ -294,7 +294,7 @@ const FloatingConversionWidget = () => {
         <Box
           onClick={() => setOpen((v) => !v)}
           sx={{
-            position: "fixed", bottom: 128, right: 32, zIndex: 9999,
+            position: "fixed", bottom: 32, right: 32, zIndex: 9999,
             width: 48, height: 48, borderRadius: "50%",
             bgcolor: open ? T.accentDark : T.accent, color: "#fff",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -311,7 +311,7 @@ const FloatingConversionWidget = () => {
       {/* Panel */}
       <Collapse in={open} timeout={200}>
         <Paper elevation={0} sx={{
-          position: "fixed", bottom: 186, right: 32, zIndex: 9998, width: 310,
+          position: "fixed", bottom: 90, right: 32, zIndex: 9998, width: 310,
           borderRadius: "12px", border: `1px solid ${T.accentBorder}`,
           boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`,
           overflow: "hidden", fontFamily: T.poppins,

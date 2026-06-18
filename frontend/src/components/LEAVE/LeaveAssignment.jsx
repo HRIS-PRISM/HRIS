@@ -6,7 +6,7 @@ import {
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
   Divider, Autocomplete, Dialog, DialogTitle, DialogContent, DialogActions,
   TablePagination, LinearProgress, Tooltip, Fade, CircularProgress,
-  ToggleButton, ToggleButtonGroup, Collapse, Paper, Tabs, Tab,
+  ToggleButton, ToggleButtonGroup, Paper, Tabs, Tab,
   Table, TableBody, TableCell, TableHead, TableRow,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
@@ -23,8 +23,6 @@ import {
   ViewModule as ViewModuleIcon, ViewList as ViewListIcon,
   Info as InfoIcon, Settings as SettingsIcon, FilterList as FilterListIcon,
   Domain as DomainIcon, Work as WorkIcon,
-  Calculate as CalculateIcon, OpenInNew as OpenInNewIcon,
-  SwapHoriz as ConvertIcon,
   East as ForwardIcon,
   TrendingUp as EarnIcon,
   Pending as PendingIcon,
@@ -44,6 +42,8 @@ import {
   getPriorPeriodCarryForwardHours,
   normalizePeriodKey,
   sortPeriodsDesc as sortPeriodsDescBalance,
+  getApprovedEarningsHoursForPeriod,
+  getPriorPeriodSnapshot,
 } from "./leaveAssignmentBalanceUtils";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
@@ -225,7 +225,74 @@ const fieldValueSx = {
   alignItems: "center", lineHeight: 1.4, fontFamily: T.poppins,
 };
 
+const assignFieldSx = {
+  "& .MuiOutlinedInput-root": {
+    borderRadius: "8px",
+    fontSize: "0.8rem",
+    bgcolor: "#fff",
+    fontFamily: T.poppins,
+    minHeight: 34,
+    "& fieldset": { borderColor: "rgba(0,0,0,0.1)" },
+    "&:hover fieldset": { borderColor: alpha(T.accent, 0.45) },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: "1.5px" },
+  },
+};
+
+const assignSelectSx = {
+  borderRadius: "8px",
+  fontSize: "0.8rem",
+  bgcolor: "#fff",
+  fontFamily: T.poppins,
+  minHeight: 34,
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: "rgba(0,0,0,0.1)" },
+  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: alpha(T.accent, 0.45) },
+  "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent, borderWidth: "1.5px" },
+};
+
+const AssignFieldLabel = ({ children, required = false, hint, compact = false }) => (
+  <Box sx={{ mb: compact ? 0.35 : 0.85 }}>
+    <Typography sx={{
+      fontSize: compact ? "0.6rem" : "0.68rem", fontWeight: 700, color: alpha(T.text, 0.5),
+      textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, lineHeight: 1.2,
+    }}>
+      {children}
+      {required && <Box component="span" sx={{ color: "#c62828", ml: 0.25 }}>*</Box>}
+    </Typography>
+    {hint && (
+      <Typography sx={{ fontSize: compact ? "0.6rem" : "0.65rem", color: T.faint, fontFamily: T.poppins, mt: compact ? 0.25 : 0.35, lineHeight: 1.35 }}>
+        {hint}
+      </Typography>
+    )}
+  </Box>
+);
+
+const AssignFormPanel = ({ children, sx = {} }) => (
+  <Box sx={{
+    p: 1.15,
+    borderRadius: "8px",
+    bgcolor: "#fff",
+    border: "1px solid rgba(0,0,0,0.08)",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+    ...sx,
+  }}>
+    {children}
+  </Box>
+);
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+const PRIORITY_LEAVE_CODES = ["SL", "VL"];
+
+const sortLeaveTypesForAssign = (list) => {
+  const rank = (code) => {
+    const i = PRIORITY_LEAVE_CODES.indexOf(String(code || "").trim().toUpperCase());
+    return i === -1 ? 999 : i;
+  };
+  return [...list].sort((a, b) => {
+    const rd = rank(a.leave_code) - rank(b.leave_code);
+    if (rd !== 0) return rd;
+    return String(a.leave_code || "").localeCompare(String(b.leave_code || ""));
+  });
+};
 const MONTHS = [
   { value: "", label: "No specific month" },
   { value: "01", label: "January" },
@@ -272,6 +339,17 @@ const periodLabel = (year, sem) => {
   return `${fallbackYear} ${sem}`;
 };
 
+const assignmentPeriodLabel = (row) => {
+  if (!row) return "";
+  return periodLabel(row.period_year, row.period_semester ?? row.period_month);
+};
+
+const toMonthSelectValue = (raw) => {
+  const n = normalizeMonth(raw);
+  if (n == null) return null;
+  return String(n).padStart(2, "0");
+};
+
 const getStatusColor = (remaining, total) => { if (!total || total === 0) return "#9e9e9e"; const pct = (remaining / total) * 100; if (pct > 50) return "#2e7d32"; if (pct > 20) return "#ed6c02"; return "#d32f2f"; };
 const hoursToDisplay = (hours, unit) => unit === "hours" ? parseFloat(hours || 0).toFixed(3) : (parseFloat(hours || 0) / 8).toFixed(3);
 const displayToHours = (val, unit) => unit === "hours" ? parseFloat(val || 0) : parseFloat((parseFloat(val || 0) * 8).toFixed(3));
@@ -285,51 +363,6 @@ const hoursToDaysInputStr = (hrs) => {
   return String(days).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 };
 const getLeaveLabel = (code, types) => { if (!code) return "—"; const f = Array.isArray(types) ? types.find((t) => t.leave_code === code) : null; const d = f?.leave_description || f?.description || f?.leave_name || ""; return d ? `${code} — ${d}` : `${code}`; };
-
-// ─── Conversion defaults ──────────────────────────────────────────────────────
-const DEFAULT_HOURS_8 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour", day_type: "8hr", rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.125).toFixed(3)),
-}));
-const DEFAULT_HOURS_6 = Array.from({ length: 8 }, (_, i) => ({
-  rate_type: "hour", day_type: "6hr", rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.167).toFixed(3)),
-}));
-const DEFAULT_MINUTES = Array.from({ length: 60 }, (_, i) => ({
-  rate_type: "minute", day_type: "minute", rate_value: i + 1,
-  decimal_equivalent: Number(((i + 1) * 0.002).toFixed(3)),
-}));
-const DEFAULT_LWP_TABLE = Array.from({ length: 30 }, (_, i) => ({
-  d: i + 1, e: Number(((i + 1) * 0.04167).toFixed(3)),
-}));
-const DEFAULT_ABS_TABLE = [
-  { a: 0.5,  e: 1.229 }, { a: 1.0,  e: 1.208 }, { a: 1.5,  e: 1.188 },
-  { a: 2.0,  e: 1.167 }, { a: 2.5,  e: 1.146 }, { a: 3.0,  e: 1.125 },
-  { a: 3.5,  e: 1.104 }, { a: 4.0,  e: 1.083 }, { a: 4.5,  e: 1.063 },
-  { a: 5.0,  e: 1.042 }, { a: 5.5,  e: 1.021 }, { a: 6.0,  e: 1.0   },
-  { a: 6.5,  e: 0.979 }, { a: 7.0,  e: 0.958 }, { a: 7.5,  e: 0.938 },
-  { a: 8.0,  e: 0.917 }, { a: 8.5,  e: 0.854 }, { a: 9.0,  e: 0.833 },
-  { a: 9.5,  e: 0.875 }, { a: 10.0, e: 0.833 }, { a: 10.5, e: 0.813 },
-  { a: 11.0, e: 0.792 }, { a: 11.5, e: 0.771 }, { a: 12.0, e: 0.75  },
-  { a: 12.5, e: 0.729 }, { a: 13.0, e: 0.708 }, { a: 13.5, e: 0.687 },
-  { a: 14.0, e: 0.667 }, { a: 14.5, e: 0.646 }, { a: 15.0, e: 0.625 },
-  { a: 15.5, e: 0.604 }, { a: 16.0, e: 0.583 }, { a: 16.5, e: 0.562 },
-  { a: 17.0, e: 0.542 }, { a: 17.5, e: 0.521 }, { a: 18.0, e: 0.5   },
-  { a: 18.5, e: 0.479 }, { a: 19.0, e: 0.458 }, { a: 19.5, e: 0.437 },
-  { a: 20.0, e: 0.417 }, { a: 20.5, e: 0.396 }, { a: 21.0, e: 0.375 },
-  { a: 21.5, e: 0.354 }, { a: 22.0, e: 0.333 }, { a: 22.5, e: 0.312 },
-  { a: 23.0, e: 0.292 }, { a: 23.5, e: 0.271 }, { a: 24.0, e: 0.25  },
-  { a: 24.5, e: 0.229 }, { a: 25.0, e: 0.208 }, { a: 25.5, e: 0.187 },
-  { a: 26.0, e: 0.167 }, { a: 26.5, e: 0.146 }, { a: 27.0, e: 0.125 },
-  { a: 27.5, e: 0.104 }, { a: 28.0, e: 0.083 }, { a: 28.5, e: 0.062 },
-  { a: 29.0, e: 0.042 }, { a: 29.5, e: 0.021 },
-];
-
-function sanitizeDecimal(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  return Number(n.toFixed(3));
-}
 
 // ─── Sort periods: latest first ───────────────────────────────────────────────
 const sortPeriodsDesc = (periods) =>
@@ -559,7 +592,7 @@ const COMMUTATION_COPY = {
 };
 
 const LEAVE_BALANCE_LABELS = {
-  pCredit:   { label: "P. Credit Balance", subtitle: "Carried from prior period" },
+  pCredit:   { label: "P. Credit Balance", subtitle: "Carried from previous period" },
   deducted:  { label: "Deducted",          subtitle: "Absences & undertime" },
   adjusted:  { label: "Post-Deduction Balance", subtitle: "P. Credit − Deducted" },
   earned:    { label: "Earned Balance",           subtitle: "Earnings Management" },
@@ -699,15 +732,15 @@ const getCommutedHours = (period) => {
 };
 
 /** P. Credit − Deducted = Post-Deduction Balance; Post-Deduction + Earned = Remaining */
-const computePeriodBalanceFlow = (period, { allPeriods, periodIndex } = {}) => {
+const computePeriodBalanceFlow = (period, { allPeriods, periodIndex, earningsList } = {}) => {
   const usedHrs     = toNum(period.used_hours);
   const allocRawHrs = toNum(period.allocated_hours);
-  const totalHrs    = toNum(period.total_hours);
   const carriedRaw  = toNum(period.carried_forward_hours);
+  const approvedEarnedHrs = getApprovedEarningsHoursForPeriod(earningsList, period);
+  const assignmentCreditHrs = Math.max(0, allocRawHrs - approvedEarnedHrs);
 
   if (isCommutedLocked(period)) {
     const commutedHrs = getCommutedHours(period);
-    const earnedHrs = allocRawHrs > 0 ? allocRawHrs : Math.max(0, totalHrs - carriedRaw);
     return {
       carriedHrs: 0,
       usedHrs,
@@ -726,8 +759,8 @@ const computePeriodBalanceFlow = (period, { allPeriods, periodIndex } = {}) => {
     isCommutedLocked(immediatePrior) &&
     carriedRaw > BALANCE_HRS_EPS;
 
-  let carriedHrs = carryInvalidated ? 0 : carriedRaw;
-  const earnedHrs = allocRawHrs > 0 ? allocRawHrs : Math.max(0, totalHrs - carriedRaw);
+  const earnedHrs = approvedEarnedHrs;
+  let carriedHrs = carryInvalidated ? 0 : carriedRaw + assignmentCreditHrs;
   const adjustedHrs = carriedHrs - usedHrs;
   const remHrs = carryInvalidated
     ? Math.max(0, earnedHrs - usedHrs)
@@ -964,9 +997,9 @@ const LeavePeriodSectionRow = ({ label, variant = "section" }) => (
   </TableRow>
 );
 
-const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, allPeriods, onTransferPeriod, commuteLoadingId }) => {
+const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, allPeriods, onTransferPeriod, commuteLoadingId, earningsList }) => {
   const isLocked = isCommutedLocked(period);
-  const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs, commutedHrs } = computePeriodBalanceFlow(period, { allPeriods, periodIndex });
+  const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs, commutedHrs } = computePeriodBalanceFlow(period, { allPeriods, periodIndex, earningsList });
   const creditPool = Math.max(0, carriedHrs + earnedHrs);
   const pctUsed = isLocked ? 0 : (creditPool > 0 ? Math.min((usedHrs / creditPool) * 100, 100) : 0);
   const forwardInfo = getPeriodForwardInfo(period, periodIndex, allPeriods);
@@ -1101,6 +1134,28 @@ const EmployeeLeavesModal = ({
   onTransferPeriod,
   commuteLoadingId,
 }) => {
+  const [earningsList, setEarningsList] = useState([]);
+
+  useEffect(() => {
+    if (!open || !employeeLeaves?.employeeNumber || !selectedLeaveType?.leave_code) {
+      setEarningsList([]);
+      return;
+    }
+    let cancelled = false;
+    const token = localStorage.getItem("token");
+    axios.get(
+      `${API_BASE_URL}/api/earnings/leave/${employeeLeaves.employeeNumber}?all=true`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+      .then((r) => {
+        if (cancelled) return;
+        const all = Array.isArray(r.data?.earnings) ? r.data.earnings : [];
+        setEarningsList(all.filter((e) => e.leave_code === selectedLeaveType.leave_code && e.earn_status !== "rejected"));
+      })
+      .catch(() => { if (!cancelled) setEarningsList([]); });
+    return () => { cancelled = true; };
+  }, [open, employeeLeaves?.employeeNumber, selectedLeaveType?.leave_code]);
+
   if (!employeeLeaves) return null;
 
   const empInfo   = getEmployeeInfo(employeeLeaves.employeeNumber);
@@ -1235,7 +1290,7 @@ const EmployeeLeavesModal = ({
                   </Box>
                 )}
                 {currentPeriod && !isCommutedLocked(currentPeriod) && (() => {
-                  const flow = computePeriodBalanceFlow(currentPeriod, { allPeriods: periods, periodIndex: 0 });
+                  const flow = computePeriodBalanceFlow(currentPeriod, { allPeriods: periods, periodIndex: 0, earningsList });
                   return (
                   <Box sx={{ px: 3, py: 1.25, borderBottom: `1px solid ${CURRENT.border}`, bgcolor: "rgba(46,125,50,0.06)", display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
                     {[
@@ -1292,6 +1347,7 @@ const EmployeeLeavesModal = ({
                         allPeriods={periods}
                         onTransferPeriod={onTransferPeriod}
                         commuteLoadingId={commuteLoadingId}
+                        earningsList={earningsList}
                       />
                     </>
                   )}
@@ -1317,6 +1373,7 @@ const EmployeeLeavesModal = ({
                             allPeriods={periods}
                             onTransferPeriod={onTransferPeriod}
                             commuteLoadingId={commuteLoadingId}
+                            earningsList={earningsList}
                           />
                         );
                       })}
@@ -1709,7 +1766,39 @@ const BulkAutoAssignDialog = ({ open, onClose, leaveTypes, assignments, employee
 };
 
 // ─── BulkLeaveRow ──────────────────────────────────────────────────────────────
-const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHours, isDuplicate }) => {
+const BulkAmtReadonly = ({ hours, unit, preview = false }) => (
+  <Box sx={{ textAlign: "right", minWidth: 62, flexShrink: 0, px: 0.5, py: 0.25 }}>
+    <Typography sx={{
+      fontSize: "0.78rem", fontWeight: 700,
+      color: preview ? CURRENT.dark : T.text,
+      fontFamily: T.poppins, lineHeight: 1.25, fontVariantNumeric: "tabular-nums",
+    }}>
+      {unit === "hours" ? `${toNum(hours).toFixed(3)} h` : `${(toNum(hours) / 8).toFixed(3)} d`}
+    </Typography>
+    <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>
+      {unit === "hours" ? `${(toNum(hours) / 8).toFixed(3)} d` : `${toNum(hours).toFixed(3)} h`}
+    </Typography>
+  </Box>
+);
+
+const BulkLeaveStatusChip = ({ children, tone = "neutral" }) => {
+  const tones = {
+    neutral: { color: T.muted },
+    active:  { color: CURRENT.dark },
+    warn:    { color: T.accentMid },
+    muted:   { color: T.faint },
+  };
+  const t = tones[tone] || tones.neutral;
+  return (
+    <Typography component="span" sx={{ fontSize: "0.58rem", fontWeight: 700, color: t.color, fontFamily: T.poppins, whiteSpace: "nowrap" }}>
+      · {children}
+    </Typography>
+  );
+};
+
+const BulkLeaveRow = ({
+  lt, unit, remainingHours, addHours, onChangeAdd, onAdd, adding, hasExisting, isCommuted, carryHours, balancePeriodLabel,
+}) => {
   const [inputVal, setInputVal] = useState("");
   const isFocused = useRef(false);
 
@@ -1719,250 +1808,138 @@ const BulkLeaveRow = ({ lt, unit, allocatedHours, onChangeAllocated, carriedHour
     return hoursToDaysInputStr(hrs) || "";
   }, [unit]);
 
-  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(allocatedHours)); }, [allocatedHours, toDisplayStr]);
-  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(allocatedHours)); }, [unit]); // eslint-disable-line
+  const parseInputToHrs = useCallback((raw) => {
+    const num = parseFloat(raw);
+    if (isNaN(num) || String(raw).trim() === "") return 0;
+    return unit === "hours" ? num : parseFloat((num * 8).toFixed(6));
+  }, [unit]);
+
+  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(addHours)); }, [addHours, toDisplayStr]);
+  useEffect(() => { if (!isFocused.current) setInputVal(toDisplayStr(addHours)); }, [unit]); // eslint-disable-line
 
   const handleFocus = () => { isFocused.current = true; if (!inputVal || parseFloat(inputVal) === 0) setInputVal(""); };
-  const handleChange = (e) => { setInputVal(e.target.value); };
+  const handleChange = (e) => {
+    const v = e.target.value;
+    setInputVal(v);
+    onChangeAdd(parseInputToHrs(v));
+  };
   const handleBlur = () => {
     isFocused.current = false;
-    const num = parseFloat(inputVal);
-    if (isNaN(num) || inputVal.trim() === "") { onChangeAllocated(0); setInputVal(""); }
-    else { const hrs = unit === "hours" ? num : parseFloat((num * 8).toFixed(6)); onChangeAllocated(hrs); setInputVal(toDisplayStr(hrs)); }
+    const hrs = parseInputToHrs(inputVal);
+    if (hrs <= 0) { onChangeAdd(0); setInputVal(""); }
+    else { onChangeAdd(hrs); setInputVal(toDisplayStr(hrs)); }
   };
-  const handleKeyDown = (e) => { if (e.key === "Enter") e.currentTarget.blur(); };
+  const handleAddClick = () => {
+    const hrs = parseInputToHrs(inputVal);
+    onChangeAdd(hrs);
+    if (hrs > 0) onAdd();
+  };
+  const handleKeyDown = (e) => { if (e.key === "Enter") { e.preventDefault(); handleAddClick(); } };
 
   const numericVal = parseFloat(inputVal) || 0;
-  const equivalentAdornment = inputVal === "" ? (unit === "hours" ? "hrs" : "days") : unit === "hours" ? `= ${(numericVal / 8).toFixed(3)} days` : `= ${(numericVal * 8).toFixed(3)} hrs`;
-  const total    = allocatedHours + carriedHours;
+  const equivalentAdornment = inputVal === "" ? (unit === "hours" ? "h" : "d") : unit === "hours" ? `= ${(numericVal / 8).toFixed(3)} d` : `= ${(numericVal * 8).toFixed(3)} h`;
+  const inputPlaceholder = "0.000";
   const restriction = getLeaveGenderRestriction(lt);
-  const hasValue = allocatedHours > 0;
-  const hasCarry = carriedHours > 0;
-  const resultColLabel = hasCarry && hasValue ? "New total" : hasCarry ? "Remaining" : "total";
-  const addStr = unit === "hours" ? `${allocatedHours.toFixed(3)}h` : `${(allocatedHours / 8).toFixed(3)}d`;
-  const remStr = unit === "hours" ? `${carriedHours.toFixed(3)}h` : `${(carriedHours / 8).toFixed(3)}d`;
-  const sumStr = unit === "hours" ? `${total.toFixed(3)}h` : `${(total / 8).toFixed(3)}d`;
+  const pendingHrs = parseInputToHrs(inputVal) || addHours;
+  const hasAdd = pendingHrs > 0;
+  const previewRemaining = remainingHours + pendingHrs;
+  const disabled = isCommuted || adding;
 
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "140px 1fr 90px", gap: 1, alignItems: "center", px: 1.5, py: 1, borderRadius: 1.5, border: isDuplicate ? "1px solid rgba(237,108,2,0.35)" : hasValue ? `1px solid rgba(46,125,50,0.25)` : `1px solid ${T.accentBorder}`, bgcolor: isDuplicate ? "rgba(237,108,2,0.04)" : hasValue ? "rgba(46,125,50,0.03)" : T.rowEven }}>
-      <Box>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {restriction === "male"   && <MaleIcon   sx={{ fontSize: 12, color: "#1565C0" }} />}
-          {restriction === "female" && <FemaleIcon sx={{ fontSize: 12, color: "#C2185B" }} />}
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: isDuplicate ? "#ed6c02" : T.accent, fontFamily: T.poppins }}>{lt.leave_code}</Typography>
+    <Box sx={{
+      display: "grid",
+      gridTemplateColumns: "minmax(0, 1fr) auto minmax(88px, 1.1fr) auto",
+      gap: 1,
+      alignItems: "center",
+      px: 1.15,
+      py: 0.85,
+      minHeight: 52,
+      borderRadius: "8px",
+      border: `1px solid ${isCommuted ? alpha(T.accent, 0.15) : hasExisting ? alpha(CURRENT.main, 0.2) : "rgba(0,0,0,0.08)"}`,
+      bgcolor: isCommuted ? alpha(T.accent, 0.02) : hasExisting ? alpha(CURRENT.main, 0.03) : "#fff",
+      "&:hover": { borderColor: disabled ? undefined : alpha(T.accent, 0.22) },
+    }}>
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.25 }}>
+          <Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins, flexShrink: 0 }}>
+            {lt.leave_code}
+          </Typography>
+          {restriction === "male"   && <MaleIcon   sx={{ fontSize: 12, color: "#1565C0", flexShrink: 0 }} />}
+          {restriction === "female" && <FemaleIcon sx={{ fontSize: 12, color: "#C2185B", flexShrink: 0 }} />}
         </Box>
-        <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1.3 }} noWrap>{lt.leave_description || lt.leave_name || ""}</Typography>
-        {carriedHours > 0 && <Typography sx={{ fontSize: "0.6rem", color: "#2e7d32", fontWeight: 700, fontFamily: T.poppins, lineHeight: 1.25 }} noWrap>Carry-over: {unit === "hours" ? `${carriedHours.toFixed(3)}h` : `${(carriedHours / 8).toFixed(3)}d`}</Typography>}
-        {isDuplicate && <Typography sx={{ fontSize: "0.6rem", color: "#ed6c02", fontWeight: 700, fontFamily: T.poppins }}>already exists</Typography>}
-      </Box>
-      <Box>
-        <FieldInput type="text" inputMode="decimal" size="small" fullWidth disabled={isDuplicate} value={inputVal} placeholder={isDuplicate ? "skip" : unit === "hours" ? "0 hrs" : "0 days"}
-          onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur} onKeyDown={handleKeyDown}
-          sx={{ "& .MuiInputBase-input": { fontWeight: 700, color: isDuplicate ? T.faint : "#1976d2", fontSize: "0.82rem" } }}
-          InputProps={{ endAdornment: (<InputAdornment position="end"><Typography sx={{ fontSize: "0.6rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins, whiteSpace: "nowrap" }}>{equivalentAdornment}</Typography></InputAdornment>) }}
-        />
-      </Box>
-      <Box sx={{ textAlign: "center", minWidth: 0, px: 0.25 }}>
-        <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>{resultColLabel}</Typography>
-        {hasCarry && hasValue ? (
-          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "center", gap: 0.35, mt: 0.2 }}>
-            <Typography component="span" sx={{ fontSize: "0.58rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>{addStr} + {remStr} =</Typography>
-            <Typography component="span" sx={{ fontSize: "0.8rem", fontWeight: 800, color: "#1976d2", fontFamily: T.poppins }}>{sumStr}</Typography>
-          </Box>
-        ) : (
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: hasValue ? "#1976d2" : T.faint, fontFamily: T.poppins, lineHeight: 1.25, mt: 0.15 }}>{sumStr}</Typography>
-        )}
-      </Box>
-    </Box>
-  );
-};
-
-// ─── ResultPill ───────────────────────────────────────────────────────────────
-const ResultPill = ({ label, value, primary = false }) => (
-  <Box sx={{ flex: 1, py: 1, px: 0.75, borderRadius: "8px", textAlign: "center", bgcolor: primary ? T.accent : T.accentFaint, border: `1px solid ${primary ? T.accent : T.accentBorder}` }}>
-    <Typography sx={{ fontSize: "0.56rem", fontWeight: 700, color: primary ? "rgba(255,255,255,0.6)" : alpha(T.accent, 0.5), textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.4, fontFamily: T.poppins }}>{label}</Typography>
-    <Typography sx={{ fontWeight: 900, fontSize: primary ? "1.05rem" : "0.95rem", color: primary ? "#fff" : T.accent, lineHeight: 1, fontFamily: T.poppins }}>{value}</Typography>
-  </Box>
-);
-
-const ClearableIntField = ({ value, onChange, placeholder, min = 0, max, label, widgetInputSx, inputLabelSx }) => {
-  const [draft, setDraft] = useState(null);
-  const [focused, setFocused] = useState(false);
-  const displayVal = focused && draft !== null ? draft : (value === 0 ? "" : String(value));
-  return (
-    <Box>
-      {label && <Typography sx={inputLabelSx}>{label}</Typography>}
-      <TextField size="small" type="text" inputMode="numeric" fullWidth placeholder={placeholder ?? String(min)} value={displayVal}
-        onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setDraft(raw); }}
-        onFocus={() => { setFocused(true); setDraft(value === 0 ? "" : String(value)); }}
-        onBlur={() => { setFocused(false); let num = parseInt(draft ?? "", 10); if (isNaN(num)) num = min; if (max !== undefined) num = Math.min(num, max); num = Math.max(num, min); onChange(num); setDraft(null); }}
-        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        sx={widgetInputSx}
-      />
-    </Box>
-  );
-};
-
-const ClearableDecimalField = ({ value, onChange, placeholder, min = 0, max, step = 0.5, label, snapToStep = false, widgetInputSx, inputLabelSx }) => {
-  const [draft, setDraft] = useState(null);
-  const [focused, setFocused] = useState(false);
-  const displayVal = focused && draft !== null ? draft : (value === 0 ? "" : String(value));
-  return (
-    <Box>
-      {label && <Typography sx={inputLabelSx}>{label}</Typography>}
-      <TextField size="small" type="text" inputMode="decimal" fullWidth placeholder={placeholder ?? "0"} value={displayVal}
-        onChange={(e) => { let raw = e.target.value.replace(",", "."); raw = raw.replace(/[^\d.]/g, ""); const dot = raw.indexOf("."); if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, ""); setDraft(raw); }}
-        onFocus={() => { setFocused(true); setDraft(value === 0 ? "" : String(value)); }}
-        onBlur={() => { setFocused(false); let num = parseFloat((draft ?? "").replace(",", ".")); if (!Number.isFinite(num)) num = 0; if (snapToStep && step) num = Math.round(num / step) * step; if (max !== undefined) num = Math.min(num, max); num = Math.max(num, min); onChange(num); setDraft(null); }}
-        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        sx={widgetInputSx}
-      />
-    </Box>
-  );
-};
-
-// ─── Floating Conversion Widget ───────────────────────────────────────────────
-function FloatingConversionWidget({ onNavigateToModule }) {
-  const [open, setOpen]           = useState(false);
-  const [activeTab, setActiveTab] = useState(0);
-  const [hours8Table,  setHours8Table]  = useState(DEFAULT_HOURS_8);
-  const [hours6Table,  setHours6Table]  = useState(DEFAULT_HOURS_6);
-  const [minutesTable, setMinutesTable] = useState(DEFAULT_MINUTES);
-  const [lwpTable,     setLwpTable]     = useState(DEFAULT_LWP_TABLE);
-  const [absTable,     setAbsTable]     = useState(DEFAULT_ABS_TABLE);
-  const [ratesLoaded,  setRatesLoaded]  = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [whRes, lcRes] = await Promise.allSettled([
-          axios.get(`${API_BASE_URL}/api/working-hours/rates`),
-          axios.get(`${API_BASE_URL}/api/working-hours/leave-credits/rates`),
-        ]);
-        if (whRes.status === "fulfilled") {
-          const d = whRes.value.data;
-          const ensureHours = (rows, dayType, fallback) => {
-            const byHour = new Map((rows || []).map((r) => [Number(r.rate_value), r]));
-            const baseRate = Number(byHour.get(1)?.decimal_equivalent ?? fallback);
-            return Array.from({ length: 8 }, (_, i) => {
-              const h = i + 1;
-              const found = byHour.get(h);
-              return found ? { ...found, rate_type: "hour", day_type: dayType, rate_value: h, decimal_equivalent: sanitizeDecimal(found.decimal_equivalent) } : { rate_type: "hour", day_type: dayType, rate_value: h, decimal_equivalent: sanitizeDecimal(h * baseRate) };
-            });
-          };
-          if (Array.isArray(d.hours8)  && d.hours8.length  > 0)   setHours8Table(ensureHours(d.hours8,  "8hr", 0.125));
-          if (Array.isArray(d.hours6)  && d.hours6.length  > 0)   setHours6Table(ensureHours(d.hours6,  "6hr", 0.167));
-          if (Array.isArray(d.minutes) && d.minutes.length === 60) setMinutesTable(d.minutes);
-        }
-        if (lcRes.status === "fulfilled") {
-          const d = lcRes.value.data;
-          if (Array.isArray(d.lwp) && d.lwp.length === 30) setLwpTable(d.lwp);
-          if (Array.isArray(d.abs) && d.abs.length  >= 1)  setAbsTable(d.abs);
-        }
-      } catch { /* keep defaults silently */ }
-      setRatesLoaded(true);
-    })();
-  }, []);
-
-  const [whDayType, setWhDayType] = useState("8hr");
-  const [whHours,   setWhHours]   = useState(0);
-  const [whMinutes, setWhMinutes] = useState(0);
-  const [lcDays,    setLcDays]    = useState(1);
-  const [lcAbs,     setLcAbs]     = useState(0);
-
-  const inputLabelSx = useMemo(() => ({ fontSize: "0.62rem", fontWeight: 700, color: alpha(T.accent, 0.45), textTransform: "uppercase", letterSpacing: "0.07em", mb: 0.5, fontFamily: T.poppins }), []);
-  const widgetInputSx = useMemo(() => ({ "& .MuiOutlinedInput-root": { borderRadius: "7px", height: 34, fontSize: "0.82rem", bgcolor: "#fff", "& fieldset": { borderColor: T.accentBorder }, "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 } }, "& .MuiInputBase-input": { fontWeight: 700, color: T.text, p: "6px 10px", fontFamily: T.poppins } }), []);
-
-  const activeHoursTable = whDayType === "6hr" ? hours6Table : hours8Table;
-
-  const whResult = useMemo(() => {
-    const defaultHourlyRate = whDayType === "6hr" ? 0.167 : 0.125;
-    const hourlyRate = Number(activeHoursTable.find((h) => h.rate_value === 1)?.decimal_equivalent ?? defaultHourlyRate);
-    const hEntry = activeHoursTable.find((h) => h.rate_value === whHours);
-    const mEntry = minutesTable.find((m) => m.rate_value === whMinutes);
-    const hDec   = whHours   === 0 ? 0 : Number((hEntry?.decimal_equivalent ?? whHours * hourlyRate).toFixed(3));
-    const mDec   = whMinutes === 0 ? 0 : (mEntry?.decimal_equivalent ?? 0);
-    return { hDec, mDec, total: Number((hDec + mDec).toFixed(3)) };
-  }, [whHours, whMinutes, whDayType, activeHoursTable, minutesTable]);
-
-  const lcResult = useMemo(() => {
-    const daysEntry = lwpTable.find((r) => r.d === lcDays);
-    const earned    = daysEntry ? daysEntry.e : parseFloat((lcDays * 0.04167).toFixed(3));
-    const absEntry  = lcAbs > 0 ? absTable.find((r) => Math.abs(r.a - lcAbs) < 0.001) : null;
-    const absEarned = absEntry ? absEntry.e : earned;
-    return { earned, absEarned };
-  }, [lcDays, lcAbs, lwpTable, absTable]);
-
-  return (
-    <>
-      <Tooltip title="Quick Conversion Tool" placement="left">
-        <Box onClick={() => setOpen((v) => !v)}
-          sx={{ position: "fixed", bottom: 128, right: 32, zIndex: 1200, width: 48, height: 48, borderRadius: "50%", bgcolor: open ? T.accentDark : T.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: `0 4px 16px ${alpha(T.accent, 0.45)}`, transition: "all 0.2s ease", "&:hover": { bgcolor: T.accentDark, transform: "scale(1.08)" } }}>
-          {open ? <Close sx={{ fontSize: 20 }} /> : <CalculateIcon sx={{ fontSize: 22 }} />}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.35, minWidth: 0, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.64rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.3 }} noWrap title={lt.leave_description || lt.leave_name || ""}>
+            {lt.leave_description || lt.leave_name || ""}
+          </Typography>
+          {hasExisting && !isCommuted && balancePeriodLabel && (
+            <BulkLeaveStatusChip tone="active">bal · {balancePeriodLabel}</BulkLeaveStatusChip>
+          )}
+          {!hasExisting && carryHours > 0 && balancePeriodLabel && (
+            <BulkLeaveStatusChip tone="active">from · {balancePeriodLabel}</BulkLeaveStatusChip>
+          )}
+          {isCommuted && balancePeriodLabel && (
+            <BulkLeaveStatusChip tone="warn">commuted · {balancePeriodLabel}</BulkLeaveStatusChip>
+          )}
+          {isCommuted && !balancePeriodLabel && (
+            <BulkLeaveStatusChip tone="warn">commuted</BulkLeaveStatusChip>
+          )}
         </Box>
-      </Tooltip>
-      <Collapse in={open} timeout={200}>
-        <Paper elevation={0} sx={{ position: "fixed", bottom: 186, right: 32, zIndex: 1199, width: 310, borderRadius: "12px", border: `1px solid ${T.accentBorder}`, boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`, overflow: "hidden", fontFamily: T.poppins }}>
-          <Box sx={{ px: 2, py: 1.25, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <ConvertIcon sx={{ fontSize: 15, color: "rgba(255,255,255,0.85)" }} />
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: "#fff", fontFamily: T.poppins }}>Quick Converter</Typography>
-              {!ratesLoaded && <CircularProgress size={10} sx={{ color: "rgba(255,255,255,0.6)" }} />}
-            </Box>
-            <Button onClick={onNavigateToModule} size="small" endIcon={<OpenInNewIcon sx={{ fontSize: "12px !important" }} />}
-              sx={{ fontSize: "0.62rem", fontWeight: 700, color: "rgba(255,255,255,0.75)", textTransform: "none", fontFamily: T.poppins, px: 1, py: 0.25, borderRadius: "5px", minWidth: 0, border: "1px solid rgba(255,255,255,0.25)", "&:hover": { bgcolor: "rgba(255,255,255,0.12)", color: "#fff" } }}>
-              View Tables
-            </Button>
-          </Box>
-          <Box sx={{ borderBottom: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-            <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="fullWidth"
-              sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: T.muted, py: 0, "&.Mui-selected": { color: T.accent } }, "& .MuiTabs-indicator": { bgcolor: T.accent, height: 2 } }}>
-              <Tab label="Working Hours" /><Tab label="Leave Credits" />
-            </Tabs>
-          </Box>
-          <Box sx={{ display: activeTab === 0 ? "flex" : "none", p: 1.75, flexDirection: "column", gap: 1.25 }}>
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <Typography sx={inputLabelSx}>Day type</Typography>
-              <ToggleButtonGroup value={whDayType} exclusive onChange={(_, v) => v && setWhDayType(v)} size="small"
-                sx={{ "& .MuiToggleButton-root": { px: 1.25, py: 0.2, border: `1px solid ${T.accentBorder}`, fontSize: "0.68rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, minHeight: 26, "&.Mui-selected": { bgcolor: T.accent, color: "#fff", borderColor: T.accent } } }}>
-                <ToggleButton value="8hr">8-hr</ToggleButton>
-                <ToggleButton value="6hr">6-hr</ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
-            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-              <ClearableIntField label="Hours" value={whHours} onChange={setWhHours} placeholder="0" min={0} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
-              <ClearableIntField label="Minutes (0–59)" value={whMinutes} onChange={setWhMinutes} placeholder="0" min={0} max={59} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
-            </Box>
-            <Box sx={{ display: "flex", gap: 0.75 }}>
-              <ResultPill label="Hours" value={Number(whResult.hDec).toFixed(3)} />
-              <ResultPill label="Total" value={whResult.total.toFixed(3)} primary />
-              <ResultPill label="Mins." value={Number(whResult.mDec).toFixed(3)} />
-            </Box>
-            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.75, p: "6px 10px", borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-              <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, fontFamily: T.poppins }}>Equivalent:</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{whHours}h {whMinutes}m = {whResult.total.toFixed(3)}</Typography>
-              <Chip label={whDayType} size="small" sx={{ height: 16, fontSize: "0.58rem", fontWeight: 700, bgcolor: T.accent, color: "#fff", fontFamily: T.poppins }} />
-            </Box>
-          </Box>
-          <Box sx={{ display: activeTab === 1 ? "flex" : "none", p: 1.75, flexDirection: "column", gap: 1.25 }}>
-            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-              <ClearableIntField label="LWP Days (1–30)" value={lcDays} onChange={(v) => setLcDays(Math.min(30, Math.max(1, v || 1)))} placeholder="1" min={1} max={30} widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
-              <ClearableDecimalField label="Abs w/o Pay (0–29.5)" value={lcAbs} onChange={setLcAbs} placeholder="0" min={0} max={29.5} step={0.5} snapToStep widgetInputSx={widgetInputSx} inputLabelSx={inputLabelSx} />
-            </Box>
-            <Box sx={{ display: "flex", gap: 0.75 }}>
-              <ResultPill label="LWP Earned" value={lcResult.earned.toFixed(3)} primary />
-              <ResultPill label="Abs w/o Pay Earned" value={lcResult.absEarned.toFixed(3)} />
-            </Box>
-            <Box sx={{ p: "6px 10px", borderRadius: "7px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-              <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontWeight: 600, fontFamily: T.poppins, textAlign: "center" }}>Earned at <strong style={{ color: T.accent }}>1.250/mo</strong> · Absents w/o pay reduce credits</Typography>
-            </Box>
-            <Typography sx={{ fontSize: "0.62rem", color: T.faint, textAlign: "center", fontFamily: T.poppins }}>For the full absence deduction table, click <strong style={{ color: T.accent }}>View Tables</strong> above.</Typography>
-          </Box>
-        </Paper>
-      </Collapse>
-    </>
+      </Box>
+
+      <BulkAmtReadonly hours={hasAdd ? previewRemaining : remainingHours} unit={unit} preview={hasAdd} />
+
+      <FieldInput
+        type="text"
+        inputMode="decimal"
+        size="small"
+        disabled={disabled}
+        value={inputVal}
+        placeholder={inputPlaceholder}
+        onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        sx={{
+          minWidth: 0, ...assignFieldSx,
+          "& .MuiOutlinedInput-root": { ...assignFieldSx["& .MuiOutlinedInput-root"], minHeight: 36 },
+          "& .MuiInputBase-input": { fontWeight: 600, color: T.text, fontSize: "0.8rem", py: "7px", fontVariantNumeric: "tabular-nums" },
+        }}
+        InputProps={{
+          endAdornment: (
+            <InputAdornment position="end">
+              <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontWeight: 600, fontFamily: T.poppins, whiteSpace: "nowrap" }}>
+                {equivalentAdornment}
+              </Typography>
+            </InputAdornment>
+          ),
+        }}
+      />
+      <Button
+        size="small"
+        variant="contained"
+        disableElevation
+        disabled={disabled || !hasAdd}
+        onClick={handleAddClick}
+        sx={{
+          flexShrink: 0,
+          minWidth: 52,
+          height: 36,
+          textTransform: "none",
+          fontSize: "0.72rem",
+          fontWeight: 700,
+          fontFamily: T.poppins,
+          px: 1.25,
+          borderRadius: "7px",
+          bgcolor: T.accent,
+          "&:hover": { bgcolor: T.accentDark },
+          "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.2), color: alpha("#fff", 0.85) },
+        }}
+      >
+        {adding ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : "Add"}
+      </Button>
+    </Box>
   );
-}
+};
 
 // ─── CommutationWarningModal ───────────────────────────────────────────────────
 const CommutationWarningModal = ({
@@ -1972,12 +1949,34 @@ const CommutationWarningModal = ({
   leaveTypes = [],
   loading = false,
 }) => {
+  const [earningsList, setEarningsList] = useState([]);
+
+  useEffect(() => {
+    if (!open || !period?.employeeNumber || !period?.leave_code) {
+      setEarningsList([]);
+      return;
+    }
+    let cancelled = false;
+    const token = localStorage.getItem("token");
+    axios.get(
+      `${API_BASE_URL}/api/earnings/leave/${period.employeeNumber}?all=true`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+      .then((r) => {
+        if (cancelled) return;
+        const all = Array.isArray(r.data?.earnings) ? r.data.earnings : [];
+        setEarningsList(all.filter((e) => e.leave_code === period.leave_code && e.earn_status !== "rejected"));
+      })
+      .catch(() => { if (!cancelled) setEarningsList([]); });
+    return () => { cancelled = true; };
+  }, [open, period?.employeeNumber, period?.leave_code]);
+
   if (!period) return null;
 
   const fmt = (h) => (unit === "hours" ? fmtPeriodVal(h, "hours") : fmtPeriodVal(h, "days"));
   const fmtAlt = (h) => (unit === "hours" ? fmtPeriodAlt(h, "hours") : fmtPeriodAlt(h, "days"));
 
-  const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs } = computePeriodBalanceFlow(period);
+  const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs } = computePeriodBalanceFlow(period, { earningsList });
   const hasCarryOver = carriedHrs > 0;
 
   const ltObj = leaveTypes.find((lt) => lt.leave_code === period.leave_code);
@@ -2127,10 +2126,9 @@ const LeaveAssignment = () => {
   const [empCatMap,  setEmpCatMap]  = useState({});
 
   const [bulkCredits,    setBulkCredits]    = useState({});
+  const [bulkAddingCode, setBulkAddingCode] = useState(null);
   const [periodYear,     setPeriodYear]     = useState(new Date().getFullYear().toString());
   const [periodMonth,    setPeriodMonth]    = useState("");
-  const [bulkSubmitting, setBulkSubmitting] = useState(false);
-  const [bulkResults,    setBulkResults]    = useState(null);
 
   const [editAssignment,      setEditAssignment]      = useState(null);
   const [originalAssignment,  setOriginalAssignment]  = useState(null);
@@ -2157,10 +2155,7 @@ const LeaveAssignment = () => {
 
   const [recordsPage,         setRecordsPage]         = useState(0);
   const [recordsRowsPerPage,  setRecordsRowsPerPage]  = useState(24);
-  const [bulkAssignOpen,      setBulkAssignOpen]      = useState(false);
   const [viewMode,            setViewMode]            = useState("grid");
-
-  const handleNavigateToConversionModule = useCallback(() => { window.location.href = "/working-hours"; }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -2235,7 +2230,10 @@ const LeaveAssignment = () => {
   }, [employees, buildDisplayName]);
 
   const selectedEmployeeGender = useMemo(() => selectedEmployee?.sex || selectedEmployee?.gender || null, [selectedEmployee]);
-  const filteredLeaveTypesForNew = useMemo(() => leaveTypes.filter((lt) => isLeaveAllowedForGender(lt, selectedEmployeeGender)), [leaveTypes, selectedEmployeeGender]);
+  const filteredLeaveTypesForNew = useMemo(
+    () => sortLeaveTypesForAssign(leaveTypes.filter((lt) => isLeaveAllowedForGender(lt, selectedEmployeeGender))),
+    [leaveTypes, selectedEmployeeGender],
+  );
 
   const carryOverMap = useMemo(() => {
     if (!selectedEmployee?.employeeNumber) return {};
@@ -2249,23 +2247,56 @@ const LeaveAssignment = () => {
     return map;
   }, [selectedEmployee, filteredLeaveTypesForNew, assignments, periodYear, periodMonth]);
 
-  const duplicateSet = useMemo(() => {
-    if (!selectedEmployee?.employeeNumber) return new Set();
+  const carrySourceMap = useMemo(() => {
+    if (!selectedEmployee?.employeeNumber) return {};
     const empNum = selectedEmployee.employeeNumber.toString();
-    return new Set(assignments.filter((a) => {
-      if (a.employeeNumber?.toString() !== empNum) return false;
-      if (a.period_year?.toString() !== periodYear) return false;
-      if (periodMonth) return sameMonth(a.period_month, periodMonth) || sameMonth(a.period_semester, periodMonth);
-      return true;
-    }).map((a) => a.leave_code));
+    const map = {};
+    const periodMonthInt = normalizeMonth(periodMonth);
+    filteredLeaveTypesForNew.forEach((lt) => {
+      const rows = assignments.filter((a) => a.employeeNumber?.toString() === empNum && a.leave_code === lt.leave_code);
+      const prior = getPriorPeriodSnapshot(rows, periodYear, periodMonthInt);
+      map[lt.leave_code] = prior ? assignmentPeriodLabel(prior) : "";
+    });
+    return map;
+  }, [selectedEmployee, filteredLeaveTypesForNew, assignments, periodYear, periodMonth]);
+
+  const monthsWithBalanceSet = useMemo(() => {
+    if (!selectedEmployee?.employeeNumber || !periodYear) return new Set();
+    const empNum = selectedEmployee.employeeNumber.toString();
+    const months = new Set();
+    assignments.forEach((a) => {
+      if (a.employeeNumber?.toString() !== empNum) return;
+      if (a.period_year?.toString() !== periodYear.toString()) return;
+      const mv = toMonthSelectValue(a.period_month ?? a.period_semester);
+      if (mv) months.add(mv);
+    });
+    return months;
+  }, [selectedEmployee, assignments, periodYear]);
+
+  const periodAssignmentMap = useMemo(() => {
+    if (!selectedEmployee?.employeeNumber) return {};
+    const empNum = selectedEmployee.employeeNumber.toString();
+    const map = {};
+    assignments.forEach((a) => {
+      if (a.employeeNumber?.toString() !== empNum) return;
+      if (a.period_year?.toString() !== periodYear?.toString()) return;
+      if (periodMonth) {
+        if (!sameMonth(a.period_month, periodMonth) && !sameMonth(a.period_semester, periodMonth)) return;
+      }
+      const prev = map[a.leave_code];
+      if (!prev || Number(a.id) > Number(prev.id)) map[a.leave_code] = a;
+    });
+    return map;
   }, [selectedEmployee, assignments, periodYear, periodMonth]);
+
+  const duplicateSet = useMemo(() => new Set(Object.keys(periodAssignmentMap)), [periodAssignmentMap]);
 
   useEffect(() => {
     if (!selectedEmployee?.employeeNumber) { setEmployeeAssignments([]); return; }
     setEmployeeAssignments(assignments.filter((a) => a.employeeNumber?.toString() === selectedEmployee.employeeNumber?.toString()));
   }, [selectedEmployee, assignments]);
 
-  useEffect(() => { setBulkCredits({}); setBulkResults(null); setError(""); }, [selectedEmployee, periodYear, periodMonth]);
+  useEffect(() => { setBulkCredits({}); setError(""); }, [selectedEmployee, periodYear, periodMonth]);
 
   useEffect(() => {
     const aid = editAssignment?.id;
@@ -2328,33 +2359,68 @@ const LeaveAssignment = () => {
     });
   };
 
-  const handleBulkAdd = async () => {
+  const handleAddLeaveCredit = async (lt) => {
     const empNum = selectedEmployee?.employeeNumber?.toString().trim();
     if (!empNum) { setError("Please select an employee first"); return; }
-    const toSubmit = filteredLeaveTypesForNew.filter((lt) => {
-      if (duplicateSet.has(lt.leave_code)) return false;
-      return toNum(bulkCredits[lt.leave_code]) > 0;
-    });
-    if (!toSubmit.length) { setError("Enter credits for at least one leave type (must be > 0)"); return; }
-    setBulkSubmitting(true); setError("");
-    let created = 0, errors = 0;
-    const token = localStorage.getItem("token");
-    for (const lt of toSubmit) {
-      const allocHrs = toNum(bulkCredits[lt.leave_code]);
-      const carryHrs = toNum(carryOverMap[lt.leave_code]);
-      const periodMonthInt = normalizeMonth(periodMonth);
-      try {
-        await axios.post(`${API_BASE_URL}/leaveRoute/leave_assignment`,
-          { leave_code: lt.leave_code, employeeNumber: empNum, total_hours: allocHrs, carried_forward_hours: carryHrs, allocated_hours: allocHrs, period_year: parseInt(periodYear, 10) || new Date().getFullYear(), period_semester: periodMonthInt ?? null, period_month: periodMonthInt ?? null },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        created++;
-      } catch { errors++; }
+    const addHrs = toNum(bulkCredits[lt.leave_code]);
+    if (addHrs <= 0) { setError("Enter an amount greater than 0"); return; }
+
+    const existing = periodAssignmentMap[lt.leave_code];
+    if (existing && isCommutedLocked(existing)) {
+      setError(`${lt.leave_code} is commuted for this period and cannot be modified`);
+      return;
     }
-    await fetchAssignments();
-    setBulkCredits({}); setBulkSubmitting(false);
-    setBulkResults({ created, errors, skipped: filteredLeaveTypesForNew.length - toSubmit.length });
-    if (errors === 0) { setSuccessAction("adding"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000); }
+
+    setBulkAddingCode(lt.leave_code);
+    setError("");
+    const token = localStorage.getItem("token");
+    const periodMonthInt = normalizeMonth(periodMonth);
+
+    try {
+      if (existing) {
+        const newCarried = toNum(existing.carried_forward_hours) + addHrs;
+        const alloc = toNum(existing.allocated_hours);
+        await axios.put(
+          `${API_BASE_URL}/leaveRoute/leave_assignment/${existing.id}`,
+          {
+            leave_code: lt.leave_code,
+            employeeNumber: empNum,
+            carried_forward_hours: newCarried,
+            allocated_hours: alloc,
+            period_year: parseInt(periodYear, 10) || new Date().getFullYear(),
+            period_semester: periodMonthInt ?? existing.period_semester ?? null,
+            period_month: periodMonthInt ?? existing.period_month ?? null,
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+      } else {
+        const carryHrs = toNum(carryOverMap[lt.leave_code]);
+        const storeInCarried = carryHrs <= 0;
+        await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_assignment`,
+          {
+            leave_code: lt.leave_code,
+            employeeNumber: empNum,
+            total_hours: carryHrs + addHrs,
+            carried_forward_hours: storeInCarried ? addHrs : carryHrs,
+            allocated_hours: storeInCarried ? 0 : addHrs,
+            period_year: parseInt(periodYear, 10) || new Date().getFullYear(),
+            period_semester: periodMonthInt ?? null,
+            period_month: periodMonthInt ?? null,
+          },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+      }
+      setBulkCredits((p) => ({ ...p, [lt.leave_code]: 0 }));
+      await fetchAssignments();
+      setSuccessAction(existing ? "edit" : "adding");
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 1500);
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to add leave credits");
+    } finally {
+      setBulkAddingCode(null);
+    }
   };
 
   const handleUpdate = async () => {
@@ -2517,7 +2583,11 @@ const LeaveAssignment = () => {
   const employeeGroups  = Object.values(groupedByEmployee).map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) })).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
   const paginatedGroups = useMemo(() => { const s = recordsPage * recordsRowsPerPage; return employeeGroups.slice(s, s + recordsRowsPerPage); }, [employeeGroups, recordsPage, recordsRowsPerPage]);
 
-  const pendingCount = useMemo(() => filteredLeaveTypesForNew.filter((lt) => !duplicateSet.has(lt.leave_code) && toNum(bulkCredits[lt.leave_code]) > 0).length, [filteredLeaveTypesForNew, duplicateSet, bulkCredits]);
+  const getAssignRemainingHours = useCallback((leaveCode) => {
+    const existing = periodAssignmentMap[leaveCode];
+    if (existing) return toNum(existing.remaining_hours);
+    return toNum(carryOverMap[leaveCode]);
+  }, [periodAssignmentMap, carryOverMap]);
 
   const openEmployeeLeavesModal = (grp) => {
     const sortedLeaveTypes = [...grp.leaveTypes].sort((a, b) => a.leave_code.localeCompare(b.leave_code));
@@ -2552,7 +2622,6 @@ const LeaveAssignment = () => {
         <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: "100vw", maxWidth: "100%", position: "relative", left: "63%", transform: "translateX(-61%)", px: { xs: 2, sm: 3, md: 6 } }}>
           <LoadingOverlay open={loading} message="Processing leave assignment…" />
           <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
-          <BulkAutoAssignDialog open={bulkAssignOpen} onClose={() => setBulkAssignOpen(false)} leaveTypes={leaveTypes} assignments={assignments} employees={employees} deptMap={deptMap} onSuccess={async () => { await fetchAssignments(); }} />
 
           {/* Page Header */}
           <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
@@ -2582,163 +2651,327 @@ const LeaveAssignment = () => {
           <Grid container spacing={2}>
             {/* LEFT: Add Assignment Form */}
             <Grid item xs={12} lg={4}>
-              <SectionCard sx={{ height: "calc(100vh - 280px)", display: "flex", flexDirection: "column" }}>
-                <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
-                  <AddIcon sx={{ fontSize: 15, color: T.accent }} />
-                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>Assign Leave to Employee</Typography>
-                  <Box sx={{ flex: 1 }} />
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>Input in:</Typography>
-                    <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"
-                      sx={{ "& .MuiToggleButton-root": { px: 1.25, py: 0.3, border: `1px solid ${T.accentBorder}`, fontSize: "0.72rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, "&.Mui-selected": { bgcolor: T.accent, color: "#fff", borderColor: T.accent } } }}>
-                      <ToggleButton value="hours"><HoursIcon sx={{ fontSize: 13, mr: 0.5 }} />Hours</ToggleButton>
-                      <ToggleButton value="days"><DaysIcon sx={{ fontSize: 13, mr: 0.5 }} />Days</ToggleButton>
-                    </ToggleButtonGroup>
+              <SectionCard sx={{ height: "calc(100vh - 280px)", display: "flex", flexDirection: "column", border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+                <Box sx={{
+                  px: 2.5, py: 1.5, borderBottom: `1px solid ${T.divider}`,
+                  display: "flex", alignItems: "center", gap: 1.5,
+                  background: `linear-gradient(135deg, ${T.accentFaint} 0%, #fff 100%)`,
+                  flexShrink: 0,
+                }}>
+                  <Box sx={{
+                    width: 32, height: 32, borderRadius: 1.5,
+                    bgcolor: alpha(T.accent, 0.1),
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <AddIcon sx={{ fontSize: 17, color: T.accent }} />
                   </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                      Assign Leave to Employee
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins }}>
+                      Add P. Credit balance per leave type and period
+                    </Typography>
+                  </Box>
+                  <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"
+                    sx={{
+                      "& .MuiToggleButton-root": {
+                        px: 1.15, py: 0.3, border: `1px solid ${T.accentBorder}`,
+                        fontSize: "0.65rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins,
+                        textTransform: "none",
+                        "&.Mui-selected": { bgcolor: T.accent, color: "#fff", borderColor: T.accent },
+                      },
+                    }}>
+                    <ToggleButton value="hours"><HoursIcon sx={{ fontSize: 12, mr: 0.35 }} />Hours</ToggleButton>
+                    <ToggleButton value="days"><DaysIcon sx={{ fontSize: 12, mr: 0.35 }} />Days</ToggleButton>
+                  </ToggleButtonGroup>
                 </Box>
 
-                <Box sx={{ px: 3, py: 2, flexGrow: 1, overflowY: "auto", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
-                  {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2, fontFamily: T.poppins }}>{error}</Alert>}
-                  <Box sx={{ mb: 2 }}>
-                    <Box sx={{ mb: 1.5 }}>
-                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
-                        Select Employee <span style={{ color: "#c62828" }}>*</span>
-                        <Box component="span" sx={{ ml: 1, fontSize: "0.65rem", fontWeight: 400, color: T.faint }}>— sorted by last name A → Z</Box>
-                      </Typography>
-                      <Autocomplete
-                        value={selectedEmployee}
-                        onChange={(e, v) => { setSelectedEmployee(v); setError(""); setBulkCredits({}); setBulkResults(null); }}
-                        options={employeeOptions}
-                        autoHighlight
-                        getOptionLabel={(o) => `${o._displayName || o.fullName || `${o.firstName || ""} ${o.lastName || ""}`.trim()} (${o.employeeNumber})`}
-                        filterOptions={(opts, { inputValue: iv }) => opts.filter((o) => (o._searchKey || "").includes(iv.toLowerCase().trim())).slice(0, 80)}
-                        isOptionEqualToValue={(o, v) => o.employeeNumber === v.employeeNumber}
-                        noOptionsText="No employees found"
-                        renderOption={(props, option) => {
-                          const { key, ...rest } = props;
-                          const name     = option._displayName || option.fullName || `${option.firstName || ""} ${option.lastName || ""}`.trim();
-                          const initials = `${option.lastName?.[0] || ""}${option.firstName?.[0] || ""}`.toUpperCase() || "?";
-                          const deptCode = deptMap[option.employeeNumber?.toString()];
-                          const empCat   = empCatMap[option.employeeNumber?.toString()];
-                          return (
-                            <li key={key} {...rest}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                                <Avatar sx={{ width: 30, height: 30, bgcolor: T.accent, fontSize: "0.75rem", fontWeight: 700, borderRadius: "6px" }}>{initials}</Avatar>
-                                <Box>
-                                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins, fontSize: "0.82rem" }}>{name}</Typography>
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-                                    <Typography variant="caption" sx={{ color: "#888", fontFamily: T.poppins }}>#{option.employeeNumber}</Typography>
-                                    {(option.sex || option.gender) && <GenderBadge gender={option.sex || option.gender} />}
-                                    {deptCode && <DeptBadge code={deptCode} />}
-                                    {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} />}
+                <Box sx={{
+                  px: 1.5, py: 1.25, flexGrow: 1, overflowY: "auto",
+                  bgcolor: "#f4f6f8",
+                  "&::-webkit-scrollbar": { width: 5 },
+                  "&::-webkit-scrollbar-thumb": { bgcolor: "rgba(0,0,0,0.15)", borderRadius: 3 },
+                }}>
+                  {error && (
+                    <Alert severity="error" sx={{ mb: 1.25, py: 0.25, borderRadius: "8px", fontFamily: T.poppins, "& .MuiAlert-message": { py: 0.5 } }}>
+                      {error}
+                    </Alert>
+                  )}
+
+                  <AssignFormPanel sx={{ mb: 1.25 }}>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12}>
+                        <AssignFieldLabel required compact hint="Last name, first name, or employee number">
+                          Employee
+                        </AssignFieldLabel>
+                        <Autocomplete
+                          value={selectedEmployee}
+                          onChange={(e, v) => { setSelectedEmployee(v); setError(""); setBulkCredits({}); }}
+                          options={employeeOptions}
+                          autoHighlight
+                          getOptionLabel={(o) => `${o._displayName || o.fullName || `${o.firstName || ""} ${o.lastName || ""}`.trim()} (${o.employeeNumber})`}
+                          filterOptions={(opts, { inputValue: iv }) => opts.filter((o) => (o._searchKey || "").includes(iv.toLowerCase().trim())).slice(0, 80)}
+                          isOptionEqualToValue={(o, v) => o.employeeNumber === v.employeeNumber}
+                          noOptionsText="No employees found"
+                          renderOption={(props, option) => {
+                            const { key, ...rest } = props;
+                            const name     = option._displayName || option.fullName || `${option.firstName || ""} ${option.lastName || ""}`.trim();
+                            const initials = `${option.lastName?.[0] || ""}${option.firstName?.[0] || ""}`.toUpperCase() || "?";
+                            const deptCode = deptMap[option.employeeNumber?.toString()];
+                            const empCat   = empCatMap[option.employeeNumber?.toString()];
+                            return (
+                              <li key={key} {...rest}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.15 }}>
+                                  <Avatar sx={{ width: 28, height: 28, bgcolor: T.accent, fontSize: "0.65rem", fontWeight: 700, borderRadius: "6px" }}>{initials}</Avatar>
+                                  <Box sx={{ minWidth: 0 }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins, fontSize: "0.78rem", lineHeight: 1.2 }}>{name}</Typography>
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                                      <Typography variant="caption" sx={{ color: T.faint, fontFamily: T.poppins, fontSize: "0.65rem" }}>#{option.employeeNumber}</Typography>
+                                      {(option.sex || option.gender) && <GenderBadge gender={option.sex || option.gender} />}
+                                      {deptCode && <DeptBadge code={deptCode} />}
+                                      {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} />}
+                                    </Box>
                                   </Box>
                                 </Box>
-                              </Box>
-                            </li>
-                          );
-                        }}
-                        renderInput={(params) => (
-                          <FieldInput {...params} size="small" placeholder="Type last name, first name, or employee number…"
-                            InputProps={{ ...params.InputProps, startAdornment: <><SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} />{params.InputProps.startAdornment}</> }}
-                          />
+                              </li>
+                            );
+                          }}
+                          renderInput={(params) => (
+                            <FieldInput
+                              {...params}
+                              size="small"
+                              placeholder="Name or employee #…"
+                              sx={assignFieldSx}
+                              InputProps={{
+                                ...params.InputProps,
+                                startAdornment: (
+                                  <>
+                                    <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5, ml: 0.15 }} />
+                                    {params.InputProps.startAdornment}
+                                  </>
+                                ),
+                              }}
+                            />
+                          )}
+                          slotProps={{ paper: { sx: { borderRadius: "8px", boxShadow: "0 6px 24px rgba(0,0,0,0.1)", border: "1px solid rgba(0,0,0,0.08)", mt: 0.25 } } }}
+                          sx={{ width: "100%" }}
+                        />
+                        {selectedEmployee && (
+                          <Box sx={{
+                            display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap",
+                            mt: 0.75, pt: 0.75, borderTop: "1px solid rgba(0,0,0,0.06)",
+                          }}>
+                            <Avatar sx={{ width: 26, height: 26, bgcolor: T.accent, fontSize: "0.6rem", fontWeight: 800, borderRadius: "6px" }}>
+                              {`${selectedEmployee.lastName?.[0] || ""}${selectedEmployee.firstName?.[0] || ""}`.toUpperCase() || "?"}
+                            </Avatar>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: T.text, fontFamily: T.poppins, lineHeight: 1.15 }} noWrap>
+                                {selectedEmployee._displayName || selectedEmployee.fullName || `${selectedEmployee.firstName || ""} ${selectedEmployee.lastName || ""}`.trim()}
+                              </Typography>
+                              <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>#{selectedEmployee.employeeNumber}</Typography>
+                            </Box>
+                            {selectedEmployeeGender && <GenderBadge gender={selectedEmployeeGender} />}
+                            {deptMap[selectedEmployee.employeeNumber?.toString()] && (
+                              <DeptBadge code={deptMap[selectedEmployee.employeeNumber?.toString()]} />
+                            )}
+                            {empCatMap[selectedEmployee.employeeNumber?.toString()] && (
+                              <EmpCatBadge label={empCatMap[selectedEmployee.employeeNumber?.toString()].label} colorHex={empCatMap[selectedEmployee.employeeNumber?.toString()].colorHex} />
+                            )}
+                          </Box>
                         )}
-                        slotProps={{ paper: { sx: { borderRadius: 2, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: `1px solid ${T.accentBorder}` } } }}
-                        sx={{ width: "100%" }}
-                      />
-                      {selectedEmployee && (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.75, flexWrap: "wrap" }}>
-                          {selectedEmployeeGender && (<><Typography variant="caption" sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins }}>Gender:</Typography><GenderBadge gender={selectedEmployeeGender} /></>)}
-                          {deptMap[selectedEmployee.employeeNumber?.toString()] && (<><Typography variant="caption" sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins, ml: selectedEmployeeGender ? 1 : 0 }}>Dept:</Typography><DeptBadge code={deptMap[selectedEmployee.employeeNumber?.toString()]} /></>)}
-                          {empCatMap[selectedEmployee.employeeNumber?.toString()] && (<><Typography variant="caption" sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins, ml: 1 }}>Category:</Typography><EmpCatBadge label={empCatMap[selectedEmployee.employeeNumber?.toString()].label} colorHex={empCatMap[selectedEmployee.employeeNumber?.toString()].colorHex} /></>)}
-                        </Box>
-                      )}
-                      {selectedEmployee && !selectedEmployeeGender && (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.75 }}>
-                          <WarningIcon sx={{ fontSize: 13, color: "#e65100" }} />
-                          <Typography variant="caption" sx={{ color: "#e65100", fontWeight: 700, fontFamily: T.poppins }}>No gender on file — gender-restricted types hidden.</Typography>
-                        </Box>
-                      )}
-                    </Box>
-
-                    <Grid container spacing={1.5}>
-                      <Grid item xs={12} sm={5}>
-                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Period Year <span style={{ color: "#c62828" }}>*</span></Typography>
-                        <FieldInput type="number" size="small" fullWidth value={periodYear} onChange={(e) => setPeriodYear(e.target.value)} inputProps={{ min: 2020, max: 2035 }} />
+                        {selectedEmployee && !selectedEmployeeGender && (
+                          <Typography sx={{ fontSize: "0.6rem", color: "#bf360c", fontFamily: T.poppins, mt: 0.4, display: "flex", alignItems: "center", gap: 0.35 }}>
+                            <WarningIcon sx={{ fontSize: 11 }} /> Gender-restricted types hidden
+                          </Typography>
+                        )}
                       </Grid>
-                      <Grid item xs={12} sm={7}>
-                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Period Month <span style={{ color: T.faint, fontWeight: 500, marginLeft: 4, fontSize: "0.68rem" }}>(optional)</span></Typography>
+
+                      <Grid item xs={12}>
+                        <Box sx={{ borderTop: "1px solid rgba(0,0,0,0.06)", pt: 1, mt: 0.25 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.75 }}>
+                            <CalendarIcon sx={{ fontSize: 13, color: T.accent }} />
+                            <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: alpha(T.text, 0.5), fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                              Assignment Period
+                            </Typography>
+                          </Box>
+                          <Grid container spacing={1}>
+                            <Grid item xs={4}>
+                        <AssignFieldLabel required compact>Year</AssignFieldLabel>
+                        <FieldInput
+                          type="number"
+                          size="small"
+                          fullWidth
+                          value={periodYear}
+                          onChange={(e) => setPeriodYear(e.target.value)}
+                          inputProps={{ min: 2020, max: 2035 }}
+                          sx={assignFieldSx}
+                        />
+                      </Grid>
+                      <Grid item xs={8}>
+                        <AssignFieldLabel compact>Month</AssignFieldLabel>
                         <FormControl fullWidth size="small">
-                          <Select value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} displayEmpty
-                            sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontFamily: T.poppins, fontSize: "0.875rem", fontWeight: periodMonth ? 700 : 400, color: periodMonth ? T.text : T.faint } }}>
-                            {MONTHS.map((m) => (
-                              <MenuItem key={m.value} value={m.value} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>
+                          <Select
+                            value={periodMonth}
+                            onChange={(e) => setPeriodMonth(e.target.value)}
+                            displayEmpty
+                            sx={{
+                              ...assignSelectSx,
+                              "& .MuiSelect-select": {
+                                py: "6px", fontFamily: T.poppins, fontSize: "0.8rem",
+                                fontWeight: periodMonth ? 600 : 400,
+                                color: periodMonth ? T.text : T.faint,
+                              },
+                            }}
+                          >
+                            {MONTHS.map((m) => {
+                              const hasBalance = m.value && monthsWithBalanceSet.has(m.value);
+                              return (
+                              <MenuItem key={m.value} value={m.value} sx={{ fontFamily: T.poppins, fontSize: "0.8rem", py: 0.5 }}>
                                 {m.value ? (
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                    <Box sx={{ width: 20, height: 20, borderRadius: "4px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                                      <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: T.accent, fontFamily: T.poppins }}>{m.value}</Typography>
-                                    </Box>
-                                    {m.label}
+                                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1 }}>
+                                    <Typography sx={{ fontFamily: T.poppins, fontSize: "0.8rem" }}>{m.label}</Typography>
+                                    {hasBalance && (
+                                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, flexShrink: 0 }}>
+                                        <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: CURRENT.main }} />
+                                        <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: CURRENT.dark, fontFamily: T.poppins }}>
+                                          has balance
+                                        </Typography>
+                                      </Box>
+                                    )}
                                   </Box>
                                 ) : (
-                                  <Typography sx={{ color: T.faint, fontStyle: "italic", fontFamily: T.poppins, fontSize: "0.82rem" }}>{m.label}</Typography>
+                                  <Typography sx={{ color: T.faint, fontStyle: "italic", fontFamily: T.poppins, fontSize: "0.8rem" }}>{m.label}</Typography>
                                 )}
                               </MenuItem>
-                            ))}
+                              );
+                            })}
                           </Select>
                         </FormControl>
                       </Grid>
-                    </Grid>
-
-                    {(periodYear || periodMonth) && (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 1 }}>
-                        <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins }}>Assigning for:</Typography>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.3, borderRadius: "5px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                          <CalendarIcon sx={{ fontSize: 11, color: T.accent }} />
-                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins }}>{periodYear}{selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}</Typography>
+                          </Grid>
                         </Box>
-                        {duplicateSet.size > 0 && <Typography sx={{ fontSize: "0.68rem", color: "#e65100", fontFamily: T.poppins, fontWeight: 600 }}>· {duplicateSet.size} type{duplicateSet.size !== 1 ? "s" : ""} already assigned</Typography>}
-                      </Box>
-                    )}
-                  </Box>
+                      </Grid>
+
+                      {(periodYear || periodMonth) && (
+                        <Grid item xs={12}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                            <Chip
+                              size="small"
+                              icon={<CalendarIcon sx={{ fontSize: "12px !important" }} />}
+                              label={`${periodYear}${selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}`}
+                              sx={{
+                                height: 22, fontSize: "0.65rem", fontWeight: 700, fontFamily: T.poppins,
+                                bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`,
+                                "& .MuiChip-icon": { color: T.accent },
+                              }}
+                            />
+                            {duplicateSet.size > 0 && (
+                              <Chip
+                                size="small"
+                                label={`${duplicateSet.size} type${duplicateSet.size !== 1 ? "s" : ""} · ${selectedMonthLabel || periodYear}`}
+                                sx={{
+                                  height: 22, fontSize: "0.62rem", fontWeight: 700, fontFamily: T.poppins,
+                                  bgcolor: alpha(CURRENT.main, 0.1), color: CURRENT.dark,
+                                  border: `1px solid ${alpha(CURRENT.main, 0.22)}`,
+                                }}
+                              />
+                            )}
+                          </Box>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </AssignFormPanel>
 
                   {selectedEmployee ? (
                     filteredLeaveTypesForNew.length === 0 ? (
-                      <Alert severity="info" sx={{ borderRadius: 2 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>No eligible leave types for this employee's gender.</Typography>
+                      <Alert severity="info" sx={{ borderRadius: "10px", fontFamily: T.poppins }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: T.poppins }}>
+                          No eligible leave types for this employee&apos;s gender.
+                        </Typography>
                       </Alert>
                     ) : (
-                      <>
-                        <Box sx={{ display: "grid", gridTemplateColumns: "140px 1fr 90px", gap: 1, px: 1.5, py: 0.75, mb: 0.75, bgcolor: alpha(T.accent, 0.04), borderRadius: 1 }}>
-                          {["Leave Type", "New Credits ★", "Total"].map((h) => (
-                            <Typography key={h} sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins }}>{h}</Typography>
+                      <Box>
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75, px: 0.25 }}>
+                          <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.text, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                            Leave Credits
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={`${filteredLeaveTypesForNew.length} type${filteredLeaveTypesForNew.length !== 1 ? "s" : ""}`}
+                            sx={{ height: 22, fontSize: "0.65rem", fontWeight: 700, fontFamily: T.poppins, bgcolor: "#fff", border: "1px solid rgba(0,0,0,0.1)" }}
+                          />
+                        </Box>
+                        <Box sx={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(0, 1fr) auto minmax(88px, 1.1fr) auto",
+                          gap: 1,
+                          px: 1.15,
+                          py: 0.75,
+                          bgcolor: alpha(T.accent, 0.88),
+                          borderRadius: "8px 8px 0 0",
+                        }}>
+                          {["Leave Type", "Remaining", "Credits", ""].map((h, i) => (
+                            h ? (
+                            <Typography key={h} sx={{
+                              fontSize: "0.6rem", fontWeight: 700, color: "rgba(255,255,255,0.92)",
+                              textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins,
+                              textAlign: i === 1 ? "right" : "left",
+                            }}>
+                              {h}
+                            </Typography>
+                            ) : <span key="add-btn-spacer" />
                           ))}
                         </Box>
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                          {filteredLeaveTypesForNew.map((lt) => (
-                            <BulkLeaveRow key={lt.leave_code} lt={lt} unit={unit} allocatedHours={toNum(bulkCredits[lt.leave_code])} onChangeAllocated={(hrs) => setBulkCredits((p) => ({ ...p, [lt.leave_code]: hrs }))} carriedHours={toNum(carryOverMap[lt.leave_code])} isDuplicate={duplicateSet.has(lt.leave_code)} />
-                          ))}
+                        <Box sx={{
+                          display: "flex", flexDirection: "column", gap: 0.6,
+                          p: 0.85, bgcolor: "#fff", borderRadius: "0 0 8px 8px",
+                          border: "1px solid rgba(0,0,0,0.08)", borderTop: "none",
+                        }}>
+                          {filteredLeaveTypesForNew.map((lt) => {
+                            const existing = periodAssignmentMap[lt.leave_code];
+                            const balancePeriodLabel = existing
+                              ? assignmentPeriodLabel(existing)
+                              : (carrySourceMap[lt.leave_code] || "");
+                            return (
+                              <BulkLeaveRow
+                                key={lt.leave_code}
+                                lt={lt}
+                                unit={unit}
+                                remainingHours={getAssignRemainingHours(lt.leave_code)}
+                                addHours={toNum(bulkCredits[lt.leave_code])}
+                                onChangeAdd={(hrs) => setBulkCredits((p) => ({ ...p, [lt.leave_code]: hrs }))}
+                                onAdd={() => handleAddLeaveCredit(lt)}
+                                adding={bulkAddingCode === lt.leave_code}
+                                hasExisting={!!existing}
+                                isCommuted={existing ? isCommutedLocked(existing) : false}
+                                carryHours={toNum(carryOverMap[lt.leave_code])}
+                                balancePeriodLabel={balancePeriodLabel}
+                              />
+                            );
+                          })}
                         </Box>
-                        {bulkResults && (
-                          <Alert severity={bulkResults.errors > 0 ? "warning" : "success"} sx={{ mt: 2, borderRadius: 2 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: T.poppins }}>{bulkResults.created} assigned · {bulkResults.skipped} skipped (duplicates) · {bulkResults.errors} error{bulkResults.errors !== 1 ? "s" : ""}</Typography>
-                          </Alert>
-                        )}
-                        <Box sx={{ mt: 2 }}>
-                          <AccentButton onClick={handleBulkAdd} variant="contained"
-                            startIcon={bulkSubmitting ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
-                            disabled={bulkSubmitting || pendingCount === 0} fullWidth
-                            sx={{ height: 40, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, fontFamily: T.poppins, "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none" } }}>
-                            {bulkSubmitting ? "Assigning…" : pendingCount > 0 ? `Assign ${pendingCount} Leave Type${pendingCount !== 1 ? "s" : ""}${selectedMonthLabel ? ` for ${selectedMonthLabel} ${periodYear}` : ` for ${periodYear}`}` : "Enter credits to assign"}
-                          </AccentButton>
-                          {duplicateSet.size > 0 && <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.75, textAlign: "center", fontFamily: T.poppins }}>{duplicateSet.size} type{duplicateSet.size !== 1 ? "s" : ""} already assigned for {periodYear}{selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""} — shown but skipped</Typography>}
-                        </Box>
-                      </>
+                      </Box>
                     )
                   ) : (
-                    <Box sx={{ py: 6, textAlign: "center" }}>
-                      <PersonIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.2), mb: 1 }} />
-                      <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>Select an employee to begin</Typography>
-                      <Typography sx={{ fontSize: "0.75rem", color: T.faint, mt: 0.5, fontFamily: T.poppins }}>All eligible leave types will appear below</Typography>
+                    <Box sx={{
+                      py: 5, px: 2, textAlign: "center",
+                      borderRadius: "10px", bgcolor: "#fff",
+                      border: "1px dashed rgba(0,0,0,0.12)",
+                    }}>
+                      <Box sx={{
+                        width: 52, height: 52, borderRadius: "12px", mx: "auto", mb: 1.5,
+                        bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <PersonIcon sx={{ fontSize: 26, color: alpha(T.accent, 0.45) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>
+                        Select an employee
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: T.faint, mt: 0.5, fontFamily: T.poppins, maxWidth: 220, mx: "auto", lineHeight: 1.45 }}>
+                        Choose an employee above to view eligible leave types and add credits
+                      </Typography>
                     </Box>
                   )}
                 </Box>
@@ -3071,17 +3304,6 @@ const LeaveAssignment = () => {
           />
         </Box>
       </Fade>
-
-      {/* Floating Reset to Default button */}
-      <Tooltip title={`Auto-assign leave types to all ${[...new Set(assignments.map((a) => a.employeeNumber))].length} employees with existing records`} placement="left">
-        <Button onClick={() => setBulkAssignOpen(true)} variant="contained" startIcon={<AutoAssignIcon />}
-          sx={{ position: "fixed", bottom: 70, right: 32, zIndex: 1200, bgcolor: T.accent, color: "#fff", borderRadius: 3, fontWeight: 700, fontFamily: T.poppins, px: 3, py: 1.5, fontSize: "0.875rem", boxShadow: `0 6px 20px ${alpha(T.accent, 0.45)}`, whiteSpace: "nowrap", "&:hover": { bgcolor: T.accentDark, boxShadow: `0 8px 28px ${alpha(T.accent, 0.55)}`, transform: "translateY(-2px)" }, transition: "all 0.2s ease" }}>
-          Reset to Default
-        </Button>
-      </Tooltip>
-
-      {/* Floating Conversion Widget */}
-      <FloatingConversionWidget onNavigateToModule={handleNavigateToConversionModule} />
     </>
   );
 };

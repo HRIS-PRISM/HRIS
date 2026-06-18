@@ -5466,7 +5466,8 @@ const AttendanceModuleFacultyDesignated = () => {
           savedRow={pendingSavedOverall}
           proposedRecord={pendingProposedOverall}
           fields={OVERALL_COMPARE_FIELD_META}
-          title="Compare saved summary vs new totals"
+          mode="duplicate"
+          currentModuleType="DESIGNATED_40HRS"
         />
 
         <Zoom in={showScrollTop}>

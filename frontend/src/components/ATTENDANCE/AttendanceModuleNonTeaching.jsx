@@ -2209,7 +2209,7 @@ const AttendanceModuleNonTeachingStaff = () => {
 
         <StyledModal open={modal.open} onClose={closeModal} title={modal.title} message={modal.message} type={modal.type} onConfirm={modal.onConfirm} showCancel={modal.showCancel} confirmLabel={modal.confirmLabel} />
 
-        <OverallAttendanceCompareModal open={compareOpen} onClose={handleCompareClose} onConfirm={handleCompareConfirm} savedRow={pendingSavedOverall} proposedRecord={pendingProposedOverall} fields={OVERALL_COMPARE_FIELD_META} title="Compare saved summary vs new totals" />
+        <OverallAttendanceCompareModal open={compareOpen} onClose={handleCompareClose} onConfirm={handleCompareConfirm} savedRow={pendingSavedOverall} proposedRecord={pendingProposedOverall} fields={OVERALL_COMPARE_FIELD_META} mode="duplicate" currentModuleType="NON_TEACHING" />
 
         <HalfDayReviewDialog
           open={Boolean(halfDayReviewDialog)}

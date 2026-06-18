@@ -2878,7 +2878,8 @@ import API_BASE_URL from '../../apiConfig';
             savedRow={pendingSavedOverall}
             proposedRecord={pendingProposedOverall}
             fields={OVERALL_COMPARE_FIELD_META}
-            title="Compare saved summary vs new totals"
+            mode="duplicate"
+            currentModuleType="FACULTY_30HRS"
           />
 
           <HalfDayReviewDialog

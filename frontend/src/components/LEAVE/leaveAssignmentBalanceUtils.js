@@ -112,24 +112,18 @@ export const isBeforePeriod = (row, targetYear, targetMonth) => {
 };
 
 /**
- * Carry-forward for a new period = effective remaining from the single most-recent prior period only.
- * If that period was commuted (or has zero effective remaining), carry is 0 — do not fall back to older periods.
+ * Most-recent assignment row strictly before target year/month.
  */
-export const getPriorPeriodCarryForwardHours = (
-  assignments = [],
-  targetYear,
-  targetMonth = null,
-  usageRows = [],
-) => {
+const findPriorPeriodSnapshot = (assignments = [], targetYear, targetMonth = null) => {
   const periods = latestPeriodsByKey(assignments);
-  if (!periods.length) return 0;
+  if (!periods.length) return null;
 
   const ty = parseInt(targetYear, 10);
   const tm = targetMonth != null && String(targetMonth).trim() !== ''
     ? parseInt(targetMonth, 10)
     : NaN;
 
-  const prior = periods
+  return periods
     .filter((p) => {
       if (!Number.isFinite(ty)) return true;
       if (!Number.isFinite(tm) || tm <= 0) {
@@ -144,10 +138,59 @@ export const getPriorPeriodCarryForwardHours = (
         - semRank(a.period_semester ?? a.period_month);
       if (sd !== 0) return sd;
       return toNum(b.id) - toNum(a.id);
-    })[0];
+    })[0] ?? null;
+};
 
+/**
+ * Carry-forward for a new period = effective remaining from the single most-recent prior period only.
+ * If that period was commuted (or has zero effective remaining), carry is 0 — do not fall back to older periods.
+ */
+export const getPriorPeriodCarryForwardHours = (
+  assignments = [],
+  targetYear,
+  targetMonth = null,
+  usageRows = [],
+) => {
+  const prior = findPriorPeriodSnapshot(assignments, targetYear, targetMonth);
   if (!prior || isCommutedLocked(prior)) return 0;
   return computeEffectiveRemaining(prior, usageRows);
+};
+
+/** Prior period row used for carry-forward into target year/month (null if none or commuted). */
+export const getPriorPeriodSnapshot = (
+  assignments = [],
+  targetYear,
+  targetMonth = null,
+) => {
+  const prior = findPriorPeriodSnapshot(assignments, targetYear, targetMonth);
+  if (!prior || isCommutedLocked(prior)) return null;
+  return prior;
+};
+
+/** Match a leave_earnings row to a leave_assignment period (year + month/semester). */
+export const earningMatchesPeriod = (earning, period) => {
+  if (!earning || !period) return false;
+  const ey = String(parseInt(String(earning.period_year), 10) || '');
+  const py = String(parseInt(String(period.period_year), 10) || '');
+  if (!ey || !py || ey !== py) return false;
+  const emRaw = earning.period_month != null ? String(earning.period_month).trim() : '';
+  const em = emRaw !== '' && /^\d+$/.test(emRaw) ? String(parseInt(emRaw, 10)) : emRaw;
+  const pmRaw = period.period_semester ?? period.period_month;
+  const pms = pmRaw != null && String(pmRaw).trim() !== ''
+    ? (/^\d+$/.test(String(pmRaw).trim()) ? String(parseInt(String(pmRaw), 10)) : String(pmRaw).trim())
+    : '';
+  if (!pms && !em) return true;
+  if (!pms || !em) return false;
+  return em === pms;
+};
+
+/** Approved earnings hours for one period — Earned Balance column source of truth. */
+export const getApprovedEarningsHoursForPeriod = (earningsList, period) => {
+  if (!period) return 0;
+  const list = Array.isArray(earningsList) ? earningsList : [];
+  return list
+    .filter((e) => e.earn_status === 'approved' && earningMatchesPeriod(e, period))
+    .reduce((s, e) => s + toNum(e.earned_hours), 0);
 };
 
 export const getLeaveTypeStatsActive = (assignments, usageRows = []) => {

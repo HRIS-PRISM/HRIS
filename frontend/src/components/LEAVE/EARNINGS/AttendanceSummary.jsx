@@ -275,9 +275,6 @@ const ATTENDANCE_MODULES = [
     sublabel: "8hrs staff",
     path: "/attendance_module",
     lsPrefix: "attendanceNonTeaching",
-    color: "#185FA5",
-    bg: "#E6F1FB",
-    border: "#B5D4F4",
   },
   {
     key: "faculty-30",
@@ -285,9 +282,6 @@ const ATTENDANCE_MODULES = [
     sublabel: "JO faculty",
     path: "/attendance_module_faculty",
     lsPrefix: "attendanceFaculty30",
-    color: "#3B6D11",
-    bg: "#EAF3DE",
-    border: "#C0DD97",
   },
   {
     key: "faculty-40",
@@ -295,9 +289,6 @@ const ATTENDANCE_MODULES = [
     sublabel: "Designated",
     path: "/attendance_module_faculty_40hrs",
     lsPrefix: "attendanceDesignated",
-    color: "#534AB7",
-    bg: "#EEEDFE",
-    border: "#AFA9EC",
   },
 ];
 
@@ -538,33 +529,47 @@ const EditAttendanceSummaryModal = ({
           </Box>
 
           {/* ── Module navigation buttons ── */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
-            <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: T.faint, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.08em", mr: 0.25 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+            <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.08em", mr: 0.25 }}>
               Go to
             </Typography>
             {ATTENDANCE_MODULES.map((mod) => (
               <Tooltip key={mod.key} title={`Open ${mod.label} attendance module`} placement="bottom" arrow enterDelay={400}>
-                <Box
+                <Button
+                  variant="contained"
+                  size="small"
                   onClick={() => onNavigateToModule(mod)}
+                  endIcon={<ArrowForwardIcon sx={{ fontSize: "13px !important" }} />}
                   sx={{
-                    display: "flex", alignItems: "center", gap: 0.4,
-                    px: 1, py: 0.5, borderRadius: 1.5,
-                    border: `1px solid ${mod.border}`, bgcolor: mod.bg,
-                    cursor: "pointer", userSelect: "none",
-                    transition: "all 0.14s ease",
+                    minHeight: 36,
+                    px: 1.75,
+                    py: 0.75,
+                    borderRadius: "8px",
+                    bgcolor: T.accent,
+                    color: "#fff",
+                    fontSize: "0.72rem",
+                    fontWeight: 600,
+                    fontFamily: T.poppins,
+                    textTransform: "none",
+                    letterSpacing: "0.01em",
+                    whiteSpace: "nowrap",
+                    lineHeight: 1.2,
+                    boxShadow: `0 2px 0 ${T.accentDark}, 0 4px 10px ${alpha(T.accent, 0.32)}`,
+                    transition: "background-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease",
+                    "& .MuiButton-endIcon": { ml: 0.5, opacity: 0.9 },
                     "&:hover": {
+                      bgcolor: T.accentDark,
+                      boxShadow: `0 2px 0 ${alpha(T.accentDark, 0.9)}, 0 6px 14px ${alpha(T.accent, 0.38)}`,
                       transform: "translateY(-1px)",
-                      boxShadow: `0 3px 10px ${alpha(mod.color, 0.22)}`,
-                      filter: "brightness(0.97)",
                     },
-                    "&:active": { transform: "translateY(0)" },
+                    "&:active": {
+                      transform: "translateY(1px)",
+                      boxShadow: `0 1px 0 ${T.accentDark}, 0 2px 6px ${alpha(T.accent, 0.22)}`,
+                    },
                   }}
                 >
-                  <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: mod.color, fontFamily: T.poppins, whiteSpace: "nowrap", lineHeight: 1 }}>
-                    {mod.label}
-                  </Typography>
-                  <ArrowForwardIcon sx={{ fontSize: 9, color: alpha(mod.color, 0.6) }} />
-                </Box>
+                  {mod.label}
+                </Button>
               </Tooltip>
             ))}
           </Box>
@@ -839,7 +844,7 @@ const AttendanceSummary = ({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [fields, setFields] = useState({});
-  const [liveBalances, setLiveBalances] = useState({ vl: null, sc: null, cto: null });
+  const [liveBalances, setLiveBalances] = useState({ vl: null, sl: null, sc: null, cto: null });
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareFormProposal, setCompareFormProposal] = useState(null);
   const [compareTertiary, setCompareTertiary] = useState(null);
@@ -853,13 +858,15 @@ const AttendanceSummary = ({
     try {
       const snaps = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
       const vlHours = toNum(snaps?.assignmentMap?.VL?.remaining_hours);
+      const slHours = toNum(snaps?.assignmentMap?.SL?.remaining_hours);
       setLiveBalances({
         vl: (vlHours / 8).toFixed(3),
+        sl: (slHours / 8).toFixed(3),
         sc: (toNum(snaps?.scRemainingHours) / 8).toFixed(3),
         cto: (toNum(snaps?.ctoRemainingHours) / 8).toFixed(3),
       });
     } catch {
-      setLiveBalances({ vl: "—", sc: "—", cto: "—" });
+      setLiveBalances({ vl: "—", sl: "—", sc: "—", cto: "—" });
     }
   }, [employee]);
 
@@ -1364,7 +1371,7 @@ const AttendanceSummary = ({
                     }}>
                       Leave balances
                     </Typography>
-                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 0.625 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 0.625 }}>
                       {[
                         {
                           title: "Vacation leave (VL)",
@@ -1373,6 +1380,14 @@ const AttendanceSummary = ({
                           valColor: "#0C447C",
                           bg: "rgba(21,95,165,0.06)",
                           border: "rgba(21,95,165,0.22)",
+                        },
+                        {
+                          title: "Sick leave (SL)",
+                          val: liveBalances.sl,
+                          nameColor: "#0D7377",
+                          valColor: "#096B6E",
+                          bg: "rgba(13,115,119,0.06)",
+                          border: "rgba(13,115,119,0.22)",
                         },
                         {
                           title: "Service credit (SC)",
@@ -1488,7 +1503,7 @@ const AttendanceSummary = ({
         proposedRecord={compareFormProposal}
         tertiaryRecord={compareTertiary}
         fields={EARNINGS_OVERALL_COMPARE_FIELDS}
-        title="Compare summary vs your edit"
+        mode="earnings"
       />
     </Box>
   );
