@@ -62,6 +62,7 @@ import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
 // ─── Theme tokens (mirroring EmploymentCategoryManagement) ───────────────────
 const T = {
@@ -955,6 +956,7 @@ const Children = () => {
                     {children.length} {children.length === 1 ? 'record' : 'records'}
                   </Typography>
                 </Box>
+                <DashboardModuleAuditLogs tableName="children_table" moduleLabel="Children Information" />
                 <Tooltip title="Refresh Data">
                   <IconButton
                     onClick={fetchChildren}

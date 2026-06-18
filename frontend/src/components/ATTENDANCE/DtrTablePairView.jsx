@@ -9,6 +9,8 @@ import {
 import { MODULE_TYPES } from '../../utils/halfDayReview';
 import {
   DTR_WIDTH_IN,
+  DTR_WM_INLINE_STYLE,
+  resolveDtrAmPmCellText,
   toPhCalendarYmd,
   normRecordYmd,
   recordMatchesDay,
@@ -123,19 +125,6 @@ const cellStyle = {
   fontSize: '10px',
   height: '16px',
   whiteSpace: 'nowrap',
-};
-
-const dtrWmSpanStyle = {
-  fontSize: '8.5px',
-  fontWeight: 700,
-  fontFamily: 'Arial, "Times New Roman", serif',
-  color: 'rgba(0,0,0,0.48)',
-  letterSpacing: '0.05em',
-  whiteSpace: 'nowrap',
-  userSelect: 'none',
-  lineHeight: 1,
-  WebkitPrintColorAdjust: 'exact',
-  printColorAdjust: 'exact',
 };
 
 const dtrRawEmpty = (v) =>
@@ -840,41 +829,23 @@ export default function DtrTablePairView({
     indicator,
     colKey,
   ) => {
-    const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
+    const { text, isWatermark } = resolveDtrAmPmCellText(
+      rawVal,
+      displayText,
+      indicator,
+    );
     return (
       <td
         key={colKey}
         style={{
           ...cellStyle,
           backgroundColor: rowTint,
-          position: 'relative',
           verticalAlign: 'middle',
-          overflow: 'visible',
           WebkitPrintColorAdjust: 'exact',
           printColorAdjust: 'exact',
         }}
       >
-        {showWm && (
-          <div
-            className="dtr-cell-watermark"
-            aria-hidden
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              right: 0,
-              bottom: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          >
-            <span style={dtrWmSpanStyle}>{indicator.label}</span>
-          </div>
-        )}
-        <span style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
+        <span style={isWatermark ? DTR_WM_INLINE_STYLE : undefined}>{text}</span>
       </td>
     );
   };

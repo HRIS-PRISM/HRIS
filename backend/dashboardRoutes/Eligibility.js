@@ -6,6 +6,12 @@ const xlsx = require("xlsx");
 const router = express.Router();
 const socketService = require("../socket/socketService");
 const authenticateToken = require("./authMiddleware");
+const {
+  fetchDashboardRow,
+  logDashboardCreate,
+  logDashboardUpdate,
+  logDashboardDelete,
+} = require("./dashboardAuditHelper");
 
 router.use(authenticateToken);
 
@@ -67,6 +73,8 @@ router.post("/eligibility", (req, res) => {
       person_id,
     });
 
+    logDashboardCreate(req, "eligibility_table", result.insertId, req.body);
+
     res.status(201).send({ message: "Eligibility created", id: result.insertId });
   });
 });
@@ -76,18 +84,26 @@ router.put("/eligibility/:id", (req, res) => {
   const { eligibilityName, eligibilityRating, eligibilityDateOfExam, eligibilityPlaceOfExam, licenseNumber, DateOfValidity, person_id } = req.body;
   const { id } = req.params;
   const query = "UPDATE eligibility_table SET eligibilityName = ?, eligibilityRating = ?, eligibilityDateOfExam = ?, eligibilityPlaceOfExam = ?, licenseNumber = ?, DateOfValidity = ?, person_id = ? WHERE id = ?";
-  db.query(query, [eligibilityName, eligibilityRating, eligibilityDateOfExam, eligibilityPlaceOfExam, licenseNumber, DateOfValidity, person_id, id], (err, result) => {
-    if (err) {
-      console.error("Error updating eligibility:", err);
-      return res.status(500).send({ message: "Error updating eligibility" });
-    }
 
-    socketService.notifyEligibilityChanged("updated", {
-      id: Number(id),
-      person_id,
+  fetchDashboardRow("eligibility_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send({ message: "Error updating eligibility" });
+    if (!oldRow) return res.status(404).send({ message: "Eligibility record not found" });
+
+    db.query(query, [eligibilityName, eligibilityRating, eligibilityDateOfExam, eligibilityPlaceOfExam, licenseNumber, DateOfValidity, person_id, id], (err) => {
+      if (err) {
+        console.error("Error updating eligibility:", err);
+        return res.status(500).send({ message: "Error updating eligibility" });
+      }
+
+      logDashboardUpdate(req, "eligibility_table", id, oldRow, req.body);
+
+      socketService.notifyEligibilityChanged("updated", {
+        id: Number(id),
+        person_id,
+      });
+
+      res.status(200).send({ message: "Eligibility record updated" });
     });
-
-    res.status(200).send({ message: "Eligibility record updated" });
   });
 });
 
@@ -95,12 +111,20 @@ router.put("/eligibility/:id", (req, res) => {
 router.delete("/eligibility/:id", (req, res) => {
   const { id } = req.params;
   const query = "DELETE FROM eligibility_table WHERE id = ?";
-  db.query(query, [id], (err, result) => {
-    if (err) return res.status(500).send(err);
 
-    socketService.notifyEligibilityChanged("deleted", { id: Number(id) });
+  fetchDashboardRow("eligibility_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send(err);
+    if (!oldRow) return res.status(404).send({ message: "Eligibility record not found" });
 
-    res.status(200).send({ message: "Eligibility record deleted" });
+    db.query(query, [id], (err) => {
+      if (err) return res.status(500).send(err);
+
+      logDashboardDelete(req, "eligibility_table", id, oldRow);
+
+      socketService.notifyEligibilityChanged("deleted", { id: Number(id) });
+
+      res.status(200).send({ message: "Eligibility record deleted" });
+    });
   });
 });
 

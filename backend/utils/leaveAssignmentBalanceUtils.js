@@ -95,6 +95,114 @@ const sumDedupedRemainingHours = (assignments, usageRows = []) =>
     0,
   );
 
+const semRank = (s) => {
+  const raw = String(s ?? "").trim();
+  if (!raw) return 0;
+  if (/^\d+$/.test(raw)) {
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const v = raw.toLowerCase();
+  if (v.includes("2nd")) return 2;
+  if (v.includes("1st")) return 1;
+  return 0;
+};
+
+const isBeforePeriod = (row, targetYear, targetMonth) => {
+  const y = Number(row?.period_year);
+  const m = semRank(row?.period_semester ?? row?.period_month);
+  const ty = parseInt(targetYear, 10);
+  if (!Number.isFinite(ty)) return false;
+  if (!Number.isFinite(y)) return true;
+  if (y < ty) return true;
+  if (y > ty) return false;
+  const tm = targetMonth != null ? parseInt(targetMonth, 10) : NaN;
+  if (!Number.isFinite(tm) || tm <= 0) return false;
+  return m < tm;
+};
+
+/**
+ * Carry-forward = effective remaining from the most-recent prior period only.
+ * If that period was commuted, carry is 0 (do not fall back to older periods).
+ */
+const getPriorPeriodCarryForwardHours = (
+  assignments = [],
+  targetYear,
+  targetMonth = null,
+  usageRows = [],
+) => {
+  const periods = latestPeriodsByKey(assignments);
+  if (!periods.length) return 0;
+
+  const ty = parseInt(targetYear, 10);
+  const tm =
+    targetMonth != null && String(targetMonth).trim() !== ""
+      ? parseInt(targetMonth, 10)
+      : NaN;
+
+  const prior = periods
+    .filter((p) => {
+      if (!Number.isFinite(ty)) return true;
+      if (!Number.isFinite(tm) || tm <= 0) {
+        return (Number(p.period_year) || 0) < ty;
+      }
+      return isBeforePeriod(p, ty, tm);
+    })
+    .sort((a, b) => {
+      const yd = (Number(b.period_year) || 0) - (Number(a.period_year) || 0);
+      if (yd !== 0) return yd;
+      const sd =
+        semRank(b.period_semester ?? b.period_month) -
+        semRank(a.period_semester ?? a.period_month);
+      if (sd !== 0) return sd;
+      return toNum(b.id) - toNum(a.id);
+    })[0];
+
+  if (!prior || isCommutedLocked(prior)) return 0;
+  return computeEffectiveRemaining(prior, usageRows);
+};
+
+const queryAsync = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
+  });
+
+/** Load assignments + usage ledger and compute carry-forward for a new period. */
+const getPriorPeriodCarryForwardHoursForEmployee = async (
+  db,
+  employeeNumber,
+  leaveCode,
+  targetYear,
+  targetMonth = null,
+) => {
+  const assignments = await queryAsync(
+    db,
+    `SELECT * FROM leave_assignment
+     WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
+    [String(employeeNumber), String(leaveCode)],
+  );
+  if (!assignments.length) return 0;
+
+  const ids = latestPeriodsByKey(assignments).map((a) => a.id).filter(Boolean);
+  let usageRows = [];
+  if (ids.length) {
+    const placeholders = ids.map(() => "?").join(",");
+    usageRows = await queryAsync(
+      db,
+      `SELECT * FROM leave_credit_usage
+       WHERE leave_assignment_id IN (${placeholders}) AND voided_at IS NULL`,
+      ids,
+    );
+  }
+
+  return getPriorPeriodCarryForwardHours(
+    assignments,
+    targetYear,
+    targetMonth,
+    usageRows,
+  );
+};
+
 /** Same balance as Assignment Management grid (latest active period only). */
 const getLeaveTypeStatsActive = (assignments, usageRows = []) => {
   const empty = {
@@ -140,4 +248,8 @@ module.exports = {
   computeEffectiveRemaining,
   sumDedupedRemainingHours,
   getLeaveTypeStatsActive,
+  semRank,
+  isBeforePeriod,
+  getPriorPeriodCarryForwardHours,
+  getPriorPeriodCarryForwardHoursForEmployee,
 };

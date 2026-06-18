@@ -38,6 +38,10 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import {
+  formatDtrPdfFileName,
+  openPdfBlobForPrint,
+} from '../../utils/dtrFormatHelpers';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -576,6 +580,18 @@ const DailyTimeRecordServiceCredits = () => {
   };
 
   // ── Capture helpers ────────────────────────────────────────────────────────
+  const getSingleDtrPdfUser = () => {
+    if (records[0]) {
+      const r = records[0];
+      return {
+        firstName: r.firstName,
+        lastName: r.lastName,
+        middleName: r.middleName,
+      };
+    }
+    return { fullName: employeeName };
+  };
+
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = { backgroundColor: el.style.backgroundColor, width: el.style.width, visibility: el.style.visibility, display: el.style.display, position: el.style.position, left: el.style.left, zIndex: el.style.zIndex, opacity: el.style.opacity };
@@ -619,7 +635,10 @@ const DailyTimeRecordServiceCredits = () => {
       pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
       addWatermark(pdf);
       pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(
+        pdf,
+        formatDtrPdfFileName(getSingleDtrPdfUser(), startDate),
+      );
     } catch (e) { console.error('Error generating print view:', e); }
     finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
   };
@@ -640,7 +659,7 @@ const DailyTimeRecordServiceCredits = () => {
       const dtrW = 8, dtrH = 10, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
       addWatermark(pdf);
-      pdf.save(`DTR-ServiceCredits-${employeeName}-${formatMonth(startDate)}.pdf`);
+      pdf.save(formatDtrPdfFileName(getSingleDtrPdfUser(), startDate));
       setSnackbar({ open: true, message: 'DTR downloaded successfully. Integrity verified.', severity: 'success' });
     } catch (e) { console.error('Error generating PDF:', e); }
     finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }

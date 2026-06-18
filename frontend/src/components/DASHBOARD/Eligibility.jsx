@@ -58,6 +58,7 @@ import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
 const T = {
   accent: '#6d2323',
@@ -1065,6 +1066,7 @@ const Eligibility = () => {
                     {data.length} {data.length === 1 ? 'record' : 'records'}
                   </Typography>
                 </Box>
+                <DashboardModuleAuditLogs tableName="eligibility_table" moduleLabel="Eligibility" />
                 <Tooltip title="Refresh Data">
                   <IconButton
                     onClick={fetchEligibility}

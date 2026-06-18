@@ -25,6 +25,9 @@ const {
   getActivePeriods,
   sortPeriodsDesc,
   getLeaveTypeStatsActive,
+  getPriorPeriodCarryForwardHoursForEmployee,
+  isCommutedLocked,
+  latestPeriodsByKey,
 } = require("../utils/leaveAssignmentBalanceUtils");
 const { isApprovedHalfDayInReviewJson } = require("../utils/halfDayReviewUtils");
 
@@ -72,6 +75,8 @@ const normalizeAssignmentRow = (r) => ({
   used_hours: parseDbHours(r.used_hours),
   carried_forward_hours: parseDbHours(r.carried_forward_hours),
   allocated_hours: parseDbHours(r.allocated_hours),
+  commuted_hours: parseDbHours(r.commuted_hours),
+  commuted_days: parseDbHours(r.commuted_days),
 });
 
 const semRank = (s) => {
@@ -1225,10 +1230,21 @@ router.get("/leave_assignment", requireAdmin, (req, res) => {
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
+      COALESCE(la.commuted, 0) AS commuted,
+      lc.commuted_hours, lc.commuted_days, lc.commutation_id,
       lt.leave_description, lt.leave_hours as default_hours,
       p.firstName, p.middleName, p.lastName, p.nameExtension,
       CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) as fullName
     FROM leave_assignment la
+    LEFT JOIN (
+      SELECT leave_assignment_id,
+             MAX(id) AS commutation_id,
+             MAX(commuted_hours) AS commuted_hours,
+             MAX(commuted_days) AS commuted_days
+      FROM leave_commutation
+      WHERE status != 3
+      GROUP BY leave_assignment_id
+    ) lc ON lc.leave_assignment_id = la.id
     LEFT JOIN leave_table lt ON la.leave_code = lt.leave_code
     LEFT JOIN person_table p ON la.employeeNumber = p.agencyEmployeeNum
     ORDER BY p.lastName, p.firstName, la.leave_code
@@ -1250,8 +1266,19 @@ router.get("/leave_assignment/employee/:employeeNumber", requireSelfOrAdmin('emp
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
+      COALESCE(la.commuted, 0) AS commuted,
+      lc.commuted_hours, lc.commuted_days, lc.commutation_id,
       lt.leave_description
     FROM leave_assignment la
+    LEFT JOIN (
+      SELECT leave_assignment_id,
+             MAX(id) AS commutation_id,
+             MAX(commuted_hours) AS commuted_hours,
+             MAX(commuted_days) AS commuted_days
+      FROM leave_commutation
+      WHERE status != 3
+      GROUP BY leave_assignment_id
+    ) lc ON lc.leave_assignment_id = la.id
     LEFT JOIN leave_table lt ON la.leave_code = lt.leave_code
     WHERE la.employeeNumber = ?
   `;
@@ -1268,34 +1295,32 @@ router.get("/leave_assignment/employee/:employeeNumber", requireSelfOrAdmin('emp
 router.get(
   "/leave_assignment/calculate-carryforward/:employeeNumber/:leave_code",
   requireSelfOrAdmin('employeeNumber'),
-  (req, res) => {
+  async (req, res) => {
     const { employeeNumber, leave_code } = req.params;
-    const query = `
-    SELECT id, remaining_hours, period_year, period_semester, allocated_hours, carried_forward_hours, total_hours, used_hours
-    FROM leave_assignment
-    WHERE employeeNumber = ? AND leave_code = ?
-    ORDER BY period_year DESC,
-      CASE WHEN period_semester = '2nd' THEN 3 WHEN period_semester = '1st' THEN 2 ELSE 1 END DESC
-    LIMIT 1
-  `;
-    db.query(query, [employeeNumber, leave_code], (err, results) => {
-      if (err)
-        return res
-          .status(500)
-          .json({ error: "Failed to calculate carry forward" });
-      if (results.length === 0)
-        return res.json({
-          hasHistory: false,
-          suggestedCarryForward: 0,
-          previousPeriod: null,
-        });
-      const prev = results[0];
+    const { period_year, period_month } = req.query;
+    const targetYear = period_year ? parseInt(period_year, 10) : new Date().getFullYear();
+    const targetMonth =
+      period_month != null && String(period_month).trim() !== ""
+        ? parseInt(period_month, 10)
+        : null;
+
+    try {
+      const suggestedCarryForward = await getPriorPeriodCarryForwardHoursForEmployee(
+        db,
+        employeeNumber,
+        leave_code,
+        targetYear,
+        targetMonth,
+      );
       res.json({
-        hasHistory: true,
-        suggestedCarryForward: parseDbHours(prev.remaining_hours) || 0,
-        previousPeriod: normalizeAssignmentRow(prev),
+        hasHistory: suggestedCarryForward > 0,
+        suggestedCarryForward,
+        previousPeriod: null,
       });
-    });
+    } catch (err) {
+      console.error("[GET calculate-carryforward]", err.message);
+      res.status(500).json({ error: "Failed to calculate carry forward" });
+    }
   },
 );
 
@@ -1310,39 +1335,103 @@ router.post("/leave_assignment", requireAdmin, (req, res) => {
     period_semester,
   } = req.body;
 
-  const shouldAutoRollForward = () => {
-    const semRaw = period_semester;
-    const semNum = semRaw != null && String(semRaw).trim() !== "" ? parseInt(String(semRaw), 10) : NaN;
-    if (!Number.isFinite(semNum) || semNum <= 0) return false;
-    // If caller didn't meaningfully specify carry-forward, auto-roll prior remaining into this period.
-    const cfProvided = carried_forward_hours !== undefined && carried_forward_hours !== null && carried_forward_hours !== "";
-    if (!cfProvided) return true;
-    const cfNum = parseDbHours(carried_forward_hours) || 0;
-    return cfNum === 0;
+  const semRank = (s) => {
+    const raw = String(s ?? "").trim();
+    if (!raw) return 0;
+    if (/^\d+$/.test(raw)) {
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const v = raw.toLowerCase();
+    if (v.includes("2nd")) return 2;
+    if (v.includes("1st")) return 1;
+    return 0;
   };
 
+  const normalizePeriodKeyRow = (row) => {
+    const y = row?.period_year != null ? String(parseInt(String(row.period_year), 10) || "").trim() : "";
+    const semRaw = row?.period_semester != null ? String(row.period_semester).trim() : "";
+    const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
+    const sem = Number.isFinite(semNum) ? String(semNum) : semRaw;
+    return `${y}|${sem}`;
+  };
+
+  const isBeforePeriodRow = (row, targetYear, targetMonth) => {
+    const y = Number(row?.period_year);
+    const m = semRank(row?.period_semester);
+    const ty = parseInt(targetYear, 10);
+    if (!Number.isFinite(ty)) return false;
+    if (!Number.isFinite(y)) return true;
+    if (y < ty) return true;
+    if (y > ty) return false;
+    const tm = targetMonth != null ? parseInt(targetMonth, 10) : NaN;
+    if (!Number.isFinite(tm) || tm <= 0) return false;
+    return m < tm;
+  };
+
+  const latestSnapshotPerPeriod = (rows = []) => {
+    const m = new Map();
+    for (const r of rows || []) {
+      const key = normalizePeriodKeyRow(r);
+      const prev = m.get(key);
+      const id = Number(r?.id);
+      const prevId = Number(prev?.id);
+      if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
+        m.set(key, r);
+      }
+    }
+    return Array.from(m.values());
+  };
+
+  // Carry only the most-recent prior period remaining (not a sum of all prior periods).
   const loadPriorRemainingRows = (y, sem, cb) => {
-    const semNum = parseInt(String(sem), 10);
-    if (!employeeNumber || !leave_code || !Number.isFinite(semNum)) return cb(null, { ids: [], carry: 0 });
-    db.query(
-      `SELECT id, remaining_hours
-       FROM leave_assignment
-       WHERE employeeNumber = ?
-         AND TRIM(leave_code) = TRIM(?)
-         AND (
-           period_year < ?
-           OR (period_year = ? AND period_semester IS NOT NULL AND CAST(period_semester AS UNSIGNED) < ?)
-         )
-         AND COALESCE(remaining_hours, 0) > 0`,
-      [String(employeeNumber), String(leave_code), y, y, semNum],
-      (err, rows) => {
-        if (err) return cb(err);
-        const list = Array.isArray(rows) ? rows : [];
-        const ids = list.map((r) => r.id).filter((id) => id != null);
-        const carry = list.reduce((s, r) => s + (parseDbHours(r.remaining_hours) || 0), 0);
-        cb(null, { ids, carry: Math.max(0, carry) });
-      },
-    );
+    if (!employeeNumber || !leave_code) return cb(null, { ids: [], carry: 0 });
+    const targetYear = parseInt(y, 10);
+    const semNum = sem != null && String(sem).trim() !== "" ? parseInt(String(sem), 10) : NaN;
+    const targetMonth = Number.isFinite(semNum) && semNum > 0 ? semNum : null;
+
+    getPriorPeriodCarryForwardHoursForEmployee(
+      db,
+      employeeNumber,
+      leave_code,
+      targetYear,
+      targetMonth,
+    )
+      .then((carry) => {
+        if (carry <= 0) return cb(null, { ids: [], carry: 0 });
+
+        db.query(
+          `SELECT id, remaining_hours, period_year, period_semester, COALESCE(commuted, 0) AS commuted
+           FROM leave_assignment
+           WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
+          [String(employeeNumber), String(leave_code)],
+          (err, rows) => {
+            if (err) return cb(err);
+            const list = latestPeriodsByKey(Array.isArray(rows) ? rows : []);
+            const ids = list
+              .filter((r) => {
+                if (isCommutedLocked(r)) return false;
+                if (!Number.isFinite(targetYear)) return true;
+                if (!targetMonth) return (Number(r.period_year) || 0) < targetYear;
+                return isBeforePeriodRow(r, targetYear, targetMonth);
+              })
+              .map((r) => r.id)
+              .filter((id) => id != null);
+            cb(null, { ids, carry });
+          },
+        );
+      })
+      .catch((err) => cb(err));
+  };
+
+  const resolveCarryForward = (currentYear, semester, carriedForwardDirect, cb) => {
+    loadPriorRemainingRows(currentYear, semester, (e0, meta) => {
+      if (e0) return cb(carriedForwardDirect, []);
+      const priorCarry = meta?.carry ?? 0;
+      const priorIds = meta?.ids ?? [];
+      const finalCarry = priorCarry > 0 ? priorCarry : carriedForwardDirect;
+      cb(finalCarry, priorIds);
+    });
   };
 
   const zeroOutPriorRows = (ids, done) => {
@@ -1420,8 +1509,8 @@ router.post("/leave_assignment", requireAdmin, (req, res) => {
                     "Failed to create leave assignment: " + insertErr.message,
                 });
             }
-            // Avoid double-counting: when we auto-rolled forward, prior rows should no longer contribute to remaining totals.
-            if (shouldAutoRollForward() && (parseDbHours(carriedForward) || 0) > 0) {
+            // Avoid double-counting: prior period rows must not contribute after roll-forward.
+            if ((parseDbHours(carriedForward) || 0) > 0 && priorIds.length > 0) {
               zeroOutPriorRows(priorIds, () => {});
             }
             const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
@@ -1462,15 +1551,9 @@ router.post("/leave_assignment", requireAdmin, (req, res) => {
         };
 
         const carriedForwardDirect = parseDbHours(carried_forward_hours) || 0;
-        if (shouldAutoRollForward() && semester != null) {
-          loadPriorRemainingRows(currentYear, semester, (e0, meta) => {
-            if (e0) return doInsert(carriedForwardDirect, []);
-            const carry = meta?.carry || 0;
-            doInsert(carry, meta?.ids || []);
-          });
-        } else {
-          doInsert(carriedForwardDirect, []);
-        }
+        resolveCarryForward(currentYear, semester, carriedForwardDirect, (finalCarry, priorIds) => {
+          doInsert(finalCarry, priorIds);
+        });
       } else {
         db.query(
           "SELECT leave_hours FROM leave_table WHERE leave_code = ?",
@@ -1510,7 +1593,7 @@ router.post("/leave_assignment", requireAdmin, (req, res) => {
                     .status(500)
                     .json({ error: "Failed to create leave assignment" });
                 }
-                if (shouldAutoRollForward() && (parseDbHours(carriedForward) || 0) > 0) {
+                if ((parseDbHours(carriedForward) || 0) > 0 && priorIds.length > 0) {
                   zeroOutPriorRows(priorIds, () => {});
                 }
                 const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
@@ -1551,15 +1634,9 @@ router.post("/leave_assignment", requireAdmin, (req, res) => {
             };
 
             const carriedForwardDirect = parseDbHours(carried_forward_hours) || 0;
-            if (shouldAutoRollForward() && semester != null) {
-              loadPriorRemainingRows(currentYear, semester, (e0, meta) => {
-                if (e0) return doInsert(carriedForwardDirect, []);
-                const carry = meta?.carry || 0;
-                doInsert(carry, meta?.ids || []);
-              });
-            } else {
-              doInsert(carriedForwardDirect, []);
-            }
+            resolveCarryForward(currentYear, semester, carriedForwardDirect, (finalCarry, priorIds) => {
+              doInsert(finalCarry, priorIds);
+            });
           },
         );
       }

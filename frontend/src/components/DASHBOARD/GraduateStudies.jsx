@@ -61,6 +61,7 @@ import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
 const T = {
   accent: '#6d2323',
@@ -967,6 +968,7 @@ const GraduateStudies = () => {
                     {data.length} {data.length === 1 ? 'record' : 'records'}
                   </Typography>
                 </Box>
+                <DashboardModuleAuditLogs tableName="graduate_table" moduleLabel="Graduate Studies" />
                 <Tooltip title="Refresh Data">
                   <IconButton
                     onClick={fetchGraduates}

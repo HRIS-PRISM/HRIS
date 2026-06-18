@@ -104,6 +104,16 @@ import {
   parseHalfDayReviewJson,
   MODULE_TYPES,
 } from '../../utils/halfDayReview';
+import {
+  DTR_WIDTH_IN,
+  DTR_WM_INLINE_STYLE,
+  dtrTimeValueEmpty,
+  isDtrCellWatermarkText,
+  resolveDtrAmPmCellText,
+  formatDtrPdfFileName,
+  formatDtrBulkPdfFileName,
+  openPdfBlobForPrint,
+} from '../../utils/dtrFormatHelpers';
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
   accent: '#6d2323',
@@ -484,17 +494,7 @@ const getAuthHeaders = () => {
   };
 };
 
-const DTR_WIDTH_IN = '8.7in';
 const PAGE_SIZE = 30;
-
-/** html2canvas often under-renders faint text; bump contrast on the cloned DOM used for capture */
-const enhanceDtrWatermarksInClone = (clonedDoc) => {
-  if (!clonedDoc?.querySelectorAll) return;
-  clonedDoc.querySelectorAll('.dtr-cell-watermark span').forEach((el) => {
-    el.style.setProperty('color', 'rgba(0,0,0,0.55)');
-    el.style.setProperty('opacity', '1');
-  });
-};
 
 /** YYYY-MM-DD as a Philippines calendar day */
 const toPhCalendarYmd = (value) => {
@@ -923,7 +923,10 @@ const DailyTimeRecordFaculty = ({
           fmt(record?.timeOUT || ''),
         ].forEach((val, idx) => {
           const span = cells[idx + 1]?.querySelector('span');
-          if (span && span.textContent.trim() !== val) span.textContent = val;
+          if (!span) return;
+          const current = span.textContent.trim();
+          if (!val && isDtrCellWatermarkText(current)) return;
+          if (current !== val) span.textContent = val;
         });
       });
     });
@@ -1822,6 +1825,26 @@ const DailyTimeRecordFaculty = ({
     setCurrentPreviewIndex((p) => (p < previewUsers.length - 1 ? p + 1 : 0));
 
   // ─── Capture helpers ────────────────────────────────────────────────────
+  const getSingleDtrPdfUser = useCallback(() => {
+    if (selectedEmployee) {
+      return {
+        firstName: selectedEmployee.firstName,
+        lastName: selectedEmployee.lastName,
+        middleName: selectedEmployee.middleName,
+        fullName: selectedEmployee.fullName,
+      };
+    }
+    if (records[0]) {
+      const r = records[0];
+      return {
+        firstName: r.firstName,
+        lastName: r.lastName,
+        middleName: r.middleName,
+      };
+    }
+    return { fullName: employeeName };
+  }, [selectedEmployee, records, employeeName]);
+
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = {
@@ -1861,6 +1884,47 @@ const DailyTimeRecordFaculty = ({
     }
   };
 
+  /** Capture without moving visible on-page DTR — clones off-screen for live view */
+  const captureDtrElement = async (el, scale = 2) => {
+    if (!el) throw new Error('DTR element not found');
+
+    const isOffScreenBulk = el.classList?.contains('bulk-dtr-print');
+    let captureTarget = el;
+    let tempClone = null;
+    let orig = null;
+
+    if (!isOffScreenBulk) {
+      tempClone = el.cloneNode(true);
+      tempClone.style.position = 'fixed';
+      tempClone.style.left = '-9999px';
+      tempClone.style.top = '0';
+      tempClone.style.width = DTR_WIDTH_IN;
+      tempClone.style.visibility = 'visible';
+      tempClone.style.display = 'block';
+      tempClone.style.backgroundColor = '#ffffff';
+      tempClone.style.zIndex = '-1';
+      tempClone.style.opacity = '1';
+      document.body.appendChild(tempClone);
+      captureTarget = tempClone;
+    } else {
+      orig = ensureCaptureStyles(el);
+    }
+
+    try {
+      await new Promise((r) => requestAnimationFrame(r));
+      const canvas = await html2canvas(captureTarget, {
+        scale,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      return canvas;
+    } finally {
+      if (tempClone) tempClone.remove();
+      else restoreCaptureStyles(el, orig);
+    }
+  };
+
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
@@ -1874,16 +1938,9 @@ const DailyTimeRecordFaculty = ({
         unit: 'in',
         format: 'a4',
       });
-      const orig = ensureCaptureStyles(dtrRef.current);
       setSinglePrintStatus('Capturing DTR layout...');
-      await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
-      });
-      restoreCaptureStyles(dtrRef.current, orig);
+      await new Promise((r) => setTimeout(r, 50));
+      const canvas = await captureDtrElement(dtrRef.current, 2);
       const imgData = canvas.toDataURL('image/png');
       const dtrW = 8,
         dtrH = 9.5,
@@ -1898,7 +1955,10 @@ const DailyTimeRecordFaculty = ({
         dtrH,
       );
       pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(
+        pdf,
+        formatDtrPdfFileName(getSingleDtrPdfUser(), startDate),
+      );
     } catch (e) {
       console.error('Error generating print view:', e);
     } finally {
@@ -1920,15 +1980,8 @@ const DailyTimeRecordFaculty = ({
         unit: 'in',
         format: 'a4',
       });
-      const orig = ensureCaptureStyles(dtrRef.current);
-      await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
-      });
-      restoreCaptureStyles(dtrRef.current, orig);
+      await new Promise((r) => setTimeout(r, 50));
+      const canvas = await captureDtrElement(dtrRef.current, 2);
       const imgData = canvas.toDataURL('image/png');
       const dtrW = 8,
         dtrH = 10,
@@ -1942,7 +1995,7 @@ const DailyTimeRecordFaculty = ({
         dtrW,
         dtrH,
       );
-      pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
+      pdf.save(formatDtrPdfFileName(getSingleDtrPdfUser(), startDate));
     } catch (e) {
       console.error('Error generating PDF:', e);
     } finally {
@@ -1954,7 +2007,6 @@ const DailyTimeRecordFaculty = ({
   const handleIndividualPrintConfirmed = async (user) => {
     closeConfirm();
 
-    const wasOpen = previewModalOpen;
     try {
       setPrintingAll(true);
       setPrintingStatus(
@@ -1962,20 +2014,12 @@ const DailyTimeRecordFaculty = ({
       );
       setPreviewUsers([user]);
       setCurrentPreviewIndex(0);
-      setPreviewModalOpen(true);
-      await new Promise((r) => setTimeout(r, 1500));
+      setPreviewModalOpen(false);
+      await new Promise((r) => setTimeout(r, 300));
       const ref = bulkDTRRefs.current[user.employeeNumber];
       if (!ref) throw new Error('DTR element not found. Please try again.');
-      const orig = ensureCaptureStyles(ref);
-      await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(ref, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
-      });
-      restoreCaptureStyles(ref, orig);
+      setPrintingStatus('Capturing DTR layout...');
+      const canvas = await captureDtrElement(ref, 2);
       if (!canvas || canvas.width === 0)
         throw new Error('Failed to capture DTR.');
       const imgData = canvas.toDataURL('image/png');
@@ -2018,14 +2062,13 @@ const DailyTimeRecordFaculty = ({
         printed_by: 'current_user',
       });
       setPrintStatusMap(newMap);
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(pdf, formatDtrPdfFileName(user, startDate));
     } catch (error) {
       console.error('Error printing individual DTR:', error);
       showAlert('Print Error', `Error printing DTR: ${error.message}`);
     } finally {
       setPrintingStatus('');
       setPrintingAll(false);
-      if (!wasOpen) setPreviewModalOpen(false);
     }
   };
 
@@ -2038,6 +2081,7 @@ const DailyTimeRecordFaculty = ({
     try {
       setPrintingAll(true);
       setPrintingStatus('Preparing DTRs for printing...');
+      setPreviewModalOpen(false);
       await new Promise((r) => requestAnimationFrame(r));
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -2061,14 +2105,7 @@ const DailyTimeRecordFaculty = ({
         }
         if (!ref) continue;
         try {
-          const orig = ensureCaptureStyles(ref);
-          const canvas = await html2canvas(ref, {
-            scale: captureScale,
-            useCORS: true,
-            logging: false,
-            onclone: (doc) => enhanceDtrWatermarksInClone(doc),
-          });
-          restoreCaptureStyles(ref, orig);
+          const canvas = await captureDtrElement(ref, captureScale);
           if (!canvas || canvas.width === 0) continue;
           const imgData = canvas.toDataURL('image/png');
           if (!imgData || imgData === 'data:,') continue;
@@ -2084,16 +2121,17 @@ const DailyTimeRecordFaculty = ({
           successCount++;
         } catch (e) {
           console.error(`Error capturing ${user.employeeNumber}:`, e);
-          try {
-            restoreCaptureStyles(ref, {});
-          } catch {}
         }
         if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
       }
       if (successCount === 0)
         throw new Error('No DTRs were successfully captured.');
+      const bulkPdfName =
+        previewUsers.length === 1
+          ? formatDtrPdfFileName(previewUsers[0], startDate)
+          : formatDtrBulkPdfFileName(startDate);
       pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(pdf, bulkPdfName);
       try {
         const year = new Date(startDate).getFullYear();
         const month = new Date(startDate).getMonth() + 1;
@@ -2121,7 +2159,6 @@ const DailyTimeRecordFaculty = ({
     } finally {
       setPrintingStatus('');
       setPrintingAll(false);
-      setPreviewModalOpen(false);
     }
   };
 
@@ -2134,6 +2171,7 @@ const DailyTimeRecordFaculty = ({
     try {
       setPrintingAll(true);
       setPrintingStatus('Preparing DTRs for download...');
+      setPreviewModalOpen(false);
       await new Promise((r) => requestAnimationFrame(r));
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -2157,14 +2195,7 @@ const DailyTimeRecordFaculty = ({
         }
         if (!ref) continue;
         try {
-          const orig = ensureCaptureStyles(ref);
-          const canvas = await html2canvas(ref, {
-            scale: captureScale,
-            useCORS: true,
-            logging: false,
-            onclone: (doc) => enhanceDtrWatermarksInClone(doc),
-          });
-          restoreCaptureStyles(ref, orig);
+          const canvas = await captureDtrElement(ref, captureScale);
           if (!canvas || canvas.width === 0) continue;
           const imgData = canvas.toDataURL('image/png');
           if (!imgData || imgData === 'data:,') continue;
@@ -2179,21 +2210,22 @@ const DailyTimeRecordFaculty = ({
           );
           successCount++;
         } catch (e) {
-          try {
-            restoreCaptureStyles(ref, {});
-          } catch {}
+          console.error(`Error capturing ${user.employeeNumber}:`, e);
         }
         if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
       }
       if (successCount === 0)
         throw new Error('No DTRs were successfully captured.');
-      pdf.save(`DTR-AllUsers-${formatMonth(startDate)}.pdf`);
+      const bulkPdfName =
+        previewUsers.length === 1
+          ? formatDtrPdfFileName(previewUsers[0], startDate)
+          : formatDtrBulkPdfFileName(startDate);
+      pdf.save(bulkPdfName);
     } catch (error) {
       showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
     } finally {
       setPrintingStatus('');
       setPrintingAll(false);
-      setPreviewModalOpen(false);
     }
   };
 
@@ -2913,21 +2945,7 @@ const DailyTimeRecordFaculty = ({
     return new Date(selectedYear, selectedMonth + 1, 0).getDate();
   })();
 
-  const dtrRawEmpty = (v) =>
-    v == null || (typeof v === 'string' && v.trim() === '');
-
-  const dtrWmSpanStyle = {
-    fontSize: '8.5px',
-    fontWeight: 700,
-    fontFamily: 'Arial, "Times New Roman", serif',
-    color: 'rgba(0,0,0,0.48)',
-    letterSpacing: '0.05em',
-    whiteSpace: 'nowrap',
-    userSelect: 'none',
-    lineHeight: 1,
-    WebkitPrintColorAdjust: 'exact',
-    printColorAdjust: 'exact',
-  };
+  const dtrRawEmpty = dtrTimeValueEmpty;
 
   const renderDtrAmPmWatermarkCell = (
     rawVal,
@@ -2936,41 +2954,23 @@ const DailyTimeRecordFaculty = ({
     indicator,
     colKey,
   ) => {
-    const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
+    const { text, isWatermark } = resolveDtrAmPmCellText(
+      rawVal,
+      displayText,
+      indicator,
+    );
     return (
       <td
         key={colKey}
         style={{
           ...cellStyle,
           backgroundColor: rowTint,
-          position: 'relative',
           verticalAlign: 'middle',
-          overflow: 'visible',
           WebkitPrintColorAdjust: 'exact',
           printColorAdjust: 'exact',
         }}
       >
-        {showWm && (
-          <div
-            className="dtr-cell-watermark"
-            aria-hidden
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              right: 0,
-              bottom: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          >
-            <span style={dtrWmSpanStyle}>{indicator.label}</span>
-          </div>
-        )}
-        <span style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
+        <span style={isWatermark ? DTR_WM_INLINE_STYLE : undefined}>{text}</span>
       </td>
     );
   };
@@ -3254,7 +3254,7 @@ const DailyTimeRecordFaculty = ({
         position: 'absolute',
         left: '-9999px',
         top: '0',
-        visibility: 'hidden',
+        opacity: 0,
         width: DTR_WIDTH_IN,
         color: 'black',
       }}
@@ -3578,6 +3578,7 @@ const DailyTimeRecordFaculty = ({
       <LoadingOverlay
         open={loadingOverlayOpen}
         message={loadingOverlayMessage}
+        showDelayMs={printingAll || singlePrintLoading ? 0 : 150}
       />
       <Snackbar
         open={snackbar.open}
@@ -3599,14 +3600,6 @@ const DailyTimeRecordFaculty = ({
           <Box>
             <style>{`
               html, body { overflow: hidden; }
-              table td .dtr-cell-watermark {
-                position: absolute !important;
-                left: 0 !important; top: 0 !important; right: 0 !important; bottom: 0 !important;
-                display: flex !important; align-items: center !important; justify-content: center !important;
-                pointer-events: none !important; z-index: 0 !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-              }
               @page { size: A4; margin: 0; }
               @media print {
                 .no-print { display: none !important; }
@@ -4152,6 +4145,10 @@ const DailyTimeRecordFaculty = ({
                                     boxSizing: 'border-box',
                                     overflowX: 'auto',
                                     width: '100%',
+                                    opacity: singlePrintLoading ? 0 : 1,
+                                    pointerEvents: singlePrintLoading
+                                      ? 'none'
+                                      : 'auto',
                                   }}
                                 >
                                   <Box sx={{ overflowX: 'auto' }}>
