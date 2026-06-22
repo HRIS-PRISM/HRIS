@@ -27,6 +27,7 @@ const PayrollReleased = require('./payrollRoutes/PayrollReleased');
 const PayrollJO = require('./payrollRoutes/PayrollJO');
 const PayrollFormulas = require('./payrollRoutes/PayrollFormulas');
 const EmployeeCategory = require('./dashboardRoutes/EmployeeCategory');
+const dashboardAuditRoute = require('./dashboardRoutes/DashboardAuditRoute');
 const AutoAttendance = require('./routes/auto-attendance');
 
 // Import new organized routes
@@ -435,6 +436,7 @@ app.use('/PayrollRoute', Payroll);
 app.use('/PayrollReleasedRoute', PayrollReleased);
 app.use('/PayrollJORoutes', PayrollJO);
 app.use('/EmploymentCategoryRoutes', EmployeeCategory);
+app.use('/dashboard-audit', dashboardAuditRoute);
 app.use('/', authRoutes);
 app.use('/', supervisorRoutes);
 app.use('/', passwordRoutes);

@@ -15,6 +15,7 @@ const express = require("express");
     loadScBalanceSummaryRows,
   } = require("../services/serviceCreditRunningTotals");
   const { getCtoCreditRunningTotals } = require("../services/ctoCreditRunningTotals");
+  const { getPriorPeriodCarryForwardHoursForEmployee } = require("../utils/leaveAssignmentBalanceUtils");
 
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
@@ -423,27 +424,56 @@ const express = require("express");
     });
 
     const latestRows = latestSnapshotPerPeriod(rows);
-    const earlierLatest = latestRows.filter((r) => isBeforePeriod(r, year, month));
-    // Carry only the most-recent prior period remaining (service_credit-style running balance).
-    const prev = earlierLatest
-      .sort((a, b) => {
-        const ya = toNum(a?.period_year);
-        const yb = toNum(b?.period_year);
-        if (ya !== yb) return yb - ya;
-        const ma = semRank(a?.period_semester);
-        const mb = semRank(b?.period_semester);
-        if (ma !== mb) return mb - ma;
-        return toNum(b?.id) - toNum(a?.id);
-      })[0] || null;
-
-    const carryHours = prev ? Math.max(0, toNum(prev.remaining_hours)) : 0;
-
-    // Nothing to roll forward
-    if (carryHours <= 0) {
-      return findTargetRow(latestRows, year, month);
-    }
+    const carryHours = await getPriorPeriodCarryForwardHoursForEmployee(
+      db,
+      employeeNumber,
+      leaveCode,
+      year,
+      month,
+    );
 
     let target = findTargetRow(latestRows, year, month);
+
+    // Strip invalid carry when prior period was commuted (P. Credit must be 0).
+    if (carryHours <= 0 && target && toNum(target.carried_forward_hours) > 0) {
+      const prevAlloc = Math.max(0, toNum(target.allocated_hours));
+      const prevUsed = Math.max(0, toNum(target.used_hours));
+      const newTotal = Math.max(0, prevAlloc);
+      const newRemaining = Math.max(0, newTotal - prevUsed);
+      await new Promise((resolve) => {
+        db.query(
+          `INSERT INTO leave_assignment
+            (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
+           VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+          [
+            employeeNumber,
+            leaveCode,
+            newTotal,
+            newRemaining,
+            prevUsed,
+            prevAlloc,
+            year,
+            String(month),
+          ],
+          () => resolve(),
+        );
+      });
+      target = await new Promise((resolve) => {
+        db.query(
+          `SELECT * FROM leave_assignment
+           WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+             AND period_year = ? AND (period_semester = ? OR period_semester = ?)
+           ORDER BY id DESC LIMIT 1`,
+          [employeeNumber, leaveCode, year, String(month), String(month).padStart(2, "0")],
+          (err, r) => resolve(!err && r?.[0] ? r[0] : null),
+        );
+      });
+    }
+
+    // Nothing valid to roll forward
+    if (carryHours <= 0) {
+      return target;
+    }
 
     if (!target) {
       // Create target period row that absorbs the carry as carried_forward_hours
@@ -2113,13 +2143,21 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
 
             if (earnedHrs >= 0) {
               if (matched) {
-                // Append-only: new snapshot from latest row + earned hours; prior row kept for history.
                 const prev = matched;
-                const th = Math.max(0, toNum(prev.total_hours) + earnedHrs);
-                const rh = Math.max(0, toNum(prev.remaining_hours) + earnedHrs);
-                const ah = Math.max(0, toNum(prev.allocated_hours) + earnedHrs);
                 const uh = Math.max(0, toNum(prev.used_hours));
-                const cf = Math.max(0, toNum(prev.carried_forward_hours));
+                const ah = Math.max(0, toNum(prev.allocated_hours) + earnedHrs);
+                const cf = Math.max(
+                  0,
+                  await getPriorPeriodCarryForwardHoursForEmployee(
+                    db,
+                    rec.employee_number,
+                    rec.leave_code,
+                    rec.period_year,
+                    periodMonth,
+                  ),
+                );
+                const th = Math.max(0, cf + ah);
+                const rh = Math.max(0, th - uh);
                 const sem =
                   prev.period_semester != null && prev.period_semester !== ""
                     ? String(prev.period_semester)

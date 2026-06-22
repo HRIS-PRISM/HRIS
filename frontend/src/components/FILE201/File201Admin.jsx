@@ -68,9 +68,13 @@ import {
 import { Description as DescriptionIcon } from '@mui/icons-material';
 
 import AccessDenied from '../AccessDenied';
+import ComingSoon from '../ComingSoon';
 import API_BASE_URL from '../../apiConfig';
 import usePageAccess from '../../hooks/usePageAccess';
 import { getAuthHeaders, getUserInfo } from '../../utils/auth';
+
+// Toggle off when FILE 201 is ready for release
+const FILE201_COMING_SOON = true;
 
 // ─── Theme tokens ─────────────────────────────────────────────
 const T = {
@@ -1444,7 +1448,7 @@ const File201Admin = () => {
     (page + 1) * rowsPerPage,
   );
 
-  if (accessLoading || loading) {
+  if (accessLoading || (!FILE201_COMING_SOON && loading)) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
         <CircularProgress sx={{ color: T.accent }} />
@@ -1470,6 +1474,17 @@ const File201Admin = () => {
         message="Your role does not have permission to access FILE 201."
         returnPath="/home"
         returnButtonText="Back to Home"
+      />
+    );
+  }
+
+  if (FILE201_COMING_SOON) {
+    return (
+      <ComingSoon
+        title="FILE 201"
+        subtitle="Next project — under development"
+        message="The FILE 201 module is currently being built by the development team. Stay tuned for updates — it will be available in a future release."
+        showReturnButton={false}
       />
     );
   }

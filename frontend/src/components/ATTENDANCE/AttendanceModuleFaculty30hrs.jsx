@@ -103,6 +103,7 @@ import API_BASE_URL from '../../apiConfig';
     getRowTotalTardinessDisplay,
   } from '../../utils/halfDayReview';
   import HalfDayReviewDialog from './HalfDayReviewDialog';
+  import { buildDisplayName } from './attendanceModuleEmployeeSearch';
   import {
     HalfDayTotalColumnHeader,
     HalfDayTotalCellContent,
@@ -288,7 +289,13 @@ import API_BASE_URL from '../../apiConfig';
     </Box>
   );
 
-  // ─── Employee search ───────────────────────────────────────────────────────
+  const formatEmployeeFieldValue = (num, name) => {
+    const n = String(num || '').trim();
+    const nm = String(name || '').trim();
+    if (n && nm) return `${n} | ${nm}`;
+    return n;
+  };
+
   const FieldInput = styled(TextField)({
     '& .MuiOutlinedInput-root': {
       borderRadius: 8, fontSize: '0.875rem', backgroundColor: '#fff',
@@ -299,50 +306,42 @@ import API_BASE_URL from '../../apiConfig';
     '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
   });
 
-  const formatFullNameForSearch = (fullName) => {
-    if (!fullName) return '';
-    const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
-    if (!cleaned) return '';
-    const parts = cleaned.split(' ');
-    const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
-    let suffix = '';
-    if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
-    if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
-    const firstName = parts[0];
-    const lastName = parts[parts.length - 1];
-    const middleFormatted = parts.slice(1, parts.length - 1).map((m) => {
-      const mm = String(m).replace(/\./g, '');
-      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
-    }).join(' ');
-    const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
-    return suffix ? `${base} ${suffix}` : base;
-  };
-
   const EmployeeSearchField = ({
     value,
+    displayName = '',
     onSelectEmployeeNumber,
+    onSelectEmployeeName,
     onSearchQueryChange,
     disabled = false,
   }) => {
-    const [query, setQuery] = useState(value || '');
+    const [query, setQuery] = useState(() => formatEmployeeFieldValue(value, displayName));
     const [debouncedQuery, setDebouncedQuery] = useState(value || '');
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(false);
     const [open, setOpen] = useState(false);
+    const [highlightIndex, setHighlightIndex] = useState(0);
     const debounceRef = useRef(null);
     const containerRef = useRef(null);
     const abortRef = useRef(null);
+    const listRef = useRef(null);
+    const pendingEnterRef = useRef(false);
 
-    useEffect(() => { setQuery(value || ''); setDebouncedQuery(value || ''); }, [value]);
+    useEffect(() => {
+      setQuery(formatEmployeeFieldValue(value, displayName));
+      setDebouncedQuery(value || '');
+    }, [value, displayName]);
+
     useEffect(() => {
       const handleOutside = (event) => { if (!containerRef.current?.contains(event.target)) setOpen(false); };
       document.addEventListener('mousedown', handleOutside);
       return () => document.removeEventListener('mousedown', handleOutside);
     }, []);
+
     useEffect(() => () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (abortRef.current) abortRef.current.abort();
     }, []);
+
     useEffect(() => {
       if (!open) return;
       if (abortRef.current) abortRef.current.abort();
@@ -356,37 +355,108 @@ import API_BASE_URL from '../../apiConfig';
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
         signal: controller.signal,
       })
-        .then((res) => { const list = Array.isArray(res.data) ? res.data : []; setResults(list.slice(0, 20)); })
+        .then((res) => {
+          const list = Array.isArray(res.data) ? res.data : [];
+          setResults(list.slice(0, 20));
+          setHighlightIndex(0);
+        })
         .catch((err) => { if (err?.code === 'ERR_CANCELED') return; setResults([]); })
         .finally(() => setLoading(false));
       return () => controller.abort();
     }, [debouncedQuery, open]);
 
+    useEffect(() => {
+      if (!open || !listRef.current) return;
+      const el = listRef.current.querySelector(`[data-emp-idx="${highlightIndex}"]`);
+      el?.scrollIntoView({ block: 'nearest' });
+    }, [highlightIndex, open, results.length]);
+
     const queueSearch = (nextValue) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => { setDebouncedQuery(nextValue); setOpen(true); }, 220);
     };
+
+    const flushSearch = (nextValue) => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      setDebouncedQuery(nextValue);
+      setOpen(true);
+    };
+
+    const handleSelect = (emp) => {
+      if (!emp) return;
+      const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
+      const name = buildDisplayName(emp);
+      onSelectEmployeeNumber(num);
+      onSelectEmployeeName?.(name);
+      setQuery(formatEmployeeFieldValue(num, name));
+      setDebouncedQuery(num);
+      setOpen(false);
+      setResults([]);
+      onSearchQueryChange?.(num);
+    };
+
+    useEffect(() => {
+      if (!pendingEnterRef.current || results.length === 0 || loading) return;
+      pendingEnterRef.current = false;
+      handleSelect(results[highlightIndex] ?? results[0]);
+    }, [results, highlightIndex, loading]);
+
     const handleInputChange = (e) => {
       const next = e.target.value;
       onSelectEmployeeNumber(next);
+      onSelectEmployeeName?.('');
       setQuery(next);
       onSearchQueryChange?.(next.trim());
       queueSearch(next);
     };
-    const handleSelect = (emp) => {
-      const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
-      onSelectEmployeeNumber(num);
-      setQuery(num);
-      setDebouncedQuery(num);
+
+    const handleClear = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+      setQuery('');
+      setDebouncedQuery('');
+      setResults([]);
       setOpen(false);
-      onSearchQueryChange?.(query.trim());
+      onSelectEmployeeNumber('');
+      onSelectEmployeeName?.('');
+      onSearchQueryChange?.('');
     };
-    const handleClear = () => { if (debounceRef.current) clearTimeout(debounceRef.current); if (abortRef.current) abortRef.current.abort(); setQuery(''); setDebouncedQuery(''); setResults([]); setOpen(false); onSelectEmployeeNumber(''); };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!open) setOpen(true);
+        setHighlightIndex((idx) => Math.min(results.length - 1, idx + 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightIndex((idx) => Math.max(0, idx - 1));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        flushSearch(query);
+        if (results.length > 0) {
+          handleSelect(results[highlightIndex] ?? results[0]);
+          return;
+        }
+        pendingEnterRef.current = true;
+      }
+    };
 
     return (
       <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
         <FieldInput
           fullWidth size="small" value={query} onChange={handleInputChange} onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
           placeholder="Type name or employee number..." disabled={disabled} autoComplete="off"
           inputProps={{ autoComplete: 'new-password' }}
           InputProps={{
@@ -408,16 +478,31 @@ import API_BASE_URL from '../../apiConfig';
                 <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
               </Box>
             ) : results.length > 0 ? (
-              <List dense disablePadding>
-                {results.map((emp) => (
-                  <ListItemButton key={emp.employeeNumber} onClick={() => handleSelect(emp)}
-                    sx={{ py: 1, px: 1.5, borderBottom: `1px solid ${T.divider}`, '&:hover': { bgcolor: T.accentFaint }, '&:last-child': { borderBottom: 'none' } }}>
+              <List dense disablePadding ref={listRef}>
+                {results.map((emp, idx) => {
+                  const active = idx === highlightIndex;
+                  return (
+                  <ListItemButton
+                    key={emp.employeeNumber}
+                    data-emp-idx={idx}
+                    selected={active}
+                    onMouseEnter={() => setHighlightIndex(idx)}
+                    onClick={() => handleSelect(emp)}
+                    sx={{
+                      py: 1, px: 1.5,
+                      borderBottom: `1px solid ${T.divider}`,
+                      bgcolor: active ? T.accentFaint : 'transparent',
+                      '&:hover': { bgcolor: T.accentFaint },
+                      '&:last-child': { borderBottom: 'none' },
+                    }}
+                  >
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                      <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{formatFullNameForSearch(emp.fullName)}</Typography>
+                      <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{buildDisplayName(emp)}</Typography>
                       <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{emp.employeeNumber}</Typography>
                     </Box>
                   </ListItemButton>
-                ))}
+                  );
+                })}
               </List>
             ) : (
               <Box sx={{ py: 2.5, textAlign: 'center' }}>
@@ -1025,6 +1110,170 @@ import API_BASE_URL from '../../apiConfig';
     );
   };
 
+  const parseUnresolvedHalfDayDateParts = (iso) => {
+    const raw = String(iso ?? '').slice(0, 10);
+    if (!raw) return { iso: raw, longLabel: raw };
+    const parsed = new Date(`${raw}T12:00:00`);
+    if (Number.isNaN(parsed.getTime())) return { iso: raw, longLabel: raw };
+    const longLabel = parsed.toLocaleDateString('en-US', {
+      month: 'long',
+      day: '2-digit',
+      year: 'numeric',
+    });
+    return { iso: raw, longLabel };
+  };
+
+  const UnresolvedHalfDaysDialog = ({ dates, onClose }) => {
+    const open = Array.isArray(dates) && dates.length > 0;
+    return (
+      <Dialog
+        open={open}
+        onClose={onClose}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '14px',
+            overflow: 'hidden',
+            boxShadow: `0 24px 48px ${alpha(T.accent, 0.2)}`,
+          },
+        }}
+      >
+        <Box
+          sx={{
+            px: 2.5, py: 2,
+            bgcolor: T.accent,
+            display: 'flex', alignItems: 'flex-start', gap: 1.5,
+          }}
+        >
+          <Box
+            sx={{
+              width: 42, height: 42, borderRadius: '10px',
+              bgcolor: alpha('#fff', 0.14),
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <WarningIcon sx={{ fontSize: 22, color: '#FEF9E1' }} />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0, pt: 0.15 }}>
+            <Typography sx={{ color: '#FEF9E1', fontWeight: 800, fontSize: '1rem', lineHeight: 1.2 }}>
+              Unresolved Half Days
+            </Typography>
+            <Typography sx={{ color: alpha('#FEF9E1', 0.82), fontSize: '0.74rem', mt: 0.35 }}>
+              Review required before saving to summary.
+            </Typography>
+          </Box>
+          <IconButton
+            onClick={onClose}
+            size="small"
+            sx={{
+              color: alpha('#FEF9E1', 0.9),
+              bgcolor: alpha('#fff', 0.1),
+              '&:hover': { bgcolor: alpha('#fff', 0.18) },
+            }}
+          >
+            <CloseIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Box>
+
+        <Box sx={{ px: 2.5, pt: 2, pb: 1 }}>
+          <Typography sx={{ fontSize: '0.82rem', color: T.muted, mb: 1.5, lineHeight: 1.6 }}>
+            The following dates are flagged as half days but have not been reviewed yet:
+          </Typography>
+
+          <Box
+            sx={{
+              mx: -2.5,
+              mb: 1.5,
+              borderLeft: `1px solid ${T.accentBorder}`,
+              borderRight: `1px solid ${T.accentBorder}`,
+              borderTop: `1px solid ${T.accentBorder}`,
+              borderBottom: `1px solid ${T.accentBorder}`,
+            }}
+          >
+            {(dates || []).map((d, index) => {
+              const { iso, longLabel } = parseUnresolvedHalfDayDateParts(d);
+              return (
+              <Box
+                key={d}
+                sx={{
+                  bgcolor: T.accentFaint,
+                  ...(index > 0 ? { borderTop: `1px solid ${T.accentBorder}` } : {}),
+                }}
+              >
+                <Box
+                  sx={{
+                    display: 'flex', alignItems: 'center', gap: 1.25,
+                    px: 2.5, py: 0.85,
+                  }}
+                >
+                  <CalendarToday sx={{ fontSize: 13, color: T.accentMid, flexShrink: 0 }} />
+                  <Typography
+                    component="div"
+                    sx={{
+                      fontSize: '0.82rem', fontWeight: 600,
+                      color: T.text,
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Box component="span" sx={{ fontWeight: 700 }}>{iso}</Box>
+                    <Box component="span" sx={{ color: T.faint, mx: 0.75 }}>|</Box>
+                    <Box component="span" sx={{ color: T.muted }}>{longLabel}</Box>
+                  </Typography>
+                </Box>
+              </Box>
+              );
+            })}
+          </Box>
+
+          <Box
+            sx={{
+              display: 'flex', alignItems: 'flex-start', gap: 1,
+              px: 1.25, py: 1,
+              borderRadius: '8px',
+              bgcolor: '#fafafa',
+              borderLeft: `3px solid ${alpha(T.accent, 0.45)}`,
+              border: `1px solid ${T.divider}`,
+              mb: 2,
+            }}
+          >
+            <InfoIcon sx={{ fontSize: 13, color: T.accentMid, mt: 0.2, flexShrink: 0 }} />
+            <Typography sx={{ fontSize: '0.75rem', color: T.muted, lineHeight: 1.55 }}>
+              Approve or deny each half day (enter rendered time or tardiness) before saving to summary or proceeding to the next step.
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box
+          sx={{
+            px: 2.5, py: 1.75,
+            bgcolor: T.accentFaint,
+            borderTop: `1px solid ${T.divider}`,
+            display: 'flex', justifyContent: 'flex-end',
+          }}
+        >
+          <button
+            onClick={onClose}
+            style={{
+              background: T.accent, color: '#fff',
+              border: 'none', borderRadius: '8px',
+              padding: '8px 24px',
+              fontWeight: 700, fontSize: '0.82rem',
+              fontFamily: 'inherit', cursor: 'pointer',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDark; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = T.accent; }}
+          >
+            OK
+          </button>
+        </Box>
+      </Dialog>
+    );
+  };
+
   // ─── Styled Modal ──────────────────────────────────────────────────────────
   const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, showCancel = false, confirmLabel = null }) => {
     const typeConfig = {
@@ -1108,6 +1357,7 @@ import API_BASE_URL from '../../apiConfig';
     const [holidayByDate, setHolidayByDate] = useState({});
     const { settings } = useSystemSettings();
     const [employeeNumber, setEmployeeNumber] = useState('');
+    const [employeeDisplayName, setEmployeeDisplayName] = useState('');
     const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -1127,6 +1377,7 @@ import API_BASE_URL from '../../apiConfig';
     const [tardinessOverrides, setTardinessOverrides] = useState({});
     const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
     const [halfDayReviewDialog, setHalfDayReviewDialog] = useState(null);
+    const [unresolvedDatesModal, setUnresolvedDatesModal] = useState(null);
 
     const resultsRef = useRef(null);
     const submitInFlightRef = useRef(false);
@@ -1671,6 +1922,23 @@ import API_BASE_URL from '../../apiConfig';
       [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
     );
 
+    const collectUnresolvedHalfDayDates = useCallback(() => (
+      attendanceData
+        .filter((row) => {
+          if (isAbsentAttendanceRow(row)) return false;
+          if (getStatusLabelForDate(row.date)) return false;
+          return getHalfDayUiStatus(row) === 'suggested';
+        })
+        .map((row) => row.date)
+    ), [attendanceData, isAbsentAttendanceRow, getStatusLabelForDate, getHalfDayUiStatus]);
+
+    const warnUnresolvedHalfDays = useCallback(() => {
+      const dates = collectUnresolvedHalfDayDates();
+      if (!dates.length) return false;
+      setUnresolvedDatesModal(dates);
+      return true;
+    }, [collectUnresolvedHalfDayDates]);
+
     const commitHalfDayReview = useCallback(
       (entry) => {
         const d = normalizeReviewDate(entry?.date);
@@ -1811,6 +2079,7 @@ import API_BASE_URL from '../../apiConfig';
     };
 
     const saveOverallAttendance = async () => {
+      if (warnUnresolvedHalfDays()) return;
       const record = buildOverallRecordPayload();
       setSaving(true);
       try {
@@ -1840,7 +2109,11 @@ import API_BASE_URL from '../../apiConfig';
             'Duplicate attendance summary',
             `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
             'info',
-            () => { closeModal(); navigateToOverallAttendanceSummary(); },
+            () => {
+              closeModal();
+              if (warnUnresolvedHalfDays()) return;
+              navigateToOverallAttendanceSummary();
+            },
             true,
             'Continue to summary',
           );
@@ -1890,7 +2163,8 @@ import API_BASE_URL from '../../apiConfig';
     useEffect(() => { handleSubmitRef.current = handleSubmit; });
 
     const handleWorkflowHydrate = useCallback((payload) => {
-      setEmployeeNumber(payload.employeeNumber);
+      setEmployeeNumber(payload.employeeNumber || '');
+      setEmployeeDisplayName(payload.fullName || '');
       setStartDate(payload.startDate);
       setEndDate(payload.endDate);
       if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
@@ -1907,10 +2181,16 @@ import API_BASE_URL from '../../apiConfig';
       goNext,
     } = useAttendanceWorkflow('faculty_30', {
       employeeNumber,
+      fullName: employeeDisplayName,
       startDate,
       endDate,
       onHydrate: handleWorkflowHydrate,
     });
+
+    const handleWorkflowNext = useCallback(() => {
+      if (warnUnresolvedHalfDays()) return;
+      goNext();
+    }, [warnUnresolvedHalfDays, goNext]);
 
     useAttendanceRealtimeRefresh(
       useCallback(() => {
@@ -1962,9 +2242,17 @@ import API_BASE_URL from '../../apiConfig';
     };
 
     const handleClearFilters = () => {
-      setEmployeeNumber(''); setStartDate(''); setEndDate('');
-      setAttendanceData([]); setError(''); setSuccess(''); setSelectedMonth(null);
+      setEmployeeNumber('');
+      setEmployeeDisplayName('');
+      setEmployeeSearchQuery('');
+      setStartDate('');
+      setEndDate('');
+      setAttendanceData([]);
+      setError('');
+      setSuccess('');
+      setSelectedMonth(null);
       setTardinessOverrides({});
+      setHalfDayReviewByDate({});
     };
 
     const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2119,7 +2407,7 @@ import API_BASE_URL from '../../apiConfig';
                   prevStep={prevStep}
                   nextStep={nextStep}
                   onPrevious={goPrevious}
-                  onNext={goNext}
+                  onNext={handleWorkflowNext}
                 />
                 <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                   <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -2154,8 +2442,10 @@ import API_BASE_URL from '../../apiConfig';
                   <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Employee Number</Typography>
                   <EmployeeSearchField
                     value={employeeNumber}
+                    displayName={employeeDisplayName}
                     onSearchQueryChange={setEmployeeSearchQuery}
                     onSelectEmployeeNumber={setEmployeeNumber}
+                    onSelectEmployeeName={setEmployeeDisplayName}
                   />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 160 }}>
@@ -2225,7 +2515,11 @@ import API_BASE_URL from '../../apiConfig';
               <SectionCard ref={resultsRef} sx={{ mb: 2 }}>
                 <PanelHeader
                   icon={Assignment}
-                  title={`Records for ${employeeNumber}`}
+                  title={
+                    employeeDisplayName
+                      ? `Records for ${employeeNumber} | ${employeeDisplayName}`
+                      : `Records for ${employeeNumber}`
+                  }
                   rightContent={
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>{startDate} → {endDate}</Typography>
@@ -2531,7 +2825,11 @@ import API_BASE_URL from '../../apiConfig';
               </Avatar>
               <Box>
                 <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', color: T.accent }}>No Official Time Schedule</Typography>
-                <Typography sx={{ fontSize: '0.74rem', color: T.faint }}>Employee #{employeeNumber}</Typography>
+                <Typography sx={{ fontSize: '0.74rem', color: T.faint }}>
+                  {employeeDisplayName
+                    ? `${employeeNumber} | ${employeeDisplayName}`
+                    : `Employee #${employeeNumber}`}
+                </Typography>
               </Box>
             </Box>
             <Box sx={{ px: 3, py: 2.5, borderTop: `1px solid ${T.divider}` }}>
@@ -2556,6 +2854,11 @@ import API_BASE_URL from '../../apiConfig';
             </Box>
           </Dialog>
 
+          <UnresolvedHalfDaysDialog
+            dates={unresolvedDatesModal}
+            onClose={() => setUnresolvedDatesModal(null)}
+          />
+
           {/* ── Styled Modal ── */}
           <StyledModal
             open={modal.open}
@@ -2575,7 +2878,8 @@ import API_BASE_URL from '../../apiConfig';
             savedRow={pendingSavedOverall}
             proposedRecord={pendingProposedOverall}
             fields={OVERALL_COMPARE_FIELD_META}
-            title="Compare saved summary vs new totals"
+            mode="duplicate"
+            currentModuleType="FACULTY_30HRS"
           />
 
           <HalfDayReviewDialog

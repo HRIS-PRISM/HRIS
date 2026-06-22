@@ -103,6 +103,8 @@ import {
   shouldZeroAmPmHalfDayColumns,
 } from '../../utils/halfDayReview';
 import HalfDayReviewDialog from './HalfDayReviewDialog';
+import { EmployeeSearchField } from './attendanceModuleEmployeeSearch';
+import UnresolvedHalfDaysDialog from './UnresolvedHalfDaysDialog';
 import {
   HalfDayTotalColumnHeader,
   HalfDayTotalCellContent,
@@ -291,158 +293,6 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
     />
   </Box>
 );
-
-const FieldInput = styled(TextField)({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 8, fontSize: '0.875rem', backgroundColor: '#fff',
-    '& fieldset': { borderColor: T.accentBorder },
-    '&:hover fieldset': { borderColor: T.accent },
-    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
-  },
-  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
-});
-
-const formatFullNameForSearch = (fullName) => {
-  if (!fullName) return '';
-  const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
-  if (!cleaned) return '';
-  const parts = cleaned.split(' ');
-  const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
-  let suffix = '';
-  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
-  if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
-  const firstName = parts[0];
-  const lastName = parts[parts.length - 1];
-  const middleFormatted = parts.slice(1, parts.length - 1).map((m) => {
-    const mm = String(m).replace(/\./g, '');
-    return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
-  }).join(' ');
-  const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
-  return suffix ? `${base} ${suffix}` : base;
-};
-
-const EmployeeSearchField = ({
-  value,
-  onSelectEmployeeNumber,
-  onSearchQueryChange,
-  disabled = false,
-}) => {
-  const [query, setQuery] = useState(value || '');
-  const [debouncedQuery, setDebouncedQuery] = useState(value || '');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-  const debounceRef = useRef(null);
-  const containerRef = useRef(null);
-  const abortRef = useRef(null);
-
-  useEffect(() => { setQuery(value || ''); setDebouncedQuery(value || ''); }, [value]);
-  useEffect(() => {
-    const handleOutside = (event) => { if (!containerRef.current?.contains(event.target)) setOpen(false); };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, []);
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-  }, []);
-  useEffect(() => {
-    if (!open) return;
-    if (abortRef.current) abortRef.current.abort();
-    const q = debouncedQuery.trim();
-    if (q.length < 2) { setResults([]); setLoading(false); return; }
-    setLoading(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    axios.get(`${API_BASE_URL}/users/search`, {
-      params: { q },
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
-      signal: controller.signal,
-    })
-      .then((res) => { const list = Array.isArray(res.data) ? res.data : []; setResults(list.slice(0, 20)); })
-      .catch((err) => { if (err?.code === 'ERR_CANCELED') return; setResults([]); })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
-  }, [debouncedQuery, open]);
-
-  const queueSearch = (nextValue) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { setDebouncedQuery(nextValue); setOpen(true); }, 220);
-  };
-  const handleInputChange = (e) => {
-    const next = e.target.value;
-    onSelectEmployeeNumber(next);
-    setQuery(next);
-    onSearchQueryChange?.(next.trim());
-    queueSearch(next);
-  };
-  const handleSelect = (emp) => {
-    const num = emp?.employeeNumber ? String(emp.employeeNumber) : '';
-    onSelectEmployeeNumber(num);
-    setQuery(num);
-    setDebouncedQuery(num);
-    setOpen(false);
-    onSearchQueryChange?.(query.trim());
-  };
-  const handleClear = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-    setQuery('');
-    setDebouncedQuery('');
-    setResults([]);
-    setOpen(false);
-    onSearchQueryChange?.('');
-    onSelectEmployeeNumber('');
-  };
-
-  return (
-    <Box sx={{ position: 'relative', width: '100%' }} ref={containerRef}>
-      <FieldInput
-        fullWidth size="small" value={query} onChange={handleInputChange} onFocus={() => setOpen(true)}
-        placeholder="Type name or employee number..." disabled={disabled} autoComplete="off"
-        inputProps={{ autoComplete: 'new-password' }}
-        InputProps={{
-          startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment>,
-          endAdornment: (
-            <InputAdornment position="end">
-              {loading ? <CircularProgress size={14} sx={{ color: T.accent }} /> : query ? (
-                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}><CloseIcon sx={{ fontSize: 14, color: T.faint }} /></IconButton>
-              ) : null}
-            </InputAdornment>
-          ),
-        }}
-      />
-      {open && (
-        <Paper elevation={6} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1300, mt: 0.5, maxHeight: 280, overflow: 'auto', borderRadius: '10px', border: `1px solid ${T.accentBorder}` }}>
-          {loading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2.5 }}>
-              <CircularProgress size={16} sx={{ color: T.accent }} />
-              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Searching...</Typography>
-            </Box>
-          ) : results.length > 0 ? (
-            <List dense disablePadding>
-              {results.map((emp) => (
-                <ListItemButton key={emp.employeeNumber} onClick={() => handleSelect(emp)}
-                  sx={{ py: 1, px: 1.5, borderBottom: `1px solid ${T.divider}`, '&:hover': { bgcolor: T.accentFaint }, '&:last-child': { borderBottom: 'none' } }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                    <Typography sx={{ fontSize: '0.83rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{formatFullNameForSearch(emp.fullName)}</Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{emp.employeeNumber}</Typography>
-                  </Box>
-                </ListItemButton>
-              ))}
-            </List>
-          ) : (
-            <Box sx={{ py: 2.5, textAlign: 'center' }}>
-              <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
-                {query.trim().length >= 2 ? `No registered user found for "${query.trim()}"` : 'Type at least 2 characters to search users'}
-              </Typography>
-            </Box>
-          )}
-        </Paper>
-      )}
-    </Box>
-  );
-};
 
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button onClick={onClick} disabled={disabled}
@@ -1007,6 +857,7 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
 const AttendanceModuleNonTeachingStaff = () => {
   const { settings }          = useSystemSettings();
   const [employeeNumber, setEmployeeNumber] = useState('');
+  const [employeeDisplayName, setEmployeeDisplayName] = useState('');
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
   const [startDate, setStartDate]           = useState('');
   const [endDate, setEndDate]               = useState('');
@@ -1022,6 +873,7 @@ const AttendanceModuleNonTeachingStaff = () => {
   const [tardinessOverrides, setTardinessOverrides] = useState({});
   const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
   const [halfDayReviewDialog, setHalfDayReviewDialog] = useState(null);
+  const [unresolvedDatesModal, setUnresolvedDatesModal] = useState(null);
 
   const [collapsedGroups, setCollapsedGroups] = useState({
     regular: {
@@ -1410,6 +1262,23 @@ const AttendanceModuleNonTeachingStaff = () => {
     [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
   );
 
+  const collectUnresolvedHalfDayDates = useCallback(() => (
+    attendanceData
+      .filter((row) => {
+        if (isAbsentAttendanceRow(row)) return false;
+        if (getStatusLabelForDate(row.date)) return false;
+        return getHalfDayUiStatus(row) === 'suggested';
+      })
+      .map((row) => row.date)
+  ), [attendanceData, isAbsentAttendanceRow, getStatusLabelForDate, getHalfDayUiStatus]);
+
+  const warnUnresolvedHalfDays = useCallback(() => {
+    const dates = collectUnresolvedHalfDayDates();
+    if (!dates.length) return false;
+    setUnresolvedDatesModal(dates);
+    return true;
+  }, [collectUnresolvedHalfDayDates]);
+
   const commitHalfDayReview = useCallback(
     (entry) => {
       const d = normalizeReviewDate(entry?.date);
@@ -1535,6 +1404,7 @@ const AttendanceModuleNonTeachingStaff = () => {
   };
 
   const saveOverallAttendance = async () => {
+    if (warnUnresolvedHalfDays()) return;
     const record = buildOverallRecordPayload();
     setSaving(true);
     try {
@@ -1558,7 +1428,7 @@ const AttendanceModuleNonTeachingStaff = () => {
       }
       if (action === 'duplicate-info') {
         showModal('Duplicate attendance summary', `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`, 'info',
-          () => { closeModal(); navigateToOverallAttendanceSummary(); }, true, 'Continue to summary');
+          () => { closeModal(); if (warnUnresolvedHalfDays()) return; navigateToOverallAttendanceSummary(); }, true, 'Continue to summary');
         return;
       }
       if (action === 'compare' && existing) {
@@ -1596,7 +1466,8 @@ const AttendanceModuleNonTeachingStaff = () => {
   useEffect(() => { handleSubmitRef.current = handleSubmit; });
 
   const handleWorkflowHydrate = useCallback((payload) => {
-    setEmployeeNumber(payload.employeeNumber);
+    setEmployeeNumber(payload.employeeNumber || '');
+    setEmployeeDisplayName(payload.fullName || '');
     setStartDate(payload.startDate);
     setEndDate(payload.endDate);
     if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
@@ -1613,10 +1484,16 @@ const AttendanceModuleNonTeachingStaff = () => {
     goNext,
   } = useAttendanceWorkflow('non_teaching', {
     employeeNumber,
+    fullName: employeeDisplayName,
     startDate,
     endDate,
     onHydrate: handleWorkflowHydrate,
   });
+
+  const handleWorkflowNext = useCallback(() => {
+    if (warnUnresolvedHalfDays()) return;
+    goNext();
+  }, [warnUnresolvedHalfDays, goNext]);
 
   useAttendanceRealtimeRefresh(
     useCallback(() => {
@@ -1659,10 +1536,14 @@ const AttendanceModuleNonTeachingStaff = () => {
   };
 
   const handleClearFilters = () => {
-    setEmployeeNumber(''); setStartDate(''); setEndDate('');
+    setEmployeeNumber('');
+    setEmployeeDisplayName('');
+    setEmployeeSearchQuery('');
+    setStartDate(''); setEndDate('');
     setAttendanceData([]); setError(''); setSelectedMonth(null);
     setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
     setTardinessOverrides({});
+    setHalfDayReviewByDate({});
   };
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1888,7 +1769,7 @@ const AttendanceModuleNonTeachingStaff = () => {
                 prevStep={prevStep}
                 nextStep={nextStep}
                 onPrevious={goPrevious}
-                onNext={goNext}
+                onNext={handleWorkflowNext}
               />
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -1918,8 +1799,11 @@ const AttendanceModuleNonTeachingStaff = () => {
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent, mb: 0.6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Employee Number</Typography>
                 <EmployeeSearchField
                   value={employeeNumber}
+                  displayName={employeeDisplayName}
+                  themeT={T}
                   onSearchQueryChange={setEmployeeSearchQuery}
                   onSelectEmployeeNumber={setEmployeeNumber}
+                  onSelectEmployeeName={setEmployeeDisplayName}
                 />
               </Box>
               <Box sx={{ flex: 1, minWidth: 160 }}>
@@ -1983,7 +1867,11 @@ const AttendanceModuleNonTeachingStaff = () => {
             <SectionCard ref={resultsRef} sx={{ mb: 2 }}>
               <PanelHeader
                 icon={Assignment}
-                title={`Records for ${employeeNumber}`}
+                title={
+                  employeeDisplayName
+                    ? `Records for ${employeeNumber} | ${employeeDisplayName}`
+                    : `Records for ${employeeNumber}`
+                }
                 rightContent={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>{startDate} → {endDate}</Typography>
@@ -2313,9 +2201,15 @@ const AttendanceModuleNonTeachingStaff = () => {
 
         <FloatingTotalsBar totals={totals} visible={attendanceData.length > 0} onSave={saveOverallAttendance} saving={saving} startDate={startDate} endDate={endDate} />
 
+        <UnresolvedHalfDaysDialog
+          dates={unresolvedDatesModal}
+          onClose={() => setUnresolvedDatesModal(null)}
+          themeT={T}
+        />
+
         <StyledModal open={modal.open} onClose={closeModal} title={modal.title} message={modal.message} type={modal.type} onConfirm={modal.onConfirm} showCancel={modal.showCancel} confirmLabel={modal.confirmLabel} />
 
-        <OverallAttendanceCompareModal open={compareOpen} onClose={handleCompareClose} onConfirm={handleCompareConfirm} savedRow={pendingSavedOverall} proposedRecord={pendingProposedOverall} fields={OVERALL_COMPARE_FIELD_META} title="Compare saved summary vs new totals" />
+        <OverallAttendanceCompareModal open={compareOpen} onClose={handleCompareClose} onConfirm={handleCompareConfirm} savedRow={pendingSavedOverall} proposedRecord={pendingProposedOverall} fields={OVERALL_COMPARE_FIELD_META} mode="duplicate" currentModuleType="NON_TEACHING" />
 
         <HalfDayReviewDialog
           open={Boolean(halfDayReviewDialog)}

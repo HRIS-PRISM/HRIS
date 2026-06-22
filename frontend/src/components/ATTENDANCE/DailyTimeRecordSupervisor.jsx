@@ -38,6 +38,7 @@ import { normalizeRole } from '../../utils/pageAccessUtils';
 import { getUserInfo, getAuthHeaders as buildAuthHeaders } from '../../utils/auth';
 import {
   formatFullName, filterByDtrType, enhanceDtrWatermarksInClone, DTR_WIDTH_IN,
+  formatDtrPdfFileName, formatDtrBulkPdfFileName, openPdfBlobForPrint,
 } from '../../utils/dtrFormatHelpers';
 import {
   fetchDailyLateUndertimeBatch, parseHalfDayDatesSet,
@@ -497,8 +498,12 @@ const DailyTimeRecordSupervisor = () => {
       }
 
       if (!successCount) throw new Error('No DTRs were captured.');
+      const bulkPdfName =
+        previewUsers.length === 1
+          ? formatDtrPdfFileName(previewUsers[0], startDate)
+          : formatDtrBulkPdfFileName(startDate);
       pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(pdf, bulkPdfName);
 
       const year = new Date(startDate).getFullYear();
       const month = new Date(startDate).getMonth() + 1;

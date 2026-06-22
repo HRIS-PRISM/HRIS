@@ -8,6 +8,12 @@ const xlsx = require("xlsx");
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 const authenticateToken = require("./authMiddleware");
+const {
+  fetchDashboardRow,
+  logDashboardCreate,
+  logDashboardUpdate,
+  logDashboardDelete,
+} = require("./dashboardAuditHelper");
 
 router.use(authenticateToken);
 
@@ -62,6 +68,8 @@ router.post("/college-table", (req, res) => {
   db.query(query, [collegeNameOfSchool, collegeDegree, collegePeriodFrom, collegePeriodTo, collegeHighestAttained, collegeYearGraduated, collegeScholarshipAcademicHonorsReceived, person_id], (err, result) => {
     if (err) return res.status(500).send({ message: "Internal Server Error" });
 
+    logDashboardCreate(req, "college_table", result.insertId, req.body);
+
     // Socket.IO (Option A): notify others to refresh
     socketService.notifyCollegeTableChanged("created", {
       id: result.insertId,
@@ -89,16 +97,22 @@ router.put("/college-table/:id", (req, res) => {
       person_id = ?
     WHERE id = ?`;
 
-  db.query(query, [collegeNameOfSchool, collegeDegree, collegePeriodFrom, collegePeriodTo, collegeHighestAttained, collegeYearGraduated, collegeScholarshipAcademicHonorsReceived, person_id, id], (err, result) => {
-    if (err) return res.status(500).send({ message: "Internal Server Error" });
+  fetchDashboardRow("college_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send({ message: "Internal Server Error" });
+    if (!oldRow) return res.status(404).send({ message: "College entry not found" });
 
-    // Socket.IO (Option A): notify others to refresh
-    socketService.notifyCollegeTableChanged("updated", {
-      id: Number(id),
-      person_id,
+    db.query(query, [collegeNameOfSchool, collegeDegree, collegePeriodFrom, collegePeriodTo, collegeHighestAttained, collegeYearGraduated, collegeScholarshipAcademicHonorsReceived, person_id, id], (err) => {
+      if (err) return res.status(500).send({ message: "Internal Server Error" });
+
+      logDashboardUpdate(req, "college_table", id, oldRow, req.body);
+
+      socketService.notifyCollegeTableChanged("updated", {
+        id: Number(id),
+        person_id,
+      });
+
+      res.status(200).send({ message: "College entry updated" });
     });
-
-    res.status(200).send({ message: "College entry updated" });
   });
 });
 
@@ -106,13 +120,20 @@ router.put("/college-table/:id", (req, res) => {
 router.delete("/college-table/:id", (req, res) => {
   const { id } = req.params;
   const query = "DELETE FROM college_table WHERE id = ?";
-  db.query(query, [id], (err, result) => {
-    if (err) return res.status(500).send({ message: "Internal Server Error" });
 
-    // Socket.IO (Option A): notify others to refresh
-    socketService.notifyCollegeTableChanged("deleted", { id: Number(id) });
+  fetchDashboardRow("college_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send({ message: "Internal Server Error" });
+    if (!oldRow) return res.status(404).send({ message: "College entry not found" });
 
-    res.status(200).send({ message: "College entry deleted" });
+    db.query(query, [id], (err) => {
+      if (err) return res.status(500).send({ message: "Internal Server Error" });
+
+      logDashboardDelete(req, "college_table", id, oldRow);
+
+      socketService.notifyCollegeTableChanged("deleted", { id: Number(id) });
+
+      res.status(200).send({ message: "College entry deleted" });
+    });
   });
 });
 

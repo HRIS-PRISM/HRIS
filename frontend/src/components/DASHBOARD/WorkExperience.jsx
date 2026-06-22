@@ -59,6 +59,7 @@ import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
 // ─── Theme tokens (mirroring Children/EmploymentCategoryManagement) ───────────
 const T = {
@@ -876,6 +877,7 @@ const WorkExperience = () => {
                     {workExperiences.length} {workExperiences.length === 1 ? 'record' : 'records'}
                   </Typography>
                 </Box>
+                <DashboardModuleAuditLogs tableName="work_experience_table" moduleLabel="Work Experience" />
                 <Tooltip title="Refresh Data">
                   <IconButton
                     onClick={fetchWorkExperiences}

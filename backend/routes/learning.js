@@ -6,18 +6,12 @@ const fs = require('fs');
 const { upload } = require('../middleware/upload');
 const { authenticateToken } = require('../middleware/auth');
 const socketService = require('../socket/socketService');
-
-// Helper function to insert audit logs
-function insertAuditLog(employeeNumber, action) {
-  const sql = `INSERT INTO audit_log (employeeNumber, action) VALUES (?, ?)`;
-  db.query(sql, [employeeNumber, action], (err, result) => {
-    if (err) {
-      console.error('Error inserting audit log:', err);
-    } else {
-      console.log('Audit log inserted:', result.insertId);
-    }
-  });
-}
+const {
+  fetchDashboardRow,
+  logDashboardCreate,
+  logDashboardUpdate,
+  logDashboardDelete,
+} = require('../dashboardRoutes/dashboardAuditHelper');
 
 // ============================================
 // LEARNING AND DEVELOPMENT ROUTES
@@ -88,15 +82,12 @@ router.post('/learning_and_development_table', authenticateToken, (req, res) => 
         return res.status(500).json({ error: 'Failed to add learning and development record' });
       }
 
-      insertAuditLog(
-        person_id || 'SYSTEM',
-        `Added new Learning and Development record for Person ID ${person_id}`
-      );
-
       socketService.notifyLearningChanged('created', {
         id: result.insertId,
         person_id,
       });
+
+      logDashboardCreate(req, 'learning_and_development_table', result.insertId, req.body);
 
       res.status(201).json({
         message: 'Record successfully added',
@@ -129,42 +120,48 @@ router.put('/learning_and_development_table/:id', authenticateToken, (req, res) 
     WHERE id = ?
   `;
 
-  db.query(
-    query,
-    [
-      titleOfProgram,
-      dateFrom,
-      dateTo,
-      numberOfHours,
-      typeOfLearningDevelopment,
-      conductedSponsored,
-      person_id,
-      incValue || 0,
-      id
-    ],
-    (err, result) => {
-      if (err) {
-        console.error('Error updating record in learning_and_development_table:', err);
-        return res.status(500).json({ error: 'Failed to update learning and development record' });
-      }
-
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ error: 'Record not found' });
-      }
-
-      insertAuditLog(
-        person_id || 'SYSTEM',
-        `Updated Learning and Development record ID ${id}`
-      );
-
-      socketService.notifyLearningChanged('updated', {
-        id: Number(id),
-        person_id,
-      });
-
-      res.status(200).json({ message: 'Record successfully updated' });
+  fetchDashboardRow('learning_and_development_table', id, (fetchErr, oldRow) => {
+    if (fetchErr) {
+      return res.status(500).json({ error: 'Failed to update learning and development record' });
     }
-  );
+    if (!oldRow) {
+      return res.status(404).json({ error: 'Record not found' });
+    }
+
+    db.query(
+      query,
+      [
+        titleOfProgram,
+        dateFrom,
+        dateTo,
+        numberOfHours,
+        typeOfLearningDevelopment,
+        conductedSponsored,
+        person_id,
+        incValue || 0,
+        id
+      ],
+      (err, result) => {
+        if (err) {
+          console.error('Error updating record in learning_and_development_table:', err);
+          return res.status(500).json({ error: 'Failed to update learning and development record' });
+        }
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ error: 'Record not found' });
+        }
+
+        logDashboardUpdate(req, 'learning_and_development_table', id, oldRow, req.body);
+
+        socketService.notifyLearningChanged('updated', {
+          id: Number(id),
+          person_id,
+        });
+
+        res.status(200).json({ message: 'Record successfully updated' });
+      }
+    );
+  });
 });
 
 // DELETE - Delete learning and development record
@@ -172,19 +169,28 @@ router.delete('/learning_and_development_table/:id', authenticateToken, (req, re
   const { id } = req.params;
   const query = 'DELETE FROM learning_and_development_table WHERE id = ?';
 
-  db.query(query, [id], (err, result) => {
-    if (err) {
-      console.error('Error deleting record from learning_and_development_table:', err);
+  fetchDashboardRow('learning_and_development_table', id, (fetchErr, oldRow) => {
+    if (fetchErr) {
       return res.status(500).json({ error: 'Failed to delete learning and development record' });
     }
-
-    if (result.affectedRows === 0) {
+    if (!oldRow) {
       return res.status(404).json({ error: 'Record not found' });
     }
 
-    insertAuditLog('SYSTEM', `Deleted Learning and Development record ID ${id}`);
-    socketService.notifyLearningChanged('deleted', { id: Number(id) });
-    res.status(200).json({ message: 'Record successfully deleted' });
+    db.query(query, [id], (err, result) => {
+      if (err) {
+        console.error('Error deleting record from learning_and_development_table:', err);
+        return res.status(500).json({ error: 'Failed to delete learning and development record' });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'Record not found' });
+      }
+
+      logDashboardDelete(req, 'learning_and_development_table', id, oldRow);
+      socketService.notifyLearningChanged('deleted', { id: Number(id) });
+      res.status(200).json({ message: 'Record successfully deleted' });
+    });
   });
 });
 

@@ -50,6 +50,16 @@ const query = (sql, params = []) =>
     db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result))),
   );
 
+const getConnection = () =>
+  new Promise((resolve, reject) => {
+    db.getConnection((err, conn) => (err ? reject(err) : resolve(conn)));
+  });
+
+const connQuery = (conn, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    conn.query(sql, params, (err, result) => (err ? reject(err) : resolve(result)));
+  });
+
 const getActorEmployeeNumber = (req, fallback = null) => {
   if (req.user?.employeeNumber) return String(req.user.employeeNumber);
   const authHeader = req.headers?.authorization || '';
@@ -89,6 +99,66 @@ const formatUserDisplayName = (num, name) =>
 
 const emitChange = (eventName) => {
   if (io) { io.emit(eventName); console.log(`[Socket.IO] Emitted ${eventName}`); }
+};
+
+let commutedColumnChecked = false;
+
+const ensureCommutedColumn = async () => {
+  if (commutedColumnChecked) return true;
+  const dbName = process.env.DB_NAME;
+  if (!dbName) return false;
+  const rows = await query(
+    `SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'leave_assignment' AND COLUMN_NAME = 'commuted'`,
+    [dbName],
+  );
+  if (Number(rows[0]?.c) > 0) {
+    commutedColumnChecked = true;
+    return true;
+  }
+  await query(
+    `ALTER TABLE leave_assignment
+     ADD COLUMN commuted TINYINT(1) NOT NULL DEFAULT 0
+     COMMENT '1 = locked after transfer to leave_commutation'`,
+  );
+  commutedColumnChecked = true;
+  return true;
+};
+
+const markAssignmentCommuted = async (assignmentId) => {
+  try {
+    await ensureCommutedColumn();
+    await query('UPDATE leave_assignment SET commuted = 1 WHERE id = ?', [assignmentId]);
+  } catch (err) {
+    if (!/unknown column/i.test(err.message)) throw err;
+    console.warn('[commute] leave_assignment.commuted column missing — run migrations/add_leave_assignment_commuted.sql');
+  }
+};
+
+const unmarkAssignmentCommuted = async (assignmentId) => {
+  try {
+    await ensureCommutedColumn();
+    await query('UPDATE leave_assignment SET commuted = 0 WHERE id = ?', [assignmentId]);
+  } catch (err) {
+    if (!/unknown column/i.test(err.message)) throw err;
+  }
+};
+
+const parsePeriodMonth = (semester) => {
+  const raw = String(semester ?? '').trim();
+  if (!raw) return null;
+  const n = parseInt(raw.replace(/\D/g, '') || '0', 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const hasActiveCommutation = async (assignmentId) => {
+  const rows = await query(
+    `SELECT id FROM leave_commutation
+     WHERE leave_assignment_id = ? AND status != 3
+     LIMIT 1`,
+    [assignmentId],
+  );
+  return rows.length > 0;
 };
 
 // ─── GET /leave_commutation ───────────────────────────────────────────────────
@@ -163,11 +233,28 @@ router.post('/leave_commutation/commute/:assignmentId', async (req, res) => {
   const actorEmpNum = getActorEmployeeNumber(req, commuted_by);
 
   try {
+    await ensureCommutedColumn();
+
     // 1. Load the assignment
     const rows = await query('SELECT * FROM leave_assignment WHERE id = ?', [assignmentId]);
     if (!rows.length) return res.status(404).json({ error: 'Leave assignment not found' });
 
     const asgn = rows[0];
+
+    if (Number(asgn.commuted) === 1) {
+      return res.status(400).json({
+        error: 'This assignment is already commuted',
+        detail: 'This period has already been transferred to Commutation.',
+      });
+    }
+
+    if (await hasActiveCommutation(asgn.id)) {
+      await markAssignmentCommuted(asgn.id);
+      return res.status(400).json({
+        error: 'This assignment is already commuted',
+        detail: 'A commutation record already exists for this assignment.',
+      });
+    }
 
     // 2. Compute effective remaining (base + any prior usage transactions)
     const usageRows = await query(
@@ -185,37 +272,73 @@ router.post('/leave_commutation/commute/:assignmentId', async (req, res) => {
     }
 
     const commutedDays = remainingHours / 8;
+    const periodMonth  = parsePeriodMonth(asgn.period_semester);
 
-    // 3. Insert commutation record
-    const insertResult = await query(
-      `INSERT INTO leave_commutation
-         (leave_assignment_id, employeeNumber, leave_code, period_year, period_semester,
-          commuted_hours, commuted_days, status, commuted_by, commuted_at, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), ?)`,
-      [
-        asgn.id,
-        asgn.employeeNumber,
-        asgn.leave_code,
-        asgn.period_year,
-        asgn.period_semester || null,
-        remainingHours,
-        commutedDays,
-        commuted_by || null,
-        remarks     || null,
-      ],
-    );
-    const commutationId = insertResult.insertId;
+    // 3–5. Insert commutation + ledger + lock flag (transactional)
+    const conn = await getConnection();
+    let commutationId;
+    try {
+      await connQuery(conn, 'START TRANSACTION');
 
-    // 4. Insert leave_credit_usage transaction (preserves remaining_hours)
-    await query(
-      `INSERT INTO leave_credit_usage
-         (leave_assignment_id, source_type, source_id, hours_delta, created_at)
-       VALUES (?, 'commutation', ?, ?, NOW())`,
-      [asgn.id, commutationId, -remainingHours],
-    );
+      const insertResult = await connQuery(
+        conn,
+        `INSERT INTO leave_commutation
+           (leave_assignment_id, employeeNumber, leave_code, period_year, period_semester,
+            commuted_hours, commuted_days, status, commuted_by, commuted_at, remarks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), ?)`,
+        [
+          asgn.id,
+          asgn.employeeNumber,
+          asgn.leave_code,
+          asgn.period_year,
+          asgn.period_semester || null,
+          remainingHours,
+          commutedDays,
+          commuted_by || null,
+          remarks     || null,
+        ],
+      );
+      commutationId = insertResult.insertId;
 
-    // 5. Mark assignment as commuted — does NOT touch remaining_hours
-    await query('UPDATE leave_assignment SET commuted = 1 WHERE id = ?', [asgn.id]);
+      await connQuery(
+        conn,
+        `INSERT INTO leave_credit_usage
+           (leave_assignment_id, employee_number, leave_code, period_year, period_month,
+            hours_delta, source_type, source_id, remarks, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'commutation', ?, ?, ?, NOW())`,
+        [
+          asgn.id,
+          String(asgn.employeeNumber || ''),
+          String(asgn.leave_code || ''),
+          asgn.period_year ?? null,
+          periodMonth,
+          -remainingHours,
+          commutationId,
+          remarks || `Commutation of ${remainingHours.toFixed(3)} hrs`,
+          actorEmpNum,
+        ],
+      );
+
+      await ensureCommutedColumn();
+      const usedHrs = parseDbHours(asgn.used_hours);
+      const allocHrs = parseDbHours(asgn.allocated_hours);
+      await connQuery(
+        conn,
+        `UPDATE leave_assignment
+         SET commuted = 1,
+             remaining_hours = 0,
+             carried_forward_hours = 0,
+             total_hours = ?
+         WHERE id = ?`,
+        [Math.max(0, usedHrs + allocHrs), asgn.id],
+      );
+      await connQuery(conn, 'COMMIT');
+    } catch (txErr) {
+      try { await connQuery(conn, 'ROLLBACK'); } catch (_) { /* ignore */ }
+      throw txErr;
+    } finally {
+      conn.release();
+    }
 
     // 6. Audit + transaction log
     try {
@@ -322,10 +445,7 @@ router.delete('/leave_commutation/:id', async (req, res) => {
       [id],
     );
     if (lcRows.length) {
-      await query(
-        'UPDATE leave_assignment SET commuted = 0 WHERE id = ?',
-        [lcRows[0].leave_assignment_id],
-      );
+      await unmarkAssignmentCommuted(lcRows[0].leave_assignment_id);
     }
 
     await query('DELETE FROM leave_commutation WHERE id = ?', [id]);

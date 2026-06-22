@@ -4,6 +4,12 @@ const multer = require("multer");
 const router = express.Router();
 const socketService = require("../socket/socketService");
 const authenticateToken = require("./authMiddleware");
+const {
+  fetchDashboardRow,
+  logDashboardCreate,
+  logDashboardUpdate,
+  logDashboardDelete,
+} = require("./dashboardAuditHelper");
 
 router.use(authenticateToken);
 
@@ -44,6 +50,8 @@ router.post("/work-experience-table", (req, res) => {
       person_id,
     });
 
+    logDashboardCreate(req, "work_experience_table", result.insertId, req.body);
+
     res.status(201).send({ message: "Item created", id: result.insertId });
   });
 });
@@ -54,15 +62,22 @@ router.put("/work-experience-table/:id", (req, res) => {
 
   const query = "UPDATE work_experience_table SET person_id = ?, workDateFrom = ?, workDateTo = ?, workPositionTitle = ?, workCompany = ?, workMonthlySalary = ?, SalaryJobOrPayGrade = ?, StatusOfAppointment = ?, isGovtService = ? WHERE id = ?";
 
-  db.query(query, [person_id, workDateFrom, workDateTo, workPositionTitle, workCompany, workMonthlySalary, SalaryJobOrPayGrade, StatusOfAppointment, isGovtService, id], (err) => {
-    if (err) return res.status(500).send(err);
+  fetchDashboardRow("work_experience_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send(err);
+    if (!oldRow) return res.status(404).send({ message: "Item not found" });
 
-    socketService.notifyWorkExperienceChanged("updated", {
-      id: Number(id),
-      person_id,
+    db.query(query, [person_id, workDateFrom, workDateTo, workPositionTitle, workCompany, workMonthlySalary, SalaryJobOrPayGrade, StatusOfAppointment, isGovtService, id], (err) => {
+      if (err) return res.status(500).send(err);
+
+      logDashboardUpdate(req, "work_experience_table", id, oldRow, req.body);
+
+      socketService.notifyWorkExperienceChanged("updated", {
+        id: Number(id),
+        person_id,
+      });
+
+      res.status(200).send({ message: "Item updated" });
     });
-
-    res.status(200).send({ message: "Item updated" });
   });
 });
 
@@ -71,12 +86,19 @@ router.delete("/work-experience-table/:id", (req, res) => {
 
   const query = "DELETE FROM work_experience_table WHERE id = ?";
 
-  db.query(query, [id], (err) => {
-    if (err) return res.status(500).send(err);
+  fetchDashboardRow("work_experience_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send(err);
+    if (!oldRow) return res.status(404).send({ message: "Item not found" });
 
-    socketService.notifyWorkExperienceChanged("deleted", { id: Number(id) });
+    db.query(query, [id], (err) => {
+      if (err) return res.status(500).send(err);
 
-    res.status(200).send({ message: "Item deleted" });
+      logDashboardDelete(req, "work_experience_table", id, oldRow);
+
+      socketService.notifyWorkExperienceChanged("deleted", { id: Number(id) });
+
+      res.status(200).send({ message: "Item deleted" });
+    });
   });
 });
 

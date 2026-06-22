@@ -55,6 +55,10 @@ import {
   parseSuggestedHalfDayDatesFromReview,
   MODULE_TYPES,
 } from '../../utils/halfDayReview';
+import {
+  formatDtrPdfFileName,
+  openPdfBlobForPrint,
+} from '../../utils/dtrFormatHelpers';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -1041,6 +1045,18 @@ const DailyTimeRecord = () => {
   };
 
   // ── Capture helpers ────────────────────────────────────────────────────────
+  const getSingleDtrPdfUser = () => {
+    if (records[0]) {
+      const r = records[0];
+      return {
+        firstName: r.firstName,
+        lastName: r.lastName,
+        middleName: r.middleName,
+      };
+    }
+    return { fullName: employeeName };
+  };
+
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = {
@@ -1117,7 +1133,10 @@ const DailyTimeRecord = () => {
         dtrH,
       );
       pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(
+        pdf,
+        formatDtrPdfFileName(getSingleDtrPdfUser(), startDate),
+      );
     } catch (e) {
       console.error('Error generating print view:', e);
     } finally {
@@ -1161,7 +1180,7 @@ const DailyTimeRecord = () => {
         dtrW,
         dtrH,
       );
-      pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
+      pdf.save(formatDtrPdfFileName(getSingleDtrPdfUser(), startDate));
       setSnackbar({
         open: true,
         message: 'DTR downloaded successfully.',

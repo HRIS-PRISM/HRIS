@@ -78,6 +78,7 @@ import AccessDenied from '../AccessDenied';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
 // ─── Theme tokens ────────────────────────────────────────────
 const T = {
@@ -2003,6 +2004,7 @@ const PersonTable = () => {
                     {data.length} {data.length === 1 ? 'record' : 'records'}
                   </Typography>
                 </Box>
+                <DashboardModuleAuditLogs tableName="person_table" moduleLabel="Personal Information" />
                 <Tooltip title="Refresh Data">
                   <IconButton
                     onClick={fetchPersons}

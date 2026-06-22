@@ -80,6 +80,9 @@ import { getUserInfo } from '../utils/auth';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import { useSocket } from '../contexts/SocketContext';
+import {
+  buildDashboardAuditSentence,
+} from '../utils/dashboardAuditFormat';
 
 // Get auth headers function
 const getAuthHeaders = () => {
@@ -1180,6 +1183,10 @@ const AuditLogs = () => {
     if (txMsgGlobal) return txMsgGlobal;
 
     const tableNameLower = String(log?.table_name || '').toLowerCase();
+    if (detailsAny.module_type === 'dashboard') {
+      return buildDashboardAuditSentence(log);
+    }
+
     const isEarningsModule = tableNameLower.startsWith('earnings_');
     const isEarningsTransaction =
       tableNameLower === 'leave_transaction' &&

@@ -29,6 +29,10 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import {
+  formatDtrPdfFileName,
+  openPdfBlobForPrint,
+} from '../../utils/dtrFormatHelpers';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -416,6 +420,18 @@ const DailyTimeRecordHonorarium = () => {
     } catch (e) { /* noop */ }
   };
 
+  const getSingleDtrPdfUser = () => {
+    if (records[0]) {
+      const r = records[0];
+      return {
+        firstName: r.firstName,
+        lastName: r.lastName,
+        middleName: r.middleName,
+      };
+    }
+    return { fullName: employeeName };
+  };
+
   const printPage = async () => {
     if (!dtrRef.current) return;
     await new Promise((r) => setTimeout(r, 80));
@@ -431,7 +447,10 @@ const DailyTimeRecordHonorarium = () => {
       const dtrW = 8, dtrH = 9.5, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
       pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
+      openPdfBlobForPrint(
+        pdf,
+        formatDtrPdfFileName(getSingleDtrPdfUser(), startDate),
+      );
     } catch (e) { console.error('Error generating print view:', e); }
     finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
   };
@@ -449,7 +468,7 @@ const DailyTimeRecordHonorarium = () => {
       const imgData = canvas.toDataURL('image/png');
       const dtrW = 8, dtrH = 10, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
-      pdf.save(`DTR-Honorarium-${employeeName}-${formatMonth(startDate)}.pdf`);
+      pdf.save(formatDtrPdfFileName(getSingleDtrPdfUser(), startDate));
       setSnackbar({ open: true, message: 'DTR downloaded successfully.', severity: 'success' });
     } catch (e) { console.error('Error generating PDF:', e); }
     finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }

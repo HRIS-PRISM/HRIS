@@ -289,12 +289,10 @@ const FloatingConversionWidget = () => {
 
   return (
     <>
-      {/* FAB — position:fixed, lives at root level in AssignmentManagement, never inside a transform ancestor */}
       <Tooltip title="Quick Conversion Tool" placement="left">
         <Box
           onClick={() => setOpen((v) => !v)}
           sx={{
-            position: "fixed", bottom: 128, right: 32, zIndex: 9999,
             width: 48, height: 48, borderRadius: "50%",
             bgcolor: open ? T.accentDark : T.accent, color: "#fff",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -311,7 +309,7 @@ const FloatingConversionWidget = () => {
       {/* Panel */}
       <Collapse in={open} timeout={200}>
         <Paper elevation={0} sx={{
-          position: "fixed", bottom: 186, right: 32, zIndex: 9998, width: 310,
+          position: "fixed", bottom: 125, right: 32, zIndex: 9998, width: 310,
           borderRadius: "12px", border: `1px solid ${T.accentBorder}`,
           boxShadow: `0 8px 32px ${alpha(T.accent, 0.18)}, 0 2px 8px rgba(0,0,0,0.08)`,
           overflow: "hidden", fontFamily: T.poppins,
@@ -797,9 +795,21 @@ const AssignmentManagement = () => {
         </Suspense>
       </Box>
 
-      {/* Floating Conversion Widget — lives HERE in the parent, never inside
-          a transform/overflow:hidden ancestor, so position:fixed works correctly */}
-      <FloatingConversionWidget />
+      {/* Floating Conversion Widget — fixed stack matches EarningsManagement */}
+      <Box
+        sx={{
+          position: "fixed",
+          bottom: 60,
+          right: 10,
+          zIndex: 9999,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 1,
+        }}
+      >
+        <FloatingConversionWidget />
+      </Box>
     </Box>
   );
 };

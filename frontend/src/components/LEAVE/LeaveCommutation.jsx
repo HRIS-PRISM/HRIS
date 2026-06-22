@@ -357,7 +357,7 @@ const LeaveCommutation = () => {
                   Leave Commutation
                 </Typography>
                 <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
-                  Administrative Panel • Manage commuted leave hours converted from remaining balances
+                  Track unused leave for in-service use or retirement — payable based on salary grade
                 </Typography>
               </Box>
             </Box>
@@ -511,7 +511,7 @@ const LeaveCommutation = () => {
                 </Typography>
                 <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
                   {records.length === 0
-                    ? 'Records will appear here once leave is commuted from the Leave Assignment module.'
+                    ? 'Records appear here once leave is commuted from Leave Assignment — for in-service or retirement benefit.'
                     : 'Try adjusting your search or filter.'}
                 </Typography>
               </Box>
