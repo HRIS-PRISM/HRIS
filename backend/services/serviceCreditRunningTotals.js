@@ -1,88 +1,68 @@
 const db = require("../db");
-
-const toNum = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
+const {
+  toNum,
+  latestScPeriodsByKey,
+  sortScPeriodsDesc,
+  getScDisplayRemainingHours,
+  computeScBalances,
+  queryAsync,
+  scRecordsForDisplay,
+  resolveScCurrentDisplayPeriod,
+} = require("../utils/serviceCreditBalanceUtils");
 
 /**
- * Current SC totals for employee + sc_type.
- *
- * Ledger semantics:
- * - Deduction / adjustment rows may store a full snapshot (earned, used, remaining all cumulative).
- * - Earn rows from earnings approval store: earned_hours = this transaction only, remaining_hours =
- *   balance after the earn, used_hours = 0 (cumulative used is unchanged; not duplicated on the row).
- *
- * Totals: remaining is always read from the latest row. Cumulative used is the latest row's used_hours
- * if > 0, else the most recent older row with used_hours > 0. Cumulative earned = remaining + used.
+ * Load approved sc_earnings for an employee + sc_type.
+ */
+function loadScEarningsForType(employeeNumber, scType, cb) {
+  db.query(
+    `SELECT * FROM sc_earnings
+     WHERE employee_number = ? AND sc_type = ? AND voided_at IS NULL AND (voided IS NULL OR voided = 0)`,
+    [String(employeeNumber), String(scType || "non_commutative")],
+    (err, rows) => cb(err, rows || []),
+  );
+}
+
+/**
+ * Current SC totals for employee + sc_type (display remaining from latest active period).
  */
 function getServiceCreditRunningTotals(employeeNumber, scType, cb) {
+  const emp = String(employeeNumber || "").trim();
+  const st = String(scType || "non_commutative");
+  if (!emp) return cb(null, { earned: 0, used: 0, remaining: 0 });
+
   db.query(
-    `SELECT id, earned_hours, used_hours, remaining_hours
-     FROM service_credit
-     WHERE employeeNumber = ? AND sc_type = ?
-     ORDER BY id DESC
-     LIMIT 1`,
-    [employeeNumber, scType],
+    `SELECT * FROM service_credit
+     WHERE employeeNumber = ? AND sc_type = ? AND voided_at IS NULL
+     ORDER BY id DESC`,
+    [emp, st],
     (err, rows) => {
       if (err) return cb(err);
-      const L = rows && rows[0];
-      if (!L) return cb(null, { earned: 0, used: 0, remaining: 0 });
+      const list = rows || [];
+      if (!list.length) return cb(null, { earned: 0, used: 0, remaining: 0 });
 
-      const remaining = toNum(L.remaining_hours);
-      if (remaining < 0) {
-        return db.query(
-          `SELECT COALESCE(SUM(earned_hours), 0) AS earned,
-                  COALESCE(SUM(used_hours), 0) AS used,
-                  COALESCE(SUM(remaining_hours), 0) AS remaining
-           FROM service_credit
-           WHERE employeeNumber = ? AND sc_type = ?`,
-          [employeeNumber, scType],
-          (e2, sumRows) => {
-            if (e2) return cb(e2);
-            const s = sumRows && sumRows[0];
-            cb(null, {
-              earned: toNum(s?.earned),
-              used: toNum(s?.used),
-              remaining: toNum(s?.remaining),
-            });
-          },
-        );
-      }
+      loadScEarningsForType(emp, st, (errE, earnings) => {
+        if (errE) return cb(errE);
 
-      let used = toNum(L.used_hours);
-      const finish = () => {
-        const earned = remaining + used;
-        cb(null, { earned, used, remaining });
-      };
+        const periods = sortScPeriodsDesc(latestScPeriodsByKey(list));
+        const active = periods[0];
+        if (!active) return cb(null, { earned: 0, used: 0, remaining: 0 });
 
-      if (used > 0) {
-        return finish();
-      }
-
-      db.query(
-        `SELECT used_hours
-         FROM service_credit
-         WHERE employeeNumber = ? AND sc_type = ? AND id < ? AND used_hours > 0
-         ORDER BY id DESC
-         LIMIT 1`,
-        [employeeNumber, scType, L.id],
-        (e2, urows) => {
-          if (e2) return cb(e2);
-          if (urows && urows[0] && toNum(urows[0].used_hours) > 0) {
-            used = toNum(urows[0].used_hours);
-          }
-          finish();
-        },
-      );
+        const bal = computeScBalances(active, { earningsList: earnings });
+        cb(null, {
+          earned: bal.otEarned + bal.earnedBalance,
+          used: bal.usedHrs,
+          remaining: bal.remainingBalance,
+          periodRow: active,
+        });
+      });
     },
   );
 }
 
-/** Rows shaped like `sc_balance_summary` for API compatibility (period_* echo request filter). */
+/** Rows shaped like sc_balance_summary for API compatibility. */
 function loadScBalanceSummaryRows(employeeNumber, year, month, cb) {
   db.query(
-    `SELECT DISTINCT sc_type FROM service_credit WHERE employeeNumber = ?`,
+    `SELECT DISTINCT sc_type FROM service_credit WHERE employeeNumber = ? AND voided_at IS NULL`,
     [employeeNumber],
     (err, types) => {
       if (err) return cb(err, []);
@@ -111,12 +91,12 @@ function loadScBalanceSummaryRows(employeeNumber, year, month, cb) {
   );
 }
 
-/** Sum remaining across all sc_type buckets (matches GET /api/earnings/sc/:emp/balance). */
+/** Sum display remaining across all sc_type buckets. */
 function getScRemainingHoursTotal(employeeNumber, cb) {
   const emp = String(employeeNumber || "").trim();
   if (!emp) return cb(null, 0);
   db.query(
-    `SELECT DISTINCT sc_type FROM service_credit WHERE employeeNumber = ?`,
+    `SELECT DISTINCT sc_type FROM service_credit WHERE employeeNumber = ? AND voided_at IS NULL`,
     [emp],
     (err, types) => {
       if (err) return cb(err);
@@ -138,9 +118,29 @@ function getScRemainingHoursTotal(employeeNumber, cb) {
   );
 }
 
+/** Sum display remaining across all periods for one sc_type (employee modal footer). */
+async function getScEmployeeDisplayRemainingAsync(dbConn, employeeNumber, scType = "non_commutative") {
+  const emp = String(employeeNumber || "").trim();
+  const rows = await queryAsync(
+    dbConn,
+    `SELECT * FROM service_credit WHERE employeeNumber = ? AND sc_type = ? AND voided_at IS NULL`,
+    [emp, String(scType)],
+  );
+  const earnings = await queryAsync(
+    dbConn,
+    `SELECT * FROM sc_earnings WHERE employee_number = ? AND sc_type = ? AND voided_at IS NULL AND (voided IS NULL OR voided = 0)`,
+    [emp, String(scType)],
+  );
+  const display = scRecordsForDisplay(rows, String(scType));
+  const latest = resolveScCurrentDisplayPeriod(display);
+  if (!latest) return 0;
+  return getScDisplayRemainingHours(latest, earnings);
+}
+
 module.exports = {
   getServiceCreditRunningTotals,
   getScRemainingHoursTotal,
   loadScBalanceSummaryRows,
+  getScEmployeeDisplayRemainingAsync,
   toNum,
 };

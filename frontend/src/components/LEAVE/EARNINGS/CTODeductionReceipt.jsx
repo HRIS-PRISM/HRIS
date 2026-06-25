@@ -11,6 +11,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
+import { isScEarningVoided } from "../serviceCreditBalanceUtils";
 import {
   employmentCategoryAllowsCompensatoryTimeOff,
   employmentCategoryLabel,
@@ -59,6 +60,7 @@ import {
 } from "@mui/icons-material";
 import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 import {
+  fetchDeductionCreditSnapshots,
   getDeductionSourceBalanceDays,
   isDeductionSourceSufficient,
   canApplyAttendanceDeductionToCreditSource,
@@ -328,23 +330,27 @@ const CTODeductionReceipt = ({
   // ── Fetch balances ──────────────────────────────────────────────────────────
   const fetchBalances = useCallback(async (opts) => {
     const silent = opts?.silent === true;
-    if (!employee) { setCtoBalance(null); setVlBalance(null); setScBuffer(0); return; }
+    if (!employee) { setCtoBalance(null); setVlBalance(null); setScBuffer(0); setAssignmentMap({}); return; }
     if (!silent) setBalLoading(true);
     const token = localStorage.getItem("token");
     try {
-      const [assignRes, scRes, ctoRes] = await Promise.allSettled([
-        axios.get(`${API_BASE_URL}/api/earnings/assignment-balances/${employee.employeeNumber}`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${API_BASE_URL}/api/earnings/sc/${employee.employeeNumber}/balance`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`${API_BASE_URL}/api/earnings/cto/${employee.employeeNumber}/balance`, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-      if (assignRes.status === "fulfilled" && typeof assignRes.value.data === "object") {
-        setAssignmentMap(assignRes.value.data);
-        setVlBalance(toNum(assignRes.value.data?.VL?.remaining_hours) / 8);
-      } else { setAssignmentMap({}); setVlBalance(0); }
-      setCtoBalance(ctoRes.status === "fulfilled" ? toNum(ctoRes.value.data?.totalRemaining) / 8 : 0);
-      setScBuffer(scRes.status === "fulfilled" ? toNum(scRes.value.data?.totalRemaining) / 8 : 0);
-    } catch { setCtoBalance(0); setVlBalance(0); setScBuffer(0); }
-    finally { if (!silent) setBalLoading(false); }
+      const snapshots = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
+      const map =
+        snapshots?.assignmentMap && typeof snapshots.assignmentMap === "object"
+          ? snapshots.assignmentMap
+          : {};
+      setAssignmentMap(map);
+      setVlBalance(toNum(map?.VL?.remaining_hours) / 8);
+      setCtoBalance(toNum(snapshots?.ctoRemainingHours) / 8);
+      setScBuffer(toNum(snapshots?.scRemainingHours) / 8);
+    } catch {
+      setAssignmentMap({});
+      setCtoBalance(0);
+      setVlBalance(0);
+      setScBuffer(0);
+    } finally {
+      if (!silent) setBalLoading(false);
+    }
   }, [employee]);
 
   // ── Fetch existing deductions ───────────────────────────────────────────────
@@ -394,7 +400,12 @@ const CTODeductionReceipt = ({
       const scEarn = scRes.status==="fulfilled" ? scRes.value.data?.earnings||[] : [];
       const scLedger = scRes.status==="fulfilled" ? scRes.value.data?.ledger_sc_deductions||[] : [];
       setExistingScDeductions([
-        ...scEarn.filter((e)=>e.entry_type==="DEDUCTION"&&e.earn_status!=="rejected"),
+        ...scEarn.filter(
+          (e) =>
+            e.entry_type === "DEDUCTION" &&
+            e.earn_status !== "rejected" &&
+            !isScEarningVoided(e),
+        ),
         ...scLedger,
       ]);
     } catch {
@@ -485,9 +496,12 @@ const CTODeductionReceipt = ({
     return[skipOpt,...rest,...sal];
   },[absenceDeductionOptions]);
 
-  // ── FIX: Force VL into tardiness options ────────────────────────────────────
+  // ── FIX: Force SC + VL into tardiness options ───────────────────────────────
   const tardinessOptionsUi=useMemo(()=>{
     const list=Array.isArray(tardinessDeductionOptions)?[...tardinessDeductionOptions]:[];
+    // Force SC if missing
+    if(!list.some((o)=>String(o?.value||"").toUpperCase()==="SC"))
+      list.unshift({value:"SC",label:"Service Credit (SC)",leave_type_id:null});
     // Force VL if missing
     if(!list.some((o)=>String(o?.value||"").toUpperCase()==="VL"))
       list.unshift({value:"VL",label:"Vacation Leave (VL)",leave_type_id:null});
@@ -567,6 +581,16 @@ const CTODeductionReceipt = ({
   const existingScTardinessDeductions=existingScDeductions.filter(isScTardinessDeductionRow);
   const tardinessPending=existingTardinessDeductions.some((e)=>e.earn_status==="pending")||existingCtoTardinessDeductions.some((e)=>e.earn_status==="pending")||existingScTardinessDeductions.some((e)=>e.earn_status==="pending");
   const tardinessApproved=existingTardinessDeductions.some((e)=>e.earn_status==="approved")||existingCtoTardinessDeductions.some((e)=>e.earn_status==="approved")||existingScTardinessDeductions.some((e)=>e.earn_status==="approved");
+
+  /** Actual charge source once tardiness has been posted (overrides dropdown default VL). */
+  const postedTardinessChargeSource=(()=>{
+    if(postedTardinessScDays>1e-9)return"SC";
+    if(postedTardinessCtoDays>1e-9)return"CTO";
+    if(tardinessSalaryFullyRecovered||postedSalaryTardinessDays>1e-9)return"SALARY_DEDUCTION";
+    if(totalTardPostedLeave>1e-9)return postedTardinessLeaveCode||"VL";
+    return null;
+  })();
+  const tardinessDisplaySource=postedTardinessChargeSource||tardinessSource;
 
   const ctoBal=ctoBalance!==null?ctoBalance:0;
   const vlBal=vlBalance!==null?vlBalance:0;
@@ -726,23 +750,32 @@ const CTODeductionReceipt = ({
 
   const absenceOptionLabel=absenceOptionsUi.find((o)=>o.value===absenceSource)?.label?.trim()||"";
   const tardinessOptionLabel=tardinessOptionsUi.find((o)=>o.value===tardinessSource)?.label?.trim()||"";
+  const tardinessDisplayOptionLabel=tardinessOptionsUi.find((o)=>o.value===tardinessDisplaySource)?.label?.trim()||"";
 
-  const absenceOffsetScopeLabel=(()=>{
-    if(absenceOptionLabel){const paren=absenceOptionLabel.match(/\(([^)]+)\)\s*$/);if(paren?.[1])return String(paren[1]).trim();}
-    if(isDeductionSkipSource(absenceSource))return"—";
-    const u=String(absenceSource||"").toUpperCase();
+  const scopeLabelFromSource=(src,optionLabel)=>{
+    if(optionLabel){const paren=optionLabel.match(/\(([^)]+)\)\s*$/);if(paren?.[1])return String(paren[1]).trim();}
+    if(isDeductionSkipSource(src))return"—";
+    const u=String(src||"").toUpperCase();
     return u==="SALARY_DEDUCTION"?"Salary":u||"—";
-  })();
+  };
 
-  const tardinessOffsetScopeLabel=(()=>{
-    if(tardinessOptionLabel){const paren=tardinessOptionLabel.match(/\(([^)]+)\)\s*$/);if(paren?.[1])return String(paren[1]).trim();}
-    if(isDeductionSkipSource(tardinessSource))return"—";
-    const u=String(tardinessSource||"").toUpperCase();
-    return u==="SALARY_DEDUCTION"?"Salary":u||"—";
-  })();
+  const absenceOffsetScopeLabel=scopeLabelFromSource(absenceSource,absenceOptionLabel);
 
-  const tardinessLedgerHeading=tardinessIsSkipped?postedTardinessLeaveCode:tardinessOptionLabel||(String(tardinessSource).toUpperCase()==="CTO"?"Compensatory Time Off (CTO)":String(tardinessSource).toUpperCase()==="SC"?"Service Credit (SC)":"Leave");
+  const tardinessOffsetScopeLabel=scopeLabelFromSource(tardinessDisplaySource,tardinessDisplayOptionLabel);
+
+  const tardinessLedgerHeading=tardinessIsSkipped&&!postedTardinessChargeSource?postedTardinessLeaveCode:tardinessDisplayOptionLabel||(String(tardinessDisplaySource).toUpperCase()==="CTO"?"Compensatory Time Off (CTO)":String(tardinessDisplaySource).toUpperCase()==="SC"?"Service Credit (SC)":"Leave");
   const tardinessOffsetTitle=`Tardiness offset (${tardinessOffsetScopeLabel})`;
+
+  const balanceDaysForTardinessSource=(src)=>{
+    if(isDeductionSkipSource(src))return vlBal;
+    const code=String(src||"").toUpperCase();
+    if(!code||code==="SALARY_DEDUCTION")return code==="SALARY_DEDUCTION"?0:vlBal;
+    if(code==="SC")return scBuffer;
+    if(code==="CTO")return ctoBal;
+    const d=getDeductionSourceBalanceDays(src,deductionCreditCtxTardiness);
+    return d!=null&&Number.isFinite(d)?d:0;
+  };
+  const tardDisplayBalDays=balanceDaysForTardinessSource(tardinessDisplaySource);
 
   const absenceLedgerOutline=showAbsence&&absenceCoveredBySC&&absentDays>0?scApproved?"success":"warning":showAbsence&&absenceFullyDeducted&&!absenceCoveredBySC?absenceApproved?"success":"warning":showAbsence&&absentDays>0&&absenceSalaryFullyRecovered&&!absenceCoveredBySC&&!absenceFullyDeducted?"success":"default";
   const tardinessLedgerOutline=showTardiness&&tardinessFullyDeducted?tardinessApproved||tardinessSalaryFullyRecovered?"success":"warning":"default";
@@ -754,8 +787,14 @@ const CTODeductionReceipt = ({
 
   const leftAbsLedgerBal=!showAbsence?null:useScCtoPolicyPreview?policySelection==="cto"?Number((ctoBal-remainingAbsence).toFixed(3)):Number((scBuffer-remainingAbsence).toFixed(3)):absenceIsSkipped?Number(ctoBal.toFixed(3)):absenceFullyDeducted||absenceCoveredBySC?Number((ctoBal-alreadyCtoDeducted).toFixed(3)):String(absenceSource).toUpperCase()==="SC"?newScBalanceAfterAbsence:String(absenceSource).toUpperCase()==="CTO"?newCtoBalance:String(absenceSource).toUpperCase()!=="SALARY_DEDUCTION"?Number((toNum(assignmentMap[absenceSource]?.remaining_hours)/8-remainingAbsence).toFixed(3)):newCtoBalance;
   const leftAbsLedgerLabel=!showAbsence?"":useScCtoPolicyPreview?policySelection==="cto"?"New CTO balance":"New SC balance":absenceIsSkipped?"No change":absenceFullyDeducted||absenceCoveredBySC?"New CTO bal":String(absenceSource).toUpperCase()==="SC"?"New SC bal":String(absenceSource).toUpperCase()==="CTO"?"New CTO bal":String(absenceSource).toUpperCase()!=="SALARY_DEDUCTION"?`New ${humanizeDeductionCharge(absenceSource)} bal`:"New CTO bal";
-  const rightTardLedgerBal=!showTardiness?null:tardinessIsSkipped?Number(tardBalDays.toFixed(3)):tardinessFullyDeducted?Number((tardBalDays-totalTardPostedLeave).toFixed(3)):newVlBalance;
-  const rightTardLedgerLabel=!showTardiness?"":tardinessIsSkipped?"No change":String(tardinessSource).toUpperCase()==="SALARY_DEDUCTION"?"Salary (no leave deducted)":`New ${humanizeDeductionCharge(tardinessSource)} bal`;
+  const rightTardLedgerBal=!showTardiness?null:tardinessIsSkipped&&!postedTardinessChargeSource?Number(tardDisplayBalDays.toFixed(3)):tardinessFullyDeducted?(()=>{
+    const code=String(tardinessDisplaySource||"").toUpperCase();
+    if(code==="SC")return Number((scBuffer-postedTardinessScDays).toFixed(3));
+    if(code==="CTO")return Number((ctoBal-postedTardinessCtoDays).toFixed(3));
+    if(code==="SALARY_DEDUCTION")return 0;
+    return Number((tardDisplayBalDays-totalTardPostedLeave).toFixed(3));
+  })():Number((tardDisplayBalDays-(tardinessIsSkipped?0:remainingTardiness)).toFixed(3));
+  const rightTardLedgerLabel=!showTardiness?"":tardinessIsSkipped&&!postedTardinessChargeSource?"No change":String(tardinessDisplaySource).toUpperCase()==="SALARY_DEDUCTION"?"Salary (no leave deducted)":`New ${humanizeDeductionCharge(tardinessDisplaySource)} bal`;
 
   // ── Confirm modal data ──────────────────────────────────────────────────────
   const confirmSlipTotalDays=useMemo(()=>{
@@ -937,7 +976,10 @@ const CTODeductionReceipt = ({
                   defaultOpen={false}
                   statusBadge={
                     tardinessFullyDeducted ? (
-                      <SBadge label={tardinessApproved||tardinessSalaryFullyRecovered?"Applied":"Pending"} approved={tardinessApproved||tardinessSalaryFullyRecovered} />
+                      <>
+                        {postedTardinessChargeSource==="SC"&&<SBadge label={existingScTardinessDeductions.some((e)=>e.earn_status==="approved")?"SC applied":"SC pending"} approved={existingScTardinessDeductions.some((e)=>e.earn_status==="approved")} />}
+                        <SBadge label={tardinessApproved||tardinessSalaryFullyRecovered?"Applied":"Pending"} approved={tardinessApproved||tardinessSalaryFullyRecovered} />
+                      </>
                     ) : null
                   }
                   footer={
@@ -957,7 +999,7 @@ const CTODeductionReceipt = ({
                     )
                   }
                 >
-                  <R label={`${tardinessLedgerHeading} balance`} sub={balLoading?"Loading…":tardinessIsSkipped?"No new charge":"Current"} value={balLoading?"…":`${(String(tardinessSource).toUpperCase()==="SALARY_DEDUCTION"?0:tardBalDays).toFixed(3)} d`} valueColor={tardBalDays>0||String(tardinessSource).toUpperCase()==="SALARY_DEDUCTION"?"#1e4d20":T.faint} bold />
+                  <R label={`${tardinessLedgerHeading} balance`} sub={balLoading?"Loading…":tardinessIsSkipped&&!postedTardinessChargeSource?"No new charge":"Current"} value={balLoading?"…":`${(String(tardinessDisplaySource).toUpperCase()==="SALARY_DEDUCTION"?0:tardDisplayBalDays).toFixed(3)} d`} valueColor={tardDisplayBalDays>0||String(tardinessDisplaySource).toUpperCase()==="SALARY_DEDUCTION"?"#1e4d20":T.faint} bold />
                   {!tardinessIsSkipped && <R label="Buffer" sub="—" value="—" valueColor={T.faint} faded />}
                   {showTardiness && (
                     <R label="Tardiness to offset" sub={tardHrs>0?`${tardHrs.toFixed(3)} hrs`:"—"} value={remainingTardiness>0.0001?`− ${remainingTardiness.toFixed(3)} d`:tardDays>0?`− ${tardDays.toFixed(3)} d`:"0.000 d"} valueColor={tardDays>0?"#c62828":T.faint} />

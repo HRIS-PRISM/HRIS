@@ -179,6 +179,7 @@ const Wireframe = () => (
 
 // ─── Helper ────────────────────────────────────────────────────────────────────
 const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const fmtNum = (n) => toNum(n).toFixed(3);
 
 // ─── Error Modal (same pattern as LeaveRequest) ────────────────────────────────
 const ErrorModal = ({ open, onClose, title, message, icon: Icon = ErrorOutlineIcon, iconColor = '#C62828', iconBg = '#FFEBEE' }) => (
@@ -382,8 +383,8 @@ const LeaveCommutation = () => {
           {[
             { label: 'Total Records',  value: stats.total,                 color: T.accent,  Icon: HistoryIcon  },
             { label: 'Employees',      value: stats.employees,             color: '#1565C0', Icon: PersonIcon   },
-            { label: 'Days Commuted',  value: stats.totalDays.toFixed(2),  color: '#2E7D32', Icon: CalendarIcon },
-            { label: 'Hours Commuted', value: stats.totalHours.toFixed(2), color: '#ED6C02', Icon: ClockIcon    },
+            { label: 'Days Commuted',  value: fmtNum(stats.totalDays),  color: '#2E7D32', Icon: CalendarIcon },
+            { label: 'Hours Commuted', value: fmtNum(stats.totalHours), color: '#ED6C02', Icon: ClockIcon    },
           ].map(({ label, value, color, Icon }) => (
             <Grid item xs={6} md={3} key={label}>
               <SectionCard>
@@ -566,10 +567,10 @@ const LeaveCommutation = () => {
                   {/* Days / Hours */}
                   <Box>
                     <Typography sx={{ fontSize: '0.85rem', fontWeight: 800, color: T.accent, lineHeight: 1.2 }}>
-                      {toNum(rec.commuted_days).toFixed(2)} days
+                      {fmtNum(rec.commuted_days)} days
                     </Typography>
                     <Typography sx={{ fontSize: '0.7rem', color: T.faint, fontWeight: 600 }}>
-                      {toNum(rec.commuted_hours).toFixed(2)} hrs
+                      {fmtNum(rec.commuted_hours)} hrs
                     </Typography>
                   </Box>
 
@@ -690,11 +691,11 @@ const LeaveCommutation = () => {
                           Total Commuted
                         </Typography>
                         <Typography sx={{ fontWeight: 900, color: T.accent, fontSize: '2rem', lineHeight: 1 }}>
-                          {toNum(selectedRecord.commuted_days).toFixed(2)}
+                          {fmtNum(selectedRecord.commuted_days)}
                           <Box component="span" sx={{ fontSize: '1rem', fontWeight: 700, ml: 0.75 }}>days</Box>
                         </Typography>
                         <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontWeight: 600, mt: 0.25 }}>
-                          {toNum(selectedRecord.commuted_hours).toFixed(2)} hours
+                          {fmtNum(selectedRecord.commuted_hours)} hours
                         </Typography>
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>

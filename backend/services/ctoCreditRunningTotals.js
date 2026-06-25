@@ -1,88 +1,105 @@
 const db = require("../db");
+const {
+  toNum,
+  latestCtoPeriodsByKey,
+  sortCtoPeriodsDesc,
+  getCtoDisplayRemainingHours,
+  computeCtoBalances,
+  queryAsync,
+  ctoRecordsForDisplay,
+  resolveCtoCurrentDisplayPeriod,
+} = require("../utils/ctoBalanceUtils");
 
-const toNum = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
+function loadCtoEarnings(employeeNumber, cb) {
+  db.query(
+    `SELECT * FROM cto_earnings
+     WHERE employee_number = ? AND voided_at IS NULL AND (voided IS NULL OR voided = 0)`,
+    [String(employeeNumber)],
+    (err, rows) => cb(err, rows || []),
+  );
+}
 
 /**
- * Current CTO totals for an employee (all cto_credit rows).
- *
- * Ledger semantics (aligned with service_credit / earnings SC flow):
- * - Deduction rows store a full snapshot (cumulative earned, used, remaining).
- * - Earn rows from earnings approval store: earned_hours = this transaction only,
- *   remaining_hours = balance after the earn, used_hours = 0 (cumulative used unchanged on the row).
- *
- * Totals: remaining from latest row; cumulative used = latest.used if > 0 else most recent older row
- * with used_hours > 0; cumulative earned = remaining + used.
+ * Current CTO totals for employee (display remaining from latest active period).
  */
 function getCtoCreditRunningTotals(employeeNumber, cb) {
   const emp = String(employeeNumber || "").trim();
   if (!emp) return cb(null, { earned: 0, used: 0, remaining: 0 });
 
   db.query(
-    `SELECT id, earned_hours, used_hours, remaining_hours
-     FROM cto_credit
-     WHERE employeeNumber = ?
-     ORDER BY id DESC
-     LIMIT 1`,
+    `SELECT * FROM cto_credit
+     WHERE employeeNumber = ? AND voided_at IS NULL
+     ORDER BY id DESC`,
     [emp],
     (err, rows) => {
       if (err) return cb(err);
-      const L = rows && rows[0];
-      if (!L) return cb(null, { earned: 0, used: 0, remaining: 0 });
+      const list = rows || [];
+      if (!list.length) return cb(null, { earned: 0, used: 0, remaining: 0 });
 
-      const remaining = toNum(L.remaining_hours);
-      if (remaining < 0) {
-        return db.query(
-          `SELECT COALESCE(SUM(earned_hours), 0) AS earned,
-                  COALESCE(SUM(used_hours), 0) AS used,
-                  COALESCE(SUM(remaining_hours), 0) AS remaining
-           FROM cto_credit
-           WHERE employeeNumber = ?`,
-          [emp],
-          (e2, sumRows) => {
-            if (e2) return cb(e2);
-            const s = sumRows && sumRows[0];
-            cb(null, {
-              earned: toNum(s?.earned),
-              used: toNum(s?.used),
-              remaining: toNum(s?.remaining),
-            });
-          },
-        );
-      }
+      loadCtoEarnings(emp, (errE, earnings) => {
+        if (errE) return cb(errE);
 
-      let used = toNum(L.used_hours);
-      const finish = () => {
-        const earned = remaining + used;
-        cb(null, { earned, used, remaining });
-      };
+        const periods = sortCtoPeriodsDesc(latestCtoPeriodsByKey(list));
+        const active = periods[0];
+        if (!active) return cb(null, { earned: 0, used: 0, remaining: 0 });
 
-      if (used > 0) {
-        return finish();
-      }
-
-      db.query(
-        `SELECT used_hours
-         FROM cto_credit
-         WHERE employeeNumber = ? AND id < ? AND used_hours > 0
-         ORDER BY id DESC
-         LIMIT 1`,
-        [emp, L.id],
-        (e2, urows) => {
-          if (e2) return cb(e2);
-          if (urows && urows[0] && toNum(urows[0].used_hours) > 0) {
-            used = toNum(urows[0].used_hours);
-          }
-          finish();
-        },
-      );
+        const bal = computeCtoBalances(active, { earningsList: earnings });
+        cb(null, {
+          earned: bal.otEarned + bal.earnedBalance,
+          used: bal.usedHrs,
+          remaining: bal.remainingBalance,
+          periodRow: active,
+        });
+      });
     },
   );
 }
 
+function loadCtoBalanceSummaryRows(employeeNumber, year, month, cb) {
+  getCtoCreditRunningTotals(employeeNumber, (err, cur) => {
+    if (err) return cb(err, []);
+    cb(null, [
+      {
+        employee_number: employeeNumber,
+        period_year: year != null ? parseInt(year, 10) : null,
+        period_month: month != null ? parseInt(month, 10) : null,
+        total_earned_hours: cur.earned,
+        remaining_hours: cur.remaining,
+        used_hours: cur.used,
+      },
+    ]);
+  });
+}
+
+function getCtoRemainingHoursTotal(employeeNumber, cb) {
+  getCtoCreditRunningTotals(employeeNumber, (err, cur) => {
+    if (err) return cb(err);
+    cb(null, toNum(cur?.remaining));
+  });
+}
+
+async function getCtoEmployeeDisplayRemainingAsync(dbConn, employeeNumber) {
+  const emp = String(employeeNumber || "").trim();
+  const rows = await queryAsync(
+    dbConn,
+    `SELECT * FROM cto_credit WHERE employeeNumber = ? AND voided_at IS NULL`,
+    [emp],
+  );
+  const earnings = await queryAsync(
+    dbConn,
+    `SELECT * FROM cto_earnings WHERE employee_number = ? AND voided_at IS NULL AND (voided IS NULL OR voided = 0)`,
+    [emp],
+  );
+  const display = ctoRecordsForDisplay(rows);
+  const latest = resolveCtoCurrentDisplayPeriod(display);
+  if (!latest) return 0;
+  return getCtoDisplayRemainingHours(latest, earnings);
+}
+
 module.exports = {
   getCtoCreditRunningTotals,
+  getCtoRemainingHoursTotal,
+  loadCtoBalanceSummaryRows,
+  getCtoEmployeeDisplayRemainingAsync,
   toNum,
 };

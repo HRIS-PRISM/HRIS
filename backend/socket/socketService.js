@@ -293,7 +293,7 @@ function notifyPayrollChanged(action, data) {
  */
 function notifyEarningsChanged(action, data) {
   broadcastToRoles(
-    ['staff', 'administrator', 'superadmin', 'technical'],
+    ['staff', 'admin', 'administrator', 'superadmin', 'technical'],
     'earningsChanged',
     { action, ...data },
   );

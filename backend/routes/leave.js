@@ -22,10 +22,14 @@ const {
   getScRemainingHoursTotal,
 } = require("../services/serviceCreditRunningTotals");
 const {
+  toNum,
   getActivePeriods,
   sortPeriodsDesc,
   getLeaveTypeStatsActive,
   getPriorPeriodCarryForwardHoursForEmployee,
+  recomputeAssignmentLedgerFields,
+  buildNewPeriodAssignmentFields,
+  repairPeriodCarryForwardIfEmpty,
   isCommutedLocked,
   latestPeriodsByKey,
 } = require("../utils/leaveAssignmentBalanceUtils");
@@ -1324,444 +1328,278 @@ router.get(
   },
 );
 
-router.post("/leave_assignment", requireAdmin, (req, res) => {
+router.post("/leave_assignment", requireAdmin, async (req, res) => {
   const {
     employeeNumber,
     leave_code,
     total_hours,
-    carried_forward_hours,
     allocated_hours,
     period_year,
     period_semester,
   } = req.body;
 
-  const semRank = (s) => {
-    const raw = String(s ?? "").trim();
-    if (!raw) return 0;
-    if (/^\d+$/.test(raw)) {
-      const n = parseInt(raw, 10);
-      return Number.isFinite(n) ? n : 0;
+  const currentYear = period_year || new Date().getFullYear();
+  const semester = period_semester ?? null;
+  const semNum = semester != null && String(semester).trim() !== ""
+    ? parseInt(String(semester), 10)
+    : null;
+  const targetMonth = Number.isFinite(semNum) && semNum > 0 ? semNum : null;
+
+  const queryAsync = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    });
+
+  try {
+    const existing = await queryAsync(
+      "SELECT id FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND period_semester <=> ?",
+      [employeeNumber, leave_code, currentYear, semester],
+    );
+    if (existing.length > 0) {
+      return res.status(400).json({
+        error: "This employee already has an assignment for this leave type and period",
+      });
     }
-    const v = raw.toLowerCase();
-    if (v.includes("2nd")) return 2;
-    if (v.includes("1st")) return 1;
-    return 0;
-  };
 
-  const normalizePeriodKeyRow = (row) => {
-    const y = row?.period_year != null ? String(parseInt(String(row.period_year), 10) || "").trim() : "";
-    const semRaw = row?.period_semester != null ? String(row.period_semester).trim() : "";
-    const semNum = semRaw !== "" && /^[0-9]+$/.test(semRaw) ? parseInt(semRaw, 10) : NaN;
-    const sem = Number.isFinite(semNum) ? String(semNum) : semRaw;
-    return `${y}|${sem}`;
-  };
-
-  const isBeforePeriodRow = (row, targetYear, targetMonth) => {
-    const y = Number(row?.period_year);
-    const m = semRank(row?.period_semester);
-    const ty = parseInt(targetYear, 10);
-    if (!Number.isFinite(ty)) return false;
-    if (!Number.isFinite(y)) return true;
-    if (y < ty) return true;
-    if (y > ty) return false;
-    const tm = targetMonth != null ? parseInt(targetMonth, 10) : NaN;
-    if (!Number.isFinite(tm) || tm <= 0) return false;
-    return m < tm;
-  };
-
-  const latestSnapshotPerPeriod = (rows = []) => {
-    const m = new Map();
-    for (const r of rows || []) {
-      const key = normalizePeriodKeyRow(r);
-      const prev = m.get(key);
-      const id = Number(r?.id);
-      const prevId = Number(prev?.id);
-      if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
-        m.set(key, r);
-      }
-    }
-    return Array.from(m.values());
-  };
-
-  // Carry only the most-recent prior period remaining (not a sum of all prior periods).
-  const loadPriorRemainingRows = (y, sem, cb) => {
-    if (!employeeNumber || !leave_code) return cb(null, { ids: [], carry: 0 });
-    const targetYear = parseInt(y, 10);
-    const semNum = sem != null && String(sem).trim() !== "" ? parseInt(String(sem), 10) : NaN;
-    const targetMonth = Number.isFinite(semNum) && semNum > 0 ? semNum : null;
-
-    getPriorPeriodCarryForwardHoursForEmployee(
+    const openingBalance = await getPriorPeriodCarryForwardHoursForEmployee(
       db,
       employeeNumber,
       leave_code,
-      targetYear,
+      currentYear,
       targetMonth,
-    )
-      .then((carry) => {
-        if (carry <= 0) return cb(null, { ids: [], carry: 0 });
-
-        db.query(
-          `SELECT id, remaining_hours, period_year, period_semester, COALESCE(commuted, 0) AS commuted
-           FROM leave_assignment
-           WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
-          [String(employeeNumber), String(leave_code)],
-          (err, rows) => {
-            if (err) return cb(err);
-            const list = latestPeriodsByKey(Array.isArray(rows) ? rows : []);
-            const ids = list
-              .filter((r) => {
-                if (isCommutedLocked(r)) return false;
-                if (!Number.isFinite(targetYear)) return true;
-                if (!targetMonth) return (Number(r.period_year) || 0) < targetYear;
-                return isBeforePeriodRow(r, targetYear, targetMonth);
-              })
-              .map((r) => r.id)
-              .filter((id) => id != null);
-            cb(null, { ids, carry });
-          },
-        );
-      })
-      .catch((err) => cb(err));
-  };
-
-  const resolveCarryForward = (currentYear, semester, carriedForwardDirect, cb) => {
-    loadPriorRemainingRows(currentYear, semester, (e0, meta) => {
-      if (e0) return cb(carriedForwardDirect, []);
-      const priorCarry = meta?.carry ?? 0;
-      const priorIds = meta?.ids ?? [];
-      const finalCarry = priorCarry > 0 ? priorCarry : carriedForwardDirect;
-      cb(finalCarry, priorIds);
-    });
-  };
-
-  const zeroOutPriorRows = (ids, done) => {
-    const safeIds = Array.isArray(ids) ? ids.map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
-    if (!safeIds.length) return done();
-    const placeholders = safeIds.map(() => "?").join(",");
-    db.query(
-      `UPDATE leave_assignment SET remaining_hours = 0 WHERE id IN (${placeholders})`,
-      safeIds,
-      () => done(),
     );
-  };
 
-  const checkQuery =
-    "SELECT id FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND period_semester <=> ?";
-  db.query(
-    checkQuery,
-    [
+    let clientAllocated = null;
+    const hasAllocated =
+      allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== "";
+    const hasTotal =
+      req.body.hasOwnProperty("total_hours") &&
+      total_hours !== null &&
+      total_hours !== undefined &&
+      total_hours !== "";
+
+    if (hasAllocated) {
+      clientAllocated = Math.max(0, parseDbHours(allocated_hours));
+    } else if (hasTotal) {
+      clientAllocated = Math.max(0, parseDbHours(total_hours));
+    }
+
+    const fields = await buildNewPeriodAssignmentFields(db, {
       employeeNumber,
       leave_code,
-      period_year || new Date().getFullYear(),
-      period_semester,
-    ],
-    (checkErr, existing) => {
-      if (checkErr)
-        return res
-          .status(500)
-          .json({ error: "Failed to check existing assignment" });
-      if (existing.length > 0)
-        return res
-          .status(400)
-          .json({
-            error:
-              "This employee already has an assignment for this leave type and period",
-          });
+      period_year: currentYear,
+      period_semester: semester,
+      allocated_hours: clientAllocated ?? openingBalance,
+      used_hours: 0,
+    });
 
-      const customHoursProvided =
-        req.body.hasOwnProperty("total_hours") &&
-        total_hours !== null &&
-        total_hours !== undefined &&
-        total_hours !== "";
+    const insertResult = await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO leave_assignment
+          (leave_code, employeeNumber, total_hours, remaining_hours, used_hours,
+           approve_date, carried_forward_hours, allocated_hours, period_year, period_semester, earning_status)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+        [
+          leave_code,
+          employeeNumber,
+          fields.total_hours,
+          fields.remaining_hours,
+          fields.used_hours,
+          fields.carried_forward_hours,
+          fields.allocated_hours,
+          currentYear,
+          semester,
+          fields.earning_status,
+        ],
+        (err, result) => (err ? reject(err) : resolve(result)),
+      );
+    });
 
-      if (customHoursProvided) {
-        // If UI sends total_hours, treat it as the intended ALLOCATED amount for the period
-        // (carry-forward is stored separately and must be included in total/remaining).
-        const customHours = parseDbHours(total_hours);
-        const allocated = allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== ''
-          ? parseDbHours(allocated_hours)
-          : customHours;
-        const currentYear = period_year || new Date().getFullYear();
-        const semester = period_semester || null;
+    const insertedId = insertResult.insertId;
+    const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
+    try {
+      const [empName, actorName] = await Promise.all([
+        getEmployeeFullName(String(employeeNumber)),
+        getEmployeeFullName(actorEmpNum),
+      ]);
+      const ltRows = await queryAsync(
+        "SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1",
+        [leave_code],
+      );
+      const leaveDesc = ltRows[0]?.leave_description || leave_code;
+      const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+      const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
+      logAudit(
+        { employeeNumber: actorEmpNum },
+        `Assign Leave - ${leaveDesc} (${fields.allocated_hours} hrs)`,
+        "leave_assignment",
+        insertedId,
+        employeeNumber,
+      );
+      await insertTransactionLog(
+        String(employeeNumber),
+        `${actorDisplay} assigned ${leaveDesc} (${fields.allocated_hours} hrs) to ${empDisplay}`,
+        actorEmpNum,
+      );
+    } catch (e) {
+      console.error("[leave] Assign log error:", e.message);
+    }
 
-        const doInsert = (carriedForward, priorIds = []) => {
-          const computedTotal = Math.max(0, (parseDbHours(carriedForward) || 0) + (parseDbHours(allocated) || 0));
-          const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
-          db.query(
-            insertQuery,
-            [
-              leave_code,
-              employeeNumber,
-              computedTotal,
-              computedTotal,
-              carriedForward,
-              allocated,
-              currentYear,
-              semester,
-            ],
-            (insertErr, result) => {
-            if (insertErr) {
-              logAudit({ employeeNumber: getActorEmployeeNumber(req, employeeNumber) }, 'Assign Leave Failed', 'leave_assignment', null, employeeNumber);
-              return res
-                .status(500)
-                .json({
-                  error:
-                    "Failed to create leave assignment: " + insertErr.message,
-                });
-            }
-            // Avoid double-counting: prior period rows must not contribute after roll-forward.
-            if ((parseDbHours(carriedForward) || 0) > 0 && priorIds.length > 0) {
-              zeroOutPriorRows(priorIds, () => {});
-            }
-            const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
-            const insertedId = result.insertId;
-            (async () => {
-              try {
-                const [empName, actorName] = await Promise.all([
-                  getEmployeeFullName(String(employeeNumber)),
-                  getEmployeeFullName(actorEmpNum),
-                ]);
-                const leaveDesc = await new Promise(resolve =>
-                  db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leave_code], (e, r) =>
-                    resolve((r && r[0] && r[0].leave_description) || leave_code)
-                  )
-                );
-                const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-                const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
-                logAudit({ employeeNumber: actorEmpNum }, `Assign Leave - ${leaveDesc} (${customHours} hrs)`, 'leave_assignment', insertedId, employeeNumber);
-                await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDesc} (${customHours} hrs) to ${empDisplay}`, actorEmpNum);
-              } catch (e) { console.error('[leave] Assign log error:', e.message); }
-            })();
-            emitLeaveChange("leaveAssignmentChanged");
-            res.json({
-              id: result.insertId,
-              leave_code,
-              employeeNumber,
-              total_hours: computedTotal,
-              remaining_hours: computedTotal,
-              used_hours: 0,
-              approved_date: null,
-              carried_forward_hours: carriedForward,
-              allocated_hours: allocated,
-              period_year: currentYear,
-              period_semester: semester,
-            });
-            },
-          );
-        };
-
-        const carriedForwardDirect = parseDbHours(carried_forward_hours) || 0;
-        resolveCarryForward(currentYear, semester, carriedForwardDirect, (finalCarry, priorIds) => {
-          doInsert(finalCarry, priorIds);
-        });
-      } else {
-        db.query(
-          "SELECT leave_hours FROM leave_table WHERE leave_code = ?",
-          [leave_code],
-          (hoursErr, leaveType) => {
-            if (hoursErr)
-              return res
-                .status(500)
-                .json({ error: "Failed to fetch leave type" });
-            const defaultHours = leaveType[0]?.leave_hours || 0;
-            const allocated =
-              allocated_hours !== undefined && allocated_hours !== null && allocated_hours !== ''
-                ? parseDbHours(allocated_hours)
-                : (parseDbHours(defaultHours) || 0);
-            const currentYear = period_year || new Date().getFullYear();
-            const semester = period_semester || null;
-
-            const doInsert = (carriedForward, priorIds = []) => {
-              const computedTotal = Math.max(0, (parseDbHours(carriedForward) || 0) + (parseDbHours(allocated) || 0));
-              const insertQuery = `INSERT INTO leave_assignment (leave_code, employeeNumber, total_hours, remaining_hours, used_hours, approve_date, carried_forward_hours, allocated_hours, period_year, period_semester) VALUES (?, ?, ?, ?, 0, NULL, ?, ?, ?, ?)`;
-              db.query(
-                insertQuery,
-                [
-                  leave_code,
-                  employeeNumber,
-                  computedTotal,
-                  computedTotal,
-                  carriedForward,
-                  allocated,
-                  currentYear,
-                  semester,
-                ],
-                (insertErr, result) => {
-                if (insertErr) {
-                  logAudit({ employeeNumber: getActorEmployeeNumber(req, employeeNumber) }, 'Assign Leave Failed', 'leave_assignment', null, employeeNumber);
-                  return res
-                    .status(500)
-                    .json({ error: "Failed to create leave assignment" });
-                }
-                if ((parseDbHours(carriedForward) || 0) > 0 && priorIds.length > 0) {
-                  zeroOutPriorRows(priorIds, () => {});
-                }
-                const actorEmpNum = getActorEmployeeNumber(req, employeeNumber);
-                const insertedId = result.insertId;
-                (async () => {
-                  try {
-                    const [empName, actorName] = await Promise.all([
-                      getEmployeeFullName(String(employeeNumber)),
-                      getEmployeeFullName(actorEmpNum),
-                    ]);
-                    const leaveDescDefault = await new Promise(resolve =>
-                      db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leave_code], (e, r) =>
-                        resolve((r && r[0] && r[0].leave_description) || leave_code)
-                      )
-                    );
-                    const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-                    const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
-                    logAudit({ employeeNumber: actorEmpNum }, `Assign Leave - ${leaveDescDefault} (${defaultHours} hrs)`, 'leave_assignment', insertedId, employeeNumber);
-                    await insertTransactionLog(String(employeeNumber), `${actorDisplay} assigned ${leaveDescDefault} (${defaultHours} hrs) to ${empDisplay}`, actorEmpNum);
-                  } catch (e) { console.error('[leave] Assign log error:', e.message); }
-                })();
-                emitLeaveChange("leaveAssignmentChanged");
-                res.json({
-                  id: result.insertId,
-                  leave_code,
-                  employeeNumber,
-                  total_hours: computedTotal,
-                  remaining_hours: computedTotal,
-                  used_hours: 0,
-                  approved_date: null,
-                  carried_forward_hours: carriedForward,
-                  allocated_hours: allocated,
-                  period_year: currentYear,
-                  period_semester: semester,
-                });
-                },
-              );
-            };
-
-            const carriedForwardDirect = parseDbHours(carried_forward_hours) || 0;
-            resolveCarryForward(currentYear, semester, carriedForwardDirect, (finalCarry, priorIds) => {
-              doInsert(finalCarry, priorIds);
-            });
-          },
-        );
-      }
-    },
-  );
+    emitLeaveChange("leaveAssignmentChanged");
+    res.json({
+      id: insertedId,
+      leave_code,
+      employeeNumber,
+      total_hours: fields.total_hours,
+      remaining_hours: fields.remaining_hours,
+      used_hours: fields.used_hours,
+      approved_date: null,
+      carried_forward_hours: fields.carried_forward_hours,
+      allocated_hours: fields.allocated_hours,
+      period_year: currentYear,
+      period_semester: semester,
+      earning_status: fields.earning_status,
+    });
+  } catch (err) {
+    console.error("[POST leave_assignment]", err.message);
+    logAudit(
+      { employeeNumber: getActorEmployeeNumber(req, employeeNumber) },
+      "Assign Leave Failed",
+      "leave_assignment",
+      null,
+      employeeNumber,
+    );
+    res.status(500).json({ error: "Failed to create leave assignment: " + err.message });
+  }
 });
 
-router.put("/leave_assignment/:id", requireAdmin, (req, res) => {
+router.put("/leave_assignment/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
   const {
     employeeNumber,
     leave_code,
-    remaining_hours,
-    total_hours,
-    carried_forward_hours,
     allocated_hours,
     period_year,
     period_semester,
   } = req.body;
 
-  db.query(
-    "SELECT * FROM leave_assignment WHERE id = ?",
-    [id],
-    (err, current) => {
-      if (err)
-        return res.status(500).json({ error: "Failed to fetch assignment" });
-      if (current.length === 0)
-        return res.status(404).json({ error: "Assignment not found" });
+  const queryAsync = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+    });
 
-      // Safely parse numeric fields to avoid NaN when empty strings are supplied
-      const currentTotal = parseDbHours(current[0].total_hours) || 0;
-      const currentCarried = parseDbHours(current[0].carried_forward_hours) || 0;
-      const currentAllocated = parseDbHours(current[0].allocated_hours) || currentTotal;
-      const currentUsed = parseDbHours(current[0].used_hours) || 0;
+  try {
+    const current = await queryAsync("SELECT * FROM leave_assignment WHERE id = ?", [id]);
+    if (!current.length) {
+      return res.status(404).json({ error: "Assignment not found" });
+    }
+    const row = current[0];
 
-      const newCarriedForward =
-        carried_forward_hours !== undefined && carried_forward_hours !== ''
-          ? parseDbHours(carried_forward_hours)
-          : currentCarried;
+    if (isCommutedLocked(row)) {
+      return res.status(400).json({ error: "This assignment is commuted and cannot be modified" });
+    }
 
-      const newAllocated =
-        allocated_hours !== undefined && allocated_hours !== ''
-          ? parseDbHours(allocated_hours)
-          : currentAllocated;
+    const newAllocated =
+      allocated_hours !== undefined && allocated_hours !== ""
+        ? parseDbHours(allocated_hours)
+        : parseDbHours(row.allocated_hours);
 
-      // Enforce table invariant:
-      // total_hours = carried_forward_hours + allocated_hours
-      const computedTotal = Math.max(0, newCarriedForward + newAllocated);
+    const currentUsed = parseDbHours(row.used_hours) || 0;
+    const newYear = period_year !== undefined ? period_year : row.period_year;
+    const newSemester =
+      period_semester !== undefined ? period_semester : row.period_semester;
 
-      // If remaining_hours is provided, treat it as the desired balance and derive used.
-      // Otherwise keep existing used_hours and recompute remaining from computed total.
-      const newRemaining =
-        remaining_hours !== undefined && remaining_hours !== ''
-          ? Math.min(computedTotal, Math.max(0, parseDbHours(remaining_hours)))
-          : Math.max(0, computedTotal - currentUsed);
+    let working = {
+      ...row,
+      employeeNumber: employeeNumber ?? row.employeeNumber,
+      leave_code: leave_code ?? row.leave_code,
+      allocated_hours: newAllocated,
+      used_hours: currentUsed,
+      period_year: newYear,
+      period_semester: newSemester,
+      carried_forward_hours: toNum(row.carried_forward_hours),
+    };
 
-      const newUsed = Math.max(0, computedTotal - newRemaining);
+    working = await repairPeriodCarryForwardIfEmpty(db, working);
+    working.allocated_hours = Math.max(toNum(working.allocated_hours), newAllocated);
 
-      // If caller provided total_hours, ignore it (it must be derived from carried+allocated).
-      // This prevents "total resets to 8" when carry-forward exists.
-      const newTotal = computedTotal;
-      const newYear =
-        period_year !== undefined ? period_year : current[0].period_year;
-      const newSemester =
-        period_semester !== undefined
-          ? period_semester
-          : current[0].period_semester;
+    const recomputed = await recomputeAssignmentLedgerFields(db, working, currentUsed);
 
-      const updateQuery = `UPDATE leave_assignment SET leave_code = ?, employeeNumber = ?, total_hours = ?, remaining_hours = ?, used_hours = ?, carried_forward_hours = ?, allocated_hours = ?, period_year = ?, period_semester = ? WHERE id = ?`;
-      db.query(
-        updateQuery,
-        [
-          leave_code,
-          employeeNumber,
-          newTotal,
-          newRemaining,
-          newUsed,
-          newCarriedForward,
-          newAllocated,
-          newYear,
-          newSemester,
-          id,
-        ],
-        (updateErr) => {
-          if (updateErr) {
-            logAudit({ employeeNumber: getActorEmployeeNumber(req) }, 'Update Leave Assignment Failed', 'leave_assignment', id, employeeNumber);
-            return res
-              .status(500)
-              .json({ error: "Failed to update leave assignment" });
-          }
-          const actorEmpNum = getActorEmployeeNumber(req);
-          (async () => {
-            try {
-              const [empName, actorName] = await Promise.all([
-                getEmployeeFullName(String(employeeNumber)),
-                getEmployeeFullName(actorEmpNum),
-              ]);
-              const leaveDesc = await new Promise(resolve =>
-                db.query('SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1', [leave_code], (e, r) =>
-                  resolve((r && r[0] && r[0].leave_description) || leave_code)
-                )
-              );
-              const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-              const empDisplay = formatUserDisplayName(String(employeeNumber), empName);
-              logAudit({ employeeNumber: actorEmpNum }, `Update Leave Assignment - ${leaveDesc} (${newTotal} hrs)`, 'leave_assignment', id, employeeNumber);
-              await insertTransactionLog(String(employeeNumber), `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (${newTotal} hrs total, ${newRemaining} hrs remaining)`, actorEmpNum);
-            } catch (e) { console.error('[leave] Update assignment log error:', e.message); }
-          })();
-          emitLeaveChange("leaveAssignmentChanged");
-          res.json({
-            id,
-            leave_code,
-            employeeNumber,
-            total_hours: newTotal,
-            remaining_hours: newRemaining,
-            used_hours: newUsed,
-            carried_forward_hours: newCarriedForward,
-            allocated_hours: newAllocated,
-            period_year: newYear,
-            period_semester: newSemester,
-          });
-        },
+    await queryAsync(
+      `UPDATE leave_assignment SET
+         leave_code = ?, employeeNumber = ?, total_hours = ?, remaining_hours = ?,
+         used_hours = ?, carried_forward_hours = ?, allocated_hours = ?,
+         period_year = ?, period_semester = ?, earning_status = ?
+       WHERE id = ?`,
+      [
+        working.leave_code,
+        working.employeeNumber,
+        recomputed.total_hours,
+        recomputed.remaining_hours,
+        recomputed.used_hours,
+        recomputed.carried_forward_hours,
+        recomputed.allocated_hours,
+        newYear,
+        newSemester,
+        recomputed.earning_status,
+        id,
+      ],
+    );
+
+    const actorEmpNum = getActorEmployeeNumber(req);
+    try {
+      const [empName, actorName] = await Promise.all([
+        getEmployeeFullName(String(working.employeeNumber)),
+        getEmployeeFullName(actorEmpNum),
+      ]);
+      const ltRows = await queryAsync(
+        "SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1",
+        [working.leave_code],
       );
-    },
-  );
+      const leaveDesc = ltRows[0]?.leave_description || working.leave_code;
+      const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+      const empDisplay = formatUserDisplayName(String(working.employeeNumber), empName);
+      logAudit(
+        { employeeNumber: actorEmpNum },
+        `Update Leave Assignment - ${leaveDesc} (${recomputed.allocated_hours} hrs)`,
+        "leave_assignment",
+        id,
+        working.employeeNumber,
+      );
+      await insertTransactionLog(
+        String(working.employeeNumber),
+        `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (${recomputed.total_hours} hrs post-deduction, ${recomputed.remaining_hours} hrs remaining)`,
+        actorEmpNum,
+      );
+    } catch (e) {
+      console.error("[leave] Update assignment log error:", e.message);
+    }
+
+    emitLeaveChange("leaveAssignmentChanged");
+    res.json({
+      id,
+      leave_code: working.leave_code,
+      employeeNumber: working.employeeNumber,
+      total_hours: recomputed.total_hours,
+      remaining_hours: recomputed.remaining_hours,
+      used_hours: recomputed.used_hours,
+      carried_forward_hours: 0,
+      allocated_hours: recomputed.allocated_hours,
+      period_year: newYear,
+      period_semester: newSemester,
+      earning_status: recomputed.earning_status,
+    });
+  } catch (err) {
+    console.error("[PUT leave_assignment]", err.message);
+    logAudit(
+      { employeeNumber: getActorEmployeeNumber(req) },
+      "Update Leave Assignment Failed",
+      "leave_assignment",
+      id,
+      employeeNumber,
+    );
+    res.status(500).json({ error: "Failed to update leave assignment" });
+  }
 });
 
 router.delete("/leave_assignment/:id", requireAdmin, (req, res) => {

@@ -425,6 +425,52 @@ async function upsertManualZeroAudit({ employee_number, period_year, period_mont
   });
 }
 
+async function voidAttendanceResultsForScDeduction({ sc_earning_id, service_credit_ledger_id } = {}) {
+  const earnId = sc_earning_id != null ? parseInt(sc_earning_id, 10) : NaN;
+  const ledId = service_credit_ledger_id != null ? parseInt(service_credit_ledger_id, 10) : NaN;
+  if (Number.isFinite(earnId) && earnId > 0) {
+    await new Promise((resolve, reject) => {
+      db.query(
+        `DELETE FROM attendance_result WHERE sc_earning_id = ? OR source_key = ?`,
+        [earnId, `SC_EARNING:${earnId}`],
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+  }
+  if (Number.isFinite(ledId) && ledId > 0) {
+    await new Promise((resolve, reject) => {
+      db.query(
+        `DELETE FROM attendance_result WHERE source_key = ?`,
+        [`SC_SERVICE_CREDIT:${ledId}`],
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+  }
+}
+
+async function voidAttendanceResultsForCtoDeduction({ cto_earning_id, cto_credit_ledger_id } = {}) {
+  const earnId = cto_earning_id != null ? parseInt(cto_earning_id, 10) : NaN;
+  const ledId = cto_credit_ledger_id != null ? parseInt(cto_credit_ledger_id, 10) : NaN;
+  if (Number.isFinite(earnId) && earnId > 0) {
+    await new Promise((resolve, reject) => {
+      db.query(
+        `DELETE FROM attendance_result WHERE cto_earning_id = ? OR source_key = ?`,
+        [earnId, `CTO_EARNING:${earnId}`],
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+  }
+  if (Number.isFinite(ledId) && ledId > 0) {
+    await new Promise((resolve, reject) => {
+      db.query(
+        `DELETE FROM attendance_result WHERE source_key = ?`,
+        [`CTO_SERVICE_CREDIT:${ledId}`],
+        (err) => (err ? reject(err) : resolve()),
+      );
+    });
+  }
+}
+
 module.exports = {
   upsertAttendanceResult,
   upsertFromLeaveEarningDeduction,
@@ -434,6 +480,8 @@ module.exports = {
   upsertFromHalfDayLeaveCovered,
   upsertFromManualShortfall,
   upsertManualZeroAudit,
+  voidAttendanceResultsForScDeduction,
+  voidAttendanceResultsForCtoDeduction,
   inferResultDate,
   extractIsoDateFromText,
 };
