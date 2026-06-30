@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
+import { isScEarningVoided } from "../serviceCreditBalanceUtils";
 import {
   Box,
   Typography,
@@ -385,7 +386,10 @@ const SCDeductionReceipt = ({
       const ledger = r.data?.ledger_sc_deductions || [];
       setExistingDeductions([
         ...all.filter(
-          (e) => e.entry_type === "DEDUCTION" && e.earn_status !== "rejected",
+          (e) =>
+            e.entry_type === "DEDUCTION" &&
+            e.earn_status !== "rejected" &&
+            !isScEarningVoided(e),
         ),
         ...ledger,
       ]);

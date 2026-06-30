@@ -1,9 +1,12 @@
 /**
  * Ledger-backed leave credit usage: hours_delta negative = consume, positive = restore.
- * leave_assignment.used_hours / remaining_hours are refreshed from SUM(-hours_delta) when ledger rows exist.
+ * leave_assignment.used_hours / remaining_hours refreshed from ledger (running-ledger model).
  */
 
 const pool = require("../db");
+const {
+  getAppliedEarningsForAssignment,
+} = require("../utils/leaveAssignmentBalanceUtils");
 
 const parseDbHours = (val) => {
   if (val === null || val === undefined) return 0;
@@ -32,46 +35,57 @@ const getPromiseConnection = async () => {
 };
 
 /**
- * Recompute used_hours = SUM(-hours_delta) for non-voided lines; remaining = total_hours - used.
- * Skips if no active ledger rows (avoids zeroing legacy rows before backfill).
+ * Running ledger refresh:
+ *   used_hours      = SUM(-hours_delta) excluding commutation
+ *   total_hours     = allocated_hours - used_hours
+ *   remaining_hours = total_hours + applied approved earnings for period
  */
 const refreshLeaveAssignmentCacheFromLedger = async (conn, leaveAssignmentId) => {
   const id = parseInt(leaveAssignmentId, 10);
   if (!Number.isFinite(id)) return { skipped: true };
 
+  const laRows = await q(
+    conn,
+    `SELECT * FROM leave_assignment WHERE id = ? LIMIT 1`,
+    [id],
+  );
+  if (!laRows.length) return { skipped: true };
+
+  const assignment = laRows[0];
+  if (Number(assignment.commuted) === 1) {
+    return { skipped: true, commuted: true };
+  }
+
   const cntRows = await q(
     conn,
     `SELECT COUNT(*) AS c FROM leave_credit_usage
-     WHERE leave_assignment_id = ? AND voided_at IS NULL`,
+     WHERE leave_assignment_id = ? AND voided_at IS NULL
+       AND LOWER(source_type) <> 'commutation'`,
     [id],
   );
   const activeCount = parseInt(cntRows[0]?.c, 10) || 0;
   if (activeCount === 0) return { skipped: true };
 
-  const laRows = await q(
-    conn,
-    `SELECT id, total_hours FROM leave_assignment WHERE id = ? LIMIT 1`,
-    [id],
-  );
-  if (!laRows.length) return { skipped: true };
-
-  const total = Math.max(0, parseDbHours(laRows[0].total_hours));
+  const alloc = Math.max(0, parseDbHours(assignment.allocated_hours));
   const sumRows = await q(
     conn,
     `SELECT COALESCE(SUM(-hours_delta), 0) AS u
      FROM leave_credit_usage
-     WHERE leave_assignment_id = ? AND voided_at IS NULL`,
+     WHERE leave_assignment_id = ? AND voided_at IS NULL
+       AND LOWER(source_type) <> 'commutation'`,
     [id],
   );
   const used = Math.max(0, parseDbHours(sumRows[0]?.u));
-  const remaining = Math.max(0, total - used);
+  const total = Math.max(0, alloc - used);
+  const earned = await getAppliedEarningsForAssignment(pool, assignment);
+  const remaining = Math.max(0, total + earned);
 
   await q(
     conn,
-    `UPDATE leave_assignment SET used_hours = ?, remaining_hours = ? WHERE id = ?`,
-    [used, remaining, id],
+    `UPDATE leave_assignment SET used_hours = ?, total_hours = ?, remaining_hours = ?, earning_status = ? WHERE id = ?`,
+    [used, total, remaining, earned > 0 ? 1 : Number(assignment.earning_status) || 0, id],
   );
-  return { used, remaining, total };
+  return { used, remaining, total, allocated: alloc };
 };
 
 const insertCreditUsageLine = async (conn, row) => {
@@ -142,14 +156,16 @@ const fetchLedgerSumForAssignment = async (conn, leaveAssignmentId) => {
   const cntRows = await q(
     conn,
     `SELECT COUNT(*) AS c FROM leave_credit_usage
-     WHERE leave_assignment_id = ? AND voided_at IS NULL`,
+     WHERE leave_assignment_id = ? AND voided_at IS NULL
+       AND LOWER(source_type) <> 'commutation'`,
     [id],
   );
   const sumRows = await q(
     conn,
     `SELECT COALESCE(SUM(-hours_delta), 0) AS u
      FROM leave_credit_usage
-     WHERE leave_assignment_id = ? AND voided_at IS NULL`,
+     WHERE leave_assignment_id = ? AND voided_at IS NULL
+       AND LOWER(source_type) <> 'commutation'`,
     [id],
   );
   return {

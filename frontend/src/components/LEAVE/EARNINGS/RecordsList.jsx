@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
+import usePayrollPeriodLock from "../../../hooks/usePayrollPeriodLock";
+import { PAYROLL_LOCK_TOOLTIP } from "../../../utils/payrollPeriodLock";
 import {
   Box,
   Typography,
@@ -67,6 +69,7 @@ import {
   SwapHoriz as ConvertIcon,
   OpenInNew as OpenInNewIcon,
   RemoveCircleOutline as DeductIcon,
+  Block as VoidIcon,
 } from "@mui/icons-material";
 
 const T = {
@@ -92,12 +95,17 @@ const T = {
     color: "#1e4d20",
     border: "rgba(0,0,0,0.12)",
   },
-  statusRejected: {
-    bg: "rgba(0,0,0,0.04)",
-    color: "#6b1a1a",
-    border: "rgba(0,0,0,0.12)",
-  },
-};
+    statusRejected: {
+      bg: "rgba(0,0,0,0.04)",
+      color: "#6b1a1a",
+      border: "rgba(0,0,0,0.12)",
+    },
+    statusVoided: {
+      bg: "rgba(0,0,0,0.04)",
+      color: "#5f6368",
+      border: "rgba(0,0,0,0.14)",
+    },
+  };
 
 const MONTHS = [
   { value: "1", label: "January", short: "Jan" },
@@ -123,13 +131,22 @@ const EARN_STATUS = {
   pending: { label: "Pending", ...T.statusPending, icon: PendingIcon },
   approved: { label: "Approved", ...T.statusApproved, icon: CheckIcon },
   rejected: { label: "Rejected", ...T.statusRejected, icon: WarnIcon },
+  voided: { label: "Voided", ...T.statusVoided, icon: VoidIcon },
   accepted: { label: "Accepted", ...T.statusApproved, icon: CheckIcon },
   posted: { label: "Posted", ...T.statusApproved, icon: CheckIcon },
 };
 
-/** Map audit log statuses into Pending / Approved / Rejected filter buckets. */
-const normalizeEarnStatusForFilter = (s) => {
-  const x = String(s || "pending").toLowerCase();
+/** SC earnings voided via soft-delete — still shown in the list for transparency. */
+const isEarningVoided = (record) => {
+  if (!record || record._earningsAuditSnapshot) return false;
+  if (record._earningType !== "sc") return false;
+  return !!(record.voided_at) || Number(record.voided) === 1;
+};
+
+/** Map audit log statuses into Pending / Approved / Rejected / Voided filter buckets. */
+const normalizeEarnStatusForFilter = (record) => {
+  if (isEarningVoided(record)) return "voided";
+  const x = String(record?.earn_status || "pending").toLowerCase();
   if (x === "accepted" || x === "posted") return "approved";
   return x;
 };
@@ -139,6 +156,7 @@ const STATUS_FILTER_OPTIONS = [
   { value: "pending", label: "Pending", color: "#7a4a00" },
   { value: "approved", label: "Approved", color: "#1e4d20" },
   { value: "rejected", label: "Rejected", color: "#6b1a1a" },
+  { value: "voided", label: "Voided", color: "#5f6368" },
 ];
 
 const monthName = (m) =>
@@ -606,6 +624,63 @@ const RejectDialog = ({ open, onClose, onConfirm, loading }) => {
   );
 };
 
+// ─── Void Dialog ───────────────────────────────────────────────────────────────
+const VoidDialog = ({ open, onClose, onConfirm, loading, record }) => (
+  <Dialog
+    open={open}
+    onClose={onClose}
+    maxWidth="xs"
+    fullWidth
+    PaperProps={{ sx: { borderRadius: 3 } }}
+  >
+    <DialogTitle
+      sx={{
+        fontFamily: T.poppins,
+        fontWeight: 700,
+        fontSize: "0.95rem",
+        color: T.accent,
+      }}
+    >
+      Void Service Credit Earning
+    </DialogTitle>
+    <DialogContent>
+      <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontFamily: T.poppins, mb: 1.5, lineHeight: 1.5 }}>
+        This will void the earning record but keep it visible here for transparency. Voided earnings are
+        excluded from service credit balances and will not add to the current period remaining.
+      </Typography>
+      {record && (
+        <Typography sx={{ fontSize: "0.75rem", color: T.text, fontFamily: T.poppins, fontWeight: 600 }}>
+          {record.period_year}
+          {record.period_month ? ` · ${monthShort(record.period_month)}` : ""}
+          {" — "}
+          {toNum(record.earned_hours) >= 0 ? "Earned" : "Deducted"}{" "}
+          {Math.abs(toNum(record.earned_hours) / 8).toFixed(3)} days
+        </Typography>
+      )}
+    </DialogContent>
+    <DialogActions sx={{ px: 3, pb: 2 }}>
+      <Button
+        onClick={onClose}
+        sx={{ textTransform: "none", color: T.muted, fontFamily: T.poppins }}
+      >
+        Cancel
+      </Button>
+      <AccentButton
+        variant="contained"
+        onClick={onConfirm}
+        disabled={loading}
+        sx={{ bgcolor: "#5f6368", "&:hover": { bgcolor: "#3c4043" } }}
+      >
+        {loading ? (
+          <CircularProgress size={14} sx={{ color: "#fff" }} />
+        ) : (
+          "Void earning"
+        )}
+      </AccentButton>
+    </DialogActions>
+  </Dialog>
+);
+
 // ─── Earning Record Row ────────────────────────────────────────────────────────
 const EarningRow = ({
   record,
@@ -613,12 +688,16 @@ const EarningRow = ({
   type,
   onApprove,
   onReject,
+  onVoid,
   showTypeBadge,
   onViewAudit,
   approverNameLookup = {},
+  payrollLocked = false,
 }) => {
   const earnH = toNum(record.earned_hours ?? record.total_hours);
   const status = record.earn_status || "pending";
+  const voided = isEarningVoided(record);
+  const displayStatus = voided ? "voided" : status;
   const isTardinessDeduction = record.entry_type === "TARDINESS_DEDUCTION";
   const isAttendanceAbsenceDeduction = (() => {
     if (!(earnH < 0)) return false;
@@ -652,7 +731,9 @@ const EarningRow = ({
         px: 1.5,
         py: 1.25,
         border: `1px solid ${
-          isTardinessAuditRow
+          voided
+            ? "rgba(95,99,104,0.28)"
+            : isTardinessAuditRow
             ? "rgba(198,40,40,0.22)"
             : isHalfDayAuditRow
               ? "rgba(46,125,50,0.3)"
@@ -663,7 +744,9 @@ const EarningRow = ({
                   : "rgba(0,0,0,0.08)"
         }`,
         borderRadius: 2,
-        bgcolor: isTardinessAuditRow
+        bgcolor: voided
+          ? "rgba(95,99,104,0.04)"
+          : isTardinessAuditRow
           ? "rgba(198,40,40,0.03)"
           : isHalfDayAuditRow
             ? "rgba(46,125,50,0.04)"
@@ -674,6 +757,7 @@ const EarningRow = ({
                 : "#fff",
         mb: 0.75,
         animation: "emFadeUp 0.25s ease",
+        opacity: voided ? 0.82 : 1,
       }}
     >
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -710,7 +794,7 @@ const EarningRow = ({
               {type === "cto" && !record.sc_type && ` · CTO`}
             </Typography>
             {/* Avoid duplicate status badge for half-day rows (Actions column already shows status). */}
-            {!isHalfDayPolicy && <StatusBadge status={status} />}
+            {!isHalfDayPolicy && <StatusBadge status={displayStatus} />}
             {isTardinessAuditRow && (
               <Chip
                 size="small"
@@ -872,8 +956,9 @@ const EarningRow = ({
                   sx={{
                     fontSize: "0.82rem",
                     fontWeight: 800,
-                    color: earnH < 0 ? "#c62828" : "#1a1a1a",
+                    color: voided ? T.faint : earnH < 0 ? "#c62828" : "#1a1a1a",
                     fontFamily: T.poppins,
+                    textDecoration: voided ? "line-through" : "none",
                   }}
                 >
                   {earnH < 0 ? "−" : ""}
@@ -908,7 +993,7 @@ const EarningRow = ({
               {record.remarks}
             </Typography>
           )}
-          {record.approved_by && (
+          {record.approved_by && !voided && (
             <Typography
               sx={{
                 fontSize: "0.6rem",
@@ -922,6 +1007,21 @@ const EarningRow = ({
               {record.rejected_reason ? ` — "${record.rejected_reason}"` : ""}
             </Typography>
           )}
+          {voided && record.voided_at && (
+            <Typography
+              sx={{
+                fontSize: "0.6rem",
+                color: T.faint,
+                fontFamily: T.poppins,
+                mt: 0.2,
+              }}
+            >
+              Voided {formatRecordDate(record.voided_at)}
+              {formatRecordTime(record.voided_at)
+                ? ` · ${formatRecordTime(record.voided_at)}`
+                : ""}
+            </Typography>
+          )}
         </Box>
  
         {/* Actions column */}
@@ -933,7 +1033,81 @@ const EarningRow = ({
             flexShrink: 0,
           }}
         >
-          <StatusBadge status={status} />
+          <StatusBadge status={displayStatus} />
+
+          {!isSnapshotRow && type === "sc" && !voided && stableEarningId != null && (
+            payrollLocked ? (
+              <Tooltip title={PAYROLL_LOCK_TOOLTIP} placement="top">
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 0.5,
+                    px: 0.9,
+                    py: 0.35,
+                    borderRadius: 1.5,
+                    bgcolor: "rgba(21,101,192,0.08)",
+                    border: "1px solid rgba(21,101,192,0.22)",
+                    cursor: "default",
+                  }}
+                >
+                  <CheckIcon sx={{ fontSize: 12, color: "#1565c0" }} />
+                  <Typography
+                    sx={{
+                      fontSize: "0.6rem",
+                      fontWeight: 800,
+                      color: "#1565c0",
+                      fontFamily: T.poppins,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      lineHeight: 1,
+                    }}
+                  >
+                    In payroll
+                  </Typography>
+                </Box>
+              </Tooltip>
+            ) : (
+            <Box
+              onClick={() => onVoid && onVoid(record)}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 0.5,
+                px: 0.9,
+                py: 0.35,
+                borderRadius: 1.5,
+                bgcolor: "rgba(95,99,104,0.06)",
+                border: "1px solid rgba(95,99,104,0.22)",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                "&:hover": {
+                  bgcolor: "rgba(95,99,104,0.12)",
+                  border: "1px solid rgba(95,99,104,0.35)",
+                  transform: "translateY(-1px)",
+                },
+              }}
+              title="Void this earning (excluded from balances; record stays visible)"
+            >
+              <VoidIcon sx={{ fontSize: 12, color: "#5f6368" }} />
+              <Typography
+                sx={{
+                  fontSize: "0.6rem",
+                  fontWeight: 800,
+                  color: "#5f6368",
+                  fontFamily: T.poppins,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  lineHeight: 1,
+                }}
+              >
+                Void
+              </Typography>
+            </Box>
+            )
+          )}
 
           {!isSnapshotRow && (
             <Box
@@ -978,7 +1152,7 @@ const EarningRow = ({
             </Box>
           )}
  
-          {status === "pending" && stableEarningId != null && (
+          {status === "pending" && !voided && stableEarningId != null && (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
               {blockApproveScCtoDeduction ? (
                 <Tooltip
@@ -1565,7 +1739,22 @@ const RecordsList = ({
     open: false,
     record: null,
   });
+  const [voidDialog, setVoidDialog] = useState({
+    open: false,
+    record: null,
+  });
   const [actionLoading, setActionLoading] = useState(false);
+  const { isPeriodLockedForPayroll } = usePayrollPeriodLock();
+
+  const isRecordPayrollLocked = useCallback(
+    (record) => {
+      const emp = record?.employee_number ?? record?.employeeNumber ?? employeeNumber;
+      const py = record?.period_year ?? year;
+      const pm = record?.period_month ?? month;
+      return isPeriodLockedForPayroll(emp, py, pm);
+    },
+    [employeeNumber, year, month, isPeriodLockedForPayroll],
+  );
 
   const [auditDialog, setAuditDialog] = useState({
     open: false,
@@ -1696,9 +1885,9 @@ const RecordsList = ({
  
   // ── status counts (scoped to current type filter) ─────────────────────────
   const statusCounts = useMemo(() => {
-    const counts = { all: typeFiltered.length, pending: 0, approved: 0, rejected: 0 };
+    const counts = { all: typeFiltered.length, pending: 0, approved: 0, rejected: 0, voided: 0 };
     typeFiltered.forEach((e) => {
-      const s = normalizeEarnStatusForFilter(e.earn_status);
+      const s = normalizeEarnStatusForFilter(e);
       if (s in counts) counts[s]++;
     });
     return counts;
@@ -1710,7 +1899,7 @@ const RecordsList = ({
       statusFilter === "all"
         ? typeFiltered
         : typeFiltered.filter(
-            (e) => normalizeEarnStatusForFilter(e.earn_status) === statusFilter,
+            (e) => normalizeEarnStatusForFilter(e) === statusFilter,
           ),
     [typeFiltered, statusFilter],
   );
@@ -1774,6 +1963,30 @@ const RecordsList = ({
         { headers: { Authorization: `Bearer ${token}` } },
       );
       setRejectDialog({ open: false, record: null });
+      await fetchEarnings();
+      if (onApproved) onApproved();
+      if (onStatusChange) onStatusChange();
+    } catch {}
+    setActionLoading(false);
+  };
+
+  const handleVoid = async () => {
+    const stableId = earningPositiveId(voidDialog.record);
+    if (stableId == null) {
+      setVoidDialog({ open: false, record: null });
+      return;
+    }
+    if (voidDialog.record && isRecordPayrollLocked(voidDialog.record)) {
+      setVoidDialog({ open: false, record: null });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API_BASE_URL}/api/earnings/sc/${stableId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setVoidDialog({ open: false, record: null });
       await fetchEarnings();
       if (onApproved) onApproved();
       if (onStatusChange) onStatusChange();
@@ -1857,8 +2070,13 @@ const RecordsList = ({
             showTypeBadge={showTypeBadge}
             onApprove={handleApprove}
             onReject={(r) => setRejectDialog({ open: true, record: r })}
+            onVoid={(r) => {
+              if (isRecordPayrollLocked(r)) return;
+              setVoidDialog({ open: true, record: r });
+            }}
             onViewAudit={openAudit}
             approverNameLookup={approverNameLookup}
+            payrollLocked={isRecordPayrollLocked(record)}
           />
         ))
       )}
@@ -1867,6 +2085,13 @@ const RecordsList = ({
         onClose={() => setRejectDialog({ open: false, record: null })}
         onConfirm={handleReject}
         loading={actionLoading}
+      />
+      <VoidDialog
+        open={voidDialog.open}
+        onClose={() => setVoidDialog({ open: false, record: null })}
+        onConfirm={handleVoid}
+        loading={actionLoading}
+        record={voidDialog.record}
       />
       <Dialog
         open={auditDialog.open}

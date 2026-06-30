@@ -472,6 +472,11 @@ app.use('/file201', file201Routes);
 app.use('/auto-attendance', AutoAttendance);
 app.use('/api/working-hours', workingHoursRoutes);
 app.use('/api/service-credits', serviceCreditRoutes);
+// Legacy alias (older clients called /api/ot-types)
+app.get('/api/ot-types', (req, res, next) => {
+  req.url = '/ot-types';
+  serviceCreditRoutes(req, res, next);
+});
 app.use('/api/cto', ctoRoutes);
 app.use('/api/earnings', earningsRoutes);
 app.use('/api/deductions', deductionsRoutes);

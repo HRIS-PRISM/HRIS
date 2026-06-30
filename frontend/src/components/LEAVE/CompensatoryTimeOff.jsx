@@ -15,17 +15,20 @@ import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import useLeaveRealtimeRefresh from "../../hooks/useLeaveRealtimeRefresh";
+import usePayrollPeriodLock from "../../hooks/usePayrollPeriodLock";
+import { PAYROLL_LOCK_TOOLTIP } from "../../utils/payrollPeriodLock";
 import {
   Typography, TextField, Button, Box, Grid, Chip, Modal, IconButton,
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
-  Divider, Autocomplete, Dialog, DialogTitle, DialogContent, DialogActions,
-  TablePagination, Tooltip, Fade, CircularProgress,
-  ToggleButton, ToggleButtonGroup,
+  Autocomplete, TablePagination, Tooltip, Fade, CircularProgress,
+  ToggleButton, ToggleButtonGroup, Paper,
+  Table, TableBody, TableCell, TableHead, TableRow,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
-  Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
-  Save as SaveIcon, Close,
+  Add as AddIcon,
+  Block as BlockIcon,
+  Close,
   Search as SearchIcon, Person as PersonIcon,
   Refresh as RefreshIcon,
   AccessTime as HoursIcon, Today as DaysIcon,
@@ -39,11 +42,40 @@ import {
   MonetizationOn as CommutationIcon,
   CalendarToday as CalIcon,
   Warning as WarnIcon,
+  Undo as UndoIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  History as HistoryIcon,
+  VisibilityOff as VisibilityOffIcon,
 } from "@mui/icons-material";
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
+import { useSocket } from "../../contexts/SocketContext";
+import {
+  normalizeCtoPeriodKey,
+  ctoRecordsForDisplay,
+  computeCtoBalances,
+  getPriorPeriodCtoCarryForward,
+  recomputeCtoLedgerFields,
+  isCtoPeriodVoided,
+  isCtoCommutedLocked,
+  isCtoPeriodSuperseded,
+  resolveCtoCurrentDisplayPeriod,
+  assertCtoPeriodIsCurrentDisplay,
+  buildCtoPeriodSnapshotHistory,
+  getCtoPeriodForwardToLabel,
+  getCtoDisplayRemainingHours,
+  getCtoEmployeeDisplayRemaining,
+  getCtoEmployeeLedgerSummary,
+  findCtoSaveTarget,
+  findLatestCtoForPeriod,
+  isPerMonthCtoTracking,
+  CTO_UNDO_MAX_PER_PERIOD,
+  CTO_LEDGER_ENTRY_LABELS,
+  assertCtoPeriodAssignableForCredits,
+} from "./ctoBalanceUtils";
 
 // ─── Theme tokens — 100% identical to LeaveAssignment ────────────────────────
 const T = {
@@ -65,49 +97,14 @@ const T = {
   poppins:      "'Poppins', sans-serif",
 };
 
-const shimmerKeyframes = `
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
-@keyframes ctoFadeIn {
-  from { opacity:0; transform:translateY(5px); }
-  to   { opacity:1; transform:translateY(0); }
-}
-`;
-
-// ─── Styled primitives — identical to LeaveAssignment ────────────────────────
-const SectionCard = styled(Card)({
-  borderRadius: 12,
-  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
-  border: "0.5px solid rgba(0,0,0,0.09)",
-  overflow: "hidden",
-  background: T.surface,
-});
-
-const FieldInput = styled(TextField)({
-  "& .MuiOutlinedInput-root": {
-    borderRadius: 8, fontSize: "0.875rem", backgroundColor: "#fff",
-    "& fieldset": { borderColor: T.accentBorder },
-    "&:hover fieldset": { borderColor: T.accent },
-    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
-    "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: T.text },
-  },
-  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
-});
-
-const AccentButton = styled(Button)({
-  borderRadius: 8, textTransform: "none", fontWeight: 600,
-  fontSize: "0.875rem", letterSpacing: "0.01em", transition: "all 0.18s ease",
-  "&:hover":  { transform: "translateY(-1px)" },
-  "&:active": { transform: "translateY(0)" },
-});
-
-const selectSx = {
-  borderRadius: "8px", fontSize: "0.875rem", bgcolor: "#fff",
-  "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
-  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
-  "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent, borderWidth: "1.5px" },
+const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const getStatusColor = (rem, total) => {
+  if (!total) return "#9e9e9e";
+  const p = (rem / total) * 100;
+  return p > 50 ? "#2e7d32" : p > 20 ? "#ed6c02" : "#d32f2f";
 };
+const isExpired = (d) => d ? new Date(d) < new Date() : false;
 
-// ─── Month helpers ─────────────────────────────────────────────────────────────
 const MONTHS = [
   { value: "",   label: "No specific month" },
   { value: "1",  label: "January"   }, { value: "2",  label: "February"  },
@@ -117,140 +114,380 @@ const MONTHS = [
   { value: "9",  label: "September" }, { value: "10", label: "October"   },
   { value: "11", label: "November"  }, { value: "12", label: "December"  },
 ];
-const monthName   = (m) => MONTHS.find((x) => x.value === String(m))?.label || `Month ${m}`;
+const monthName = (m) => MONTHS.find((x) => x.value === String(m))?.label || `Month ${m}`;
 const periodLabel = (year, month) => {
-  if (!year)  return "Unknown";
+  if (!year) return "Unknown";
   if (!month) return String(year);
   return `${year} · ${monthName(month)}`;
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const toNum  = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const AccentButton = styled(Button)({
+  borderRadius: 8, textTransform: "none", fontWeight: 600,
+  fontSize: "0.875rem", letterSpacing: "0.01em", transition: "all 0.18s ease",
+  "&:hover":  { transform: "translateY(-1px)" },
+  "&:active": { transform: "translateY(0)" },
+});
 
-// Always store/pass hours internally; display converts to days when unit="days"
-const toHours = (val, unit) => unit === "days" ? val * 8 : val;
-const toDays  = (val, unit) => unit === "days" ? val / 8 : val;
+const GLOBAL_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+@keyframes ctoFadeIn {
+  from { opacity:0; transform:translateY(5px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes ctoShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes ctoPulse {
+  0%,100% { opacity:1; }
+  50%     { opacity:0.55; }
+}
+`;
 
-const fmtHrs = (h, unit) => unit === "hours"
-  ? `${toNum(h).toFixed(3)} hrs`
-  : `${(toNum(h) / 8).toFixed(3)} days`;
-
-const getStatusColor = (rem, total) => {
-  if (!total) return "#9e9e9e";
-  const p = (rem / total) * 100;
-  return p > 50 ? "#2e7d32" : p > 20 ? "#ed6c02" : "#d32f2f";
-};
-const isExpired = (d) => d ? new Date(d) < new Date() : false;
-
-/** Ledger rows that are balance snapshots, not accrual “periods” — hide from grid chips. */
-const isCtoLedgerSnapshotChip = (r) => {
-  const rm = String(r?.remarks || "");
-  return /cto_direct_deduction/i.test(rm) || /cto_earning_delete_reversal/i.test(rm);
-};
-
-/** Backend stores tokens like cto_earning:12 in remarks for reconciliation; keep in DB, hide in UI. */
-const INTERNAL_CTO_REMARK_RE = /\b(cto_earning:\d+|cto_earning_delete_reversal:\d+|cto_direct_deduction:\d+)\b/gi;
-
-const internalCtoLedgerRemarkToken = (remarks) => {
-  const m = String(remarks || "").match(/\b(cto_earning:\d+|cto_earning_delete_reversal:\d+|cto_direct_deduction:\d+)\b/i);
-  return m ? m[1] : "";
+const CURRENT = {
+  main:   "#2e7d32",
+  dark:   "#1b5e20",
+  faint:  "rgba(46,125,50,0.08)",
+  border: "rgba(46,125,50,0.25)",
 };
 
-/** Auto-generated when tardiness is applied to CTO (see CTODeductionReceipt); hide in this screen. */
-const AUTO_CTO_TARDINESS_REMARK_RE = /\s*Tardiness deduction:\s*[\d.]+d\s+for\s+[A-Za-z]+\s+\d{4}\s*/gi;
-
-const formatCtoRemarksForDisplay = (remarks) => {
-  let s = String(remarks || "")
-    .replace(INTERNAL_CTO_REMARK_RE, "")
-    .replace(AUTO_CTO_TARDINESS_REMARK_RE, "");
-  return s.split("·").map((p) => p.trim()).filter(Boolean).join(" · ").trim();
+const COMMUTED_ROW = {
+  bg:     "rgba(109,35,35,0.07)",
+  bgAlt:  "rgba(109,35,35,0.04)",
+  border: "rgba(109,35,35,0.28)",
+  stripe: "repeating-linear-gradient(-45deg, rgba(109,35,35,0.03) 0px, rgba(109,35,35,0.03) 4px, transparent 4px, transparent 10px)",
 };
 
-/**
- * Running balance = latest cto_credit row by id (remaining is cumulative there).
- * earnedForColor ≈ remaining + cumulative used (mirrors backend getCtoCreditRunningTotals).
- */
-const getCtoEmployeeLedgerSummary = (records) => {
-  const list = [...(records || [])].filter((r) => r != null);
-  if (!list.length) return { remaining: 0, earnedForColor: 0 };
-  list.sort((a, b) => toNum(b.id) - toNum(a.id));
-  const latest = list[0];
-  const remaining = toNum(latest.remaining_hours);
-  let used = toNum(latest.used_hours);
-  if (used <= 0) {
-    for (let i = 1; i < list.length; i++) {
-      const u = toNum(list[i].used_hours);
-      if (u > 0) {
-        used = u;
-        break;
-      }
-    }
-  }
-  const earnedForColor = remaining + used;
-  return { remaining, earnedForColor };
+const FORWARDED_ROW = {
+  bg:     "rgba(95,99,104,0.05)",
+  bgAlt:  "rgba(95,99,104,0.07)",
+  border: "rgba(95,99,104,0.2)",
+  stripe: "repeating-linear-gradient(-45deg, rgba(95,99,104,0.04) 0px, rgba(95,99,104,0.04) 4px, transparent 4px, transparent 10px)",
 };
 
-const normalizeCtoPeriodMonth = (month) => {
-  if (month == null || month === "") return "";
-  const n = parseInt(month, 10);
-  return Number.isFinite(n) && n >= 1 && n <= 12 ? String(n) : String(month).trim();
+const VOIDED_ROW = {
+  bg:     "rgba(95,99,104,0.06)",
+  bgAlt:  "rgba(95,99,104,0.09)",
+  border: "rgba(95,99,104,0.22)",
 };
 
-const ctoPeriodKey = (year, month) =>
-  `${parseInt(year, 10) || 0}|${normalizeCtoPeriodMonth(month)}`;
-
-const ctoAccrualRecords = (records, employeeNumber) => {
-  const emp = String(employeeNumber || "").trim();
-  return (records || []).filter(
-    (r) => String(r.employeeNumber) === emp && !isCtoLedgerSnapshotChip(r),
-  );
+const CTO_BALANCE_LABELS = {
+  previousBalance: { label: "Previous Balance", subtitle: "Carried forward" },
+  ctoEarned:       { label: "CTO Credits Earned", subtitle: "OT entered on CTO" },
+  totalCto:        { label: "Total CTO Credits", subtitle: "Previous + Earned" },
+  ctoUsed:         { label: "CTO Credits Used", subtitle: "Deductions applied" },
+  postDed:         { label: "Post-Deduction", subtitle: "Total − Used (+ approved earnings)" },
+  remaining:       { label: "Remaining Balance", subtitle: "Post-Deduction + approved earnings" },
 };
 
-/** Latest accrual row per period (append-only DB; one logical period in UI). */
-const latestCtoRecordsByPeriod = (records, employeeNumber) => {
-  const byKey = new Map();
-  ctoAccrualRecords(records, employeeNumber).forEach((r) => {
-    const key = ctoPeriodKey(r.period_year, r.period_month);
-    const prev = byKey.get(key);
-    if (!prev || toNum(r.id) > toNum(prev.id)) byKey.set(key, r);
-  });
-  return [...byKey.values()];
+const COMMUTATION_COPY = {
+  action: "Commute",
+  status: "Commuted",
+  statusTooltip: "This balance has been recorded for commutation.",
+  modalTitle: "CTO Commutation",
+  modalSubtitle: "For in-service use or retirement benefit",
+  amountLabel: "Balance for commutation",
+  purpose:
+    "Commutation is not an immediate cash payout. Unused CTO credits are recorded so they can be used while the employee still has rendered hours, or applied upon retirement — with payment based on the employee's salary grade.",
+  carryOverNote: (amt) =>
+    `Opening balance of ${amt} carries from the prior period's remaining balance.`,
+  irreversible:
+    "This action is irreversible. The period will be locked and a commutation record will be created for HR processing.",
+  locked: "Locked — balance recorded for commutation",
+  confirm: "Confirm commutation",
+  confirming: "Recording…",
 };
 
-const findLatestCtoForPeriod = (records, employeeNumber, periodYear, periodMonth) => {
-  const key = ctoPeriodKey(periodYear, periodMonth);
+const CTO_BALANCE_COLUMNS = [
+  { key: "period",    label: "Period",                         align: "left",  width: "14%" },
+  { key: "previous",  ...CTO_BALANCE_LABELS.previousBalance, align: "right", width: "11%", groupPos: "start" },
+  { key: "earned",    ...CTO_BALANCE_LABELS.ctoEarned,        align: "right", width: "11%", groupPos: "mid" },
+  { key: "total",     ...CTO_BALANCE_LABELS.totalCto,        align: "right", width: "11%", groupPos: "end" },
+  { key: "used",      ...CTO_BALANCE_LABELS.ctoUsed,          align: "right", width: "11%", groupPos: "start" },
+  { key: "postDed",   ...CTO_BALANCE_LABELS.postDed,          align: "right", width: "12%", groupPos: "mid" },
+  { key: "remaining", ...CTO_BALANCE_LABELS.remaining,       align: "right", width: "12%", groupPos: "end" },
+  { key: "actions",   label: "",                               align: "right", width: "10%" },
+];
+
+const BALANCE_ROW_MIN_H = 56;
+
+const fmtCtoPeriodVal = (h, unit) => (unit === "hours" ? `${toNum(h).toFixed(3)} h` : `${(toNum(h) / 8).toFixed(3)} d`);
+const fmtCtoPeriodAlt = (h, unit) => (unit === "hours" ? `${(toNum(h) / 8).toFixed(3)} d` : `${toNum(h).toFixed(3)} h`);
+
+const getCtoColumnGroupSx = (groupPos, { isHeader = false, isCurrent = false } = {}) => {
+  if (!groupPos) return {};
+  const edge = isHeader
+    ? "rgba(255,255,255,0.45)"
+    : isCurrent
+      ? alpha(CURRENT.main, 0.35)
+      : alpha(T.accent, 0.2);
+  const border = `1px solid ${edge}`;
+  const sx = {};
+  if (groupPos === "start") sx.borderLeft = border;
+  if (groupPos === "end") sx.borderRight = border;
+  if (isHeader) sx.borderTop = `1px solid rgba(255,255,255,0.35)`;
+  else if (!isCurrent && groupPos === "start") sx.bgcolor = alpha(T.accent, 0.025);
+  return sx;
+};
+
+const ctoDataCellSx = (locked, voided, isActiveHighlight, groupPos) => ({
+  py: 0, px: 0, verticalAlign: "middle",
+  borderBottom: `1px solid ${locked ? COMMUTED_ROW.border : voided ? VOIDED_ROW.border : T.divider}`,
+  bgcolor: locked ? COMMUTED_ROW.bgAlt : voided ? VOIDED_ROW.bgAlt : isActiveHighlight ? CURRENT.faint : "inherit",
+  ...getCtoColumnGroupSx(groupPos, { isCurrent: isActiveHighlight }),
+  ...(isActiveHighlight && groupPos ? { bgcolor: alpha(CURRENT.main, 0.05) } : {}),
+});
+
+const CtoBalanceRowPlain = ({ children, align = "right", compact = false }) => (
+  <Box sx={{
+    minHeight: BALANCE_ROW_MIN_H, display: "flex", flexDirection: "column",
+    alignItems: align === "right" ? "flex-end" : "flex-start",
+    justifyContent: "center", px: 1.5, py: compact ? 0.85 : 1.1, gap: compact ? 0.15 : 0,
+  }}>
+    {children}
+  </Box>
+);
+
+const CtoPeriodAmtDisplay = ({ hours, unit, strong = false, muted = false, voided = false, locked = false }) => (
+  <>
+    <Typography sx={{
+      fontSize: "0.8rem", fontWeight: strong && !locked ? 700 : 500,
+      color: locked || voided ? T.faint : strong ? CURRENT.main : muted ? T.muted : T.text,
+      fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums",
+      textDecoration: voided ? "line-through" : "none",
+      ...(locked ? { fontStyle: "italic" } : {}),
+    }}>
+      {fmtCtoPeriodVal(hours, unit)}
+    </Typography>
+    <Typography sx={{
+      fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums",
+      textDecoration: voided ? "line-through" : "none",
+    }}>
+      {fmtCtoPeriodAlt(hours, unit)}
+    </Typography>
+  </>
+);
+
+const CtoBalanceHeaderCell = ({ label, subtitle, align, width, groupPos }) => (
+  <TableCell align={align} sx={{
+    py: 1, px: 1.5, bgcolor: `${T.accent} !important`, color: "#fff !important",
+    borderBottom: `1px solid ${T.accentDark}`, fontFamily: T.poppins, verticalAlign: "bottom", width,
+    ...getCtoColumnGroupSx(groupPos, { isHeader: true }),
+  }}>
+    {label && (
+      <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#fff", textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.3 }}>
+        {label}
+      </Typography>
+    )}
+    {subtitle && (
+      <Typography sx={{ fontSize: "0.52rem", fontWeight: 500, color: "rgba(255,255,255,0.82)", lineHeight: 1.35, mt: label ? 0.2 : 0, textTransform: "none", letterSpacing: 0 }}>
+        {subtitle}
+      </Typography>
+    )}
+  </TableCell>
+);
+
+const CtoPeriodAmtCell = ({ hours, unit, strong = false, highlight = false, muted = false, voided = false, locked = false, groupPos }) => {
+  const isActiveHighlight = highlight && !voided && !locked;
   return (
-    latestCtoRecordsByPeriod(records, employeeNumber).find(
-      (r) => ctoPeriodKey(r.period_year, r.period_month) === key,
-    ) || null
+    <TableCell align="right" sx={ctoDataCellSx(locked, voided, isActiveHighlight, groupPos)}>
+      <CtoBalanceRowPlain>
+        <CtoPeriodAmtDisplay hours={hours} unit={unit} strong={strong} muted={muted} voided={voided} locked={locked} />
+      </CtoBalanceRowPlain>
+    </TableCell>
   );
 };
 
-const isPerMonthCtoTracking = (periodMonth) => Boolean(normalizeCtoPeriodMonth(periodMonth));
+const fmtCtoEarnedCreditsNote = (hours, unit) => {
+  const h = toNum(hours);
+  if (h <= 0) return null;
+  return `+ ${fmtCtoPeriodVal(h, unit)} earned`;
+};
 
-/** Per-month: one row per month. No month: update existing CTO for employee/year. */
-const findCtoSaveTarget = (records, employeeNumber, periodYear, periodMonth) => {
-  const emp = String(employeeNumber || "").trim();
-  if (!emp) return null;
-  const py = parseInt(periodYear, 10) || 0;
-
-  if (isPerMonthCtoTracking(periodMonth)) {
-    return findLatestCtoForPeriod(records, emp, py, periodMonth);
-  }
-
-  const accrual = ctoAccrualRecords(records, emp);
-  if (!accrual.length) return null;
-
-  const noMonthForYear = accrual.filter(
-    (r) => !normalizeCtoPeriodMonth(r.period_month) && toNum(r.period_year) === py,
+const CtoPostDedCell = ({ hours, unit, highlight, voided, locked, earnedBalance }) => {
+  const isActiveHighlight = highlight && !voided && !locked;
+  const hasEarned = toNum(earnedBalance) > 0;
+  return (
+    <TableCell align="right" sx={ctoDataCellSx(locked, voided, isActiveHighlight, "mid")}>
+      <CtoBalanceRowPlain compact={hasEarned}>
+        <CtoPeriodAmtDisplay hours={hours} unit={unit} muted voided={voided} locked={locked} />
+        {hasEarned && (
+          <Typography sx={{ fontSize: "0.58rem", color: "#2e7d32", fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>
+            {fmtCtoEarnedCreditsNote(earnedBalance, unit)}
+          </Typography>
+        )}
+      </CtoBalanceRowPlain>
+    </TableCell>
   );
-  if (noMonthForYear.length) {
-    return [...noMonthForYear].sort((a, b) => toNum(b.id) - toNum(a.id))[0];
-  }
+};
 
-  const sameYear = accrual.filter((r) => toNum(r.period_year) === py);
-  const pool = sameYear.length ? sameYear : accrual;
-  return [...pool].sort((a, b) => toNum(b.id) - toNum(a.id))[0];
+const CtoRemainingCell = ({ hours, unit, highlight, voided, locked, forwarded, forwardToLabel, groupPos, totalCto = 0 }) => {
+  if (locked) {
+    return (
+      <TableCell align="right" sx={ctoDataCellSx(true, false, false, groupPos)}>
+        <CtoBalanceRowPlain compact>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent, fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>
+            {fmtCtoPeriodVal(hours, unit)}
+          </Typography>
+          <Typography sx={{ fontSize: "0.62rem", color: T.muted, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+            {fmtCtoPeriodAlt(hours, unit)}
+          </Typography>
+          <Typography sx={{ fontSize: "0.58rem", color: T.accentMid, fontFamily: T.poppins, fontWeight: 600 }}>Commuted</Typography>
+        </CtoBalanceRowPlain>
+      </TableCell>
+    );
+  }
+  if (forwarded) {
+    return (
+      <TableCell align="right" sx={{ ...ctoDataCellSx(false, false, false, groupPos), bgcolor: FORWARDED_ROW.bgAlt, borderBottom: `1px solid ${FORWARDED_ROW.border}` }}>
+        <CtoBalanceRowPlain compact>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>
+            {fmtCtoPeriodVal(hours, unit)}
+          </Typography>
+          <Typography sx={{ fontSize: "0.58rem", color: "#5f6368", fontFamily: T.poppins, fontWeight: 600, lineHeight: 1.25 }}>
+            {forwardToLabel ? `Forwarded to ${forwardToLabel}` : "Forwarded"}
+          </Typography>
+        </CtoBalanceRowPlain>
+      </TableCell>
+    );
+  }
+  if (voided) {
+    return (
+      <TableCell align="right" sx={ctoDataCellSx(false, true, false, groupPos)}>
+        <CtoBalanceRowPlain compact>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.faint, fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums", textDecoration: "line-through" }}>
+            {fmtCtoPeriodVal(hours, unit)}
+          </Typography>
+          <Typography sx={{ fontSize: "0.58rem", color: "#5f6368", fontFamily: T.poppins, fontWeight: 600 }}>Voided</Typography>
+        </CtoBalanceRowPlain>
+      </TableCell>
+    );
+  }
+  const isActiveHighlight = highlight && !voided;
+  const sc = getStatusColor(hours, totalCto);
+  return (
+    <TableCell align="right" sx={ctoDataCellSx(false, false, isActiveHighlight, groupPos)}>
+      <CtoBalanceRowPlain>
+        <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: sc, fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>
+          {fmtCtoPeriodVal(hours, unit)}
+        </Typography>
+        <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+          {fmtCtoPeriodAlt(hours, unit)}
+        </Typography>
+      </CtoBalanceRowPlain>
+    </TableCell>
+  );
+};
+
+const CtoPeriodSectionRow = ({ label, variant = "section", colSpan = 8 }) => (
+  <TableRow>
+    <TableCell colSpan={colSpan} sx={{
+      py: variant === "divider" ? 1 : 0.65, px: 1.5,
+      bgcolor: variant === "divider" ? "#eef0f3" : variant === "year" ? "#fafbfc" : variant === "current" ? "rgba(46,125,50,0.08)" : alpha(T.accent, 0.06),
+      borderBottom: `1px solid ${variant === "divider" ? "rgba(0,0,0,0.12)" : variant === "current" ? CURRENT.border : T.divider}`,
+      borderTop: variant === "divider" ? "2px solid rgba(0,0,0,0.08)" : "none",
+    }}>
+      <Typography sx={{
+        fontSize: variant === "year" ? "0.72rem" : "0.62rem", fontWeight: 600,
+        color: variant === "current" ? CURRENT.dark : variant === "year" ? T.text : T.muted,
+        textTransform: "uppercase", letterSpacing: variant === "year" ? "0.04em" : "0.08em", fontFamily: T.poppins,
+      }}>
+        {label}
+      </Typography>
+    </TableCell>
+  </TableRow>
+);
+
+const formatCtoVoidedAt = (voidedAt) => {
+  if (!voidedAt) return "";
+  const d = new Date(voidedAt);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+
+const formatCtoSnapshotDate = (dt) => {
+  if (!dt) return "—";
+  try {
+    const d = new Date(dt);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "—";
+  }
+};
+
+const CtoCommutationWarningModal = ({
+  open, onClose, onConfirm, period, unit = "days", earningsList = [], loading = false,
+}) => {
+  if (!period) return null;
+  const fmt = (h) => (unit === "hours" ? fmtCtoPeriodVal(h, "hours") : fmtCtoPeriodVal(h, "days"));
+  const fmtAlt = (h) => (unit === "hours" ? fmtCtoPeriodAlt(h, "hours") : fmtCtoPeriodAlt(h, "days"));
+  const flow = computeCtoBalances(period, { earningsList });
+  const remHrs = flow.remainingBalance;
+  const periodName = periodLabel(period.period_year, period.period_month);
+  const flowRows = [
+    { label: CTO_BALANCE_LABELS.previousBalance.label, value: flow.previousBalance },
+    { label: CTO_BALANCE_LABELS.ctoEarned.label, value: flow.ctoCreditsEarned },
+    { label: CTO_BALANCE_LABELS.totalCto.label, value: flow.totalCtoCredits },
+    { label: CTO_BALANCE_LABELS.ctoUsed.label, value: flow.usedHrs },
+    { label: CTO_BALANCE_LABELS.postDed.label, value: flow.totalHours },
+    { label: CTO_BALANCE_LABELS.remaining.label, value: remHrs, accent: true },
+  ];
+
+  return (
+    <Modal open={open} onClose={!loading ? onClose : undefined} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}>
+      <Fade in={open}>
+        <Paper elevation={0} sx={{
+          width: "100%", maxWidth: 520, display: "flex", flexDirection: "column",
+          borderRadius: "10px", overflow: "hidden", fontFamily: T.poppins,
+          border: "1px solid rgba(0,0,0,0.1)", boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
+        }}>
+          <Box sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: "#fafbfc" }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: "8px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <CommutationIcon sx={{ fontSize: 18, color: T.accent }} />
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography sx={{ fontWeight: 600, fontSize: "0.95rem", color: T.text, fontFamily: T.poppins }}>{COMMUTATION_COPY.modalTitle}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>
+                {COMMUTATION_COPY.modalSubtitle} · CTO · {periodName}
+              </Typography>
+            </Box>
+            <IconButton onClick={onClose} disabled={loading} size="small"><Close sx={{ fontSize: 16 }} /></IconButton>
+          </Box>
+          <Box sx={{ px: 3, py: 2.5 }}>
+            <Box sx={{ mb: 2.5, p: 2, borderRadius: "8px", border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+              <Typography sx={{ fontSize: "0.6rem", fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", mb: 0.5 }}>{COMMUTATION_COPY.amountLabel}</Typography>
+              <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "1.75rem", fontFamily: T.poppins }}>{fmt(remHrs)}</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins, mt: 0.35 }}>{fmtAlt(remHrs)}</Typography>
+            </Box>
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.75, mb: 2 }}>
+              {flowRows.map(({ label, value, accent }) => (
+                <Box key={label} sx={{ p: 1, borderRadius: "6px", textAlign: "center", bgcolor: "#fafbfc", border: `1px solid ${T.divider}` }}>
+                  <Typography sx={{ fontSize: "0.52rem", fontWeight: 600, color: T.faint, textTransform: "uppercase", mb: 0.35, lineHeight: 1.2 }}>{label}</Typography>
+                  <Typography sx={{ fontWeight: accent ? 700 : 600, color: accent ? T.accent : T.text, fontSize: "0.72rem", fontFamily: T.poppins }}>{fmt(value)}</Typography>
+                </Box>
+              ))}
+            </Box>
+            <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins, mb: 1 }}>{COMMUTATION_COPY.purpose}</Typography>
+            {flow.previousBalance > 0 && (
+              <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins, mb: 1 }}>
+                {COMMUTATION_COPY.carryOverNote(fmt(flow.previousBalance))}
+              </Typography>
+            )}
+            <Typography sx={{ fontSize: "0.68rem", color: "#c62828", fontFamily: T.poppins }}>{COMMUTATION_COPY.irreversible}</Typography>
+          </Box>
+          <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafbfc", display: "flex", justifyContent: "flex-end", gap: 1 }}>
+            <Button onClick={onClose} disabled={loading} sx={{ textTransform: "none", fontFamily: T.poppins }}>Cancel</Button>
+            <AccentButton onClick={onConfirm} disabled={loading || remHrs <= 0} variant="contained"
+              startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: 16 }} />}
+              sx={{ textTransform: "none", fontFamily: T.poppins }}>
+              {loading ? COMMUTATION_COPY.confirming : COMMUTATION_COPY.confirm}
+            </AccentButton>
+          </Box>
+        </Paper>
+      </Fade>
+    </Modal>
+  );
 };
 
 // ─── Badges — identical to LeaveAssignment ───────────────────────────────────
@@ -295,7 +532,451 @@ const ExpiryBadge = ({ expiryDate }) => {
   );
 };
 
-// (Forfeit dialog removed; only "Transfer to Commutation" is allowed)
+const VoidedStatusChip = ({ size = "sm" }) => (
+  <Box sx={{ display: "inline-flex", alignItems: "center", px: size === "sm" ? 0.65 : 0.85, py: size === "sm" ? 0.12 : 0.2, borderRadius: "4px", border: "1px dashed rgba(95,99,104,0.4)", bgcolor: "rgba(95,99,104,0.08)" }}>
+    <Typography sx={{ fontSize: size === "sm" ? "0.58rem" : "0.68rem", fontWeight: 600, color: "#5f6368", fontFamily: T.poppins }}>Voided</Typography>
+  </Box>
+);
+
+const CommutedStatusChip = ({ size = "sm" }) => (
+  <Box sx={{ display: "inline-flex", alignItems: "center", px: size === "sm" ? 0.65 : 0.85, py: size === "sm" ? 0.12 : 0.2, borderRadius: "4px", border: `1px dashed ${alpha(T.accent, 0.45)}`, bgcolor: alpha(T.accent, 0.05) }}>
+    <Typography sx={{ fontSize: size === "sm" ? "0.58rem" : "0.68rem", fontWeight: 600, color: T.accentMid, fontFamily: T.poppins }}>{COMMUTATION_COPY.status}</Typography>
+  </Box>
+);
+
+const ForwardedStatusChip = ({ forwardToLabel, size = "sm" }) => (
+  <Box sx={{ display: "inline-flex", alignItems: "center", px: size === "sm" ? 0.65 : 0.85, py: size === "sm" ? 0.12 : 0.2, borderRadius: "4px", border: "1px dashed rgba(95,99,104,0.35)", bgcolor: "rgba(95,99,104,0.06)", maxWidth: "100%" }}>
+    <Typography noWrap sx={{ fontSize: size === "sm" ? "0.58rem" : "0.68rem", fontWeight: 600, color: "#5f6368", fontFamily: T.poppins }}>
+      {forwardToLabel ? `Forwarded · ${forwardToLabel}` : "Forwarded"}
+    </Typography>
+  </Box>
+);
+
+const CtoPeriodHistoryPanel = ({
+  history, unit, loading, isCurrentPeriod = false, periodRecord = null,
+  isPeriodVoided = false, isPeriodLocked = false, onUndoSnapshot = null,
+  undoLoadingId = null, voidLoadingId = null, commuteLoadingId = null,
+}) => {
+  const [previousRecordsOpen, setPreviousRecordsOpen] = useState(false);
+  useEffect(() => { setPreviousRecordsOpen(false); }, [history?.period_year, history?.period_month, history?.employeeNumber]);
+
+  if (loading) {
+    return (
+      <Box sx={{ py: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+        <CircularProgress size={14} sx={{ color: T.faint }} />
+        <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>Loading period details…</Typography>
+      </Box>
+    );
+  }
+  if (!history) {
+    return <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins, py: 1 }}>Could not load period details.</Typography>;
+  }
+
+  const snapshots = Array.isArray(history.snapshots) ? history.snapshots : [];
+  const currentLines = Array.isArray(history.ledger_lines_active) && history.ledger_lines_active.length
+    ? history.ledger_lines_active
+    : (Array.isArray(history.ledger_lines) ? history.ledger_lines : snapshots.filter((s) => !s.is_voided));
+  const previousLines = Array.isArray(history.ledger_lines_voided) ? history.ledger_lines_voided : snapshots.filter((s) => s.is_voided);
+  const undoRemaining = history.undo_clicks_remaining ?? CTO_UNDO_MAX_PER_PERIOD;
+  const activeSnapshotCount = history.active_snapshot_count ?? 0;
+  const periodCanUndo = isCurrentPeriod && !isPeriodVoided && !isPeriodLocked && history.can_undo && undoRemaining > 0 && activeSnapshotCount > 1;
+  const showUndoColumn = isCurrentPeriod && !isPeriodVoided && !isPeriodLocked;
+
+  const undoTooltip = (snap) => {
+    if (!isCurrentPeriod) return "Undo is only available while this period is still the current month";
+    if (isPeriodVoided || isPeriodLocked) return "Period is voided or commuted";
+    if (snap.is_voided) return "Entry already voided";
+    if (!snap.is_active) return "Only the latest active entry can be undone";
+    if (undoRemaining <= 0) return `Undo limit reached (${CTO_UNDO_MAX_PER_PERIOD} per period)`;
+    if (activeSnapshotCount <= 1) return "Cannot undo the first entry";
+    return `Remove this OT entry (${undoRemaining} of ${CTO_UNDO_MAX_PER_PERIOD} undos remaining)`;
+  };
+
+  const fmtLedgerAmt = (hours, unit, { prefix = "", voided = false } = {}) => {
+    if (hours == null || !Number.isFinite(toNum(hours))) return "—";
+    return (
+      <Typography component="span" sx={{ fontSize: "0.68rem", fontWeight: 600, color: voided ? T.faint : T.text, textDecoration: voided ? "line-through" : "none", fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+        {prefix}{fmtCtoPeriodVal(hours, unit)}
+      </Typography>
+    );
+  };
+
+  const renderLedgerTable = (lines, { showUndo = false, voidedSection = false } = {}) => {
+    if (!lines.length) return null;
+    const headers = ["#", "Date", "Event", CTO_BALANCE_LABELS.previousBalance.label, CTO_BALANCE_LABELS.ctoEarned.label, CTO_BALANCE_LABELS.totalCto.label, CTO_BALANCE_LABELS.ctoUsed.label, CTO_BALANCE_LABELS.postDed.label, CTO_BALANCE_LABELS.remaining.label, "Status", ...(showUndo ? ["Undo"] : [])];
+    return (
+      <Box sx={{ overflowX: "auto", mb: voidedSection ? 0 : 1.5 }}>
+        <Table size="small" sx={{ minWidth: 920, "& .MuiTableCell-root": { py: 0.45, px: 0.6, fontSize: "0.65rem", fontFamily: T.poppins, borderColor: T.divider } }}>
+          <TableHead>
+            <TableRow sx={{ bgcolor: voidedSection ? VOIDED_ROW.bg : "#f5f6f8" }}>
+              {headers.map((h) => <TableCell key={h} sx={{ fontWeight: 700, color: T.muted, whiteSpace: "nowrap", fontSize: "0.62rem" }}>{h}</TableCell>)}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {lines.map((line, idx) => {
+              const isEarning = line.line_type === "earning";
+              const rowCanUndo = !isEarning && periodCanUndo && line.is_active && !line.is_voided && line.can_undo;
+              const isUndoLoading = undoLoadingId === line.id;
+              const voided = voidedSection || !!line.is_voided;
+              const eventLabel = CTO_LEDGER_ENTRY_LABELS[line.entry_kind] || line.entry_kind || "Entry";
+              return (
+                <TableRow key={`${voidedSection ? "prev" : "cur"}-${line.id}`} sx={{ opacity: voided ? 0.8 : 1, bgcolor: line.is_active && !voidedSection ? "rgba(46,125,50,0.06)" : voided ? VOIDED_ROW.bgAlt : "inherit" }}>
+                  <TableCell>{idx + 1}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{voided && line.voided_at ? formatCtoVoidedAt(line.voided_at) : formatCtoSnapshotDate(line.created_at)}</TableCell>
+                  <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{eventLabel}</TableCell>
+                  {isEarning ? (
+                    <>
+                      <TableCell sx={{ color: T.faint }}>—</TableCell><TableCell sx={{ color: T.faint }}>—</TableCell><TableCell sx={{ color: T.faint }}>—</TableCell><TableCell sx={{ color: T.faint }}>—</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.earnings_delta ?? line.approved_earnings_delta, unit, { prefix: line.earnings_delta_prefix || "+", voided })}</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.remaining_balance, unit, { voided })}</TableCell>
+                    </>
+                  ) : (
+                    <>
+                      <TableCell>{fmtLedgerAmt(line.previous_balance, unit, { voided })}</TableCell>
+                      <TableCell>{line.entry_kind === "ot_add" && toNum(line.cto_delta) > 0 ? fmtLedgerAmt(line.cto_delta, unit, { prefix: "+", voided }) : fmtLedgerAmt(line.cto_credits_earned, unit, { voided })}</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.total_cto_credits, unit, { voided })}</TableCell>
+                      <TableCell>{line.entry_kind === "deduction" && toNum(line.used_delta) > 0 ? fmtLedgerAmt(line.used_delta, unit, { prefix: "−", voided }) : fmtLedgerAmt(line.used_hours, unit, { voided })}</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.post_deduction, unit, { voided })}</TableCell>
+                      <TableCell sx={{ color: T.faint }}>—</TableCell>
+                    </>
+                  )}
+                  <TableCell>
+                    {voided ? <Chip label="Voided" size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: VOIDED_ROW.bg, color: T.faint, fontFamily: T.poppins }} />
+                      : line.is_active ? <Chip label="Active" size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: CURRENT.faint, color: CURRENT.dark, fontFamily: T.poppins }} />
+                      : isEarning ? <Chip label={line.earn_status || "approved"} size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: "rgba(46,125,50,0.1)", color: CURRENT.dark, fontFamily: T.poppins }} />
+                      : <Chip label="Superseded" size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: "#eee", color: T.faint, fontFamily: T.poppins }} />}
+                  </TableCell>
+                  {showUndo && (
+                    <TableCell align="center">
+                      {rowCanUndo && onUndoSnapshot && periodRecord ? (
+                        <Tooltip title={undoTooltip(line)} placement="top">
+                          <span>
+                            <IconButton size="small" disabled={isUndoLoading || !!voidLoadingId || !!commuteLoadingId}
+                              onClick={() => onUndoSnapshot(periodRecord, line)}
+                              sx={{ p: 0.5, color: T.text, border: `1px solid ${T.divider}`, borderRadius: "6px" }}>
+                              {isUndoLoading ? <CircularProgress size={14} sx={{ color: T.muted }} /> : <UndoIcon sx={{ fontSize: 16 }} />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      ) : null}
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+    );
+  };
+
+  return (
+    <Box sx={{ py: 1, px: 0.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 0.75, flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: T.poppins }}>
+          Current period ledger ({currentLines.length})
+        </Typography>
+        {showUndoColumn && periodCanUndo && (
+          <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins }}>
+            {undoRemaining} of {CTO_UNDO_MAX_PER_PERIOD} undos remaining (OT only)
+          </Typography>
+        )}
+      </Box>
+      {currentLines.length === 0
+        ? <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins, mb: 1.5 }}>No current ledger entries for this period.</Typography>
+        : renderLedgerTable(currentLines, { showUndo: showUndoColumn })}
+      {previousLines.length > 0 && (
+        <Box sx={{ mt: 1.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75 }}>
+            <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: T.poppins }}>
+              Previous records ({previousLines.length})
+            </Typography>
+            <IconButton size="small" onClick={() => setPreviousRecordsOpen((o) => !o)} sx={{ p: 0.4, color: T.muted, border: `1px solid ${T.divider}`, borderRadius: "6px" }}>
+              {previousRecordsOpen ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <HistoryIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          </Box>
+          {previousRecordsOpen && renderLedgerTable(previousLines, { voidedSection: true })}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+const CtoPeriodTableRow = ({
+  record, unit, isCurrent, rowIndex, onCommute, onVoidPeriod, onUndoEntry, commuteLoadingId, earningsList, voidLoadingId, undoLoadingId, chainRecords = [],
+  expanded = false, onToggleExpand, periodHistory = null, historyLoading = false, payrollLocked = false,
+}) => {
+  const flow = computeCtoBalances(record, { earningsList, chainRecords });
+  const isVoided = flow.isVoided;
+  const isCommuted = isCtoCommutedLocked(record);
+  const isForwarded = isCtoPeriodSuperseded(record, chainRecords) && !isCommuted;
+  const forwardToLabel = isForwarded ? getCtoPeriodForwardToLabel(record, chainRecords) : null;
+  const isActionLocked = isCommuted || isForwarded;
+  const rowStyle = isCommuted ? COMMUTED_ROW : isForwarded ? FORWARDED_ROW : null;
+  const remH = flow.remainingBalance;
+  const closingDisplayHrs = isCommuted ? flow.commutedHrs : isForwarded ? Math.max(0, flow.totalHours + flow.earnedBalance) : remH;
+  let catSnap = null;
+  try { catSnap = record.emp_category_snapshot ? JSON.parse(record.emp_category_snapshot) : null; } catch {}
+  const periodRemarks = formatCtoPeriodRowRemarks(record.remarks);
+  const expired = isExpired(record.expiry_date);
+
+  return (
+    <>
+      <TableRow sx={{
+        bgcolor: rowStyle ? rowStyle.bg : isVoided ? VOIDED_ROW.bg : isCurrent ? "rgba(46,125,50,0.12)" : rowIndex % 2 === 1 ? "#fafbfc" : "#fff",
+        backgroundImage: rowStyle?.stripe || "none",
+        outline: rowStyle ? `1px solid ${rowStyle.border}` : isCurrent && !isVoided ? `1px solid ${CURRENT.border}` : "none",
+        outlineOffset: -1, opacity: isVoided ? 0.9 : 1,
+      }}>
+        <TableCell sx={{ py: 0, px: 0, verticalAlign: "middle", borderBottom: `1px solid ${rowStyle ? rowStyle.border : isVoided ? VOIDED_ROW.border : T.divider}`, borderLeft: rowStyle ? `3px solid ${isCommuted ? T.accent : "#9e9e9e"}` : isCurrent && !isVoided ? `3px solid ${CURRENT.main}` : "3px solid transparent", bgcolor: rowStyle ? rowStyle.bgAlt : isVoided ? VOIDED_ROW.bgAlt : "inherit" }}>
+          <CtoBalanceRowPlain align="left">
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+              {onToggleExpand && (
+                <IconButton size="small" onClick={() => onToggleExpand(record)} sx={{ p: 0.25, color: T.muted }}>
+                  {expanded ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+                </IconButton>
+              )}
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: isCurrent && !isVoided && !isActionLocked ? 600 : 500, color: isVoided ? T.faint : isActionLocked ? T.muted : isCurrent ? CURRENT.dark : T.text, fontFamily: T.poppins, textDecoration: isVoided ? "line-through" : "none" }}>
+                {periodLabel(record.period_year, record.period_month)}
+              </Typography>
+              {catSnap?.is40hrs && <Chip label="40hr" size="small" sx={{ height: 16, fontSize: "0.55rem", fontWeight: 700, bgcolor: "rgba(46,125,50,0.08)", color: "#2e7d32", fontFamily: T.poppins }} />}
+              {catSnap?.isDesignated && <Chip label="Designated" size="small" sx={{ height: 16, fontSize: "0.55rem", fontWeight: 700, bgcolor: T.accentFaint, color: T.accent, fontFamily: T.poppins }} />}
+              {expired && <Chip label="Expired" size="small" sx={{ height: 16, fontSize: "0.55rem", fontWeight: 700, bgcolor: "rgba(211,47,47,0.08)", color: "#d32f2f" }} />}
+              {record.expiry_date && !expired && <ExpiryBadge expiryDate={record.expiry_date} />}
+            </Box>
+            {!isVoided && !isActionLocked && periodRemarks && (
+              <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, mt: 0.3 }} noWrap title={periodRemarks}>{periodRemarks}</Typography>
+            )}
+          </CtoBalanceRowPlain>
+        </TableCell>
+        <CtoPeriodAmtCell hours={flow.previousBalance} unit={unit} highlight={isCurrent} muted={!isCurrent && flow.previousBalance === 0} voided={isVoided} locked={isActionLocked} groupPos="start" />
+        <CtoPeriodAmtCell hours={flow.ctoCreditsEarned} unit={unit} highlight={isCurrent} voided={isVoided} locked={isActionLocked} groupPos="mid" />
+        <CtoPeriodAmtCell hours={flow.totalCtoCredits} unit={unit} highlight={isCurrent} strong={isCurrent && !isActionLocked && !isVoided} voided={isVoided} locked={isActionLocked} groupPos="end" />
+        <CtoPeriodAmtCell hours={flow.usedHrs} unit={unit} highlight={isCurrent} voided={isVoided} locked={isActionLocked} groupPos="start" />
+        <CtoPostDedCell hours={flow.totalHours} unit={unit} highlight={isCurrent} voided={isVoided} locked={isActionLocked} earnedBalance={flow.earnedBalance} />
+        <CtoRemainingCell hours={closingDisplayHrs} unit={unit} highlight={isCurrent} voided={isVoided} locked={isCommuted} forwarded={isForwarded} forwardToLabel={forwardToLabel} groupPos="end" totalCto={flow.totalCtoCredits} />
+        <TableCell align="right" sx={{ py: 0, px: 0, verticalAlign: "middle", borderBottom: `1px solid ${rowStyle ? rowStyle.border : isVoided ? VOIDED_ROW.border : T.divider}`, bgcolor: rowStyle ? rowStyle.bgAlt : isVoided ? VOIDED_ROW.bgAlt : isCurrent ? CURRENT.faint : "inherit" }}>
+          <CtoBalanceRowPlain>
+            {isCurrent && !isVoided && !isActionLocked && (
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 0.5, width: "100%", minWidth: 96 }}>
+                {onVoidPeriod && (
+                  <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : "Void current period (ledger + earnings)"}>
+                    <span>
+                      <Button size="small" variant="outlined" disabled={voidLoadingId === record.id || payrollLocked}
+                        onClick={() => onVoidPeriod(record)}
+                        startIcon={voidLoadingId === record.id ? <CircularProgress size={12} sx={{ color: "#c62828" }} /> : <BlockIcon sx={{ fontSize: "14px !important" }} />}
+                        sx={{ textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins, py: 0.4, px: 1.5, minWidth: 96, width: "100%", borderColor: payrollLocked ? "rgba(21,101,192,0.35)" : "#c62828", color: payrollLocked ? "#1565c0" : "#c62828" }}>
+                        {voidLoadingId === record.id ? "…" : payrollLocked ? "In payroll" : "Void"}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+                {remH > 0 && onCommute && (
+                  <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : COMMUTATION_COPY.purpose}>
+                    <span>
+                      <Button size="small" variant="contained" disabled={!!commuteLoadingId || payrollLocked}
+                        onClick={() => onCommute(record)}
+                        startIcon={commuteLoadingId === record.id ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "14px !important" }} />}
+                        sx={{ textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins, py: 0.4, px: 1.5, minWidth: 96, width: "100%", bgcolor: T.accent, color: "#fff" }}>
+                        {commuteLoadingId === record.id ? "…" : payrollLocked ? "In payroll" : COMMUTATION_COPY.action}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+              </Box>
+            )}
+            {isVoided && <VoidedStatusChip size="sm" />}
+            {isCommuted && !isVoided && <CommutedStatusChip size="sm" />}
+            {isForwarded && !isVoided && <ForwardedStatusChip forwardToLabel={forwardToLabel} size="sm" />}
+          </CtoBalanceRowPlain>
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={CTO_BALANCE_COLUMNS.length} sx={{ py: 0, px: 2, bgcolor: "#fafbfc", borderBottom: `1px solid ${T.divider}` }}>
+            <CtoPeriodHistoryPanel history={periodHistory} unit={unit} loading={historyLoading} isCurrentPeriod={isCurrent}
+              periodRecord={record} isPeriodVoided={isVoided} isPeriodLocked={isActionLocked}
+              onUndoSnapshot={onUndoEntry} undoLoadingId={undoLoadingId} voidLoadingId={voidLoadingId} commuteLoadingId={commuteLoadingId} />
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+};
+
+const groupCtoPreviousPeriodsByYear = (previousPeriods) => {
+  const items = [];
+  let lastYear = null;
+  previousPeriods.forEach((period) => {
+    const year = parseInt(period.period_year, 10) || 0;
+    if (year !== lastYear) { items.push({ kind: "year", year }); lastYear = year; }
+    items.push({ kind: "period", period });
+  });
+  return items;
+};
+
+const EmployeeCTOModal = ({
+  open, onClose, employeeCTO, unit, setUnit, deptMap, empCatLabelMap, actionSuccess, error,
+  commuteLoadingId, voidLoadingId, undoLoadingId, onCommute, onVoidPeriod, onUndoEntry,
+  onTogglePeriodExpand, periodHistoryCache = {}, historyLoadingKeys = {}, expandedPeriodKeys = {},
+  earningsList = [], isPeriodLockedForPayroll = null,
+}) => {
+  if (!employeeCTO) return null;
+  const deptCode = deptMap[employeeCTO.employeeNumber] || null;
+  const empCat = empCatLabelMap[employeeCTO.employeeNumber] || null;
+  const modalRecords = employeeCTO.displayRecords || ctoRecordsForDisplay(employeeCTO.records);
+  const sortedRecords = [...modalRecords].sort((a, b) => {
+    if (b.period_year !== a.period_year) return b.period_year - a.period_year;
+    return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
+  });
+  const currentPeriod = resolveCtoCurrentDisplayPeriod(sortedRecords);
+  const currentKey = currentPeriod ? normalizeCtoPeriodKey(currentPeriod) : null;
+  const previousPeriods = sortedRecords.filter(
+    (p) => !currentKey || normalizeCtoPeriodKey(p) !== currentKey,
+  );
+  const previousGrouped = groupCtoPreviousPeriodsByYear(previousPeriods);
+  const empEarnings = earningsList.filter((e) => String(e.employee_number) === String(employeeCTO.employeeNumber));
+  const balRemModal = getCtoEmployeeDisplayRemaining(employeeCTO.records, empEarnings);
+
+  const periodRowProps = (record, isCurrent, rowIndex) => {
+    const key = normalizeCtoPeriodKey(record);
+    return {
+      record, unit, isCurrent, rowIndex, onCommute, onVoidPeriod, onUndoEntry,
+      commuteLoadingId, voidLoadingId, undoLoadingId, earningsList: empEarnings,
+      chainRecords: sortedRecords, expanded: !!expandedPeriodKeys[key],
+      onToggleExpand: onTogglePeriodExpand, periodHistory: periodHistoryCache[key] || null,
+      historyLoading: !!historyLoadingKeys[key],
+      payrollLocked: typeof isPeriodLockedForPayroll === "function"
+        ? isPeriodLockedForPayroll(record.employeeNumber, record.period_year, record.period_month) : false,
+    };
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: { xs: 1, sm: 2 } }}>
+      <Fade in={open}>
+        <Paper elevation={0} sx={{ width: "100%", maxWidth: 1140, height: "min(82vh, 720px)", display: "flex", flexDirection: "column", borderRadius: "10px", overflow: "hidden", fontFamily: T.poppins, border: "1px solid rgba(0,0,0,0.1)", boxShadow: "0 12px 40px rgba(0,0,0,0.12)" }}>
+          <Box sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: "#fafbfc", flexShrink: 0 }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.65rem", fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: T.poppins, mb: 0.35 }}>CTO balance</Typography>
+              <Typography sx={{ fontWeight: 600, fontSize: "1.05rem", color: T.text, fontFamily: T.poppins, lineHeight: 1.25 }} noWrap>{employeeCTO.fullName}</Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mt: 0.5 }}>
+                <Typography sx={{ fontSize: "0.75rem", color: T.muted, fontFamily: T.poppins }}>ID {employeeCTO.employeeNumber}</Typography>
+                {deptCode && <DeptBadge code={deptCode} />}
+                {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} />}
+              </Box>
+            </Box>
+            <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"
+              sx={{ flexShrink: 0, bgcolor: "#fff", "& .MuiToggleButton-root": { px: 1.5, py: 0.45, fontSize: "0.72rem", fontWeight: 500, textTransform: "none", fontFamily: T.poppins, borderColor: "rgba(0,0,0,0.12)", color: T.muted, "&.Mui-selected": { bgcolor: T.text, color: "#fff", borderColor: T.text } } }}>
+              <ToggleButton value="days">Days</ToggleButton>
+              <ToggleButton value="hours">Hours</ToggleButton>
+            </ToggleButtonGroup>
+            <IconButton onClick={onClose} size="small" sx={{ color: T.muted, border: `1px solid ${T.divider}`, borderRadius: "6px" }}><Close sx={{ fontSize: 16 }} /></IconButton>
+          </Box>
+          <Box sx={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+            {sortedRecords.length === 0 ? (
+              <Box sx={{ py: 8, textAlign: "center" }}><Typography sx={{ color: T.muted, fontSize: "0.85rem", fontFamily: T.poppins }}>No CTO records on file.</Typography></Box>
+            ) : (
+              <>
+                <Box sx={{ px: 3, py: 1, borderBottom: `1px solid ${T.divider}`, bgcolor: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>
+                    <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>Compensatory Time Off</Box> — OT-based balance by period
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontFamily: T.poppins }}>{sortedRecords.length} period{sortedRecords.length !== 1 ? "s" : ""} on record</Typography>
+                </Box>
+                {actionSuccess && <Box sx={{ px: 3, pt: 1.25 }}><Alert severity="success" icon={<CheckIcon />} sx={{ borderRadius: "8px", fontFamily: T.poppins }}>{actionSuccess}</Alert></Box>}
+                {error && <Box sx={{ px: 3, pt: 1.25 }}><Alert severity="error" sx={{ borderRadius: "8px", fontFamily: T.poppins }}>{error}</Alert></Box>}
+                <Table size="small" stickyHeader sx={{ tableLayout: "fixed", minWidth: 980, "& .MuiTableCell-head": { bgcolor: `${T.accent} !important`, color: "#fff !important" } }}>
+                  <TableHead>
+                    <TableRow>
+                      {CTO_BALANCE_COLUMNS.map((col) => (
+                        <CtoBalanceHeaderCell key={col.key} label={col.label} subtitle={col.subtitle} align={col.align} width={col.width} groupPos={col.groupPos} />
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {currentPeriod && (
+                      <>
+                        <CtoPeriodSectionRow label="Current period" variant="current" />
+                        <CtoPeriodTableRow {...periodRowProps(currentPeriod, true, 0)} />
+                      </>
+                    )}
+                    {previousPeriods.length > 0 && (
+                      <>
+                        <CtoPeriodSectionRow label="Previous balances" variant="divider" />
+                        {previousGrouped.map((item, idx) => item.kind === "year"
+                          ? <CtoPeriodSectionRow key={`year-${item.year}`} label={String(item.year)} variant="year" />
+                          : <CtoPeriodTableRow key={item.period.id} {...periodRowProps(item.period, false, idx)} />)}
+                      </>
+                    )}
+                  </TableBody>
+                </Table>
+              </>
+            )}
+          </Box>
+          {sortedRecords.length > 0 && (
+            <Box sx={{ px: 3, py: 1, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafbfc", flexShrink: 0 }}>
+              <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>
+                Total remaining across all periods:{" "}
+                <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>{fmtCtoPeriodVal(balRemModal, unit)}</Box>
+                <Box component="span" sx={{ color: T.faint, ml: 0.5 }}>({fmtCtoPeriodAlt(balRemModal, unit)})</Box>
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      </Fade>
+    </Modal>
+  );
+};
+
+// ─── Styled primitives — identical to LeaveAssignment ────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8, fontSize: "0.875rem", backgroundColor: "#fff",
+    "& fieldset": { borderColor: T.accentBorder },
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+    "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: T.text },
+  },
+  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
+});
+
+const selectSx = {
+  borderRadius: "8px", fontSize: "0.875rem", bgcolor: "#fff",
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+  "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent, borderWidth: "1.5px" },
+};
+
+// ─── Display helpers ───────────────────────────────────────────────────────────
+const toHours = (val, unit) => unit === "days" ? val * 8 : val;
+const fmtHrs = (h, unit) => unit === "hours"
+  ? `${toNum(h).toFixed(3)} hrs`
+  : `${(toNum(h) / 8).toFixed(3)} days`;
+
+const isCtoLedgerSnapshotChip = (r) => {
+  const rm = String(r?.remarks || "");
+  return /cto_direct_deduction/i.test(rm) || /cto_earning_delete_reversal/i.test(rm);
+};
+
+const INTERNAL_CTO_REMARK_RE = /\b(cto_earning:\d+|cto_earning_delete_reversal:\d+|cto_direct_deduction:\d+)\b/gi;
+const AUTO_CTO_TARDINESS_REMARK_RE = /\s*Tardiness deduction:\s*[\d.]+d\s+for\s+[A-Za-z]+\s+\d{4}\s*/gi;
+
+const formatCtoRemarksForDisplay = (remarks) => {
+  let s = String(remarks || "")
+    .replace(INTERNAL_CTO_REMARK_RE, "")
+    .replace(AUTO_CTO_TARDINESS_REMARK_RE, "");
+  return s.split("·").map((p) => p.trim()).filter(Boolean).join(" · ").trim();
+};
+
+const formatCtoPeriodRowRemarks = (remarks) => formatCtoRemarksForDisplay(remarks);
 
 // ─── Bone skeleton primitive ──────────────────────────────────────────────────
 const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
@@ -676,22 +1357,104 @@ const CompensatoryTimeOff = () => {
 
   const [employeeCTOModalOpen, setEmployeeCTOModalOpen] = useState(false);
   const [selectedEmployeeCTO,  setSelectedEmployeeCTO]  = useState(null);
-  const [selectedCTORecord,    setSelectedCTORecord]    = useState(null);
-  const [editRecord,           setEditRecord]           = useState(null);
-  // editHours is always stored in HOURS internally
-  const [editHours,            setEditHours]            = useState(0);
   const [actionSuccess,        setActionSuccess]        = useState("");
   const [commuteLoadingId,     setCommuteLoadingId]     = useState(null);
+  const [voidLoadingId,        setVoidLoadingId]        = useState(null);
+  const [undoLoadingId,        setUndoLoadingId]        = useState(null);
+  const [periodHistoryCache,   setPeriodHistoryCache]   = useState({});
+  const [expandedPeriodKeys,   setExpandedPeriodKeys]   = useState({});
+  const [historyLoadingKeys,   setHistoryLoadingKeys]   = useState({});
+  const [commutationWarning,   setCommutationWarning]   = useState(null);
+  const [ctoEarnings,          setCtoEarnings]          = useState([]);
+
+  const { socket } = useSocket();
+  const { isPeriodLockedForPayroll, refreshPayrollKeys } = usePayrollPeriodLock();
 
   useEffect(() => {
     (async () => {
-      await Promise.all([fetchCTORecords(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
+      await Promise.all([fetchCTORecords(), fetchCtoEarnings(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
       setPageLoading(false);
     })();
   }, []);
 
   useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter]);
   useEffect(() => { setOtHours(0); setRemarks(""); setExpiryDate(""); setError(""); }, [selectedEmployee, periodYear, periodMonth]);
+  useEffect(() => { if (employeeCTOModalOpen) refreshPayrollKeys(); }, [employeeCTOModalOpen, refreshPayrollKeys]);
+
+  const clearPeriodHistoryCache = (record) => {
+    if (!record) { setPeriodHistoryCache({}); return; }
+    const key = normalizeCtoPeriodKey(record);
+    setPeriodHistoryCache((prev) => { const next = { ...prev }; delete next[key]; return next; });
+  };
+
+  const fetchPeriodHistory = async (record, { force = false } = {}) => {
+    if (!record?.employeeNumber) return null;
+    const key = normalizeCtoPeriodKey(record);
+    if (!force && periodHistoryCache[key]) return periodHistoryCache[key];
+    setHistoryLoadingKeys((prev) => ({ ...prev, [key]: true }));
+    try {
+      const token = localStorage.getItem("token");
+      const r = await axios.get(`${API_BASE_URL}/api/cto/cto/period-history`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { employeeNumber: record.employeeNumber, period_year: record.period_year, period_month: record.period_month },
+      });
+      setPeriodHistoryCache((prev) => ({ ...prev, [key]: r.data }));
+      return r.data;
+    } catch {
+      const empRecords = ctoRecords.filter((row) => String(row.employeeNumber) === String(record.employeeNumber));
+      const fallback = buildCtoPeriodSnapshotHistory(
+        ctoRecords,
+        ctoEarnings,
+        {
+          employeeNumber: record.employeeNumber,
+          periodYear: record.period_year,
+          periodMonth: record.period_month,
+          chainRecords: empRecords,
+        },
+      );
+      setPeriodHistoryCache((prev) => ({ ...prev, [key]: fallback }));
+      return fallback;
+    } finally {
+      setHistoryLoadingKeys((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const togglePeriodExpand = async (record) => {
+    const key = normalizeCtoPeriodKey(record);
+    if (expandedPeriodKeys[key]) {
+      setExpandedPeriodKeys((prev) => ({ ...prev, [key]: false }));
+      return;
+    }
+    setExpandedPeriodKeys((prev) => ({ ...prev, [key]: true }));
+    await fetchPeriodHistory(record);
+  };
+
+  const refreshModalEmployeeRecords = (allRecords, employeeNumber) => {
+    const fresh = allRecords.filter((r) => String(r.employeeNumber) === String(employeeNumber));
+    setSelectedEmployeeCTO((prev) => {
+      if (!prev || String(prev.employeeNumber) !== String(employeeNumber)) return prev;
+      return { ...prev, records: fresh, displayRecords: ctoRecordsForDisplay(fresh) };
+    });
+    return fresh;
+  };
+
+  const mergeEmployeeCtoRecords = (prev, empNum, newRows, fullName = "") => {
+    const emp = String(empNum);
+    const others = prev.filter((r) => String(r.employeeNumber) !== emp);
+    const name = fullName || prev.find((r) => String(r.employeeNumber) === emp)?.fullName || "";
+    const merged = (Array.isArray(newRows) ? newRows : []).map((r) => ({ ...r, fullName: r.fullName || name }));
+    return [...others, ...merged];
+  };
+
+  const prefetchCurrentPeriodHistory = async (records, employeeNumber) => {
+    const display = ctoRecordsForDisplay(records);
+    const current = resolveCtoCurrentDisplayPeriod(display);
+    if (current) {
+      const key = normalizeCtoPeriodKey(current);
+      setExpandedPeriodKeys((prev) => ({ ...prev, [key]: true }));
+      await fetchPeriodHistory(current, { force: true });
+    }
+  };
 
   const fetchCTORecords = async () => {
     try {
@@ -699,6 +1462,15 @@ const CompensatoryTimeOff = () => {
       const r = await axios.get(`${API_BASE_URL}/api/cto/cto`, { headers: { Authorization: `Bearer ${token}` } });
       setCTORecords(Array.isArray(r.data) ? r.data : []);
     } catch { setCTORecords([]); }
+  };
+
+  const fetchCtoEarnings = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const r = await axios.get(`${API_BASE_URL}/api/earnings/cto/all`, { headers: { Authorization: `Bearer ${token}` } });
+      const list = Array.isArray(r.data?.earnings) ? r.data.earnings : Array.isArray(r.data) ? r.data : [];
+      setCtoEarnings(list);
+    } catch { setCtoEarnings([]); }
   };
 
   const fetchEmployees = async () => {
@@ -782,10 +1554,51 @@ const CompensatoryTimeOff = () => {
 
   useLeaveRealtimeRefresh(() => {
     fetchCTORecords();
+    fetchCtoEarnings();
     fetchEmployees();
     fetchDeptMap();
     fetchEmpCatMap();
   });
+
+  useEffect(() => {
+    if (!socket) return undefined;
+    const onEarnings = (payload) => {
+      if (!payload || payload.module === "cto" || !payload.module) {
+        fetchCTORecords();
+        fetchCtoEarnings();
+      }
+    };
+    const onCommutation = () => {
+      fetchCTORecords();
+      fetchCtoEarnings();
+    };
+    socket.on("earningsChanged", onEarnings);
+    socket.on("leaveCommutationChanged", onCommutation);
+    return () => {
+      socket.off("earningsChanged", onEarnings);
+      socket.off("leaveCommutationChanged", onCommutation);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    if (!employeeCTOModalOpen || !selectedEmployeeCTO?.employeeNumber) return;
+    const emp = String(selectedEmployeeCTO.employeeNumber);
+    const fresh = ctoRecords.filter((r) => String(r.employeeNumber) === emp);
+    setSelectedEmployeeCTO((prev) => {
+      if (!prev || String(prev.employeeNumber) !== emp) return prev;
+      return { ...prev, records: fresh, displayRecords: ctoRecordsForDisplay(fresh) };
+    });
+  }, [ctoRecords, employeeCTOModalOpen, selectedEmployeeCTO?.employeeNumber]);
+
+  const earningsByEmployee = useMemo(() => {
+    const map = {};
+    ctoEarnings.forEach((e) => {
+      const k = String(e.employee_number);
+      if (!map[k]) map[k] = [];
+      map[k].push(e);
+    });
+    return map;
+  }, [ctoEarnings]);
 
   const allDeptCodes = useMemo(() => [...new Set(Object.values(deptMap).filter(Boolean))].sort(), [deptMap]);
 
@@ -852,7 +1665,7 @@ const CompensatoryTimeOff = () => {
     return Object.values(acc)
       .map((grp) => ({
         ...grp,
-        displayRecords: latestCtoRecordsByPeriod(grp.records, grp.employeeNumber),
+        displayRecords: ctoRecordsForDisplay(grp.records),
       }))
       .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
   }, [filteredRecords, getEmployeeInfo, buildDisplayName]);
@@ -870,12 +1683,27 @@ const CompensatoryTimeOff = () => {
     return findCtoSaveTarget(ctoRecords, empNum, periodYear, periodMonth);
   }, [ctoRecords, selectedEmployee, periodYear, periodMonth]);
 
+  const assignPeriodGuard = useMemo(() => {
+    const empNum = selectedEmployee?.employeeNumber?.toString().trim();
+    if (!empNum) return { ok: true, error: "" };
+    const chainRecs = ctoRecords.filter((r) => String(r.employeeNumber) === empNum);
+    return assertCtoPeriodAssignableForCredits(chainRecs, periodYear, periodMonth);
+  }, [ctoRecords, selectedEmployee, periodYear, periodMonth]);
+
   const handleAddCTO = async () => {
     const empNum = selectedEmployee?.employeeNumber?.toString().trim();
     if (!empNum)              { setError("Please select an employee"); return; }
     if (toNum(otHours) <= 0) { setError(`OT ${unit === "days" ? "days" : "hours"} must be > 0`); return; }
     const py = parseInt(periodYear, 10) || new Date().getFullYear();
     const pm = periodMonth || null;
+
+    const chainRecsForGuard = ctoRecords.filter((r) => String(r.employeeNumber) === empNum);
+    const assignCheck = assertCtoPeriodAssignableForCredits(chainRecsForGuard, py, pm);
+    if (!assignCheck.ok) {
+      setError(assignCheck.error);
+      return;
+    }
+
     const earned = toNum(otHours);
     const catSnapshot = JSON.stringify({
       label: selectedEmpCatData?.label || "",
@@ -888,25 +1716,33 @@ const CompensatoryTimeOff = () => {
       const token = localStorage.getItem("token");
       const headers = { Authorization: `Bearer ${token}` };
       const existing = findCtoSaveTarget(ctoRecords, empNum, py, pm);
-      const chainRecs = ctoRecords.filter(
-        (r) => String(r.employeeNumber) === empNum,
-      );
-      const chain = getCtoEmployeeLedgerSummary(chainRecs);
-      const usedHours = Math.max(0, chain.earnedForColor - chain.remaining);
-      const addEarned = earned;
+      const empEarnings = ctoEarnings.filter((e) => String(e.employee_number) === empNum);
+      const chainRecs = ctoRecords.filter((r) => String(r.employeeNumber) === empNum);
+      const carryForward = getPriorPeriodCtoCarryForward(chainRecs, empEarnings, py, pm);
 
       if (existing?.id) {
-        const mergedRemarks = [existing.remarks, remarks]
-          .filter(Boolean)
-          .join(" · ")
-          .trim() || null;
+        const mergedOtEarned = toNum(existing.earned_hours) + earned;
+        const usedHours = toNum(existing.used_hours);
+        const working = {
+          ...existing,
+          earned_hours: mergedOtEarned,
+          used_hours: usedHours,
+          carried_forward_hours: toNum(existing.carried_forward_hours) || carryForward,
+          ot_hours: toNum(existing.ot_hours) + earned,
+        };
+        const ledger = recomputeCtoLedgerFields(working, empEarnings);
+        const mergedRemarks = [existing.remarks, remarks].filter(Boolean).join(" · ").trim() || null;
+
         await axios.put(
           `${API_BASE_URL}/api/cto/cto/${existing.id}`,
           {
-            ot_hours: toNum(existing.ot_hours) + addEarned,
-            earned_hours: chain.earnedForColor + addEarned,
-            remaining_hours: chain.remaining + addEarned,
-            used_hours: usedHours,
+            ot_hours: toNum(existing.ot_hours) + earned,
+            earned_hours: ledger.earned_hours,
+            used_hours: ledger.used_hours,
+            carried_forward_hours: ledger.carried_forward_hours,
+            total_hours: ledger.total_hours,
+            remaining_hours: ledger.remaining_hours,
+            earning_status: ledger.earning_status,
             expiry_date: expiryDate || existing.expiry_date || null,
             remarks: mergedRemarks,
           },
@@ -914,14 +1750,31 @@ const CompensatoryTimeOff = () => {
         );
         setSuccessAction("edit");
       } else {
+        const addEarned = carryForward + earned;
+        const ledger = recomputeCtoLedgerFields(
+          {
+            earned_hours: addEarned,
+            used_hours: 0,
+            carried_forward_hours: carryForward,
+            ot_hours: earned,
+            period_year: py,
+            period_month: pm,
+            employeeNumber: empNum,
+          },
+          empEarnings,
+        );
+
         await axios.post(
           `${API_BASE_URL}/api/cto/cto`,
           {
             employeeNumber: empNum,
-            ot_hours: addEarned,
-            earned_hours: addEarned,
-            remaining_hours: chain.remaining + addEarned,
-            used_hours: usedHours,
+            ot_hours: earned,
+            earned_hours: ledger.earned_hours,
+            used_hours: ledger.used_hours,
+            carried_forward_hours: ledger.carried_forward_hours,
+            total_hours: ledger.total_hours,
+            remaining_hours: ledger.remaining_hours,
+            earning_status: ledger.earning_status,
             period_year: py,
             period_month: pm,
             expiry_date: expiryDate || null,
@@ -933,7 +1786,19 @@ const CompensatoryTimeOff = () => {
         setSuccessAction("adding");
       }
 
-      await fetchCTORecords();
+      await Promise.all([fetchCTORecords(), fetchCtoEarnings()]);
+      if (employeeCTOModalOpen && selectedEmployeeCTO && String(selectedEmployeeCTO.employeeNumber) === empNum) {
+        clearPeriodHistoryCache({ employeeNumber: empNum, period_year: py, period_month: pm });
+        const ctoRes = await axios.get(`${API_BASE_URL}/api/cto/cto`, { headers });
+        const all = Array.isArray(ctoRes.data) ? ctoRes.data : [];
+        setCTORecords(all);
+        const fresh = refreshModalEmployeeRecords(all, empNum);
+        await prefetchCurrentPeriodHistory(fresh, empNum);
+        const key = normalizeCtoPeriodKey({ period_year: py, period_month: pm });
+        if (expandedPeriodKeys[key]) {
+          await fetchPeriodHistory({ employeeNumber: empNum, period_year: py, period_month: pm }, { force: true });
+        }
+      }
       setOtHours(0);
       setRemarks("");
       setExpiryDate("");
@@ -946,67 +1811,179 @@ const CompensatoryTimeOff = () => {
     }
   };
 
-  const handleUpdate = async () => {
-    if (!editRecord) return;
-    setLoading(true);
-    try {
-      const token = localStorage.getItem("token");
-      // editHours is always stored in hours internally
-      await axios.put(
-        `${API_BASE_URL}/api/cto/cto/${editRecord.id}`,
-        { ...editRecord, earned_hours: editHours, ot_hours: editHours,
-          remaining_hours: Math.max(0, editHours - toNum(editRecord.used_hours)) },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      await fetchCTORecords();
-      setEditRecord(null); setError("");
-      setSuccessAction("edit"); setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 500);
-    } catch (err) { setError("Error updating: " + (err.response?.data?.error || err.message)); }
-    finally { setLoading(false); }
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this CTO record?")) return;
-    try {
-      const token = localStorage.getItem("token");
-      await axios.delete(`${API_BASE_URL}/api/cto/cto/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      await fetchCTORecords();
-      setEditRecord(null); setEmployeeCTOModalOpen(false);
-      setSuccessAction("delete"); setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 1000);
-    } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
-  };
-
-  const handleTransferToCommutation = async (record, ledgerRemainingHours) => {
-    if (!record?.id) return;
-    const remH =
-      ledgerRemainingHours != null
-        ? toNum(ledgerRemainingHours)
-        : toNum(record.remaining_hours);
+  const handleOpenCommutationWarning = useCallback((record) => {
+    if (!record?.id || isCtoPeriodVoided(record) || isCtoCommutedLocked(record)) return;
+    const empRecords = ctoRecords.filter((r) => String(r.employeeNumber) === String(record.employeeNumber));
+    const currentCheck = assertCtoPeriodIsCurrentDisplay(record, empRecords);
+    if (!currentCheck.ok) return;
+    if (typeof isPeriodLockedForPayroll === "function" && isPeriodLockedForPayroll(record.employeeNumber, record.period_year, record.period_month)) {
+      setError(PAYROLL_LOCK_TOOLTIP);
+      return;
+    }
+    const latestRow = findLatestCtoForPeriod(ctoRecords, record.employeeNumber, record.period_year, record.period_month) || record;
+    const empEarnings = ctoEarnings.filter((e) => String(e.employee_number) === String(record.employeeNumber));
+    const remH = getCtoDisplayRemainingHours(latestRow, empEarnings);
     if (remH <= 0) return;
-    if (!window.confirm(`Transfer remaining ${fmtHrs(remH, unit)} to Leave Commutation?`)) return;
-    setCommuteLoadingId(record.id);
+    setCommutationWarning({ period: latestRow });
+  }, [ctoRecords, ctoEarnings, isPeriodLockedForPayroll]);
+
+  const handleTransferToCommutation = useCallback(async () => {
+    if (!commutationWarning?.period?.id) return;
+    const period = commutationWarning.period;
+    setCommuteLoadingId(period.id);
+    setError("");
+    const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      await axios.post(
+        `${API_BASE_URL}/commutationRoute/leave_commutation/commute-cto/${period.id}`,
+        {},
+        { headers },
+      );
+      setCommutationWarning(null);
+      const [ctoRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/cto/cto`, { headers }),
+        fetchCtoEarnings(),
+      ]);
+      const fresh = Array.isArray(ctoRes.data) ? ctoRes.data : [];
+      setCTORecords(fresh);
+      if (selectedEmployeeCTO) {
+        const empRecords = fresh.filter((r) => String(r.employeeNumber) === String(selectedEmployeeCTO.employeeNumber));
+        setSelectedEmployeeCTO({
+          ...selectedEmployeeCTO,
+          records: empRecords,
+          displayRecords: ctoRecordsForDisplay(empRecords),
+        });
+      }
+      setActionSuccess("CTO balance recorded for commutation.");
+      setTimeout(() => setActionSuccess(""), 4000);
+    } catch (err) {
+      setError("Commutation failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setCommuteLoadingId(null);
+    }
+  }, [commutationWarning, selectedEmployeeCTO]);
+
+  const handleCommute = handleOpenCommutationWarning;
+
+  const handleVoidPeriod = async (record) => {
+    const latest = findLatestCtoForPeriod(ctoRecords, record.employeeNumber, record.period_year, record.period_month) || record;
+    if (!latest?.id) return;
+    const empDisplay = ctoRecords.filter((r) => String(r.employeeNumber) === String(latest.employeeNumber));
+    const currentCheck = assertCtoPeriodIsCurrentDisplay(latest, empDisplay);
+    if (!currentCheck.ok) {
+      setError(currentCheck.error || "Only the latest CTO period can be voided. Prior periods were superseded.");
+      return;
+    }
+    if (isPeriodLockedForPayroll(latest.employeeNumber, latest.period_year, latest.period_month)) {
+      setError(PAYROLL_LOCK_TOOLTIP);
+      return;
+    }
+    const label = periodLabel(latest.period_year, latest.period_month);
+    if (!window.confirm(`This will void the current period CTO ledger and all earnings for ${label}. Balances will be recalculated. This cannot be undone.`)) return;
+    setVoidLoadingId(latest.id);
     try {
       const token = localStorage.getItem("token");
-      await axios.post(
-        `${API_BASE_URL}/api/cto/cto/${record.id}/commute`,
-        { commuted_by: token ? "admin" : null },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      await fetchCTORecords();
-      setActionSuccess(`Transferred ${fmtHrs(remH, unit)} to Leave Commutation.`);
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.delete(`${API_BASE_URL}/api/cto/cto/${latest.id}/void-period`, { headers });
+      clearPeriodHistoryCache(latest);
+      await Promise.all([fetchCTORecords(), fetchCtoEarnings()]);
+      if (selectedEmployeeCTO) {
+        const ctoRes = await axios.get(`${API_BASE_URL}/api/cto/cto`, { headers });
+        const all = Array.isArray(ctoRes.data) ? ctoRes.data : [];
+        setCTORecords(all);
+        const fresh = refreshModalEmployeeRecords(all, selectedEmployeeCTO.employeeNumber);
+        await prefetchCurrentPeriodHistory(fresh, selectedEmployeeCTO.employeeNumber);
+        const empChain = all.filter((r) => String(r.employeeNumber) === String(selectedEmployeeCTO.employeeNumber));
+        const reopened = resolveCtoCurrentDisplayPeriod(ctoRecordsForDisplay(empChain));
+        if (reopened?.period_year != null) {
+          setPeriodYear(String(reopened.period_year));
+          setPeriodMonth(
+            reopened.period_month != null && String(reopened.period_month).trim() !== ""
+              ? String(reopened.period_month)
+              : "",
+          );
+        }
+      }
+      setActionSuccess(`Voided CTO period ${label}.`);
       setTimeout(() => setActionSuccess(""), 4000);
-    } catch (err) { setError("Transfer failed: " + (err.response?.data?.error || err.message)); }
-    finally { setCommuteLoadingId(null); }
+    } catch (err) {
+      setError("Void failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setVoidLoadingId(null);
+    }
   };
 
-  const openEmployeeCTOModal = (grp) => {
-    const display =
-      grp.displayRecords || latestCtoRecordsByPeriod(grp.records, grp.employeeNumber);
-    setSelectedEmployeeCTO({ ...grp, displayRecords: display });
-    setSelectedCTORecord(display[0] || null);
+  const handleUndoEntry = async (record, snapshot = null) => {
+    const targetId = snapshot?.id ?? record?.id;
+    if (!targetId) return;
+    const label = periodLabel(record.period_year, record.period_month);
+    const periodKey = normalizeCtoPeriodKey(record);
+    const empNum = record.employeeNumber;
+    const empName = selectedEmployeeCTO?.fullName || "";
+    setUndoLoadingId(targetId);
+    setError("");
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      const undoRes = await axios.post(
+        `${API_BASE_URL}/api/cto/cto/${targetId}/undo-entry`,
+        {},
+        { headers, timeout: 60000 },
+      );
+      const { period_history: periodHistory, employee_records: employeeRecords } = undoRes.data || {};
+      if (periodHistory) setPeriodHistoryCache((prev) => ({ ...prev, [periodKey]: periodHistory }));
+      if (Array.isArray(employeeRecords) && employeeRecords.length) {
+        setCTORecords((prev) => mergeEmployeeCtoRecords(prev, empNum, employeeRecords, empName));
+        setSelectedEmployeeCTO((prev) => {
+          if (!prev || String(prev.employeeNumber) !== String(empNum)) return prev;
+          return { ...prev, records: employeeRecords, displayRecords: ctoRecordsForDisplay(employeeRecords) };
+        });
+      }
+      setActionSuccess(`Undid last OT entry for ${label}.`);
+      setTimeout(() => setActionSuccess(""), 4000);
+      Promise.all([
+        axios.get(`${API_BASE_URL}/api/cto/cto`, { headers, params: { employeeNumber: empNum } }),
+        fetchCtoEarnings(),
+      ]).then(([ctoRes]) => {
+        if (!Array.isArray(ctoRes?.data)) return;
+        setCTORecords((prev) => mergeEmployeeCtoRecords(prev, empNum, ctoRes.data, empName));
+        setSelectedEmployeeCTO((prev) => {
+          if (!prev || String(prev.employeeNumber) !== String(empNum)) return prev;
+          return { ...prev, records: ctoRes.data, displayRecords: ctoRecordsForDisplay(ctoRes.data) };
+        });
+      }).catch(() => {});
+    } catch (err) {
+      setError("Undo failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setUndoLoadingId(null);
+    }
+  };
+
+  const openEmployeeCTOModal = async (grp) => {
     setEmployeeCTOModalOpen(true);
+    setExpandedPeriodKeys({});
+    setPeriodHistoryCache({});
+    refreshPayrollKeys();
+    try {
+      const token = localStorage.getItem("token");
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.post(`${API_BASE_URL}/api/cto/cto/sync-carries/${grp.employeeNumber}`, {}, { headers });
+      const [ctoRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/api/cto/cto`, { headers }),
+        fetchCtoEarnings(),
+      ]);
+      const all = Array.isArray(ctoRes.data) ? ctoRes.data : [];
+      setCTORecords(all);
+      const fresh = all.filter((r) => String(r.employeeNumber) === String(grp.employeeNumber));
+      const display = ctoRecordsForDisplay(fresh);
+      setSelectedEmployeeCTO({ ...grp, records: fresh, displayRecords: display });
+      await prefetchCurrentPeriodHistory(fresh, grp.employeeNumber);
+    } catch {
+      const display = grp.displayRecords || ctoRecordsForDisplay(grp.records);
+      setSelectedEmployeeCTO({ ...grp, displayRecords: display });
+      await prefetchCurrentPeriodHistory(grp.records || [], grp.employeeNumber);
+    }
   };
 
 if (accessLoading || pageLoading) {
@@ -1016,12 +1993,9 @@ if (accessLoading || pageLoading) {
 
   const selectedMonthLabel = MONTHS.find((m) => m.value === periodMonth)?.label || "";
 
-  // Helper: display edit hours in current unit for the input field
-  const editHoursInUnit = unit === "days" ? editHours / 8 : editHours;
-
   return (
     <>
-      <style>{shimmerKeyframes}</style>
+      <style>{GLOBAL_CSS}</style>
       <Fade in timeout={400}>
         <Box sx={{
           py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
@@ -1059,7 +2033,7 @@ if (accessLoading || pageLoading) {
                   </Typography>
                 </Box>
                 <Tooltip title="Refresh">
-                  <IconButton onClick={() => { fetchCTORecords(); fetchDeptMap(); fetchEmpCatMap(); }}
+                  <IconButton onClick={() => { fetchCTORecords(); fetchCtoEarnings(); fetchDeptMap(); fetchEmpCatMap(); }}
                     sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, "&:hover": { bgcolor: alpha(T.accent, 0.15) } }}>
                     <RefreshIcon sx={{ fontSize: 18 }} />
                   </IconButton>
@@ -1270,9 +2244,16 @@ if (accessLoading || pageLoading) {
                         </Box>
                       )}
 
+                      {!assignPeriodGuard.ok && (
+                        <Alert severity="warning" sx={{ mb: 1.5, fontSize: "0.75rem", fontFamily: T.poppins }}>
+                          {assignPeriodGuard.error}
+                        </Alert>
+                      )}
+                      <Tooltip title={!assignPeriodGuard.ok ? assignPeriodGuard.error : ""} disableHoverListener={assignPeriodGuard.ok}>
+                      <span>
                       <AccentButton onClick={handleAddCTO} variant="contained" fullWidth
                         startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
-                        disabled={loading || toNum(otHours) <= 0}
+                        disabled={loading || toNum(otHours) <= 0 || !assignPeriodGuard.ok}
                         sx={{ height: 40, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, fontFamily: T.poppins, "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none" } }}>
                         {loading
                           ? "Saving…"
@@ -1282,6 +2263,8 @@ if (accessLoading || pageLoading) {
                               : `Record ${fmtHrs(otHours, unit)} CTO for ${periodYear}${selectedMonthLabel ? ` · ${selectedMonthLabel}` : ""}`
                             : `Enter OT ${unit === "days" ? "days" : "hours"} to compute CTO`}
                       </AccentButton>
+                      </span>
+                      </Tooltip>
                     </>
                   ) : (
                     <Box sx={{ py: 6, textAlign: "center" }}>
@@ -1351,14 +2334,14 @@ if (accessLoading || pageLoading) {
                   ) : viewMode === "grid" ? (
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
-                        const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records);
-                        const sc = getStatusColor(balRem, earnedForColor);
-                        const chipRecords = (grp.displayRecords || latestCtoRecordsByPeriod(grp.records, grp.employeeNumber))
-                          .sort((a, b) => toNum(b.id) - toNum(a.id));
-                        const initials    = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
-                        const deptCode    = deptMap[grp.employeeNumber] || null;
-                        const empCat      = empCatLabelMap[grp.employeeNumber] || null;
-                        const hasExpired  = chipRecords.some((r) => isExpired(r.expiry_date));
+                        const empEarn = earningsByEmployee[grp.employeeNumber] || [];
+                        const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records, empEarn);
+                        const overallColor = getStatusColor(balRem, earnedForColor);
+                        const chipRecords = (grp.displayRecords || []).filter((r) => !isCtoLedgerSnapshotChip(r));
+                        const initials = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
+                        const deptCode = deptMap[grp.employeeNumber] || null;
+                        const empCat = empCatLabelMap[grp.employeeNumber] || null;
+                        const hasExpired = chipRecords.some((r) => isExpired(r.expiry_date));
                         return (
                           <Grid item xs={12} sm={6} md={3} key={grp.employeeNumber} sx={{ display: "flex" }}>
                             <Box onClick={() => openEmployeeCTOModal(grp)}
@@ -1379,7 +2362,8 @@ if (accessLoading || pageLoading) {
                               </Box>
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
                                 {chipRecords.slice(0, 3).map((r) => {
-                                  const rsc = getStatusColor(r.remaining_hours, r.earned_hours);
+                                  const flow = computeCtoBalances(r, { earningsList: empEarn, chainRecords: grp.displayRecords });
+                                  const rsc = getStatusColor(flow.remainingBalance, flow.totalCtoCredits);
                                   return (
                                     <Box key={r.id} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${rsc}12`, border: `1px solid ${rsc}30` }}>
                                       <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: rsc, fontFamily: T.poppins }}>
@@ -1398,7 +2382,7 @@ if (accessLoading || pageLoading) {
                                 <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>
                                   {(grp.displayRecords || grp.records).length} period{(grp.displayRecords || grp.records).length !== 1 ? "s" : ""}
                                 </Typography>
-                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>
+                                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>
                                   Remaining balance: {fmtHrs(balRem, unit)}
                                 </Typography>
                               </Box>
@@ -1415,13 +2399,13 @@ if (accessLoading || pageLoading) {
                         ))}
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
-                        const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records);
-                        const sc = getStatusColor(balRem, earnedForColor);
-                        const chipRecords = (grp.displayRecords || latestCtoRecordsByPeriod(grp.records, grp.employeeNumber))
-                          .sort((a, b) => toNum(b.id) - toNum(a.id));
-                        const initials    = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
-                        const deptCode    = deptMap[grp.employeeNumber] || null;
-                        const empCat      = empCatLabelMap[grp.employeeNumber] || null;
+                        const empEarn = earningsByEmployee[grp.employeeNumber] || [];
+                        const { remaining: balRem, earnedForColor } = getCtoEmployeeLedgerSummary(grp.records, empEarn);
+                        const overallColor = getStatusColor(balRem, earnedForColor);
+                        const chipRecords = (grp.displayRecords || []).filter((r) => !isCtoLedgerSnapshotChip(r));
+                        const initials = `${grp.firstName?.[0] || ""}${grp.lastName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
+                        const deptCode = deptMap[grp.employeeNumber] || null;
+                        const empCat = empCatLabelMap[grp.employeeNumber] || null;
                         return (
                           <Box key={grp.employeeNumber} onClick={() => openEmployeeCTOModal(grp)}
                             sx={{ px: 1.5, py: 1.25, display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.5fr", gap: 1, alignItems: "center", borderRadius: 1.5, cursor: "pointer", bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd, border: "1px solid transparent", transition: "background 0.13s ease", "&:hover": { bgcolor: T.rowHover } }}>
@@ -1441,10 +2425,11 @@ if (accessLoading || pageLoading) {
                                 {(grp.displayRecords || grp.records).length}
                               </Typography>
                             </Box>
-                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{fmtHrs(balRem, unit)}</Typography>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: overallColor, fontFamily: T.poppins }}>{fmtHrs(balRem, unit)}</Typography>
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                               {chipRecords.slice(0, 3).map((r) => {
-                                const rsc = getStatusColor(r.remaining_hours, r.earned_hours);
+                                const flow = computeCtoBalances(r, { earningsList: empEarn, chainRecords: grp.displayRecords });
+                                const rsc = getStatusColor(flow.remainingBalance, flow.totalCtoCredits);
                                 return (
                                   <Box key={r.id} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${rsc}12`, border: `1px solid ${rsc}30` }}>
                                     <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: rsc, fontFamily: T.poppins }}>
@@ -1477,333 +2462,46 @@ if (accessLoading || pageLoading) {
             </Grid>
           </Grid>
 
-          {/* ── Employee CTO Modal ── */}
-          <Modal open={employeeCTOModalOpen}
-            onClose={() => { setEmployeeCTOModalOpen(false); setSelectedEmployeeCTO(null); setSelectedCTORecord(null); }}
-            sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
-            <Fade in={employeeCTOModalOpen}>
-              <Box sx={{ backgroundColor: "#fff", borderRadius: "12px", width: "95%", maxWidth: "1080px", height: "84vh", overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
-                {selectedEmployeeCTO && (() => {
-                  const deptCode      = deptMap[selectedEmployeeCTO.employeeNumber] || null;
-                  const empCat        = empCatLabelMap[selectedEmployeeCTO.employeeNumber] || null;
-                  const modalRecords =
-                    selectedEmployeeCTO.displayRecords ||
-                    latestCtoRecordsByPeriod(
-                      selectedEmployeeCTO.records,
-                      selectedEmployeeCTO.employeeNumber,
-                    );
-                  const sortedRecords = [...modalRecords].sort((a, b) => {
-                    if (b.period_year !== a.period_year) return b.period_year - a.period_year;
-                    return (toNum(b.period_month) || 0) - (toNum(a.period_month) || 0);
-                  });
-                  const ledgerModal = getCtoEmployeeLedgerSummary(
-                    selectedEmployeeCTO.records,
-                  );
-                  const balRemModal = ledgerModal.remaining;
-                  const earnedModal = ledgerModal.earnedForColor;
-                  const usedModal = Math.max(0, earnedModal - balRemModal);
-                  const ledgerStatusColor = getStatusColor(balRemModal, earnedModal);
-                  return (
-                    <>
-                      {/* Modal header */}
-                      <Box sx={{ px: 3.5, py: 2, background: T.headerGrad, display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                        <Avatar sx={{ width: 36, height: 36, bgcolor: "rgba(255,255,255,0.18)", color: "#fff", fontSize: "0.85rem", fontWeight: 800, borderRadius: "8px", border: "1px solid rgba(255,255,255,0.25)" }}>
-                          {`${selectedEmployeeCTO.firstName?.[0] || ""}${selectedEmployeeCTO.lastName?.[0] || ""}`.toUpperCase() || "?"}
-                        </Avatar>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                            <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.92rem", fontFamily: T.poppins }} noWrap>{selectedEmployeeCTO.fullName}</Typography>
-                            {deptCode && <DeptBadge code={deptCode} light />}
-                            {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} light />}
-                          </Box>
-                          <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.5)", fontFamily: T.poppins }}>
-                            #{selectedEmployeeCTO.employeeNumber} · {modalRecords.length} CTO period{modalRecords.length !== 1 ? "s" : ""}
-                            {balRemModal > 0 ? ` · Remaining ${fmtHrs(balRemModal, unit)}` : ""}
-                          </Typography>
-                        </Box>
-                        <ToggleButtonGroup value={unit} exclusive onChange={(_, v) => v && setUnit(v)} size="small"
-                          sx={{ "& .MuiToggleButton-root": { px: 1.5, py: 0.3, border: "1px solid rgba(255,255,255,0.22)", fontSize: "0.72rem", fontWeight: 700, color: "rgba(255,255,255,0.55)", fontFamily: T.poppins, "&.Mui-selected": { bgcolor: "rgba(255,255,255,0.18)", color: "#fff", borderColor: "rgba(255,255,255,0.4)" } } }}>
-                          <ToggleButton value="hours">Hours</ToggleButton>
-                          <ToggleButton value="days">Days</ToggleButton>
-                        </ToggleButtonGroup>
-                        <IconButton onClick={() => { setEmployeeCTOModalOpen(false); setSelectedEmployeeCTO(null); setSelectedCTORecord(null); }}
-                          size="small" sx={{ color: "rgba(255,255,255,0.65)", "&:hover": { bgcolor: "rgba(255,255,255,0.1)" } }}>
-                          <Close sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Box>
+          <EmployeeCTOModal
+            open={employeeCTOModalOpen}
+            onClose={() => {
+              setEmployeeCTOModalOpen(false);
+              setSelectedEmployeeCTO(null);
+              setExpandedPeriodKeys({});
+              setPeriodHistoryCache({});
+            }}
+            employeeCTO={selectedEmployeeCTO}
+            unit={unit}
+            setUnit={setUnit}
+            deptMap={deptMap}
+            empCatLabelMap={empCatLabelMap}
+            actionSuccess={actionSuccess}
+            error={error}
+            commuteLoadingId={commuteLoadingId}
+            voidLoadingId={voidLoadingId}
+            undoLoadingId={undoLoadingId}
+            earningsList={selectedEmployeeCTO ? (earningsByEmployee[selectedEmployeeCTO.employeeNumber] || []) : []}
+            onCommute={handleCommute}
+            onVoidPeriod={handleVoidPeriod}
+            onUndoEntry={handleUndoEntry}
+            onTogglePeriodExpand={togglePeriodExpand}
+            periodHistoryCache={periodHistoryCache}
+            historyLoadingKeys={historyLoadingKeys}
+            expandedPeriodKeys={expandedPeriodKeys}
+            isPeriodLockedForPayroll={isPeriodLockedForPayroll}
+          />
 
-                      <Box sx={{ flex: 1, display: "flex", overflow: "hidden" }}>
-                        {/* Sidebar */}
-                        <Box sx={{ width: 210, flexShrink: 0, borderRight: `1px solid ${T.divider}`, display: "flex", flexDirection: "column", bgcolor: "#fafafa" }}>
-                          <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}` }}>
-                            <Typography sx={{ fontSize: "0.63rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.09em", fontFamily: T.poppins }}>CTO Period</Typography>
-                          </Box>
-                          <Box sx={{ flex: 1, overflowY: "auto" }}>
-                            {sortedRecords.map((r) => {
-                              const expired  = isExpired(r.expiry_date);
-                              const isActive = selectedCTORecord?.id === r.id;
-                              return (
-                                <Box key={r.id} onClick={() => setSelectedCTORecord(r)}
-                                  sx={{ px: 2, py: 1.1, cursor: "pointer", borderLeft: `3px solid ${isActive ? T.accent : "transparent"}`, bgcolor: isActive ? T.accentFaint : "transparent", transition: "all 0.1s", "&:hover": { bgcolor: T.accentFaint } }}>
-                                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                    <Typography sx={{ fontSize: "0.82rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : T.text, fontFamily: T.poppins }}>
-                                      {r.period_year}{r.period_month ? ` · ${monthName(r.period_month).slice(0, 3)}` : ""}
-                                    </Typography>
-                                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: expired ? "#d32f2f" : ledgerStatusColor, fontFamily: T.poppins }}>
-                                      {fmtHrs(balRemModal, unit)}
-                                    </Typography>
-                                  </Box>
-                                  {expired && <Chip label="Expired" size="small" sx={{ height: 14, fontSize: "0.55rem", fontWeight: 700, bgcolor: "rgba(211,47,47,0.08)", color: "#d32f2f", mt: 0.25 }} />}
-                                  {r.expiry_date && !expired && <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>Exp: {new Date(r.expiry_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</Typography>}
-                                  <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins }}>1 record</Typography>
-                                </Box>
-                              );
-                            })}
-                          </Box>
-                        </Box>
-
-                        {/* Detail pane */}
-                        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-                          {!selectedCTORecord ? (
-                            <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              <Box sx={{ textAlign: "center" }}>
-                                <CTOIcon sx={{ fontSize: 38, color: alpha(T.accent, 0.12), mb: 1.5 }} />
-                                <Typography sx={{ fontWeight: 600, color: T.muted, fontSize: "0.88rem", fontFamily: T.poppins }}>Select a record</Typography>
-                              </Box>
-                            </Box>
-                          ) : (
-                            <Box sx={{ flex: 1, overflowY: "auto", p: 3 }}>
-                              {actionSuccess && <Alert severity="success" icon={<CheckIcon />} sx={{ mb: 2, borderRadius: 2 }}><Typography sx={{ fontFamily: T.poppins }}>{actionSuccess}</Typography></Alert>}
-                              {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}><Typography sx={{ fontFamily: T.poppins }}>{error}</Typography></Alert>}
-                              {(() => {
-                                const r       = selectedCTORecord;
-                                const remH    = balRemModal;
-                                const earnedH = earnedModal;
-                                const usedH   = usedModal;
-                                const rsc     = ledgerStatusColor;
-                                const pctUsed = earnedH > 0 ? Math.min((usedH / earnedH) * 100, 100) : 0;
-                                const fmt     = (h) => fmtHrs(h, unit);
-                                const expired = isExpired(r.expiry_date);
-                                const remarksShown = formatCtoRemarksForDisplay(r.remarks);
-                                return (
-                                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                    <Box sx={{ borderRadius: "10px", border: `1px solid ${expired ? "rgba(211,47,47,0.3)" : "#2E7D32"}`, overflow: "hidden", bgcolor: "#fff" }}>
-                                      {/* Record header */}
-                                      <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", gap: 1.5, bgcolor: expired ? "rgba(211,47,47,0.04)" : "rgba(46,125,50,0.04)", borderBottom: `1px solid ${T.divider}` }}>
-                                        <Typography sx={{ fontWeight: 700, color: expired ? "#d32f2f" : "#2e7d32", fontSize: "0.88rem", fontFamily: T.poppins }}>
-                                          {periodLabel(r.period_year, r.period_month)}
-                                        </Typography>
-                                        {!expired && <Chip label="Current" size="small" sx={{ height: 20, fontSize: "0.65rem", bgcolor: "#2E7D32", color: "#fff", fontWeight: 700, fontFamily: T.poppins }} />}
-                                        {expired && <Chip label="Expired" size="small" sx={{ height: 20, fontSize: "0.65rem", bgcolor: "rgba(211,47,47,0.1)", color: "#d32f2f", fontWeight: 700, fontFamily: T.poppins }} />}
-                                        {r.expiry_date && <ExpiryBadge expiryDate={r.expiry_date} />}
-                                        <Box sx={{ flex: 1 }} />
-                                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 130 }}>
-                                          <Box sx={{ flex: 1, height: 5, bgcolor: "rgba(0,0,0,0.07)", borderRadius: 3, overflow: "hidden" }}>
-                                            <Box sx={{ height: "100%", width: `${pctUsed}%`, bgcolor: rsc, borderRadius: 3, transition: "width 0.3s" }} />
-                                          </Box>
-                                          <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins, whiteSpace: "nowrap" }}>{pctUsed.toFixed(0)}% used</Typography>
-                                        </Box>
-                                      </Box>
-
-                                      {/* Stats grid */}
-                                      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
-                                        {[
-                                          ["OT Hours",   toNum(r.ot_hours),         T.accent],
-                                          ["CTO Earned", earnedH,                   T.accent],
-                                          ["Used",       usedH,                     "#e65100"],
-                                          ["Remaining",  remH,                      rsc],
-                                        ].map(([label, val, color], i) => (
-                                          <Box key={label} sx={{ px: 1.75, py: 1.5, borderRight: i < 3 ? `1px solid ${T.divider}` : "none", borderBottom: `1px solid ${T.divider}`, textAlign: "center" }}>
-                                            <Typography sx={{ fontSize: "0.59rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: T.poppins, mb: 0.5 }}>{label}</Typography>
-                                            <Typography sx={{ fontWeight: 800, color, fontSize: "0.9rem", lineHeight: 1, fontFamily: T.poppins }}>{fmt(val)}</Typography>
-                                            <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins, mt: 0.25 }}>
-                                              {unit === "hours" ? `${(toNum(val) / 8).toFixed(3)} d` : `${toNum(val).toFixed(3)} h`}
-                                            </Typography>
-                                          </Box>
-                                        ))}
-                                      </Box>
-
-                                      {remarksShown && (
-                                        <Box sx={{ px: 2.5, py: 1, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 0.75 }}>
-                                          <InfoIcon sx={{ fontSize: 13, color: T.faint }} />
-                                          <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>{remarksShown}</Typography>
-                                        </Box>
-                                      )}
-
-                                      {/* Action row */}
-                                      <Box sx={{ px: 2.5, py: 1.25, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
-                                        <Typography sx={{ fontSize: "0.72rem", color: expired ? T.faint : remH > 0 ? "#2e7d32" : T.faint, fontFamily: T.poppins }}>
-                                          {expired ? "⚠ This CTO record has expired."
-                                            : remH > 0 ? `${fmt(remH)} remaining.`
-                                            : "All CTO credits for this period have been used."}
-                                        </Typography>
-                                        <Box sx={{ display: "flex", gap: 0.75, flexShrink: 0 }}>
-                                          <AccentButton onClick={() => { setEditRecord({ ...r }); setEditHours(toNum(r.earned_hours)); setError(""); }}
-                                            variant="outlined" size="small"
-                                            startIcon={<EditIcon sx={{ fontSize: "12px !important" }} />}
-                                            sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, borderColor: T.accentBorder, color: T.accent, "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint, transform: "none" } }}>
-                                            Edit
-                                          </AccentButton>
-                                          {remH > 0 && (
-                                            <Tooltip title="Transfer remaining balance to Leave Commutation">
-                                              <span>
-                                                <AccentButton
-                                                  onClick={() => handleTransferToCommutation(r, balRemModal)}
-                                                  variant="contained"
-                                                  size="small"
-                                                  disabled={commuteLoadingId === r.id}
-                                                  startIcon={commuteLoadingId === r.id ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "12px !important" }} />}
-                                                  sx={{ fontSize: "0.72rem", fontFamily: T.poppins, px: 1.5, height: 28, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark, transform: "none" }, "&:disabled": { bgcolor: "#ccc" } }}
-                                                >
-                                                  Transfer to Commutation
-                                                </AccentButton>
-                                              </span>
-                                            </Tooltip>
-                                          )}
-                                        </Box>
-                                      </Box>
-                                    </Box>
-                                  </Box>
-                                );
-                              })()}
-                            </Box>
-                          )}
-                        </Box>
-                      </Box>
-                    </>
-                  );
-                })()}
-              </Box>
-            </Fade>
-          </Modal>
-
-          {/* ── Edit CTO Modal ── */}
-          <Modal open={!!editRecord} onClose={() => { setEditRecord(null); setError(""); }}
-            sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
-            <Fade in={!!editRecord}>
-              <Box sx={{ backgroundColor: "#fff", borderRadius: 3, width: "100%", maxWidth: "560px", maxHeight: "90vh", overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", display: "flex", flexDirection: "column", fontFamily: T.poppins }}>
-                {editRecord && (() => {
-                  const deptCode = deptMap[editRecord.employeeNumber?.toString()] || null;
-                  const empCat   = empCatLabelMap[editRecord.employeeNumber?.toString()] || null;
-                  const editLedger = getCtoEmployeeLedgerSummary(
-                    ctoRecords.filter(
-                      (x) =>
-                        String(x.employeeNumber) ===
-                        String(editRecord.employeeNumber),
-                    ),
-                  );
-                  const editRemH = editLedger.remaining;
-                  const editEarnedH = editLedger.earnedForColor;
-                  const editUsedH = Math.max(0, editEarnedH - editRemH);
-                  // editHours is always stored internally in hours; display in current unit
-                  const editDisplayVal = parseFloat((unit === "days" ? editHours / 8 : editHours).toFixed(3));
-                  const editCounterLabel = unit === "days"
-                    ? `= ${editHours.toFixed(3)} hrs`
-                    : `= ${(editHours / 8).toFixed(3)} days`;
-                  return (
-                    <>
-                      <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative", overflow: "hidden" }}>
-                        <Box sx={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
-                          <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <EditIcon sx={{ fontSize: 18, color: "#fff" }} />
-                          </Box>
-                          <Box>
-                            <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, fontFamily: T.poppins }}>Edit CTO Record</Typography>
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-                              <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.65)", fontFamily: T.poppins }}>{editRecord.fullName || editRecord.employeeNumber} · {periodLabel(editRecord.period_year, editRecord.period_month)}</Typography>
-                              {deptCode && <DeptBadge code={deptCode} light />}
-                              {empCat && <EmpCatBadge label={empCat.label} colorHex={empCat.colorHex} light />}
-                            </Box>
-                          </Box>
-                        </Box>
-                        <IconButton onClick={() => { setEditRecord(null); setError(""); }} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
-                          <Close sx={{ fontSize: 17 }} />
-                        </IconButton>
-                      </Box>
-
-                      <Box sx={{ px: 3.5, py: 3, overflowY: "auto", flexGrow: 1 }}>
-                        {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}><Typography sx={{ fontFamily: T.poppins }}>{error}</Typography></Alert>}
-                        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1.5, mb: 2.5 }}>
-                          {[
-                            ["CTO Earned", editEarnedH,    T.accent],
-                            ["Used",       editUsedH,      "#ed6c02"],
-                            ["Remaining",  editRemH, getStatusColor(editRemH, editEarnedH)],
-                          ].map(([lbl, val, col]) => (
-                            <Box key={lbl} sx={{ p: 1.5, borderRadius: 2, textAlign: "center", bgcolor: `${col}08`, border: `1px solid ${col}20` }}>
-                              <Typography sx={{ fontSize: "0.58rem", fontWeight: 800, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5, mb: 0.25, fontFamily: T.poppins }}>{lbl}</Typography>
-                              <Typography sx={{ fontWeight: 900, color: col, fontSize: "0.95rem", lineHeight: 1, fontFamily: T.poppins }}>{fmtHrs(val, unit)}</Typography>
-                              <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins }}>{unit === "hours" ? `(${(val / 8).toFixed(3)}d)` : `(${val.toFixed(3)} hrs)`}</Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                        <Divider sx={{ mb: 2.5, borderColor: T.divider }}>
-                          <Chip label="Edit Fields" size="small" sx={{ height: 18, fontSize: "0.68rem", bgcolor: T.accentFaint, color: T.accent, fontWeight: 700, border: `1px solid ${T.accentBorder}`, fontFamily: T.poppins }} />
-                        </Divider>
-                        <Grid container spacing={2}>
-                          <Grid item xs={12} sm={6}>
-                            <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>
-                              OT / Earned {unit === "days" ? "Days" : "Hours"}
-                            </Typography>
-                            <FieldInput type="number" size="small" fullWidth
-                              value={editDisplayVal || ""}
-                              inputProps={{ min: 0, step: 0.001 }}
-                              onChange={(e) => {
-                                const inputVal = parseFloat(e.target.value) || 0;
-                                // Convert back to hours for internal storage
-                                setEditHours(toHours(inputVal, unit));
-                              }}
-                              InputProps={{ endAdornment: <InputAdornment position="end">
-                                <Typography sx={{ fontSize: "0.7rem", color: T.faint, fontWeight: 700, fontFamily: T.poppins }}>
-                                  {unit === "days" ? "days" : "hrs"} · {editCounterLabel}
-                                </Typography>
-                              </InputAdornment> }}
-                            />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Expiry Date</Typography>
-                            <FieldInput type="date" size="small" fullWidth
-                              value={editRecord.expiry_date ? editRecord.expiry_date.split("T")[0] : ""}
-                              onChange={(e) => setEditRecord({ ...editRecord, expiry_date: e.target.value || null })}
-                              InputLabelProps={{ shrink: true }}
-                            />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Remarks</Typography>
-                            <FieldInput size="small" fullWidth multiline rows={2}
-                              value={formatCtoRemarksForDisplay(editRecord.remarks || "")}
-                              onChange={(e) => {
-                                const token = internalCtoLedgerRemarkToken(editRecord.remarks);
-                                const v = e.target.value;
-                                const next = token ? (v.trim() ? `${token} · ${v.trim()}` : token) : v;
-                                setEditRecord({ ...editRecord, remarks: next });
-                              }} />
-                          </Grid>
-                        </Grid>
-                      </Box>
-
-                      <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1, flexShrink: 0 }}>
-                        <AccentButton onClick={() => handleDelete(editRecord.id)} variant="outlined"
-                          startIcon={<DeleteIcon sx={{ fontSize: "13px !important" }} />}
-                          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: "#ffcdd2", color: "#c62828", mr: "auto", "&:hover": { bgcolor: "rgba(198,40,40,0.04)", borderColor: "#c62828", transform: "none" } }}>
-                          Delete
-                        </AccentButton>
-                        <AccentButton onClick={() => { setEditRecord(null); setError(""); }} variant="outlined"
-                          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>
-                          Cancel
-                        </AccentButton>
-                        <AccentButton onClick={handleUpdate} variant="contained"
-                          startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />}
-                          sx={{ fontSize: "0.8rem", fontFamily: T.poppins, bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}>
-                          Save Changes
-                        </AccentButton>
-                      </Box>
-                    </>
-                  );
-                })()}
-              </Box>
-            </Fade>
-          </Modal>
+          <CtoCommutationWarningModal
+            open={!!commutationWarning}
+            onClose={() => !commuteLoadingId && setCommutationWarning(null)}
+            onConfirm={handleTransferToCommutation}
+            period={commutationWarning?.period ?? null}
+            unit={unit}
+            earningsList={commutationWarning?.period
+              ? ctoEarnings.filter((e) => String(e.employee_number) === String(commutationWarning.period.employeeNumber))
+              : []}
+            loading={!!commuteLoadingId}
+          />
 
         </Box>
       </Fade>

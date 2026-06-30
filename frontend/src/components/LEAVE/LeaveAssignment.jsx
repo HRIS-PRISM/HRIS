@@ -42,8 +42,11 @@ import {
   getPriorPeriodCarryForwardHours,
   normalizePeriodKey,
   sortPeriodsDesc as sortPeriodsDescBalance,
-  getApprovedEarningsHoursForPeriod,
   getPriorPeriodSnapshot,
+  getApprovedEarningsHoursForPeriod,
+  computeAssignmentBalances,
+  getAssignFormRemainingHours,
+  getLeaveTypeDisplayRemaining,
 } from "./leaveAssignmentBalanceUtils";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
@@ -368,10 +371,10 @@ const getLeaveLabel = (code, types) => { if (!code) return "—"; const f = Arra
 const sortPeriodsDesc = (periods) =>
   [...periods].sort((a, b) => {
     if (b.period_year !== a.period_year) return b.period_year - a.period_year;
-    const aM = parseInt(a.period_semester, 10) || 0;
-    const bM = parseInt(b.period_semester, 10) || 0;
+    const aM = parseInt(a.period_semester ?? a.period_month, 10) || 0;
+    const bM = parseInt(b.period_semester ?? b.period_month, 10) || 0;
     if (aM !== bM) return bM - aM;
-    const semDiff = semOrder(b.period_semester) - semOrder(a.period_semester);
+    const semDiff = semOrder(b.period_semester ?? b.period_month) - semOrder(a.period_semester ?? a.period_month);
     if (semDiff !== 0) return semDiff;
     return toNum(b.id) - toNum(a.id);
   });
@@ -583,7 +586,7 @@ const COMMUTATION_COPY = {
   purpose:
     "Commutation is not an immediate cash payout. Unused leave is recorded so it can be used while the employee still has rendered hours, or applied upon retirement — with payment based on the employee's salary grade.",
   carryOverNote: (amt) =>
-    `This period includes ${amt} carried forward from prior months. The full remaining balance will be recorded for commutation.`,
+    `Opening balance of ${amt} carries from the prior period's remaining balance into the next assignment.`,
   irreversible:
     "This action is irreversible. The period will be locked and a commutation record will be created for HR processing.",
   locked: "Locked — balance recorded for commutation",
@@ -592,9 +595,9 @@ const COMMUTATION_COPY = {
 };
 
 const LEAVE_BALANCE_LABELS = {
-  pCredit:   { label: "P. Credit Balance", subtitle: "Carried from previous period" },
+  pCredit:   { label: "Current Balance", subtitle: "Opening balance for period" },
   deducted:  { label: "Deducted",          subtitle: "Absences & undertime" },
-  adjusted:  { label: "Post-Deduction Balance", subtitle: "P. Credit − Deducted" },
+  adjusted:  { label: "Post-Deduction Balance", subtitle: "Current − Deducted" },
   earned:    { label: "Earned Balance",           subtitle: "Earnings Management" },
   remaining: { label: "Remaining Balance",        subtitle: "Post-Deduction + Earned" },
 };
@@ -731,18 +734,17 @@ const getCommutedHours = (period) => {
   return 0;
 };
 
-/** P. Credit − Deducted = Post-Deduction Balance; Post-Deduction + Earned = Remaining */
-const computePeriodBalanceFlow = (period, { allPeriods, periodIndex, earningsList } = {}) => {
-  const usedHrs     = toNum(period.used_hours);
-  const allocRawHrs = toNum(period.allocated_hours);
-  const carriedRaw  = toNum(period.carried_forward_hours);
-  const approvedEarnedHrs = getApprovedEarningsHoursForPeriod(earningsList, period);
-  const assignmentCreditHrs = Math.max(0, allocRawHrs - approvedEarnedHrs);
+/**
+ * Running-ledger balance breakdown for one period row.
+ */
+const computePeriodBalanceFlow = (period, { earningsList } = {}) => {
+  const usedHrs = toNum(period?.used_hours);
 
   if (isCommutedLocked(period)) {
     const commutedHrs = getCommutedHours(period);
     return {
       carriedHrs: 0,
+      currentBalance: 0,
       usedHrs,
       earnedHrs: 0,
       adjustedHrs: 0,
@@ -752,21 +754,17 @@ const computePeriodBalanceFlow = (period, { allPeriods, periodIndex, earningsLis
     };
   }
 
-  const immediatePrior =
-    allPeriods && periodIndex != null ? allPeriods[periodIndex + 1] : null;
-  const carryInvalidated =
-    immediatePrior &&
-    isCommutedLocked(immediatePrior) &&
-    carriedRaw > BALANCE_HRS_EPS;
-
-  const earnedHrs = approvedEarnedHrs;
-  let carriedHrs = carryInvalidated ? 0 : carriedRaw + assignmentCreditHrs;
-  const adjustedHrs = carriedHrs - usedHrs;
-  const remHrs = carryInvalidated
-    ? Math.max(0, earnedHrs - usedHrs)
-    : toNum(period.remaining_hours);
-  const computedRemainingHrs = adjustedHrs + earnedHrs;
-  return { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs, commutedHrs: 0, computedRemainingHrs };
+  const balances = computeAssignmentBalances(period, { earningsList });
+  return {
+    carriedHrs: balances.currentBalance,
+    currentBalance: balances.currentBalance,
+    usedHrs: balances.usedHrs,
+    earnedHrs: balances.earnedBalance,
+    adjustedHrs: balances.postDeduction,
+    remHrs: balances.remainingBalance,
+    commutedHrs: 0,
+    computedRemainingHrs: balances.remainingBalance,
+  };
 };
 
 const LeaveBalanceHeaderCell = ({ label, subtitle, align, width, groupPos }) => (
@@ -886,14 +884,17 @@ const getPeriodForwardInfo = (period, periodIndex, allPeriods) => {
   const currentPeriod = allPeriods[0] ?? null;
   if (!newer || !currentPeriod) return null;
 
-  const newerCarry = toNum(newer.carried_forward_hours);
+  const newerOpening = toNum(newer.allocated_hours);
+  const newerCarry =
+    toNum(newer.carried_forward_hours) > BALANCE_HRS_EPS
+      ? toNum(newer.carried_forward_hours)
+      : newerOpening;
 
-  // Rolled forward when next period's P. Credit matches this period's closing balance
-  // (remaining may still be > 0 in DB if prior row was not zeroed on assignment create)
+  // Rolled forward when next period's Current Balance matches this period's closing balance
   const rolledToNext =
-    newerCarry > BALANCE_HRS_EPS &&
-    (hoursClose(newerCarry, remHrs) ||
-      hoursClose(newerCarry, closingBalance) ||
+    newerOpening > BALANCE_HRS_EPS &&
+    (hoursClose(newerOpening, remHrs) ||
+      hoursClose(newerOpening, closingBalance) ||
       (remHrs <= BALANCE_HRS_EPS && closingBalance > BALANCE_HRS_EPS));
 
   if (!rolledToNext) return null;
@@ -999,7 +1000,7 @@ const LeavePeriodSectionRow = ({ label, variant = "section" }) => (
 
 const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, allPeriods, onTransferPeriod, commuteLoadingId, earningsList }) => {
   const isLocked = isCommutedLocked(period);
-  const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs, commutedHrs } = computePeriodBalanceFlow(period, { allPeriods, periodIndex, earningsList });
+  const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs, commutedHrs } = computePeriodBalanceFlow(period, { earningsList });
   const creditPool = Math.max(0, carriedHrs + earnedHrs);
   const pctUsed = isLocked ? 0 : (creditPool > 0 ? Math.min((usedHrs / creditPool) * 100, 100) : 0);
   const forwardInfo = getPeriodForwardInfo(period, periodIndex, allPeriods);
@@ -1037,7 +1038,7 @@ const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, a
               color: isLocked ? T.muted : isCurrent ? CURRENT.dark : T.text,
               fontFamily: T.poppins, lineHeight: 1.2,
             }}>
-              {periodLabel(period.period_year, period.period_semester)}
+              {periodLabel(period.period_year, period.period_semester ?? period.period_month)}
             </Typography>
             {isCurrent && !isLocked && (
               <Box sx={{ px: 0.75, py: 0.15, borderRadius: "4px", bgcolor: CURRENT.main, lineHeight: 1 }}>
@@ -1133,6 +1134,7 @@ const EmployeeLeavesModal = ({
   getEmployeeInfo,
   onTransferPeriod,
   commuteLoadingId,
+  approvedEarnings = [],
 }) => {
   const [earningsList, setEarningsList] = useState([]);
 
@@ -1245,8 +1247,7 @@ const EmployeeLeavesModal = ({
             }}
           >
             {employeeLeaves.leaveTypes.map((lt) => {
-              const latest = getLatestPeriodSnapshot(lt.periods);
-              const remH   = toNum(latest?.remaining_hours);
+              const remH = getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings);
               const bal    = fmtPeriodVal(remH, unit);
               const ltObj  = leaveTypes.find((x) => x.leave_code === lt.leave_code);
               const desc   = ltObj?.leave_description || lt.leave_code;
@@ -1290,11 +1291,11 @@ const EmployeeLeavesModal = ({
                   </Box>
                 )}
                 {currentPeriod && !isCommutedLocked(currentPeriod) && (() => {
-                  const flow = computePeriodBalanceFlow(currentPeriod, { allPeriods: periods, periodIndex: 0, earningsList });
+                  const flow = computePeriodBalanceFlow(currentPeriod, { earningsList });
                   return (
                   <Box sx={{ px: 3, py: 1.25, borderBottom: `1px solid ${CURRENT.border}`, bgcolor: "rgba(46,125,50,0.06)", display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
                     {[
-                      { label: "Active period", value: periodLabel(currentPeriod.period_year, currentPeriod.period_semester) },
+                      { label: "Active period", value: periodLabel(currentPeriod.period_year, currentPeriod.period_semester ?? currentPeriod.period_month) },
                       { label: LEAVE_BALANCE_LABELS.pCredit.label, value: fmtPeriodVal(flow.carriedHrs, unit) },
                       { label: LEAVE_BALANCE_LABELS.adjusted.label, value: fmtPeriodVal(flow.adjustedHrs, unit) },
                       { label: LEAVE_BALANCE_LABELS.earned.label, value: fmtPeriodVal(flow.earnedHrs, unit) },
@@ -1533,7 +1534,7 @@ const BulkAutoAssignDialog = ({ open, onClose, leaveTypes, assignments, employee
             parseInt(targetYear, 10),
           );
           await axios.post(`${API_BASE_URL}/leaveRoute/leave_assignment`,
-            { leave_code: lt.leave_code, employeeNumber: emp.employeeNumber, total_hours: 0, carried_forward_hours: prevRem, allocated_hours: 0, period_year: parseInt(targetYear, 10), period_semester: null },
+            { leave_code: lt.leave_code, employeeNumber: emp.employeeNumber, allocated_hours: prevRem, period_year: parseInt(targetYear, 10), period_semester: null },
             { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
           );
           created++;
@@ -2116,6 +2117,7 @@ const LeaveAssignment = () => {
   const { socket, connected } = useSocket();
 
   const [assignments,       setAssignments]       = useState([]);
+  const [approvedEarnings,  setApprovedEarnings]  = useState([]);
   const [leaveTypes,        setLeaveTypes]        = useState([]);
   const [employees,         setEmployees]         = useState([]);
   const [selectedEmployee,  setSelectedEmployee]  = useState(null);
@@ -2133,7 +2135,6 @@ const LeaveAssignment = () => {
   const [editAssignment,      setEditAssignment]      = useState(null);
   const [originalAssignment,  setOriginalAssignment]  = useState(null);
   const [isEditing,           setIsEditing]           = useState(false);
-  const [editCarriedHours,    setEditCarriedHours]    = useState(0);
   const [editAllocatedHours,  setEditAllocatedHours]  = useState(0);
   const [creditUsageLog,      setCreditUsageLog]      = useState([]);
   const [creditUsageLoading,  setCreditUsageLoading]  = useState(false);
@@ -2159,27 +2160,11 @@ const LeaveAssignment = () => {
 
   useEffect(() => {
     const init = async () => {
-      await Promise.all([fetchAssignments(), fetchLeaveTypes(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
+      await Promise.all([fetchAssignments(), fetchApprovedEarnings(), fetchLeaveTypes(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
       setPageLoading(false);
     };
     init();
   }, []);
-
-  useEffect(() => {
-    if (!socket || !connected) return;
-    let debounceTimer = null;
-    const handler = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => { fetchAssignments(); }, 200);
-    };
-    socket.on("leaveAssignmentChanged", handler);
-    socket.on("leaveRequestChanged", handler);
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      socket.off("leaveAssignmentChanged", handler);
-      socket.off("leaveRequestChanged", handler);
-    };
-  }, [socket, connected]); // eslint-disable-line
 
   useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter]);
 
@@ -2242,10 +2227,21 @@ const LeaveAssignment = () => {
     const periodMonthInt = normalizeMonth(periodMonth);
     filteredLeaveTypesForNew.forEach((lt) => {
       const rows = assignments.filter((a) => a.employeeNumber?.toString() === empNum && a.leave_code === lt.leave_code);
-      map[lt.leave_code] = getPriorPeriodCarryForwardHours(rows, periodYear, periodMonthInt);
+      const empEarnings = approvedEarnings.filter(
+        (e) =>
+          String(e.employee_number) === empNum &&
+          String(e.leave_code || "").trim() === String(lt.leave_code || "").trim(),
+      );
+      map[lt.leave_code] = getPriorPeriodCarryForwardHours(
+        rows,
+        periodYear,
+        periodMonthInt,
+        [],
+        empEarnings,
+      );
     });
     return map;
-  }, [selectedEmployee, filteredLeaveTypesForNew, assignments, periodYear, periodMonth]);
+  }, [selectedEmployee, filteredLeaveTypesForNew, assignments, periodYear, periodMonth, approvedEarnings]);
 
   const carrySourceMap = useMemo(() => {
     if (!selectedEmployee?.employeeNumber) return {};
@@ -2272,6 +2268,40 @@ const LeaveAssignment = () => {
     });
     return months;
   }, [selectedEmployee, assignments, periodYear]);
+
+  /** Prior month(s) whose balance rolls into the currently selected assignment period. */
+  const monthsForwardingToSelected = useMemo(() => {
+    const result = new Map();
+    if (!selectedEmployee?.employeeNumber || !periodMonth || !periodYear) return result;
+
+    const periodMonthInt = normalizeMonth(periodMonth);
+    if (!periodMonthInt) return result;
+
+    const targetLabel = periodLabel(parseInt(periodYear, 10) || new Date().getFullYear(), periodMonthInt);
+    const empNum = selectedEmployee.employeeNumber.toString();
+    const py = periodYear.toString();
+
+    filteredLeaveTypesForNew.forEach((lt) => {
+      if (toNum(carryOverMap[lt.leave_code]) <= 0) return;
+      const rows = assignments.filter(
+        (a) => a.employeeNumber?.toString() === empNum && a.leave_code === lt.leave_code,
+      );
+      const prior = getPriorPeriodSnapshot(rows, periodYear, periodMonthInt);
+      if (!prior || isCommutedLocked(prior)) return;
+      if (prior.period_year?.toString() !== py) return;
+      const mv = toMonthSelectValue(prior.period_semester ?? prior.period_month);
+      if (mv) result.set(mv, targetLabel);
+    });
+
+    return result;
+  }, [
+    selectedEmployee,
+    periodYear,
+    periodMonth,
+    filteredLeaveTypesForNew,
+    carryOverMap,
+    assignments,
+  ]);
 
   const periodAssignmentMap = useMemo(() => {
     if (!selectedEmployee?.employeeNumber) return {};
@@ -2317,6 +2347,63 @@ const LeaveAssignment = () => {
     try { const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`); setAssignments(Array.isArray(r.data) ? r.data : []); setError(""); }
     catch { setAssignments([]); setError("Failed to fetch assignments"); }
   };
+  const fetchApprovedEarnings = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const r = await axios.get(`${API_BASE_URL}/api/earnings/leave/approved-summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setApprovedEarnings(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setApprovedEarnings([]);
+    }
+  };
+
+  const fetchAssignmentsRef = useRef(fetchAssignments);
+  const fetchApprovedEarningsRef = useRef(fetchApprovedEarnings);
+  useEffect(() => {
+    fetchAssignmentsRef.current = fetchAssignments;
+    fetchApprovedEarningsRef.current = fetchApprovedEarnings;
+  });
+
+  const refreshLeaveAssignmentData = useCallback(() => {
+    fetchAssignmentsRef.current();
+    fetchApprovedEarningsRef.current();
+  }, []);
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+    let debounceTimer = null;
+    const handler = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refreshLeaveAssignmentData, 200);
+    };
+    socket.on("leaveAssignmentChanged", handler);
+    socket.on("leaveRequestChanged", handler);
+    socket.on("earningsChanged", handler);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off("leaveAssignmentChanged", handler);
+      socket.off("leaveRequestChanged", handler);
+      socket.off("earningsChanged", handler);
+    };
+  }, [socket, connected, refreshLeaveAssignmentData]);
+
+  useEffect(() => {
+    if (!selectedEmployee?.employeeNumber) return;
+    refreshLeaveAssignmentData();
+  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, refreshLeaveAssignmentData]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!selectedEmployee?.employeeNumber) return;
+      refreshLeaveAssignmentData();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [selectedEmployee?.employeeNumber, refreshLeaveAssignmentData]);
+
   const fetchLeaveTypes = async () => {
     try { const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`); setLeaveTypes(Array.isArray(r.data) ? r.data : []); }
     catch { setLeaveTypes([]); }
@@ -2363,9 +2450,13 @@ const LeaveAssignment = () => {
     const empNum = selectedEmployee?.employeeNumber?.toString().trim();
     if (!empNum) { setError("Please select an employee first"); return; }
     const addHrs = toNum(bulkCredits[lt.leave_code]);
-    if (addHrs <= 0) { setError("Enter an amount greater than 0"); return; }
-
+    const carryHrs = toNum(carryOverMap[lt.leave_code]);
     const existing = periodAssignmentMap[lt.leave_code];
+    if (addHrs <= 0 && !(carryHrs > 0 && !existing)) {
+      setError("Enter an amount greater than 0, or open a period with a carry-forward balance");
+      return;
+    }
+
     if (existing && isCommutedLocked(existing)) {
       setError(`${lt.leave_code} is commuted for this period and cannot be modified`);
       return;
@@ -2378,15 +2469,13 @@ const LeaveAssignment = () => {
 
     try {
       if (existing) {
-        const newCarried = toNum(existing.carried_forward_hours) + addHrs;
-        const alloc = toNum(existing.allocated_hours);
+        const newAllocated = toNum(existing.allocated_hours) + addHrs;
         await axios.put(
           `${API_BASE_URL}/leaveRoute/leave_assignment/${existing.id}`,
           {
             leave_code: lt.leave_code,
             employeeNumber: empNum,
-            carried_forward_hours: newCarried,
-            allocated_hours: alloc,
+            allocated_hours: newAllocated,
             period_year: parseInt(periodYear, 10) || new Date().getFullYear(),
             period_semester: periodMonthInt ?? existing.period_semester ?? null,
             period_month: periodMonthInt ?? existing.period_month ?? null,
@@ -2395,15 +2484,13 @@ const LeaveAssignment = () => {
         );
       } else {
         const carryHrs = toNum(carryOverMap[lt.leave_code]);
-        const storeInCarried = carryHrs <= 0;
+        const newAllocated = carryHrs + addHrs;
         await axios.post(
           `${API_BASE_URL}/leaveRoute/leave_assignment`,
           {
             leave_code: lt.leave_code,
             employeeNumber: empNum,
-            total_hours: carryHrs + addHrs,
-            carried_forward_hours: storeInCarried ? addHrs : carryHrs,
-            allocated_hours: storeInCarried ? 0 : addHrs,
+            allocated_hours: newAllocated,
             period_year: parseInt(periodYear, 10) || new Date().getFullYear(),
             period_semester: periodMonthInt ?? null,
             period_month: periodMonthInt ?? null,
@@ -2427,13 +2514,11 @@ const LeaveAssignment = () => {
     const id      = editAssignment?.id;
     const empNum  = editAssignment?.employeeNumber?.toString().trim();
     const lc      = editAssignment?.leave_code;
-    const usedHrs = toNum(editAssignment.used_hours);
-    const remHrs  = Math.max(0, editAllocatedHours - usedHrs);
     if (!id || !empNum || !lc) { setError("Please fill in all required fields"); return; }
     if (isDuplicateAssignment(empNum, lc, editAssignment.period_year, editAssignment.id)) { setError("This employee already has an assignment for this leave type and period"); return; }
     try {
       await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`,
-        { leave_code: lc, employeeNumber: empNum, total_hours: editAllocatedHours, remaining_hours: remHrs, carried_forward_hours: editCarriedHours, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null },
+        { leave_code: lc, employeeNumber: empNum, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null },
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");
@@ -2545,13 +2630,11 @@ const LeaveAssignment = () => {
 
   const handleOpenModal = (assignment) => {
     setEditAssignment({ ...assignment }); setOriginalAssignment({ ...assignment });
-    setEditCarriedHours(toNum(assignment.carried_forward_hours));
     setEditAllocatedHours(toNum(assignment.allocated_hours));
     setIsEditing(false); setError("");
   };
   const handleCancelEdit = () => {
     setEditAssignment({ ...originalAssignment });
-    setEditCarriedHours(toNum(originalAssignment.carried_forward_hours));
     setEditAllocatedHours(toNum(originalAssignment.allocated_hours));
     setIsEditing(false); setError("");
   };
@@ -2584,10 +2667,16 @@ const LeaveAssignment = () => {
   const paginatedGroups = useMemo(() => { const s = recordsPage * recordsRowsPerPage; return employeeGroups.slice(s, s + recordsRowsPerPage); }, [employeeGroups, recordsPage, recordsRowsPerPage]);
 
   const getAssignRemainingHours = useCallback((leaveCode) => {
-    const existing = periodAssignmentMap[leaveCode];
-    if (existing) return toNum(existing.remaining_hours);
-    return toNum(carryOverMap[leaveCode]);
-  }, [periodAssignmentMap, carryOverMap]);
+    return getAssignFormRemainingHours({
+      existingPeriod: periodAssignmentMap[leaveCode] ?? null,
+      carryOverHours: carryOverMap[leaveCode],
+      earningsList: approvedEarnings,
+      targetYear: periodYear,
+      targetMonth: normalizeMonth(periodMonth),
+      employeeNumber: selectedEmployee?.employeeNumber?.toString() ?? null,
+      leaveCode,
+    });
+  }, [periodAssignmentMap, carryOverMap, approvedEarnings, periodYear, periodMonth, selectedEmployee]);
 
   const openEmployeeLeavesModal = (grp) => {
     const sortedLeaveTypes = [...grp.leaveTypes].sort((a, b) => a.leave_code.localeCompare(b.leave_code));
@@ -2640,7 +2729,7 @@ const LeaveAssignment = () => {
                   <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700, fontFamily: T.poppins }}>{assignments.length} {assignments.length === 1 ? "assignment" : "assignments"}</Typography>
                 </Box>
                 <Tooltip title="Refresh">
-                  <IconButton onClick={() => { fetchAssignments(); fetchDeptMap(); fetchEmpCatMap(); }} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, "&:hover": { bgcolor: alpha(T.accent, 0.15) } }}>
+                  <IconButton onClick={() => { fetchAssignments(); fetchApprovedEarnings(); fetchDeptMap(); fetchEmpCatMap(); }} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, "&:hover": { bgcolor: alpha(T.accent, 0.15) } }}>
                     <RefreshIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
@@ -2826,19 +2915,30 @@ const LeaveAssignment = () => {
                           >
                             {MONTHS.map((m) => {
                               const hasBalance = m.value && monthsWithBalanceSet.has(m.value);
+                              const forwardTarget = m.value ? monthsForwardingToSelected.get(m.value) : null;
                               return (
                               <MenuItem key={m.value} value={m.value} sx={{ fontFamily: T.poppins, fontSize: "0.8rem", py: 0.5 }}>
                                 {m.value ? (
-                                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1 }}>
-                                    <Typography sx={{ fontFamily: T.poppins, fontSize: "0.8rem" }}>{m.label}</Typography>
-                                    {hasBalance && (
-                                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, flexShrink: 0 }}>
-                                        <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: CURRENT.main }} />
-                                        <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: CURRENT.dark, fontFamily: T.poppins }}>
-                                          has balance
-                                        </Typography>
-                                      </Box>
-                                    )}
+                                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1, minWidth: 0 }}>
+                                    <Typography sx={{ fontFamily: T.poppins, fontSize: "0.8rem", flexShrink: 0 }}>{m.label}</Typography>
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 1, minWidth: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                      {forwardTarget && (
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.35, flexShrink: 0 }}>
+                                          <ForwardIcon sx={{ fontSize: 11, color: "#5c6bc0" }} />
+                                          <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: "#5c6bc0", fontFamily: T.poppins, whiteSpace: "nowrap" }}>
+                                            forwarded to · {forwardTarget}
+                                          </Typography>
+                                        </Box>
+                                      )}
+                                      {hasBalance && (
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, flexShrink: 0 }}>
+                                          <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: CURRENT.main }} />
+                                          <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: CURRENT.dark, fontFamily: T.poppins, whiteSpace: "nowrap" }}>
+                                            has balance
+                                          </Typography>
+                                        </Box>
+                                      )}
+                                    </Box>
                                   </Box>
                                 ) : (
                                   <Typography sx={{ color: T.faint, fontStyle: "italic", fontFamily: T.poppins, fontSize: "0.8rem" }}>{m.label}</Typography>
@@ -3030,8 +3130,15 @@ const LeaveAssignment = () => {
                   ) : viewMode === "grid" ? (
                     <Grid container spacing={1.5} alignItems="stretch">
                       {paginatedGroups.map((grp) => {
-                        const remH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours); }, 0);
-                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours) + toNum(latest?.used_hours); }, 0);
+                        const remH = grp.leaveTypes.reduce(
+                          (s, lt) => s + getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings),
+                          0,
+                        );
+                        const totalH = grp.leaveTypes.reduce((s, lt) => {
+                          const latest = getLatestPeriodSnapshot(lt.periods);
+                          const displayH = getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings);
+                          return s + displayH + toNum(latest?.used_hours);
+                        }, 0);
                         const overallColor = getStatusColor(remH, totalH);
                         const initials = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info = getEmployeeInfo(grp.employeeNumber);
@@ -3057,8 +3164,8 @@ const LeaveAssignment = () => {
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mb: 0.75 }}>
                                 {grp.leaveTypes.slice(0, 3).map((lt) => {
                                   const latest = getLatestPeriodSnapshot(lt.periods);
-                                  const displayH = toNum(latest?.remaining_hours);
-                                  const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.remaining_hours) + toNum(latest?.used_hours));
+                                  const displayH = getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings);
+                                  const sc = getStatusColor(displayH, displayH + toNum(latest?.used_hours));
                                   return (
                                     <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}>
                                       <Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, whiteSpace: "nowrap", fontFamily: T.poppins }}>{lt.leave_code} {unit === "hours" ? `${displayH.toFixed(3)}h` : `${(displayH / 8).toFixed(3)}d`}</Typography>
@@ -3084,8 +3191,15 @@ const LeaveAssignment = () => {
                         ))}
                       </Box>
                       {paginatedGroups.map((grp, idx) => {
-                        const remH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours); }, 0);
-                        const totalH = grp.leaveTypes.reduce((s, lt) => { const latest = getLatestPeriodSnapshot(lt.periods); return s + toNum(latest?.remaining_hours) + toNum(latest?.used_hours); }, 0);
+                        const remH = grp.leaveTypes.reduce(
+                          (s, lt) => s + getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings),
+                          0,
+                        );
+                        const totalH = grp.leaveTypes.reduce((s, lt) => {
+                          const latest = getLatestPeriodSnapshot(lt.periods);
+                          const displayH = getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings);
+                          return s + displayH + toNum(latest?.used_hours);
+                        }, 0);
                         const overallColor = getStatusColor(remH, totalH);
                         const initials = `${grp.lastName?.[0] || ""}${grp.firstName?.[0] || ""}`.toUpperCase() || grp.fullName?.[0] || "?";
                         const info = getEmployeeInfo(grp.employeeNumber);
@@ -3113,7 +3227,8 @@ const LeaveAssignment = () => {
                             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                               {grp.leaveTypes.slice(0, 3).map((lt) => {
                                 const latest = getLatestPeriodSnapshot(lt.periods);
-                                const sc = getStatusColor(toNum(latest?.remaining_hours), toNum(latest?.remaining_hours) + toNum(latest?.used_hours));
+                                const displayH = getLeaveTypeDisplayRemaining(lt.periods, approvedEarnings);
+                                const sc = getStatusColor(displayH, displayH + toNum(latest?.used_hours));
                                 return <Box key={lt.leave_code} sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: `${sc}12`, border: `1px solid ${sc}30` }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 800, color: sc, fontFamily: T.poppins }}>{lt.leave_code}</Typography></Box>;
                               })}
                               {grp.leaveTypes.length > 3 && <Box sx={{ px: 0.75, py: 0.2, borderRadius: "4px", bgcolor: T.accentFaint }}><Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>+{grp.leaveTypes.length - 3}</Typography></Box>}
@@ -3153,6 +3268,7 @@ const LeaveAssignment = () => {
             getEmployeeInfo={getEmployeeInfo}
             commuteLoadingId={commuteLoadingId}
             onTransferPeriod={(e, period) => { e.stopPropagation(); handleOpenCommutationWarning(period); }}
+            approvedEarnings={approvedEarnings}
           />
 
           {/* Edit Assignment Modal */}
@@ -3266,10 +3382,7 @@ const LeaveAssignment = () => {
                             </FormControl>
                           </Grid>
                           <Grid item xs={12} sm={6}>
-                            <CreditInput label="Brought Forward" valueHours={editCarriedHours} onChangeHours={setEditCarriedHours} unit={unit} disabled={isEditLocked} color="#2E7D32" />
-                          </Grid>
-                          <Grid item xs={12} sm={6}>
-                            <CreditInput label="Allocated Credits" valueHours={editAllocatedHours} onChangeHours={setEditAllocatedHours} unit={unit} disabled={isEditLocked} color="#1976d2" />
+                            <CreditInput label="Current Balance" valueHours={editAllocatedHours} onChangeHours={setEditAllocatedHours} unit={unit} disabled={isEditLocked} color="#1976d2" />
                           </Grid>
                           {!isEditLocked && (
                             <Grid item xs={12}>

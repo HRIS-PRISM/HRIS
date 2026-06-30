@@ -40,6 +40,8 @@ import {
 } from "./SalaryShortfallRegistry";
 import { aggregateAttendanceResultsForAbstract } from "./aggregateAttendanceResultsForAbstract";
 import usePayrollRealtimeRefresh from "../../../hooks/usePayrollRealtimeRefresh";
+import { useSocket } from "../../../contexts/SocketContext";
+import { useEarningsRealtimeRefresh } from "./useEarningsRealtimeRefresh";
 
 const WH = 8;
 
@@ -246,7 +248,9 @@ const StatPill = ({ label, value, accent = false }) => (
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function Abstract({ employee, year, month }) {
+  const { socket, connected } = useSocket();
   const [attendanceResults, setAttendanceResults] = useState([]);
+  const [emptyHint, setEmptyHint] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sentToPayrollKeys, setSentToPayrollKeys] = useState(() => new Set());
@@ -300,16 +304,42 @@ export function Abstract({ employee, year, month }) {
     setLoading(true);
     setError("");
     const token = localStorage.getItem("token");
+    const headers = { Authorization: `Bearer ${token}` };
     try {
       const params = { year, month };
       if (employee?.employeeNumber) params.employeeNumber = employee.employeeNumber;
       const { data } = await axios.get(`${API_BASE_URL}/api/leave-salary-shortfall`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
         params,
       });
-      setAttendanceResults(Array.isArray(data?.attendanceResults) ? data.attendanceResults : []);
+      const ar = Array.isArray(data?.attendanceResults) ? data.attendanceResults : [];
+      setAttendanceResults(ar);
+
+      if (ar.length === 0 && employee?.employeeNumber) {
+        try {
+          const { data: scData } = await axios.get(
+            `${API_BASE_URL}/api/earnings/sc/${employee.employeeNumber}`,
+            { headers, params: { year, month } },
+          );
+          const earnings = Array.isArray(scData?.earnings) ? scData.earnings : [];
+          const ledger = Array.isArray(scData?.ledger_sc_deductions) ? scData.ledger_sc_deductions : [];
+          const approvedEarn = earnings.filter(
+            (e) => String(e.entry_type || "").toUpperCase() !== "DEDUCTION"
+              && String(e.earn_status || "").toLowerCase() === "approved",
+          ).length;
+          const scDeductions = earnings.filter(
+            (e) => String(e.entry_type || "").toUpperCase() === "DEDUCTION",
+          ).length + ledger.length;
+          setEmptyHint({ approvedEarn, scDeductions });
+        } catch {
+          setEmptyHint(null);
+        }
+      } else {
+        setEmptyHint(null);
+      }
     } catch (e) {
       setAttendanceResults([]);
+      setEmptyHint(null);
       setError(
         e.response?.data?.error ||
         e.response?.data?.message ||
@@ -325,6 +355,13 @@ export function Abstract({ employee, year, month }) {
     fetchRows();
     fetchPayrollExistingPeriodKeys();
   }, [fetchRows, fetchPayrollExistingPeriodKeys]);
+
+  useEarningsRealtimeRefresh({
+    socket,
+    connected,
+    onRefresh: fetchRows,
+    selectedEmployeeNumber: employee?.employeeNumber,
+  });
 
   const mergedRows = useMemo(
     () => aggregateAttendanceResultsForAbstract(attendanceResults, year, month),
@@ -650,11 +687,25 @@ export function Abstract({ employee, year, month }) {
             }}
           >
             <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", color: T.accent, fontFamily: T.poppins, mb: 0.3 }}>
-              No attendance_result rows for this filter
+              Nothing queued for payroll yet
             </Typography>
             <Typography sx={{ fontSize: "0.72rem", color: T.muted, lineHeight: 1.55, fontFamily: T.poppins }}>
-              Nothing in <strong>attendance_result</strong> for <strong>{filterSummary}</strong>.
-              Use the Salary Shortfall tab for the full merged registry.
+              <strong>ABSTRACT</strong> lists <strong>attendance_result</strong> rows only — attendance
+              deductions and salary shortfalls for <strong>{filterSummary}</strong>, not SC/CTO/leave
+              earnings (OT credit).
+              {emptyHint?.approvedEarn > 0 && (
+                <>
+                  {" "}This employee has <strong>{emptyHint.approvedEarn}</strong> approved SC earning
+                  {emptyHint.approvedEarn === 1 ? "" : "s"} in Records; those stay off Abstract by design.
+                </>
+              )}
+              {emptyHint?.scDeductions === 0 && (
+                <>
+                  {" "}To appear here, post an <strong>attendance deduction</strong> from the left panel
+                  (SC/CTO receipt or salary charge) — approving SC earn alone does not create a payroll row.
+                </>
+              )}
+              {" "}Use the <strong>Salary Shortfall</strong> tab for the full merged registry.
             </Typography>
           </Alert>
         </Box>

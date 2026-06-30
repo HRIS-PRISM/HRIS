@@ -15,7 +15,54 @@ const express = require("express");
     loadScBalanceSummaryRows,
   } = require("../services/serviceCreditRunningTotals");
   const { getCtoCreditRunningTotals } = require("../services/ctoCreditRunningTotals");
-  const { getPriorPeriodCarryForwardHoursForEmployee } = require("../utils/leaveAssignmentBalanceUtils");
+  const {
+    recomputeScLedgerFieldsAsync,
+    findLatestScPeriodRow,
+    queryAsync: scQueryAsync,
+    execAsync: scExecAsync,
+    reverseScPeriodAttendanceDeductionsAsync,
+    refreshScPeriodLedgerOnRow,
+    ensureScPeriodRowAsync,
+    syncScPeriodCarryAsync,
+    loadScChainContextAsync,
+    getPriorPeriodScCarryForward,
+    appendScLedgerSnapshotAsync,
+    parseScUsedDeltaHours,
+    periodOtScHours,
+    alignScPeriodBaseForAppend,
+    findExistingScDeductionSnapshotAsync,
+    reverseScDeductionEarningAsync,
+    isScPeriodKeyClosed,
+  } = require("../utils/serviceCreditBalanceUtils");
+  const {
+    recomputeCtoLedgerFieldsAsync,
+    findLatestCtoPeriodRow,
+    queryAsync: ctoQueryAsync,
+    execAsync: ctoExecAsync,
+    loadCtoChainContextAsync,
+    getPriorPeriodCtoCarryForward,
+    appendCtoLedgerSnapshotAsync,
+    alignCtoPeriodBaseForAppend,
+    findExistingCtoDeductionSnapshotAsync,
+    isCtoPeriodKeyClosed,
+    refreshCtoPeriodLedgerOnRow,
+    ensureCtoPeriodRowAsync,
+    reverseCtoDeductionEarningAsync,
+    reverseCtoPeriodAttendanceDeductionsAsync,
+  } = require("../utils/ctoBalanceUtils");
+  const {
+    isCommutedLocked,
+    latestPeriodsByKey,
+    isAfterPeriod,
+    recomputeAssignmentLedgerFields,
+    resolveActiveAssignmentForDeduction,
+    buildNewPeriodAssignmentFields,
+    repairPeriodCarryForwardIfEmpty,
+    getPriorPeriodCarryForwardHoursForEmployee,
+    getLeaveTypeStatsActive,
+    sortPeriodsDesc,
+    getActivePeriods,
+  } = require("../utils/leaveAssignmentBalanceUtils");
 
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
@@ -195,34 +242,21 @@ const express = require("express");
 
   // leave_assignment is append-only (history snapshots). For transaction logs we need the
   // CURRENT running balance, which is represented by the latest snapshot row.
-  const getLeaveRemainingHours = (employeeNumber, leaveCode) =>
-    new Promise((resolve) => {
-      const emp = String(employeeNumber || "").trim();
-      const code = String(leaveCode || "").trim();
-      if (!emp || !code) return resolve(0);
+  const getLeaveRemainingHours = async (employeeNumber, leaveCode) => {
+    const emp = String(employeeNumber || "").trim();
+    const code = String(leaveCode || "").trim();
+    if (!emp || !code) return 0;
+    const rows = await new Promise((resolve) => {
       db.query(
-        `SELECT COALESCE(la.remaining_hours, 0) AS remaining_hours
-         FROM leave_assignment la
-         WHERE la.employeeNumber = ?
-           AND TRIM(la.leave_code) = TRIM(?)
-         ORDER BY
-           la.period_year DESC,
-           CASE
-             WHEN la.period_semester IS NULL OR la.period_semester = '' THEN 0
-             WHEN la.period_semester REGEXP '^[0-9]+$' THEN CAST(la.period_semester AS UNSIGNED)
-             WHEN LOWER(la.period_semester) LIKE '%2nd%' THEN 2
-             WHEN LOWER(la.period_semester) LIKE '%1st%' THEN 1
-             ELSE 0
-           END DESC,
-           la.id DESC
-         LIMIT 1`,
+        `SELECT * FROM leave_assignment
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
         [emp, code],
-        (err, rows) => {
-          if (err) return resolve(0);
-          resolve(toNum(rows?.[0]?.remaining_hours));
-        },
+        (err, r) => resolve(!err && Array.isArray(r) ? r : []),
       );
     });
+    const stats = getLeaveTypeStatsActive(rows);
+    return stats.remainingHours;
+  };
 
   const getCtoRemainingHoursTotal = (employeeNumber) =>
     new Promise((resolve) => {
@@ -391,9 +425,8 @@ const express = require("express");
     return filtered.sort((a, b) => Number(b.id) - Number(a.id))[0] || null;
   };
 
-  // Option A: roll-forward remaining from earlier rows into the target period row,
-  // creating a target snapshot row if missing.
-  const rollForwardLeaveBalance = async ({
+  /** Find assignment for a specific earning period (no insert). */
+  const findPeriodAssignment = async ({
     employeeNumber,
     leaveCode,
     periodYear,
@@ -401,140 +434,95 @@ const express = require("express");
   }) => {
     const month = parseInt(periodMonth, 10);
     const year = parseInt(periodYear, 10);
-    if (!employeeNumber || !leaveCode || !Number.isFinite(month) || !Number.isFinite(year)) {
-      return null;
-    }
+    if (!employeeNumber || !leaveCode || !Number.isFinite(year)) return null;
 
     const rows = await new Promise((resolve) => {
       db.query(
         `SELECT * FROM leave_assignment
          WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
-         ORDER BY
-           period_year DESC,
-           CASE
-             WHEN period_semester REGEXP '^[0-9]+$' THEN CAST(period_semester AS UNSIGNED)
-             WHEN LOWER(period_semester) LIKE '%2nd%' THEN 2
-             WHEN LOWER(period_semester) LIKE '%1st%' THEN 1
-             ELSE 0
-           END DESC,
-           id DESC`,
+         ORDER BY period_year DESC, id DESC`,
         [employeeNumber, leaveCode],
         (err, r) => resolve(!err && Array.isArray(r) ? r : []),
       );
     });
 
     const latestRows = latestSnapshotPerPeriod(rows);
-    const carryHours = await getPriorPeriodCarryForwardHoursForEmployee(
-      db,
-      employeeNumber,
-      leaveCode,
-      year,
-      month,
+    if (Number.isFinite(month) && month > 0) {
+      return findTargetRow(latestRows, year, month);
+    }
+    return (
+      latestRows
+        .filter((r) => Number(r.period_year) === year)
+        .sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null
     );
-
-    let target = findTargetRow(latestRows, year, month);
-
-    // Strip invalid carry when prior period was commuted (P. Credit must be 0).
-    if (carryHours <= 0 && target && toNum(target.carried_forward_hours) > 0) {
-      const prevAlloc = Math.max(0, toNum(target.allocated_hours));
-      const prevUsed = Math.max(0, toNum(target.used_hours));
-      const newTotal = Math.max(0, prevAlloc);
-      const newRemaining = Math.max(0, newTotal - prevUsed);
-      await new Promise((resolve) => {
-        db.query(
-          `INSERT INTO leave_assignment
-            (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-           VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-          [
-            employeeNumber,
-            leaveCode,
-            newTotal,
-            newRemaining,
-            prevUsed,
-            prevAlloc,
-            year,
-            String(month),
-          ],
-          () => resolve(),
-        );
-      });
-      target = await new Promise((resolve) => {
-        db.query(
-          `SELECT * FROM leave_assignment
-           WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
-             AND period_year = ? AND (period_semester = ? OR period_semester = ?)
-           ORDER BY id DESC LIMIT 1`,
-          [employeeNumber, leaveCode, year, String(month), String(month).padStart(2, "0")],
-          (err, r) => resolve(!err && r?.[0] ? r[0] : null),
-        );
-      });
-    }
-
-    // Nothing valid to roll forward
-    if (carryHours <= 0) {
-      return target;
-    }
-
-    if (!target) {
-      // Create target period row that absorbs the carry as carried_forward_hours
-      const insertedId = await new Promise((resolve) => {
-        db.query(
-          `INSERT INTO leave_assignment
-            (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-           VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?)`,
-          [
-            employeeNumber,
-            leaveCode,
-            carryHours,
-            carryHours,
-            carryHours,
-            year,
-            String(month),
-          ],
-          (err, result) => resolve(!err ? result?.insertId : null),
-        );
-      });
-      if (insertedId) {
-        // Automatic prep before earnings deduct/approve — not a separate user action; omit audit_log noise.
-        target = { id: insertedId };
-      }
-    } else {
-      // If target already has a carry-forward, don't apply again.
-      const alreadyHasCarry = toNum(target?.carried_forward_hours) > 0;
-      if (alreadyHasCarry) return target;
-
-      // Append-only: create a new snapshot for the target period with the carried-forward applied.
-      const prevAlloc = Math.max(0, toNum(target.allocated_hours));
-      const prevUsed = Math.max(0, toNum(target.used_hours));
-      const newTotal = Math.max(0, carryHours + prevAlloc);
-      const newRemaining = Math.max(0, newTotal - prevUsed);
-      await new Promise((resolve) => {
-        db.query(
-          `INSERT INTO leave_assignment
-            (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            employeeNumber,
-            leaveCode,
-            newTotal,
-            newRemaining,
-            prevUsed,
-            carryHours,
-            prevAlloc,
-            year,
-            String(month),
-          ],
-          () => resolve(),
-        );
-      });
-    }
-
-    return target;
   };
 
-  // When earnings are approved out-of-order (e.g., April approved before January),
-  // we need later period rows to reflect the additional carry-in.
-  // This applies ONLY to rows after the approved earning month within the same year.
+  /** Create period row with prior-period carry-forward when approving positive earnings. */
+  const ensurePeriodAssignment = async ({
+    employeeNumber,
+    leaveCode,
+    periodYear,
+    periodMonth,
+  }) => {
+    const existing = await findPeriodAssignment({
+      employeeNumber,
+      leaveCode,
+      periodYear,
+      periodMonth,
+    });
+    if (existing) return existing;
+
+    const month = parseInt(periodMonth, 10);
+    const year = parseInt(periodYear, 10);
+    if (!employeeNumber || !leaveCode || !Number.isFinite(month) || !Number.isFinite(year)) {
+      return null;
+    }
+
+    const fields = await buildNewPeriodAssignmentFields(db, {
+      employeeNumber,
+      leave_code: leaveCode,
+      period_year: year,
+      period_semester: String(month),
+      allocated_hours: 0,
+      used_hours: 0,
+    });
+
+    const insertedId = await new Promise((resolve) => {
+      db.query(
+        `INSERT INTO leave_assignment
+          (employeeNumber, leave_code, total_hours, remaining_hours, used_hours,
+           carried_forward_hours, allocated_hours, period_year, period_semester, earning_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          employeeNumber,
+          leaveCode,
+          fields.total_hours,
+          fields.remaining_hours,
+          fields.used_hours,
+          fields.carried_forward_hours,
+          fields.allocated_hours,
+          year,
+          String(month),
+          fields.earning_status,
+        ],
+        (err, result) => resolve(!err ? result?.insertId : null),
+      );
+    });
+    if (!insertedId) return null;
+
+    return new Promise((resolve) => {
+      db.query(
+        "SELECT * FROM leave_assignment WHERE id = ? LIMIT 1",
+        [insertedId],
+        (err, r) => resolve(!err && r?.[0] ? r[0] : null),
+      );
+    });
+  };
+
+  /**
+   * When earnings are approved out-of-order, bump opening balance (allocated_hours)
+   * on all later period rows so the running ledger chain stays correct.
+   */
   const propagateEarnedHoursToLaterPeriods = async ({
     employeeNumber,
     leaveCode,
@@ -545,30 +533,42 @@ const express = require("express");
     const y = parseInt(periodYear, 10);
     const m = parseInt(periodMonth, 10);
     const hrs = toNum(earnedHours);
-    if (!employeeNumber || !leaveCode || !Number.isFinite(y) || !Number.isFinite(m) || !hrs) return;
+    if (!employeeNumber || !leaveCode || !Number.isFinite(y) || !Number.isFinite(m) || hrs <= 0) return;
 
-    await new Promise((resolve) => {
-      // Only bump the latest snapshot per period (multiple leave_assignment rows can exist per month — history).
+    const rows = await new Promise((resolve) => {
       db.query(
-        `UPDATE leave_assignment la
-         INNER JOIN (
-           SELECT MAX(id) AS id
-           FROM leave_assignment
-           WHERE employeeNumber = ?
-             AND TRIM(leave_code) = TRIM(?)
-             AND period_year = ?
-             AND period_semester IS NOT NULL
-             AND CAST(period_semester AS UNSIGNED) > ?
-           GROUP BY employeeNumber, leave_code, period_year, period_semester
-         ) h ON la.id = h.id
-         SET
-           la.carried_forward_hours = GREATEST(0, la.carried_forward_hours + ?),
-           la.total_hours           = GREATEST(0, la.total_hours + ?),
-           la.remaining_hours       = GREATEST(0, la.remaining_hours + ?)`,
-        [employeeNumber, leaveCode, y, m, hrs, hrs, hrs],
-        () => resolve(),
+        `SELECT * FROM leave_assignment
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+         ORDER BY period_year ASC, id ASC`,
+        [employeeNumber, leaveCode],
+        (err, r) => resolve(!err && Array.isArray(r) ? r : []),
       );
     });
+
+    const snapshots = latestPeriodsByKey(rows);
+    const later = snapshots.filter((p) => isAfterPeriod(p, y, m) && !isCommutedLocked(p));
+
+    for (const period of later) {
+      const newAlloc = Math.max(0, toNum(period.allocated_hours) + hrs);
+      const working = { ...period, allocated_hours: newAlloc };
+      const recomputed = await recomputeAssignmentLedgerFields(db, working);
+      await new Promise((resolve) => {
+        db.query(
+          `UPDATE leave_assignment SET
+             allocated_hours = ?, total_hours = ?, remaining_hours = ?,
+             carried_forward_hours = 0, earning_status = ?
+           WHERE id = ?`,
+          [
+            recomputed.allocated_hours,
+            recomputed.total_hours,
+            recomputed.remaining_hours,
+            recomputed.earning_status,
+            period.id,
+          ],
+          () => resolve(),
+        );
+      });
+    }
   };
 
   /**
@@ -585,20 +585,12 @@ const express = require("express");
     const ledgerSourceId = leaveEarningId != null ? parseInt(leaveEarningId, 10) : null;
     const lEid = leaveEarningId != null ? parseInt(leaveEarningId, 10) : null;
 
-    const mStr = periodMonth ? String(periodMonth) : null;
-    const mPad = periodMonth ? String(periodMonth).padStart(2, "0") : null;
-    const findQuery = periodMonth
-      ? `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND (period_semester = ? OR period_semester = ?) ORDER BY id DESC LIMIT 1`
-      : `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? ORDER BY id DESC LIMIT 1`;
-    const findParams = periodMonth
-      ? [rec.employee_number, rec.leave_code, rec.period_year, mStr, mPad]
-      : [rec.employee_number, rec.leave_code, rec.period_year];
-
-    const matched = await new Promise((resolve) => {
-      db.query(findQuery, findParams, (e3, laRows) =>
-        resolve(!e3 && laRows && laRows[0] ? laRows[0] : null),
-      );
-    });
+    // Deduct from the active Leave Assignment period — not the earnings calendar month.
+    const matched = await resolveActiveAssignmentForDeduction(
+      db,
+      rec.employee_number,
+      rec.leave_code,
+    );
 
     const attachSideEffects = async (shortfallHours, negativeBalanceDays, leave_credit_usage_id) => {
       try {
@@ -648,40 +640,9 @@ const express = require("express");
       return;
     }
 
-    const donor = await new Promise((resolve) => {
-      db.query(
-        `SELECT *
-         FROM leave_assignment
-         WHERE employeeNumber = ?
-           AND TRIM(leave_code) = TRIM(?)
-           AND CAST(remaining_hours AS DECIMAL(12,4)) > 0
-         ORDER BY period_year DESC, id DESC
-         LIMIT 1`,
-        [rec.employee_number, rec.leave_code],
-        (e4, laRows) => {
-          if (e4) return resolve(null);
-          resolve(laRows && laRows[0] ? laRows[0] : null);
-        },
-      );
-    });
-
-    if (!donor) {
-      const shortfallHours = deductionHours;
-      const negativeBalanceDays = -deductionHours / 8;
-      await attachSideEffects(shortfallHours, negativeBalanceDays, null);
-      return;
-    }
-
-    const { shortfallHours, negativeBalanceDays, leave_credit_usage_id } =
-      await commitLeaveDeductionLedger({
-        req,
-        rec,
-        assignmentId: donor.id,
-        deductionHours,
-        sourceType: ledgerSourceType,
-        sourceId: Number.isFinite(ledgerSourceId) ? ledgerSourceId : null,
-      });
-    await attachSideEffects(shortfallHours, negativeBalanceDays, leave_credit_usage_id);
+    const shortfallHours = deductionHours;
+    const negativeBalanceDays = -deductionHours / 8;
+    await attachSideEffects(shortfallHours, negativeBalanceDays, null);
   };
 
   const getEmployeeFullName = (employeeNumber) =>
@@ -1589,6 +1550,20 @@ const stats = {
   //  LEAVE EARNINGS
   // ══════════════════════════════════════════════════════════════════════════════
 
+  /** Admin: all approved leave earnings for assignment balance summaries. */
+  router.get("/leave/approved-summary", authenticateToken, requireAdmin, (req, res) => {
+    db.query(
+      `SELECT employee_number, leave_code, period_year, period_month, earned_hours, earn_status
+       FROM leave_earnings
+       WHERE earn_status = 'approved'
+       ORDER BY employee_number, leave_code, period_year DESC, period_month DESC`,
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: "Failed to fetch approved leave earnings" });
+        res.json(Array.isArray(rows) ? rows : []);
+      },
+    );
+  });
+
   router.get("/leave/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
     const now = new Date();
@@ -1779,22 +1754,9 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     (async () => {
       try {
         const beforeHrs = await getLeaveRemainingHours(employeeNumber, leave_code);
-        await rollForwardLeaveBalance({
-          employeeNumber,
-          leaveCode: leave_code,
-          periodYear: py,
-          periodMonth: pm,
-        });
         await runNegativeLeaveDeductionPipeline(req, rec, null);
         const afterHrs = await getLeaveRemainingHours(employeeNumber, leave_code);
         const deductedHrs = Math.abs(toNum(hrs));
-        await propagateEarnedHoursToLaterPeriods({
-          employeeNumber,
-          leaveCode: leave_code,
-          periodYear: py,
-          periodMonth: pm,
-          earnedHours: hrs,
-        });
         try {
           const io = getIo(req);
           if (io) {
@@ -2029,6 +1991,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
       if (err || !rows.length) return res.status(404).json({ error: "Record not found" });
       const rec = rows[0];
       if (rec.earn_status === "approved") return res.status(400).json({ error: "Already approved" });
+      if (Number(rec.is_applied) === 1) return res.status(400).json({ error: "Earning already applied to assignment" });
 
       db.query(
         `UPDATE leave_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?`,
@@ -2041,41 +2004,31 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
 
           (async () => {
             const beforeBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
-            // Roll-forward first so the target period row reflects prior remaining balance
-            await rollForwardLeaveBalance({
+
+            let matched = await findPeriodAssignment({
               employeeNumber: rec.employee_number,
               leaveCode: rec.leave_code,
               periodYear: rec.period_year,
-              periodMonth: periodMonth || 0,
+              periodMonth,
             });
 
-            const mStr = periodMonth ? String(periodMonth) : null;
-            const mPad = periodMonth ? String(periodMonth).padStart(2, "0") : null;
-            const findQuery = periodMonth
-              ? `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND (period_semester = ? OR period_semester = ?) ORDER BY id DESC LIMIT 1`
-              : `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? ORDER BY id DESC LIMIT 1`;
-            const findParams = periodMonth
-              ? [rec.employee_number, rec.leave_code, rec.period_year, mStr, mPad]
-              : [rec.employee_number, rec.leave_code, rec.period_year];
-
-            const matched = await new Promise((resolve) => {
-              db.query(findQuery, findParams, (e3, laRows) =>
-                resolve((!e3 && laRows && laRows[0]) ? laRows[0] : null),
-              );
-            });
+            if (!matched && periodMonth) {
+              matched = await ensurePeriodAssignment({
+                employeeNumber: rec.employee_number,
+                leaveCode: rec.leave_code,
+                periodYear: rec.period_year,
+                periodMonth,
+              });
+            }
 
             const afterUpdate = async () => {
-              // If a later period (e.g. April) already exists, make it reflect this newly-approved earlier month.
-              // This is what prevents "separate 10 hours record" from looking like it didn't add to the later running balance.
-              if (periodMonth && !(earnedHrs < 0 && !matched)) {
-                await propagateEarnedHoursToLaterPeriods({
-                  employeeNumber: rec.employee_number,
-                  leaveCode: rec.leave_code,
-                  periodYear: rec.period_year,
-                  periodMonth,
-                  earnedHours: earnedHrs,
-                });
-              }
+              await new Promise((resolve, reject) => {
+                db.query(
+                  "UPDATE leave_earnings SET is_applied = 1 WHERE id = ?",
+                  [id],
+                  (e) => (e ? reject(e) : resolve()),
+                );
+              });
 
               const actorEmpNum = getActorEmployeeNumber(req);
               const [actorName, targetName] = await Promise.all([
@@ -2112,7 +2065,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
               );
               await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
 
-              // Notify clients (LeaveAssignment listens to this) so totals refresh immediately.
               try {
                 const io = getIo(req);
                 if (io) {
@@ -2142,64 +2094,36 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             };
 
             if (earnedHrs >= 0) {
-              if (matched) {
-                const prev = matched;
-                const uh = Math.max(0, toNum(prev.used_hours));
-                const ah = Math.max(0, toNum(prev.allocated_hours) + earnedHrs);
-                const cf = Math.max(
-                  0,
-                  await getPriorPeriodCarryForwardHoursForEmployee(
-                    db,
-                    rec.employee_number,
-                    rec.leave_code,
-                    rec.period_year,
-                    periodMonth,
-                  ),
-                );
-                const th = Math.max(0, cf + ah);
-                const rh = Math.max(0, th - uh);
-                const sem =
-                  prev.period_semester != null && prev.period_semester !== ""
-                    ? String(prev.period_semester)
-                    : periodMonth
-                      ? String(periodMonth)
-                      : null;
-                db.query(
-                  `INSERT INTO leave_assignment
-                    (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [
-                    rec.employee_number,
-                    rec.leave_code,
-                    th,
-                    rh,
-                    uh,
-                    cf,
-                    ah,
-                    rec.period_year,
-                    sem,
-                  ],
-                  () => {
-                    afterUpdate();
-                  },
-                );
-              } else {
-                // If no allocation row exists (unlikely for earnings), create it.
-                db.query(
-                  `INSERT INTO leave_assignment (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-                   VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`,
-                  [
-                    rec.employee_number,
-                    rec.leave_code,
-                    earnedHrs,
-                    earnedHrs,
-                    earnedHrs,
-                    rec.period_year,
-                    periodMonth ? String(periodMonth) : null,
-                  ],
-                  () => { afterUpdate(); },
-                );
+              if (!matched) {
+                matched = await ensurePeriodAssignment({
+                  employeeNumber: rec.employee_number,
+                  leaveCode: rec.leave_code,
+                  periodYear: rec.period_year,
+                  periodMonth: periodMonth || 0,
+                });
               }
+              if (!matched) throw new Error("Could not find or create assignment for earning period");
+
+              const repaired = await repairPeriodCarryForwardIfEmpty(db, matched);
+              const recomputed = await recomputeAssignmentLedgerFields(db, repaired);
+              await new Promise((resolve, reject) => {
+                db.query(
+                  `UPDATE leave_assignment SET
+                     allocated_hours = ?, total_hours = ?, remaining_hours = ?,
+                     carried_forward_hours = ?, earning_status = ?
+                   WHERE id = ?`,
+                  [
+                    recomputed.allocated_hours,
+                    recomputed.total_hours,
+                    recomputed.remaining_hours,
+                    recomputed.carried_forward_hours,
+                    recomputed.earning_status,
+                    matched.id,
+                  ],
+                  (e) => (e ? reject(e) : resolve()),
+                );
+              });
+              await afterUpdate();
             } else {
               try {
                 await runNegativeLeaveDeductionPipeline(req, rec, parseInt(id, 10));
@@ -2210,8 +2134,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
               }
             }
           })().catch((e) => {
-            console.error("[earnings] roll-forward/approve error:", e.message);
-            // Still respond with a safe error
+            console.error("[earnings] approve error:", e.message);
             res.status(500).json({ error: "Failed to approve earning", detail: e.message });
           });
         }
@@ -2466,8 +2389,31 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
   //  SC EARNINGS
   // ══════════════════════════════════════════════════════════════════════════════
 
+  const ensureScPeriodRow = (rec) => ensureScPeriodRowAsync(db, rec);
+
+  const refreshScPeriodLedger = async (periodRow) => {
+    const ledger = await recomputeScLedgerFieldsAsync(db, periodRow);
+    await scQueryAsync(
+      db,
+      `UPDATE service_credit SET
+         total_hours = ?, remaining_hours = ?, earning_status = ?,
+         earned_hours = ?, used_hours = ?, carried_forward_hours = ?
+       WHERE id = ?`,
+      [
+        ledger.total_hours,
+        ledger.remaining_hours,
+        ledger.earning_status,
+        ledger.earned_hours,
+        ledger.used_hours,
+        ledger.carried_forward_hours,
+        periodRow.id,
+      ],
+    );
+    return ledger;
+  };
+
   /**
-   * Negative SC balance adjustments: snapshot row in service_credit + service_credit_usage.
+   * Negative SC balance adjustments: period snapshot row in service_credit + service_credit_usage.
    * scEarningRowId links usage remarks to sc_earning:{id} (legacy pending→approve). When null, remarks use
    * sc_direct_deduction:{ledgerRowId} — no sc_earnings row.
    */
@@ -2487,28 +2433,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         return res.status(500).json({ error: "Failed to read service credit balance" });
       }
       const totalRemBefore = cur.remaining;
-      const totalEarned = cur.earned;
-      const usedBefore = cur.used;
-      const applyHrs = Math.min(needScHrs, Math.max(0, totalRemBefore));
-      const scShortfallHrs = Math.max(0, needScHrs - totalRemBefore);
-      const scNegBalDays = (totalRemBefore - needScHrs) / 8;
-      const snapUsed = usedBefore + applyHrs;
-      const snapRem = totalRemBefore - applyHrs;
-
-      const baseMeta = {
-        needScHrs,
-        scShortfallHrs,
-        scNegBalDays,
-        totalRemBefore,
-        snapRem,
-        applyHrs,
-        attendanceScEarningId: Number.isFinite(attendanceScEarningId) ? attendanceScEarningId : null,
-        attendanceServiceCreditLedgerId: null,
-      };
-
-      if (applyHrs <= 0) {
-        return onDone(baseMeta);
-      }
 
       const usageRemarkEarning =
         scEarningRowId != null ? `sc_earning:${scEarningRowId}` : null;
@@ -2517,73 +2441,127 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           ? [usageRemarkEarning, rec.remarks].filter(Boolean).join(" · ")
           : rec.remarks || null;
 
-      db.query(
-        `INSERT INTO service_credit
-          (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
-           earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
-         VALUES (?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          rec.employee_number,
-          scType,
-          totalEarned,
-          snapRem,
-          snapUsed,
-          rec.period_year,
-          periodMonth,
-          ledgerRemarksInitial,
-          rec.emp_category_snapshot || null,
-        ],
-        (errIns, insRes) => {
-          if (errIns) {
-            console.error("[earnings] SC deduction ledger insert:", errIns);
-            return res.status(500).json({ error: "Failed to record SC deduction ledger" });
-          }
-          const newScId = insRes.insertId;
-          const usageRemark =
-            usageRemarkEarning != null ? usageRemarkEarning : `sc_direct_deduction:${newScId}`;
+      (async () => {
+        try {
+          const emp = String(rec.employee_number || "").trim();
+          let periodBase = await findLatestScPeriodRow(
+            db,
+            emp,
+            scType,
+            rec.period_year,
+            periodMonth,
+          );
+          const { periods, earnings } = await loadScChainContextAsync(db, emp, scType);
 
-          const insertUsageAndDone = () => {
-            db.query(
-              `INSERT INTO service_credit_usage
-               (service_credit_id, employeeNumber, action, hours_applied, target_leave_code, processed_by, remarks)
-               VALUES (?,?,?,?,?,?,?)`,
-              [
-                newScId,
-                rec.employee_number,
-                "offset",
-                applyHrs,
-                null,
-                req.user?.username || null,
-                usageRemark,
-              ],
-              (errI) => {
-                if (errI) console.error("[earnings] SC usage audit:", errI);
-                onDone({
-                  ...baseMeta,
-                  attendanceServiceCreditLedgerId:
-                    usageRemarkEarning != null ? null : newScId,
-                });
-              },
+          if (periodBase) {
+            periodBase = alignScPeriodBaseForAppend(periodBase, periods, earnings);
+            const fresh = await scQueryAsync(db, "SELECT * FROM service_credit WHERE id = ?", [periodBase.id]);
+            if (fresh[0]) periodBase = { ...periodBase, ...fresh[0] };
+          } else {
+            const carry = getPriorPeriodScCarryForward(
+              periods,
+              earnings,
+              rec.period_year,
+              periodMonth,
             );
+            periodBase = {
+              employeeNumber: emp,
+              sc_type: scType,
+              period_year: rec.period_year,
+              period_month: periodMonth,
+              earned_hours: carry,
+              carried_forward_hours: carry,
+              used_hours: 0,
+              total_ot_hours: 0,
+              ot_hours_regular: 0,
+              ot_hours_holiday: 0,
+              ot_hours_night_diff: 0,
+              emp_category_snapshot: rec.emp_category_snapshot || null,
+            };
+          }
+
+          const usedBefore = toNum(periodBase.used_hours);
+          const applyHrs = Math.min(needScHrs, Math.max(0, totalRemBefore));
+          const scShortfallHrs = Math.max(0, needScHrs - totalRemBefore);
+          const scNegBalDays = (totalRemBefore - needScHrs) / 8;
+          const snapUsed = usedBefore + applyHrs;
+          const snapRem = Math.max(0, totalRemBefore - applyHrs);
+
+          const baseMeta = {
+            needScHrs,
+            scShortfallHrs,
+            scNegBalDays,
+            totalRemBefore,
+            snapRem,
+            applyHrs,
+            attendanceScEarningId: Number.isFinite(attendanceScEarningId) ? attendanceScEarningId : null,
+            attendanceServiceCreditLedgerId: null,
           };
 
-          if (usageRemarkEarning == null) {
-            const ledgerFull = [usageRemark, rec.remarks].filter(Boolean).join(" · ");
-            db.query(
-              `UPDATE service_credit SET remarks = ? WHERE id = ?`,
-              [ledgerFull, newScId],
-              (eUp) => {
-                if (eUp) console.error("[earnings] SC deduction ledger remark update:", eUp);
-                insertUsageAndDone();
-              },
-            );
-          } else {
-            insertUsageAndDone();
+          if (applyHrs <= 0) {
+            return onDone(baseMeta);
           }
-        },
-      );
+
+          const existingDeduction = await findExistingScDeductionSnapshotAsync(
+            db,
+            emp,
+            scType,
+            rec.period_year,
+            periodMonth,
+            applyHrs,
+            ledgerRemarksInitial,
+          );
+          if (existingDeduction?.id) {
+            baseMeta.attendanceServiceCreditLedgerId = existingDeduction.id;
+            return onDone(baseMeta);
+          }
+
+          const working = { ...periodBase, used_hours: snapUsed };
+          const ledger = await recomputeScLedgerFieldsAsync(db, working);
+
+          const newRow = await appendScLedgerSnapshotAsync(db, periodBase, ledger, {
+            remarks: ledgerRemarksInitial,
+            stampUsedDelta: applyHrs,
+          });
+          baseMeta.attendanceServiceCreditLedgerId = newRow.id;
+
+          const usageRemark =
+            usageRemarkEarning != null ? usageRemarkEarning : `sc_direct_deduction:${newRow.id}`;
+
+          await scQueryAsync(
+            db,
+            `INSERT INTO service_credit_usage
+             (service_credit_id, employeeNumber, action, hours_applied, target_leave_code, processed_by, remarks)
+             VALUES (?,?,?,?,?,?,?)`,
+            [
+              newRow.id,
+              emp,
+              "offset",
+              applyHrs,
+              null,
+              req.user?.username || null,
+              usageRemark,
+            ],
+          );
+
+          onDone(baseMeta);
+        } catch (errIns) {
+          console.error("[earnings] SC deduction ledger update:", errIns);
+          res.status(500).json({ error: "Failed to record SC deduction ledger" });
+        }
+      })();
     });
   };
+
+  router.get("/sc/all", authenticateToken, requireAdmin, (req, res) => {
+    db.query(
+      `SELECT * FROM sc_earnings ORDER BY period_year DESC, period_month DESC, created_at DESC`,
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: "Failed to fetch SC earnings" });
+        res.json({ earnings: rows || [] });
+      },
+    );
+  });
 
   router.get("/sc/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
@@ -2614,6 +2592,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         WHERE u.employeeNumber = ?
           AND u.action = 'offset'
           AND u.remarks LIKE 'sc_direct_deduction:%'
+          AND sc.voided_at IS NULL
       `;
       if (all !== "true") {
         ledgerSql += ` AND sc.period_year = ? AND sc.period_month = ?`;
@@ -2649,7 +2628,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     });
   });
 
-  router.post("/sc", authenticateToken, requireAdmin, (req, res) => {
+  router.post("/sc", authenticateToken, requireAdmin, async (req, res) => {
     const { employeeNumber, sc_type = "non_commutative", ot_hours_regular = 0, ot_hours_holiday = 0, ot_hours_night_diff = 0, total_ot_hours, earned_hours, period_year, period_month, remarks, emp_category_snapshot } = req.body;
 
     if (!employeeNumber || !period_year || !period_month)
@@ -2660,6 +2639,24 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     const isDeduction = entry_type_val === "DEDUCTION";
     if (!isDeduction && earnedHrs <= 0) return res.status(400).json({ error: "earned_hours must be > 0" });
     if (isDeduction && earnedHrs >= 0) return res.status(400).json({ error: "Deduction earned_hours must be negative" });
+
+    if (!isDeduction) {
+      try {
+        const pm = parseInt(period_month, 10);
+        const allRows = await scQueryAsync(
+          db,
+          "SELECT * FROM service_credit WHERE employeeNumber = ? AND sc_type = ?",
+          [String(employeeNumber), sc_type],
+        );
+        if (isScPeriodKeyClosed(allRows, period_year, pm, sc_type)) {
+          return res.status(400).json({
+            error: "This period is voided or commuted and cannot receive new credits.",
+          });
+        }
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
 
     if (isDeduction) {
       const rec = {
@@ -2926,14 +2923,30 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
       /** Ledger first, then mark approved + audit + transaction log (avoids approved rows with no audit_log). */
       const markScEarningApprovedThenFinalize = (finalizeArgs) => {
         db.query(
-          `UPDATE sc_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND earn_status = 'pending'`,
+          `UPDATE sc_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW(), is_applied = 1 WHERE id = ? AND earn_status = 'pending'`,
           [req.user?.username || null, id],
           (errUp, resultUp) => {
             if (errUp) return res.status(500).json({ error: "Failed to approve SC" });
             if (!resultUp || resultUp.affectedRows === 0) {
               return res.status(409).json({ error: "SC earning was already processed" });
             }
-            runScApproveFinalize(finalizeArgs);
+            (async () => {
+              try {
+                if (!finalizeArgs.skipLedgerRefresh) {
+                  const periodRow = await findLatestScPeriodRow(
+                    db,
+                    rec.employee_number,
+                    scType,
+                    rec.period_year,
+                    rec.period_month,
+                  );
+                  if (periodRow) await refreshScPeriodLedger(periodRow);
+                }
+              } catch (e) {
+                console.error("[earnings] SC approve earning_status refresh:", e.message);
+              }
+              runScApproveFinalize(finalizeArgs);
+            })();
           },
         );
       };
@@ -2943,6 +2956,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         applyScDeductionLedger(req, res, rec, id, (meta) => {
           markScEarningApprovedThenFinalize({
             isScDeduction: true,
+            skipLedgerRefresh: true,
             needScHrs: meta.needScHrs,
             scShortfallHrs: meta.scShortfallHrs,
             scNegBalDays: meta.scNegBalDays,
@@ -2956,53 +2970,38 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         return;
       }
 
-      // Append-only earn line: earned_hours = this approval only; remaining_hours = balance after;
-      // used_hours = 0 (cumulative used lives on prior deduction/snapshot rows — see getServiceCreditRunningTotals).
+      // Positive earn: update period ledger flags only — do NOT insert earnings into service_credit.
       getServiceCreditRunningTotals(rec.employee_number, scType, (err3, cur) => {
         if (err3) {
           console.error("[earnings] SC approve running totals:", err3);
           return res.status(500).json({ error: "Failed to read service credit balance" });
         }
         const balBefore = toNum(cur.remaining);
-        const r1 = balBefore + earnedHrs;
-        const ledgerRemarks = [`sc_earning:${id}`, rec.remarks].filter(Boolean).join(" · ");
 
-        db.query(
-          `INSERT INTO service_credit
-            (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
-             earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            rec.employee_number,
-            scType,
-            toNum(rec.ot_hours_regular),
-            toNum(rec.ot_hours_holiday),
-            toNum(rec.ot_hours_night_diff),
-            toNum(rec.total_ot_hours),
-            earnedHrs,
-            r1,
-            0,
-            rec.period_year,
-            periodMonth,
-            ledgerRemarks,
-            rec.emp_category_snapshot || null,
-          ],
-          (errIns) => {
-            if (errIns) {
-              console.error("[earnings] SC approve service_credit insert:", errIns);
-              return res.status(500).json({ error: "Failed to record service credit ledger" });
-            }
-            markScEarningApprovedThenFinalize({
-              isScDeduction: false,
-              needScHrs: 0,
-              scShortfallHrs: 0,
-              scNegBalDays: 0,
-              balBeforeHrs: balBefore,
-              balAfterHrs: r1,
-              balDeltaHrs: earnedHrs,
+        (async () => {
+          try {
+            await ensureScPeriodRow(rec);
+
+            getServiceCreditRunningTotals(rec.employee_number, scType, (err4, curAfter) => {
+              if (err4) {
+                return res.status(500).json({ error: "Failed to read balance after approval" });
+              }
+              const balAfter = toNum(curAfter.remaining);
+              markScEarningApprovedThenFinalize({
+                isScDeduction: false,
+                needScHrs: 0,
+                scShortfallHrs: 0,
+                scNegBalDays: 0,
+                balBeforeHrs: balBefore,
+                balAfterHrs: balAfter,
+                balDeltaHrs: earnedHrs,
+              });
             });
-          },
-        );
+          } catch (e) {
+            console.error("[earnings] SC approve period refresh:", e);
+            res.status(500).json({ error: "Failed to update service credit period" });
+          }
+        })();
       });
     });
   });
@@ -3058,10 +3057,10 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
       if (err || !rows.length) return res.status(404).json({ error: "Not found" });
       const rec = rows[0];
 
-      const doDelete = () => {
-        db.query("DELETE FROM sc_earnings WHERE id = ?", [id], (err2) => {
-          if (err2) return res.status(500).json({ error: "Failed to delete SC" });
-          auditEarning(req, "deleted service credit earnings", "sc", parseInt(id), rec.earn_status, null, rec);
+      const doVoid = () => {
+        db.query("UPDATE sc_earnings SET voided_at = NOW(), voided = 1, is_applied = 0 WHERE id = ?", [id], (err2) => {
+          if (err2) return res.status(500).json({ error: "Failed to void SC earning" });
+          auditEarning(req, "voided service credit earnings", "sc", parseInt(id), rec.earn_status, null, rec);
           emitEarningsChanged("deleted", {
             module: "sc",
             employeeNumber: String(rec.employee_number),
@@ -3076,7 +3075,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
               getEmployeeFullName(rec.employee_number),
             ]);
             const txMessage = buildEarningsTransactionMessage({
-              actionLabel: "deleted",
+              actionLabel: "voided",
               actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
               targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
               earningTypeLabel: "service credit earnings",
@@ -3086,7 +3085,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
             });
             await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
           })();
-          res.json({ deleted: true, id: parseInt(id) });
+          res.json({ voided: true, id: parseInt(id) });
         });
       };
 
@@ -3097,156 +3096,87 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         const isScDeductionDel = delEntryUpper === "DEDUCTION" && earnedHrs < 0;
 
         if (isScDeductionDel) {
-          const mark = `sc_earning:${id}`;
-          const insertLedgerReversal = (voidedRow, applyHrs, cb) => {
-            const E0 = toNum(voidedRow.earned_hours);
-            const U0 = toNum(voidedRow.used_hours);
-            const R0 = toNum(voidedRow.remaining_hours);
-            const useSnapshotMath =
-              applyHrs > 0 && E0 >= 0 && R0 >= 0 && U0 >= 0;
-            let E;
-            let U;
-            let R;
-            if (useSnapshotMath) {
-              E = E0;
-              U = U0 - applyHrs;
-              R = R0 + applyHrs;
-            } else {
-              E = 0;
-              R = -R0;
-              U = -U0;
+          (async () => {
+            try {
+              await reverseScDeductionEarningAsync(db, rec);
+              await attendanceWriter.voidAttendanceResultsForScDeduction({ sc_earning_id: parseInt(id, 10) });
+            } catch (e) {
+              console.error("[earnings] SC deduction void reversal:", e);
             }
-            db.query(
-              `INSERT INTO service_credit
-                (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
-                 earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
-               VALUES (?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                rec.employee_number,
-                rec.sc_type || "non_commutative",
-                E,
-                R,
-                U,
-                rec.period_year,
-                periodMonth,
-                `sc_earning_reversal:${id}`,
-                null,
-              ],
-              (errRev) => {
-                if (errRev) console.error("[earnings] SC delete reversal ledger:", errRev);
-                cb();
-              },
-            );
-          };
-
-          db.query(
-            `SELECT * FROM service_credit
-             WHERE employeeNumber = ?
-               AND (remarks = ? OR remarks LIKE ?)`,
-            [rec.employee_number, mark, `${mark} ·%`],
-            (errL, ledgerRows) => {
-              if (errL) {
-                console.error("[earnings] SC delete ledger lookup:", errL);
-                return doDelete();
-              }
-              const lr = ledgerRows && ledgerRows.length ? ledgerRows : [];
-              const isDeductionLedger = (row) => {
-                const r = String(row.remarks || "");
-                return r === mark || r.startsWith(`${mark} ·`);
-              };
-
-              const toReverse = lr.filter(isDeductionLedger);
-              if (toReverse.length) {
-                let k = 0;
-                const nextRev = () => {
-                  if (k >= toReverse.length) {
-                    return db.query(
-                      `DELETE FROM service_credit_usage WHERE employeeNumber = ? AND remarks = ?`,
-                      [rec.employee_number, mark],
-                      () => doDelete(),
-                    );
-                  }
-                  const voidedRow = toReverse[k++];
-                  db.query(
-                    `SELECT hours_applied FROM service_credit_usage WHERE service_credit_id = ? LIMIT 1`,
-                    [voidedRow.id],
-                    (eu, urows) => {
-                      const applyHrs = urows && urows[0] ? toNum(urows[0].hours_applied) : 0;
-                      insertLedgerReversal(voidedRow, applyHrs, nextRev);
-                    },
-                  );
-                };
-                return nextRev();
-              }
-
-              db.query(
-                `SELECT * FROM service_credit_usage WHERE employeeNumber = ? AND remarks = ?`,
-                [rec.employee_number, mark],
-                (errU, uRows) => {
-                  if (errU) {
-                    console.error("[earnings] SC delete usage lookup:", errU);
-                    return doDelete();
-                  }
-                  const rows = uRows && uRows.length ? uRows : [];
-                  if (!rows.length) return doDelete();
-                  let i = 0;
-                  const next = () => {
-                    if (i >= rows.length) return doDelete();
-                    const u = rows[i++];
-                    const hrs = toNum(u.hours_applied);
-                    db.query(
-                      `UPDATE service_credit SET
-                        remaining_hours = remaining_hours + ?,
-                        used_hours = GREATEST(0, used_hours - ?)
-                      WHERE id = ?`,
-                      [hrs, hrs, u.service_credit_id],
-                      (errR) => {
-                        if (errR) console.error("[earnings] SC delete pool restore:", errR);
-                        db.query(`DELETE FROM service_credit_usage WHERE id = ?`, [u.id], next);
-                      },
-                    );
-                  };
-                  next();
-                },
-              );
-            },
-          );
+            auditEarning(req, "voided service credit earnings", "sc", parseInt(id), rec.earn_status, null, rec);
+            emitEarningsChanged("deleted", {
+              module: "sc",
+              employeeNumber: String(rec.employee_number),
+              period_year: rec.period_year,
+              period_month: rec.period_month,
+              earning_id: parseInt(id, 10),
+            });
+            res.json({ voided: true, id: parseInt(id) });
+          })();
           return;
         }
 
         const scTypeDel = rec.sc_type || "non_commutative";
-        getServiceCreditRunningTotals(rec.employee_number, scTypeDel, (err2, cur) => {
-          if (err2) {
-            console.error("[earnings] SC delete earn reversal totals:", err2);
-            return doDelete();
-          }
-          const eRev = Math.max(0, toNum(cur.earned) - earnedHrs);
-          const rRev = Math.max(0, toNum(cur.remaining) - earnedHrs);
-          const uRev = toNum(cur.used);
-          db.query(
-            `INSERT INTO service_credit
-              (employeeNumber, sc_type, ot_hours_regular, ot_hours_holiday, ot_hours_night_diff, total_ot_hours,
-               earned_hours, remaining_hours, used_hours, period_year, period_month, remarks, emp_category_snapshot)
-             VALUES (?, ?, 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
-            [
+        (async () => {
+          try {
+            const reversal = await reverseScPeriodAttendanceDeductionsAsync(
+              db,
               rec.employee_number,
               scTypeDel,
-              eRev,
-              rRev,
-              uRev,
               rec.period_year,
-              periodMonth,
-              `sc_earning_delete_reversal:${id}`,
-              null,
-            ],
-            (errRev) => {
-              if (errRev) console.error("[earnings] SC delete earn reversal ledger:", errRev);
-              doDelete();
-            },
-          );
-        });
+              rec.period_month,
+            );
+            for (const eid of reversal.voidedEarningIds) {
+              await attendanceWriter.voidAttendanceResultsForScDeduction({ sc_earning_id: eid });
+            }
+            for (const lid of reversal.voidedLedgerIds) {
+              await attendanceWriter.voidAttendanceResultsForScDeduction({ service_credit_ledger_id: lid });
+            }
+            await scExecAsync(
+              db,
+              "UPDATE sc_earnings SET voided_at = NOW(), voided = 1, is_applied = 0 WHERE id = ?",
+              [id],
+            );
+            const periodRow = await findLatestScPeriodRow(
+              db,
+              rec.employee_number,
+              scTypeDel,
+              rec.period_year,
+              rec.period_month,
+            );
+            if (periodRow) await refreshScPeriodLedgerOnRow(db, periodRow);
+          } catch (e) {
+            console.error("[earnings] SC void earn cascade reversal:", e);
+          }
+          auditEarning(req, "voided service credit earnings", "sc", parseInt(id), rec.earn_status, null, rec);
+          emitEarningsChanged("deleted", {
+            module: "sc",
+            employeeNumber: String(rec.employee_number),
+            period_year: rec.period_year,
+            period_month: rec.period_month,
+            earning_id: parseInt(id, 10),
+          });
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "voided",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+              earningTypeLabel: "service credit earnings",
+              hoursValue: toNum(rec.earned_hours),
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+          })();
+          res.json({ voided: true, id: parseInt(id) });
+        })();
       } else {
-        doDelete();
+        doVoid();
       }
     });
   });
@@ -3254,6 +3184,10 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
   // ══════════════════════════════════════════════════════════════════════════════
   //  CTO EARNINGS
   // ══════════════════════════════════════════════════════════════════════════════
+
+  const ensureCtoPeriodRow = (rec) => ensureCtoPeriodRowAsync(db, rec);
+
+  const refreshCtoPeriodLedger = async (periodRow) => refreshCtoPeriodLedgerOnRow(db, periodRow);
 
   /**
    * CTO deductions: new cto_credit snapshot row (earned/used/remaining) + cto_usage, mirroring service_credit.
@@ -3275,32 +3209,6 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
         return res.status(500).json({ error: "Failed to read CTO balance" });
       }
       const totalRemBefore = cur.remaining;
-      const totalEarned = cur.earned;
-      const usedBefore = cur.used;
-      const applyHrs = Math.min(needHrs, Math.max(0, totalRemBefore));
-      const ctoShortfallHrs = Math.max(0, needHrs - totalRemBefore);
-      const ctoNegBalDays = (totalRemBefore - needHrs) / 8;
-      const snapUsed = usedBefore + applyHrs;
-      const snapRem = totalRemBefore - applyHrs;
-
-      const batchKey = `b:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
-
-      const baseMeta = {
-        needCtoHrs: needHrs,
-        ctoShortfallHrs,
-        ctoNegBalDays,
-        totalRemBefore,
-        snapRem,
-        applyHrs,
-        attendanceCtoEarningId: Number.isFinite(attendanceCtoEarningId) ? attendanceCtoEarningId : null,
-        attendanceCtoCreditLedgerId: null,
-        attendanceCtoDeductionSourceKey: null,
-      };
-
-      if (applyHrs <= 1e-9) {
-        baseMeta.attendanceCtoDeductionSourceKey = batchKey;
-        return onDone(baseMeta);
-      }
 
       const usageRemarkEarning =
         ctoEarningRowId != null ? `cto_earning:${ctoEarningRowId}` : null;
@@ -3309,64 +3217,123 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
           ? [usageRemarkEarning, rec.remarks].filter(Boolean).join(" · ")
           : rec.remarks || null;
 
-      db.query(
-        `INSERT INTO cto_credit
-          (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot)
-         VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          rec.employee_number,
-          totalEarned,
-          snapRem,
-          snapUsed,
-          rec.period_year,
-          periodMonth,
-          rec.expiry_date || null,
-          ledgerRemarksInitial,
-          rec.emp_category_snapshot || null,
-        ],
-        (errIns, insRes) => {
-          if (errIns) {
-            console.error("[earnings] CTO deduction ledger insert:", errIns);
-            return res.status(500).json({ error: "Failed to record CTO deduction ledger" });
-          }
-          const newCtoId = insRes.insertId;
-          const usageRemark =
-            usageRemarkEarning != null ? usageRemarkEarning : `cto_direct_deduction:${newCtoId}`;
+      (async () => {
+        try {
+          const emp = String(rec.employee_number || "").trim();
+          let periodBase = await findLatestCtoPeriodRow(
+            db,
+            emp,
+            rec.period_year,
+            periodMonth,
+          );
+          const { periods, earnings } = await loadCtoChainContextAsync(db, emp);
 
-          const insertUsageAndDone = () => {
-            const usageLine = [usageRemark, rec.remarks].filter(Boolean).join(" · ") || usageRemark;
-            db.query(
-              `INSERT INTO cto_usage (cto_credit_id, employeeNumber, action, hours_applied, date_used, remarks)
-               VALUES (?,?,?,?,?,?)`,
-              [newCtoId, rec.employee_number, "offset", applyHrs, null, usageLine],
-              (errI) => {
-                if (errI) console.error("[earnings] CTO usage insert:", errI);
-                onDone({
-                  ...baseMeta,
-                  attendanceCtoCreditLedgerId:
-                    usageRemarkEarning != null ? null : newCtoId,
-                });
-              },
+          if (periodBase) {
+            periodBase = alignCtoPeriodBaseForAppend(periodBase, periods, earnings);
+            const fresh = await ctoQueryAsync(db, "SELECT * FROM cto_credit WHERE id = ?", [periodBase.id]);
+            if (fresh[0]) periodBase = { ...periodBase, ...fresh[0] };
+          } else {
+            const carry = getPriorPeriodCtoCarryForward(
+              periods,
+              earnings,
+              rec.period_year,
+              periodMonth,
             );
+            periodBase = {
+              employeeNumber: emp,
+              period_year: rec.period_year,
+              period_month: periodMonth,
+              earned_hours: carry,
+              carried_forward_hours: carry,
+              used_hours: 0,
+              ot_hours: 0,
+              emp_category_snapshot: rec.emp_category_snapshot || null,
+            };
+          }
+
+          const usedBefore = toNum(periodBase.used_hours);
+          const applyHrs = Math.min(needHrs, Math.max(0, totalRemBefore));
+          const ctoShortfallHrs = Math.max(0, needHrs - totalRemBefore);
+          const ctoNegBalDays = (totalRemBefore - needHrs) / 8;
+          const snapUsed = usedBefore + applyHrs;
+          const snapRem = Math.max(0, totalRemBefore - applyHrs);
+
+          const batchKey = `b:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
+
+          const baseMeta = {
+            needCtoHrs: needHrs,
+            ctoShortfallHrs,
+            ctoNegBalDays,
+            totalRemBefore,
+            snapRem,
+            applyHrs,
+            attendanceCtoEarningId: Number.isFinite(attendanceCtoEarningId) ? attendanceCtoEarningId : null,
+            attendanceCtoCreditLedgerId: null,
+            attendanceCtoDeductionSourceKey: null,
           };
 
-          if (usageRemarkEarning == null) {
-            const ledgerFull = [usageRemark, rec.remarks].filter(Boolean).join(" · ");
-            db.query(
-              `UPDATE cto_credit SET remarks = ? WHERE id = ?`,
-              [ledgerFull, newCtoId],
-              (eUp) => {
-                if (eUp) console.error("[earnings] CTO deduction ledger remark update:", eUp);
-                insertUsageAndDone();
-              },
-            );
-          } else {
-            insertUsageAndDone();
+          if (applyHrs <= 0) {
+            baseMeta.attendanceCtoDeductionSourceKey = batchKey;
+            return onDone(baseMeta);
           }
-        },
-      );
+
+          const existingDeduction = await findExistingCtoDeductionSnapshotAsync(
+            db,
+            emp,
+            rec.period_year,
+            periodMonth,
+            applyHrs,
+            ledgerRemarksInitial,
+          );
+          if (existingDeduction?.id) {
+            baseMeta.attendanceCtoCreditLedgerId = existingDeduction.id;
+            return onDone(baseMeta);
+          }
+
+          const working = { ...periodBase, used_hours: snapUsed };
+          const ledger = await recomputeCtoLedgerFieldsAsync(db, working);
+
+          const newRow = await appendCtoLedgerSnapshotAsync(db, periodBase, ledger, {
+            remarks: ledgerRemarksInitial,
+            stampUsedDelta: applyHrs,
+          });
+          baseMeta.attendanceCtoCreditLedgerId = newRow.id;
+
+          const usageRemark =
+            usageRemarkEarning != null ? usageRemarkEarning : `cto_direct_deduction:${newRow.id}`;
+
+          await ctoQueryAsync(
+            db,
+            `INSERT INTO cto_usage (cto_credit_id, employeeNumber, action, hours_applied, date_used, remarks)
+             VALUES (?,?,?,?,?,?)`,
+            [
+              newRow.id,
+              emp,
+              "offset",
+              applyHrs,
+              null,
+              [usageRemark, rec.remarks].filter(Boolean).join(" · ") || usageRemark,
+            ],
+          );
+
+          onDone(baseMeta);
+        } catch (errIns) {
+          console.error("[earnings] CTO deduction ledger update:", errIns);
+          res.status(500).json({ error: "Failed to record CTO deduction ledger" });
+        }
+      })();
     });
   };
+
+  router.get("/cto/all", authenticateToken, requireAdmin, (req, res) => {
+    db.query(
+      `SELECT * FROM cto_earnings ORDER BY period_year DESC, period_month DESC, created_at DESC`,
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: "Failed to fetch CTO earnings" });
+        res.json({ earnings: rows || [] });
+      },
+    );
+  });
 
   router.get("/cto/:employeeNumber", authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
     const { employeeNumber } = req.params;
@@ -3436,7 +3403,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     });
   });
 
-  router.post("/cto", authenticateToken, requireAdmin, (req, res) => {
+  router.post("/cto", authenticateToken, requireAdmin, async (req, res) => {
     const { employeeNumber, ot_hours, earned_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot } = req.body;
 
     if (!employeeNumber || !period_year || !period_month)
@@ -3447,6 +3414,24 @@ const earnedHrs = toNum(earned_hours || ot_hours);
     const isDeduction = entry_type_val === "DEDUCTION";
     if (!isDeduction && earnedHrs <= 0) return res.status(400).json({ error: "earned_hours must be > 0" });
     if (isDeduction && earnedHrs >= 0) return res.status(400).json({ error: "Deduction earned_hours must be negative" });
+
+    if (!isDeduction) {
+      try {
+        const pm = parseInt(period_month, 10);
+        const allRows = await ctoQueryAsync(
+          db,
+          "SELECT * FROM cto_credit WHERE employeeNumber = ?",
+          [String(employeeNumber)],
+        );
+        if (isCtoPeriodKeyClosed(allRows, period_year, pm)) {
+          return res.status(400).json({
+            error: "This period is voided or commuted and cannot receive new credits.",
+          });
+        }
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
 
     if (isDeduction) {
       const rec = {
@@ -3606,180 +3591,187 @@ const earnedHrs = toNum(earned_hours || ot_hours);
       const rec = rows[0];
       if (rec.earn_status === "approved") return res.status(400).json({ error: "Already approved" });
 
-      db.query(
-        `UPDATE cto_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?`,
-        [req.user?.username || null, id],
-        (err2) => {
-          if (err2) return res.status(500).json({ error: "Failed to approve CTO" });
+      const earnedHrs = toNum(rec.earned_hours);
+      const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
+      const entryTypeUpperCto = String(rec.entry_type || "").toUpperCase();
+      const isCtoDeduction = entryTypeUpperCto === "DEDUCTION" && earnedHrs < 0;
+      const ctoShortfallPm = periodMonth != null ? periodMonth : parseInt(rec.period_month, 10);
 
-          const earnedHrs   = toNum(rec.earned_hours);
-          const otHrs       = toNum(rec.ot_hours) || earnedHrs;
-          const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
-          const entryTypeUpperCto = String(rec.entry_type || "").toUpperCase();
-          const isCtoDeduction = entryTypeUpperCto === "DEDUCTION" && earnedHrs < 0;
-          const ctoShortfallPm = periodMonth != null ? periodMonth : parseInt(rec.period_month, 10);
-
-          if (isCtoDeduction) {
-            applyCtoDeductionLedger(req, res, rec, id, (meta) => {
-              (async () => {
-                try {
-                  if (
-                    Number.isFinite(ctoShortfallPm) &&
-                    ctoShortfallPm >= 1 &&
-                    ctoShortfallPm <= 12
-                  ) {
-                    await attendanceWriter.upsertFromCtoEarningDeduction({
-                      employee_number: rec.employee_number,
-                      cto_earning_id: meta.attendanceCtoEarningId,
-                      cto_credit_ledger_id: meta.attendanceCtoCreditLedgerId,
-                      cto_deduction_source_key: meta.attendanceCtoDeductionSourceKey,
-                      period_year: rec.period_year,
-                      period_month: ctoShortfallPm,
-                      remarks: rec.remarks,
-                      need_hours: meta.needCtoHrs,
-                      shortfall_hours: meta.ctoShortfallHrs,
-                    });
-                    if (meta.ctoShortfallHrs > 0) {
-                      await recordLeaveSalaryShortfall(req, {
-                        employee_number: rec.employee_number,
-                        period_year: rec.period_year,
-                        period_month: ctoShortfallPm,
-                        negative_balance_days: meta.ctoNegBalDays,
-                        shortfall_hours: meta.ctoShortfallHrs,
-                        leave_code: "CTO",
-                        entry_type: "ATTENDANCE_CTO_SALARY_SHORTFALL",
-                        leave_earning_id: null,
-                        remarks: rec.remarks,
-                      });
-                    }
-                  }
-                } catch (e) {
-                  console.error("[earnings] leave_salary_shortfall (CTO approve):", e.message);
-                }
-                const actorEmpNum = getActorEmployeeNumber(req);
-                const [actorName, targetName] = await Promise.all([
-                  getEmployeeFullName(actorEmpNum),
-                  getEmployeeFullName(rec.employee_number),
-                ]);
-                const txMessageBase = buildEarningsTransactionMessage({
-                  actionLabel: "approved",
-                  actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
-                  targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
-                  earningTypeLabel: "CTO earnings",
-                  hoursValue: toNum(rec.earned_hours),
-                  periodYear: rec.period_year,
-                  periodMonth: rec.period_month,
-                });
-                const afterBal = await getCtoRemainingHoursTotal(rec.employee_number);
-                const txMessage =
-                  `${txMessageBase}. Balance updated: ${meta.totalRemBefore.toFixed(3)} hrs → ${toNum(afterBal).toFixed(3)} hrs (−${meta.applyHrs.toFixed(3)} hrs, CTO ledger).`;
-                auditEarning(
-                  req,
-                  "approved cto earnings",
-                  "cto",
-                  parseInt(id),
-                  rec.earn_status,
-                  "approved",
-                  rec,
-                  { transaction_message: txMessage },
-                );
-                await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-                emitEarningsChanged("approved", {
-                  module: "cto",
-                  employeeNumber: String(rec.employee_number),
-                  period_year: rec.period_year,
-                  period_month: rec.period_month,
-                  earning_id: parseInt(id, 10),
-                });
-                db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
-              })().catch((e) => {
-                console.error("[earnings] CTO approve finalize:", e.message);
-                res.status(500).json({ error: e.message || "Failed to finalize CTO approval" });
+      const runCtoApproveFinalize = ({
+        isCtoDeduction: isDeductionFinalize,
+        needCtoHrs = 0,
+        ctoShortfallHrs = 0,
+        ctoNegBalDays = 0,
+        balBeforeHrs = null,
+        balAfterHrs = null,
+        balDeltaHrs = null,
+        attendanceCtoEarningId = null,
+        attendanceCtoCreditLedgerId = null,
+        attendanceCtoDeductionSourceKey = null,
+      }) => {
+        (async () => {
+          try {
+            if (
+              isDeductionFinalize &&
+              Number.isFinite(ctoShortfallPm) &&
+              ctoShortfallPm >= 1 &&
+              ctoShortfallPm <= 12
+            ) {
+              await attendanceWriter.upsertFromCtoEarningDeduction({
+                employee_number: rec.employee_number,
+                cto_earning_id: attendanceCtoEarningId,
+                cto_credit_ledger_id: attendanceCtoCreditLedgerId,
+                cto_deduction_source_key: attendanceCtoDeductionSourceKey,
+                period_year: rec.period_year,
+                period_month: ctoShortfallPm,
+                remarks: rec.remarks,
+                need_hours: needCtoHrs,
+                shortfall_hours: ctoShortfallHrs,
               });
-            });
-            return;
-          }
-
-          // Append-only earn line (same semantics as service_credit from earnings): per-line ot/earned,
-          // cumulative remaining after, used_hours = 0 on earn rows.
-          getCtoCreditRunningTotals(rec.employee_number, (err3, cur) => {
-            if (err3) {
-              console.error("[earnings] CTO approve running totals:", err3);
-              return res.status(500).json({ error: "Failed to read CTO balance" });
+              if (ctoShortfallHrs > 0) {
+                await recordLeaveSalaryShortfall(req, {
+                  employee_number: rec.employee_number,
+                  period_year: rec.period_year,
+                  period_month: ctoShortfallPm,
+                  negative_balance_days: ctoNegBalDays,
+                  shortfall_hours: ctoShortfallHrs,
+                  leave_code: "CTO",
+                  entry_type: "ATTENDANCE_CTO_SALARY_SHORTFALL",
+                  leave_earning_id: null,
+                  remarks: rec.remarks,
+                });
+              }
             }
-            const balBefore = toNum(cur.remaining);
-            const r1 = balBefore + earnedHrs;
-            const ledgerRemarks = [`cto_earning:${id}`, rec.remarks].filter(Boolean).join(" · ");
+          } catch (e) {
+            console.error("[earnings] leave_salary_shortfall (CTO approve):", e.message);
+          }
+          const actorEmpNum = getActorEmployeeNumber(req);
+          const [actorName, targetName] = await Promise.all([
+            getEmployeeFullName(actorEmpNum),
+            getEmployeeFullName(rec.employee_number),
+          ]);
+          const txMessageBase = buildEarningsTransactionMessage({
+            actionLabel: "approved",
+            actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+            targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+            earningTypeLabel: "CTO earnings",
+            hoursValue: toNum(rec.earned_hours),
+            periodYear: rec.period_year,
+            periodMonth: rec.period_month,
+          });
+          const b0 = balBeforeHrs != null ? toNum(balBeforeHrs) : null;
+          const b1 = balAfterHrs != null ? toNum(balAfterHrs) : null;
+          const dd = balDeltaHrs != null ? toNum(balDeltaHrs) : null;
+          const withBal =
+            b0 != null && b1 != null && dd != null
+              ? `${txMessageBase}. Balance updated: ${b0.toFixed(3)} hrs → ${b1.toFixed(3)} hrs (${dd >= 0 ? "+" : "−"}${Math.abs(dd).toFixed(3)} hrs).`
+              : txMessageBase;
+          auditEarning(
+            req,
+            "approved cto earnings",
+            "cto",
+            parseInt(id),
+            rec.earn_status,
+            "approved",
+            rec,
+            { transaction_message: withBal },
+          );
+          await insertTransactionLog(rec.employee_number, withBal, actorEmpNum);
+          emitEarningsChanged("approved", {
+            module: "cto",
+            employeeNumber: String(rec.employee_number),
+            period_year: rec.period_year,
+            period_month: rec.period_month,
+            earning_id: parseInt(id, 10),
+          });
+          db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
+        })().catch((e) => {
+          console.error("[earnings] CTO approve finalize:", e.message);
+          res.status(500).json({ error: e.message || "Failed to finalize CTO approval" });
+        });
+      };
 
-            const afterInsert = () => {
-              (async () => {
-                const actorEmpNum = getActorEmployeeNumber(req);
-                const [actorName, targetName] = await Promise.all([
-                  getEmployeeFullName(actorEmpNum),
-                  getEmployeeFullName(rec.employee_number),
-                ]);
-                const txMessageBase = buildEarningsTransactionMessage({
-                  actionLabel: "approved",
-                  actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
-                  targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
-                  earningTypeLabel: "CTO earnings",
-                  hoursValue: toNum(rec.earned_hours),
-                  periodYear: rec.period_year,
-                  periodMonth: rec.period_month,
-                });
-                const delta = earnedHrs;
-                const txMessage =
-                  `${txMessageBase}. Balance updated: ${balBefore.toFixed(3)} hrs → ${r1.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
-                auditEarning(
-                  req,
-                  "approved cto earnings",
-                  "cto",
-                  parseInt(id),
-                  rec.earn_status,
-                  "approved",
-                  rec,
-                  { transaction_message: txMessage },
-                );
-                await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-                emitEarningsChanged("approved", {
-                  module: "cto",
-                  employeeNumber: String(rec.employee_number),
-                  period_year: rec.period_year,
-                  period_month: rec.period_month,
-                  earning_id: parseInt(id, 10),
-                });
-                db.query("SELECT * FROM cto_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
-              })().catch((e) => {
-                console.error("[earnings] CTO approve finalize:", e.message);
-                res.status(500).json({ error: e.message || "Failed to finalize CTO approval" });
-              });
-            };
-
-            db.query(
-              `INSERT INTO cto_credit
-                (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot)
-               VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-              [
-                rec.employee_number,
-                otHrs,
-                earnedHrs,
-                r1,
-                rec.period_year,
-                periodMonth,
-                rec.expiry_date || null,
-                ledgerRemarks,
-                rec.emp_category_snapshot || null,
-              ],
-              (errIns) => {
-                if (errIns) {
-                  console.error("[earnings] CTO approve cto_credit insert:", errIns);
-                  return res.status(500).json({ error: "Failed to record CTO ledger" });
+      const markCtoEarningApprovedThenFinalize = (finalizeArgs) => {
+        db.query(
+          `UPDATE cto_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND earn_status = 'pending'`,
+          [req.user?.username || null, id],
+          (errUp, resultUp) => {
+            if (errUp) return res.status(500).json({ error: "Failed to approve CTO" });
+            if (!resultUp || resultUp.affectedRows === 0) {
+              return res.status(409).json({ error: "CTO earning was already processed" });
+            }
+            (async () => {
+              try {
+                if (!finalizeArgs.skipLedgerRefresh) {
+                  const periodRow = await findLatestCtoPeriodRow(
+                    db,
+                    rec.employee_number,
+                    rec.period_year,
+                    rec.period_month,
+                  );
+                  if (periodRow) await refreshCtoPeriodLedger(periodRow);
                 }
-                afterInsert();
-              },
-            );
+              } catch (e) {
+                console.error("[earnings] CTO approve earning_status refresh:", e.message);
+              }
+              runCtoApproveFinalize(finalizeArgs);
+            })();
+          },
+        );
+      };
+
+      if (isCtoDeduction) {
+        applyCtoDeductionLedger(req, res, rec, id, (meta) => {
+          markCtoEarningApprovedThenFinalize({
+            isCtoDeduction: true,
+            skipLedgerRefresh: true,
+            needCtoHrs: meta.needCtoHrs,
+            ctoShortfallHrs: meta.ctoShortfallHrs,
+            ctoNegBalDays: meta.ctoNegBalDays,
+            balBeforeHrs: meta.totalRemBefore,
+            balAfterHrs: meta.snapRem,
+            balDeltaHrs: -meta.applyHrs,
+            attendanceCtoEarningId: meta.attendanceCtoEarningId,
+            attendanceCtoCreditLedgerId: meta.attendanceCtoCreditLedgerId,
+            attendanceCtoDeductionSourceKey: meta.attendanceCtoDeductionSourceKey,
           });
         });
+        return;
+      }
+
+      // Positive earn: update period ledger flags only — do NOT insert earnings into cto_credit.
+      getCtoCreditRunningTotals(rec.employee_number, (err3, cur) => {
+        if (err3) {
+          console.error("[earnings] CTO approve running totals:", err3);
+          return res.status(500).json({ error: "Failed to read CTO balance" });
+        }
+        const balBefore = toNum(cur.remaining);
+
+        (async () => {
+          try {
+            await ensureCtoPeriodRow(rec);
+
+            getCtoCreditRunningTotals(rec.employee_number, (err4, curAfter) => {
+              if (err4) {
+                return res.status(500).json({ error: "Failed to read balance after approval" });
+              }
+              const balAfter = toNum(curAfter.remaining);
+              markCtoEarningApprovedThenFinalize({
+                isCtoDeduction: false,
+                needCtoHrs: 0,
+                ctoShortfallHrs: 0,
+                ctoNegBalDays: 0,
+                balBeforeHrs: balBefore,
+                balAfterHrs: balAfter,
+                balDeltaHrs: earnedHrs,
+              });
+            });
+          } catch (e) {
+            console.error("[earnings] CTO approve period refresh:", e);
+            res.status(500).json({ error: "Failed to update CTO period" });
+          }
+        })();
+      });
     });
   });
 
@@ -3934,38 +3926,82 @@ const earnedHrs = toNum(earned_hours || ot_hours);
         };
 
         if (isCtoDeductionDel) {
-          return reverseCtoDeductionUsageThenDelete();
+          (async () => {
+            try {
+              await reverseCtoDeductionEarningAsync(db, rec);
+              await attendanceWriter.voidAttendanceResultsForCtoDeduction({ cto_earning_id: parseInt(id, 10) });
+            } catch (e) {
+              console.error("[earnings] CTO deduction void reversal:", e);
+            }
+            auditEarning(req, "deleted cto earnings", "cto", parseInt(id), rec.earn_status, null, rec);
+            emitEarningsChanged("deleted", {
+              module: "cto",
+              employeeNumber: String(rec.employee_number),
+              period_year: rec.period_year,
+              period_month: rec.period_month,
+              earning_id: parseInt(id, 10),
+            });
+            res.json({ deleted: true, id: parseInt(id) });
+          })();
+          return;
         }
 
-        getCtoCreditRunningTotals(rec.employee_number, (err2, cur) => {
-          if (err2) {
-            console.error("[earnings] CTO delete earn reversal totals:", err2);
-            return doDelete();
-          }
-          const eRev = Math.max(0, toNum(cur.earned) - earnedHrs);
-          const rRev = Math.max(0, toNum(cur.remaining) - earnedHrs);
-          const uRev = toNum(cur.used);
-          db.query(
-            `INSERT INTO cto_credit
-              (employeeNumber, ot_hours, earned_hours, remaining_hours, used_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot)
-             VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
+        (async () => {
+          try {
+            const reversal = await reverseCtoPeriodAttendanceDeductionsAsync(
+              db,
               rec.employee_number,
-              eRev,
-              rRev,
-              uRev,
               rec.period_year,
-              periodMonth,
-              rec.expiry_date || null,
-              `cto_earning_delete_reversal:${id}`,
-              null,
-            ],
-            (errRev) => {
-              if (errRev) console.error("[earnings] CTO delete earn reversal ledger:", errRev);
-              doDelete();
-            },
-          );
-        });
+              rec.period_month,
+            );
+            for (const eid of reversal.voidedEarningIds) {
+              await attendanceWriter.voidAttendanceResultsForCtoDeduction({ cto_earning_id: eid });
+            }
+            for (const lid of reversal.voidedLedgerIds) {
+              await attendanceWriter.voidAttendanceResultsForCtoDeduction({ cto_credit_ledger_id: lid });
+            }
+            await ctoExecAsync(
+              db,
+              "UPDATE cto_earnings SET voided_at = NOW(), voided = 1 WHERE id = ?",
+              [id],
+            );
+            const periodRow = await findLatestCtoPeriodRow(
+              db,
+              rec.employee_number,
+              rec.period_year,
+              rec.period_month,
+            );
+            if (periodRow) await refreshCtoPeriodLedgerOnRow(db, periodRow);
+          } catch (e) {
+            console.error("[earnings] CTO void earn cascade reversal:", e);
+          }
+          auditEarning(req, "deleted cto earnings", "cto", parseInt(id), rec.earn_status, null, rec);
+          emitEarningsChanged("deleted", {
+            module: "cto",
+            employeeNumber: String(rec.employee_number),
+            period_year: rec.period_year,
+            period_month: rec.period_month,
+            earning_id: parseInt(id, 10),
+          });
+          (async () => {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "deleted",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+              earningTypeLabel: "CTO earnings",
+              hoursValue: toNum(rec.earned_hours),
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+          })();
+          res.json({ deleted: true, id: parseInt(id) });
+        })();
       } else {
         doDelete();
       }
@@ -4134,17 +4170,18 @@ router.get("/cto/:employeeNumber/balance", authenticateToken, requireSelfOrAdmin
       console.error("CTO balance error:", err);
       return res.status(500).json({ error: "Failed to fetch CTO balance", detail: err.message });
     }
+    const periodRow = cur.periodRow || null;
     const balances = [
       {
-        period_year: null,
-        period_month: null,
-        expiry_date: null,
+        period_year: periodRow?.period_year ?? null,
+        period_month: periodRow?.period_month ?? null,
+        expiry_date: periodRow?.expiry_date ?? null,
         earned_hours: cur.earned,
         remaining_hours: cur.remaining,
         used_hours: cur.used,
       },
     ];
-    res.json({ balances, totalRemaining: cur.remaining });
+    res.json({ balances, totalRemaining: cur.remaining, periodRow });
   });
 });
 

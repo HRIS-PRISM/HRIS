@@ -8,9 +8,9 @@ function toNum(v) {
 
 /**
  * 8h-equivalent days from the same sources as CTODeductionReceipt / AttendanceSummary:
- * - Leave types: SUM(remaining_hours) per leave_code from GET /api/earnings/assignment-balances/:en
+ * - Leave types: latest remaining_hours per leave_code via fetchDeductionCreditSnapshots
  * - SC: totalRemaining hours from GET /api/earnings/sc/:en/balance
- * - CTO: totalRemaining hours from GET /api/earnings/cto/:en/balance
+ * - CTO: display remaining (latest active period) from GET /api/earnings/cto/:en/balance totalRemaining
  *
  * @param {string} sourceValue - option value e.g. VL, SC, CTO, SALARY_DEDUCTION
  * @param {object} ctx

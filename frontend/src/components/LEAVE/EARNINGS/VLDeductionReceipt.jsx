@@ -25,6 +25,7 @@ import {
   RemoveCircleOutline as DeductIcon,
 } from "@mui/icons-material";
 import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
+import { fetchDeductionCreditSnapshots } from "../../../utils/deductionSourceBalances";
 
 // ─── Theme tokens (matches CTODeductionReceipt) ───────────────────────────────
 const T = {
@@ -175,11 +176,8 @@ const VLDeductionReceipt = ({
     if (!silent) setBalLoading(true);
     const token = localStorage.getItem("token");
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/api/earnings/assignment-balances/${employee.employeeNumber}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      const vl = r.data?.VL;
+      const snapshots = await fetchDeductionCreditSnapshots(employee.employeeNumber, token);
+      const vl = snapshots?.assignmentMap?.VL;
       setVlBalance(vl ? toNum(vl.remaining_hours) / 8 : 0);
     } catch {
       setVlBalance(0);

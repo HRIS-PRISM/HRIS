@@ -65,11 +65,18 @@ export function useEarningsRealtimeRefresh({
       bump();
     };
 
+    const onServiceCreditsChanged = (payload) => {
+      if (!matchesSelected(payload)) return;
+      bump();
+    };
+
     socket.on("leaveAssignmentChanged", onLeave);
     socket.on("leaveRequestChanged", onLeave);
     socket.on("attendanceChanged", onAttendanceChanged);
     socket.on("payrollChanged", onEarningsOrPayroll);
     socket.on("earningsChanged", onEarningsOrPayroll);
+    socket.on("serviceCreditsChanged", onServiceCreditsChanged);
+    socket.on("leaveCommutationChanged", onServiceCreditsChanged);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -78,6 +85,8 @@ export function useEarningsRealtimeRefresh({
       socket.off("attendanceChanged", onAttendanceChanged);
       socket.off("payrollChanged", onEarningsOrPayroll);
       socket.off("earningsChanged", onEarningsOrPayroll);
+      socket.off("serviceCreditsChanged", onServiceCreditsChanged);
+      socket.off("leaveCommutationChanged", onServiceCreditsChanged);
     };
   }, [socket, connected]);
 }
