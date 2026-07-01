@@ -31,6 +31,8 @@ const {
   buildNewPeriodAssignmentFields,
   repairPeriodCarryForwardIfEmpty,
   isCommutedLocked,
+  isPeriodVoided,
+  assertPeriodIsCurrentDisplay,
   latestPeriodsByKey,
 } = require("../utils/leaveAssignmentBalanceUtils");
 const { isApprovedHalfDayInReviewJson } = require("../utils/halfDayReviewUtils");
@@ -1234,7 +1236,7 @@ router.get("/leave_assignment", requireAdmin, (req, res) => {
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
-      COALESCE(la.commuted, 0) AS commuted,
+      COALESCE(la.commuted, 0) AS commuted, la.voided_at,
       lc.commuted_hours, lc.commuted_days, lc.commutation_id,
       lt.leave_description, lt.leave_hours as default_hours,
       p.firstName, p.middleName, p.lastName, p.nameExtension,
@@ -1270,7 +1272,7 @@ router.get("/leave_assignment/employee/:employeeNumber", requireSelfOrAdmin('emp
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
-      COALESCE(la.commuted, 0) AS commuted,
+      COALESCE(la.commuted, 0) AS commuted, la.voided_at,
       lc.commuted_hours, lc.commuted_days, lc.commutation_id,
       lt.leave_description
     FROM leave_assignment la
@@ -1352,14 +1354,14 @@ router.post("/leave_assignment", requireAdmin, async (req, res) => {
 
   try {
     const existing = await queryAsync(
-      "SELECT id FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND period_semester <=> ?",
-      [employeeNumber, leave_code, currentYear, semester],
-    );
-    if (existing.length > 0) {
-      return res.status(400).json({
-        error: "This employee already has an assignment for this leave type and period",
-      });
-    }
+  "SELECT id FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND period_semester <=> ? AND voided_at IS NULL",
+  [employeeNumber, leave_code, currentYear, semester],
+);
+if (existing.length > 0) {
+  return res.status(400).json({
+    error: "This employee already has an assignment for this leave type and period",
+  });
+}
 
     const openingBalance = await getPriorPeriodCarryForwardHoursForEmployee(
       db,
@@ -1547,7 +1549,7 @@ router.put("/leave_assignment/:id", requireAdmin, async (req, res) => {
     );
 
     const actorEmpNum = getActorEmployeeNumber(req);
-    try {
+try {
       const [empName, actorName] = await Promise.all([
         getEmployeeFullName(String(working.employeeNumber)),
         getEmployeeFullName(actorEmpNum),
@@ -1559,6 +1561,16 @@ router.put("/leave_assignment/:id", requireAdmin, async (req, res) => {
       const leaveDesc = ltRows[0]?.leave_description || working.leave_code;
       const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
       const empDisplay = formatUserDisplayName(String(working.employeeNumber), empName);
+
+      // Capture before/after for the transaction log
+      const beforeRemaining = parseDbHours(row.remaining_hours);
+      const afterRemaining = recomputed.remaining_hours;
+      const beforeAllocated = parseDbHours(row.allocated_hours);
+      const afterAllocated = recomputed.allocated_hours;
+      const deltaHrs = afterRemaining - beforeRemaining;
+      const sign = deltaHrs >= 0 ? "+" : "−";
+      const balanceSuffix = ` Balance updated: ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (${sign}${Math.abs(deltaHrs).toFixed(3)} hrs).`;
+
       logAudit(
         { employeeNumber: actorEmpNum },
         `Update Leave Assignment - ${leaveDesc} (${recomputed.allocated_hours} hrs)`,
@@ -1568,7 +1580,7 @@ router.put("/leave_assignment/:id", requireAdmin, async (req, res) => {
       );
       await insertTransactionLog(
         String(working.employeeNumber),
-        `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (${recomputed.total_hours} hrs post-deduction, ${recomputed.remaining_hours} hrs remaining)`,
+        `${actorDisplay} updated ${leaveDesc} assignment for ${empDisplay} (allocated: ${beforeAllocated.toFixed(3)} hrs → ${afterAllocated.toFixed(3)} hrs).${balanceSuffix}`,
         actorEmpNum,
       );
     } catch (e) {
@@ -1645,6 +1657,154 @@ router.delete("/leave_assignment/:id", requireAdmin, (req, res) => {
       );
     },
   );
+});
+
+// ─── DELETE /leave_assignment/:id/void-period ───────────────────────────────
+// Soft-void current period assignment + matching leave_earnings + credit usage.
+router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: "Invalid id" });
+  }
+
+  const queryAsync = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
+    });
+
+  try {
+    const seedRows = await queryAsync("SELECT * FROM leave_assignment WHERE id = ? LIMIT 1", [id]);
+    const seed = seedRows[0];
+    if (!seed) {
+      return res.status(404).json({ error: "Leave assignment period not found" });
+    }
+
+    let rec = seed.voided_at ? null : seed;
+    if (!rec) {
+      const latestRows = await queryAsync(
+        `SELECT * FROM leave_assignment
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+           AND period_year <=> ? AND period_semester <=> ?
+         ORDER BY id DESC LIMIT 1`,
+        [seed.employeeNumber, seed.leave_code, seed.period_year, seed.period_semester],
+      );
+      if (latestRows[0] && !latestRows[0].voided_at) rec = latestRows[0];
+    }
+    if (!rec) {
+      return res.status(404).json({ error: "Period not found or already voided" });
+    }
+
+    if (isCommutedLocked(rec)) {
+      return res.status(400).json({ error: "Cannot void a commuted period" });
+    }
+    if (isPeriodVoided(rec)) {
+      return res.status(400).json({ error: "Period is already voided" });
+    }
+
+// Get the remaining BEFORE this new assignment was inserted so we can show before→after
+      const allRowsForBalance = await queryAsync(
+        `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?) AND id != ?`,
+        [employeeNumber, leave_code, insertedId],
+      );
+      const beforeRemaining = getLeaveTypeStatsActive(allRowsForBalance.map(normalizeAssignmentRow)).remainingHours;
+      const afterRemaining = beforeRemaining + fields.allocated_hours;
+      const deltaHrs = fields.allocated_hours;
+
+      await insertTransactionLog(
+        String(employeeNumber),
+        `${actorDisplay} assigned ${leaveDesc} (+${deltaHrs.toFixed(3)} hrs) to ${empDisplay}. Balance updated: ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (+${deltaHrs.toFixed(3)} hrs).`,
+        actorEmpNum,
+      );
+    const currentCheck = assertPeriodIsCurrentDisplay(rec, allRows);
+    if (!currentCheck.ok) {
+      return res.status(400).json({ error: currentCheck.error });
+    }
+
+    const voidId = rec.id;
+    const emp = String(rec.employeeNumber || "").trim();
+    const leaveCode = String(rec.leave_code || "").trim();
+    const py = rec.period_year;
+    const sem = rec.period_semester ?? rec.period_month;
+    const semPad = sem != null ? String(sem).padStart(2, "0") : null;
+
+    const conn = await getPromiseConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [voidAssignResult] = await conn.execute(
+        "UPDATE leave_assignment SET voided_at = NOW() WHERE id = ? AND voided_at IS NULL",
+        [voidId],
+      );
+      if (!voidAssignResult.affectedRows) {
+        await conn.rollback();
+        return res.status(404).json({ error: "Period not found or already voided" });
+      }
+
+      await conn.execute(
+        `UPDATE leave_earnings SET voided_at = NOW(), voided = 1, is_applied = 0
+         WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
+           AND voided_at IS NULL
+           AND period_year <=> ?
+           AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))`,
+        [emp, leaveCode, py, sem, semPad, sem],
+      );
+
+      await conn.execute(
+        `UPDATE leave_credit_usage SET voided_at = NOW()
+         WHERE leave_assignment_id = ? AND voided_at IS NULL`,
+        [voidId],
+      );
+
+      await conn.commit();
+    } catch (txErr) {
+      await conn.rollback();
+      throw txErr;
+    } finally {
+      conn.release();
+    }
+
+    const actorEmpNum = getActorEmployeeNumber(req);
+    try {
+      const [empName, actorName, leaveDesc] = await Promise.all([
+        getEmployeeFullName(emp),
+        getEmployeeFullName(actorEmpNum),
+        new Promise((resolve) =>
+          db.query(
+            "SELECT leave_description FROM leave_table WHERE leave_code = ? LIMIT 1",
+            [leaveCode],
+            (e, r) => resolve((r && r[0] && r[0].leave_description) || leaveCode),
+          ),
+        ),
+      ]);
+      const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+      const empDisplay = formatUserDisplayName(emp, empName);
+      logAudit(
+        { employeeNumber: actorEmpNum },
+        `Void Leave Assignment Period - ${leaveDesc}`,
+        "leave_assignment",
+        voidId,
+        emp,
+      );
+     await insertTransactionLog(
+        String(working.employeeNumber),
+        `${actorDisplay} updated ${leaveDesc} for ${empDisplay} — ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (${deltaHrs >= 0 ? "+" : "−"}${Math.abs(deltaHrs).toFixed(3)} hrs)`,
+        actorEmpNum,
+      );
+    } catch (e) {
+      console.error("[leave] void-period audit:", e.message);
+    }
+
+    emitLeaveChange("leaveAssignmentChanged");
+    res.json({
+      message: "Period voided",
+      id: voidId,
+      employeeNumber: emp,
+      leave_code: leaveCode,
+    });
+  } catch (e) {
+    console.error("[leave] void-period:", e.message);
+    res.status(500).json({ error: e.message || "Failed to void period" });
+  }
 });
 
 // ============================================

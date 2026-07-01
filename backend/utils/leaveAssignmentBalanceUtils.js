@@ -19,6 +19,8 @@ const isCommutedLocked = (a) => {
   return tot > 0 && rem <= 0 && used >= tot;
 };
 
+const isPeriodVoided = (a) => !!(a?.voided_at);
+
 const normalizePeriodKey = (p) => {
   const yr =
     p?.period_year != null
@@ -76,13 +78,41 @@ const sortPeriodsAsc = (periods) =>
     return toNum(a.id) - toNum(b.id);
   });
 
+/** Chronologically latest active period — skips voided/commuted heads so prior month reopens after void. */
+const resolveCurrentDisplayPeriod = (periods = []) => {
+  const sorted = sortPeriodsDesc(Array.isArray(periods) ? periods : []);
+  return sorted.find((p) => !isPeriodVoided(p) && !isCommutedLocked(p)) ?? null;
+};
+
+const assertPeriodIsCurrentDisplay = (periodRow, allRows = []) => {
+  const emp = periodRow?.employeeNumber;
+  const leaveCode = periodRow?.leave_code;
+  const siblings = (Array.isArray(allRows) ? allRows : []).filter(
+    (r) =>
+      String(r.employeeNumber) === String(emp) &&
+      String(r.leave_code || "").trim() === String(leaveCode || "").trim(),
+  );
+  const display = latestPeriodsByKey(siblings);
+  const latest = resolveCurrentDisplayPeriod(display);
+  if (!latest) {
+    return { ok: false, error: "No active leave assignment period found" };
+  }
+  if (normalizePeriodKey(periodRow) !== normalizePeriodKey(latest)) {
+    return {
+      ok: false,
+      error: "Only the latest leave assignment period can be voided. Prior periods were superseded.",
+    };
+  }
+  return { ok: true, latest };
+};
+
 const getActivePeriods = (periods = []) =>
-  latestPeriodsByKey(periods).filter((p) => !isCommutedLocked(p));
+  latestPeriodsByKey(periods).filter((p) => !isPeriodVoided(p) && !isCommutedLocked(p));
 
 const getLatestPeriodSnapshot = (periods = []) => {
   const list = latestPeriodsByKey(periods);
   if (!list.length) return null;
-  return sortPeriodsDesc(list)[0] ?? null;
+  return resolveCurrentDisplayPeriod(list);
 };
 
 const computeEffectiveRemaining = (assignment, usageRows = []) => {
@@ -158,6 +188,7 @@ const findPriorPeriodSnapshot = (assignments = [], targetYear, targetMonth = nul
   return (
     periods
       .filter((p) => {
+        if (isPeriodVoided(p) || isCommutedLocked(p)) return false;
         if (!Number.isFinite(ty)) return true;
         if (!Number.isFinite(tm) || tm <= 0) {
           return (Number(p.period_year) || 0) < ty;
@@ -183,7 +214,7 @@ const getPriorPeriodOpeningBalance = (
   usageRows = [],
 ) => {
   const prior = findPriorPeriodSnapshot(assignments, targetYear, targetMonth);
-  if (!prior || isCommutedLocked(prior)) return 0;
+  if (!prior || isCommutedLocked(prior) || isPeriodVoided(prior)) return 0;
   const postDed = Math.max(
     0,
     toNum(prior.total_hours) || toNum(prior.allocated_hours) - toNum(prior.used_hours),
@@ -245,7 +276,7 @@ const getPriorPeriodCarryForwardHoursForEmployee = async (
       ? parseInt(targetMonth, 10)
       : NaN;
   const prior = findPriorPeriodSnapshot(assignments, ty, tm);
-  if (!prior || isCommutedLocked(prior)) return opening;
+  if (!prior || isCommutedLocked(prior) || isPeriodVoided(prior)) return opening;
   const priorEarned = await getApprovedEarningsSumForAssignment(db, prior);
   return opening + priorEarned;
 };
@@ -275,6 +306,7 @@ const getPriorPeriodSnapshotForEmployee = async (
   return (
     periods
       .filter((p) => {
+        if (isPeriodVoided(p) || isCommutedLocked(p)) return false;
         if (!Number.isFinite(ty)) return true;
         if (!Number.isFinite(tm) || tm <= 0) {
           return (Number(p.period_year) || 0) < ty;
@@ -317,6 +349,7 @@ const getApprovedEarningsHoursForPeriod = (earningsList, period, { appliedOnly =
   const list = Array.isArray(earningsList) ? earningsList : [];
   return list
     .filter((e) => {
+      if (e.voided_at || Number(e.voided) === 1) return false;
       if (e.earn_status !== "approved") return false;
       if (appliedOnly && Number(e.is_applied) !== 1) return false;
       return earningMatchesPeriod(e, period);
@@ -328,8 +361,9 @@ const computeAssignmentBalances = (period, { earningsList } = {}) => {
   const usedHrs = toNum(period?.used_hours);
   const currentBalance = toNum(period?.allocated_hours);
   const postDeduction = Math.max(0, toNum(period?.total_hours) || currentBalance - usedHrs);
-  const earnedBalance = getApprovedEarningsHoursForPeriod(earningsList, period);
-  const remainingBalance = Math.max(0, postDeduction + earnedBalance);
+  const voided = isPeriodVoided(period);
+  const earnedBalance = voided ? 0 : getApprovedEarningsHoursForPeriod(earningsList, period);
+  const remainingBalance = voided ? 0 : Math.max(0, postDeduction + earnedBalance);
   return {
     currentBalance,
     usedHrs,
@@ -352,6 +386,7 @@ const getApprovedEarningsSumForAssignment = async (db, assignment) => {
     `SELECT COALESCE(SUM(earned_hours), 0) AS s FROM leave_earnings
      WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
        AND earn_status = 'approved'
+       AND voided_at IS NULL AND COALESCE(voided, 0) = 0
        AND period_year = ?
        AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))`,
     [
@@ -380,6 +415,7 @@ const getAppliedEarningsForAssignment = async (db, assignment) => {
     `SELECT COALESCE(SUM(earned_hours), 0) AS s FROM leave_earnings
      WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
        AND earn_status = 'approved' AND COALESCE(is_applied, 0) = 1
+       AND voided_at IS NULL AND COALESCE(voided, 0) = 0
        AND period_year = ?
        AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))`,
     [
@@ -516,9 +552,9 @@ const getLeaveTypeStatsActive = (assignments, usageRows = []) => {
   const sorted = sortPeriodsDesc(latestPeriodsByKey(assignments));
   if (!sorted.length) return empty;
 
-  const active = sorted.find((a) => !isCommutedLocked(a)) ?? sorted[0];
+  const active = sorted.find((a) => !isPeriodVoided(a) && !isCommutedLocked(a)) ?? sorted[0];
 
-  const remainingHours = isCommutedLocked(active)
+  const remainingHours = isCommutedLocked(active) || isPeriodVoided(active)
     ? 0
     : computeEffectiveRemaining(active, usageRows);
 
@@ -538,6 +574,10 @@ const getLeaveTypeStatsActive = (assignments, usageRows = []) => {
 module.exports = {
   toNum,
   isCommutedLocked,
+  isPeriodVoided,
+  resolveCurrentDisplayPeriod,
+  assertPeriodIsCurrentDisplay,
+  normalizePeriodKey,
   latestPeriodsByKey,
   sortPeriodsDesc,
   sortPeriodsAsc,

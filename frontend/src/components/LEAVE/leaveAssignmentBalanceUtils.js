@@ -32,6 +32,10 @@ export const isCommutedLocked = (a) => {
 
 
 
+export const isPeriodVoided = (a) => !!(a?.voided_at);
+
+
+
 export const normalizePeriodKey = (p) => {
 
   const yr = p?.period_year != null
@@ -75,31 +79,25 @@ const semOrder = (s) => {
 // Deduplicate by (period_year, period_semester), keeping highest id per key.
 
 export const latestPeriodsByKey = (periods = []) => {
-
   const list = Array.isArray(periods) ? periods : [];
-
   const map = new Map();
+  const voided = [];
 
   for (const a of list) {
-
-    const key    = normalizePeriodKey(a);
-
-    const prev   = map.get(key);
-
-    const id     = Number(a?.id);
-
-    const prevId = Number(prev?.id);
-
-    if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
-
-      map.set(key, a);
-
+    if (isPeriodVoided(a)) {
+      voided.push(a);
+      continue;
     }
-
+    const key  = normalizePeriodKey(a);
+    const prev = map.get(key);
+    const id   = Number(a?.id);
+    const prevId = Number(prev?.id);
+    if (!prev || (Number.isFinite(id) && (!Number.isFinite(prevId) || id > prevId))) {
+      map.set(key, a);
+    }
   }
 
-  return Array.from(map.values());
-
+  return [...Array.from(map.values()), ...voided];
 };
 
 
@@ -142,9 +140,65 @@ export const sortPeriodsAsc = (periods) =>
 
 
 
+/** Chronologically latest active period — skips voided/commuted heads so prior month reopens after void. */
+
+export const resolveCurrentDisplayPeriod = (periods = []) => {
+
+  const sorted = sortPeriodsDesc(Array.isArray(periods) ? periods : []);
+
+  return sorted.find((p) => !isPeriodVoided(p) && !isCommutedLocked(p)) ?? null;
+
+};
+
+
+
+export const assertPeriodIsCurrentDisplay = (periodRow, allRows = []) => {
+
+  const emp = periodRow?.employeeNumber;
+
+  const leaveCode = periodRow?.leave_code;
+
+  const siblings = (Array.isArray(allRows) ? allRows : []).filter(
+
+    (r) =>
+
+      String(r.employeeNumber) === String(emp) &&
+
+      String(r.leave_code || '').trim() === String(leaveCode || '').trim(),
+
+  );
+
+  const display = latestPeriodsByKey(siblings);
+
+  const latest = resolveCurrentDisplayPeriod(display);
+
+  if (!latest) {
+
+    return { ok: false, error: 'No active leave assignment period found' };
+
+  }
+
+  if (normalizePeriodKey(periodRow) !== normalizePeriodKey(latest)) {
+
+    return {
+
+      ok: false,
+
+      error: 'Only the latest leave assignment period can be voided. Prior periods were superseded.',
+
+    };
+
+  }
+
+  return { ok: true, latest };
+
+};
+
+
+
 export const getActivePeriods = (periods = []) =>
 
-  latestPeriodsByKey(periods).filter((p) => !isCommutedLocked(p));
+  latestPeriodsByKey(periods).filter((p) => !isPeriodVoided(p) && !isCommutedLocked(p));
 
 
 
@@ -154,7 +208,7 @@ export const getLatestPeriodSnapshot = (periods = []) => {
 
   if (!list.length) return null;
 
-  return sortPeriodsDesc(list)[0] ?? null;
+  return resolveCurrentDisplayPeriod(list);
 
 };
 
@@ -302,6 +356,8 @@ const findPriorPeriodSnapshot = (assignments = [], targetYear, targetMonth = nul
 
     .filter((p) => {
 
+      if (isPeriodVoided(p) || isCommutedLocked(p)) return false;
+
       if (!Number.isFinite(ty)) return true;
 
       if (!Number.isFinite(tm) || tm <= 0) {
@@ -356,7 +412,7 @@ export const getPriorPeriodOpeningBalance = (
 
   const prior = findPriorPeriodSnapshot(assignments, targetYear, targetMonth);
 
-  if (!prior || isCommutedLocked(prior)) return 0;
+  if (!prior || isCommutedLocked(prior) || isPeriodVoided(prior)) return 0;
 
   const postDed = Math.max(
 
@@ -448,7 +504,7 @@ export const getPriorPeriodSnapshot = (
 
   const prior = findPriorPeriodSnapshot(assignments, targetYear, targetMonth);
 
-  if (!prior || isCommutedLocked(prior)) return null;
+  if (!prior || isCommutedLocked(prior) || isPeriodVoided(prior)) return null;
 
   return prior;
 
@@ -502,6 +558,8 @@ export const getApprovedEarningsHoursForPeriod = (earningsList, period, { applie
 
     .filter((e) => {
 
+      if (e.voided_at || Number(e.voided) === 1) return false;
+
       if (e.earn_status !== 'approved') return false;
 
       if (appliedOnly && Number(e.is_applied) !== 1) return false;
@@ -532,9 +590,11 @@ export const computeAssignmentBalances = (period, { earningsList } = {}) => {
 
   const postDeduction = Math.max(0, toNum(period?.total_hours) || (currentBalance - usedHrs));
 
-  const earnedBalance = getApprovedEarningsHoursForPeriod(earningsList, period);
+  const voided = isPeriodVoided(period);
 
-  const remainingBalance = Math.max(0, postDeduction + earnedBalance);
+  const earnedBalance = voided ? 0 : getApprovedEarningsHoursForPeriod(earningsList, period);
+
+  const remainingBalance = voided ? 0 : Math.max(0, postDeduction + earnedBalance);
 
 
 
@@ -574,6 +634,8 @@ export const filterApprovedEarningsForPeriod = (earningsList, period) => {
 
   return list.filter((e) => {
 
+    if (e.voided_at || Number(e.voided) === 1) return false;
+
     if (e.earn_status !== "approved") return false;
 
     if (
@@ -604,7 +666,7 @@ export const filterApprovedEarningsForPeriod = (earningsList, period) => {
 
 export const getDisplayRemainingHours = (period, earningsList = []) => {
 
-  if (!period || isCommutedLocked(period)) return 0;
+  if (!period || isCommutedLocked(period) || isPeriodVoided(period)) return 0;
 
   const matched = filterApprovedEarningsForPeriod(earningsList, period);
 
@@ -708,7 +770,7 @@ export const getLeaveTypeDisplayRemaining = (periods = [], earningsList = []) =>
 
   const sorted = sortPeriodsDesc(deduped);
 
-  const active = sorted.find((p) => !isCommutedLocked(p)) ?? sorted[0];
+  const active = sorted.find((p) => !isPeriodVoided(p) && !isCommutedLocked(p)) ?? sorted[0];
 
   if (!active) return 0;
 
@@ -732,11 +794,11 @@ export const getLeaveTypeStatsActive = (assignments, usageRows = [], earningsLis
 
 
 
-  const active = sorted.find((a) => !isCommutedLocked(a)) ?? sorted[0];
+  const active = sorted.find((a) => !isPeriodVoided(a) && !isCommutedLocked(a)) ?? sorted[0];
 
 
 
-  const remainingHours = isCommutedLocked(active)
+  const remainingHours = isCommutedLocked(active) || isPeriodVoided(active)
 
     ? 0
 
