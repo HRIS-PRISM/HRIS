@@ -85,7 +85,7 @@ const allowedOrigins = [
   'http://192.168.50.97:5137',
   'http://192.168.50.86:5173',
   'http://192.168.50.62:5173',
-  'http://192.168.50.65:5173'
+  'http://192.168.50.55:5173'
 ];
 
 function isOriginAllowed(origin) {
