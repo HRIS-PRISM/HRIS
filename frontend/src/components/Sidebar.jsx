@@ -801,7 +801,7 @@ const Sidebar = ({
                               color: settings.textSecondaryColor,
                             }}
                           >
-                            {employeeNumber}
+                            EMP NO.: <b>{employeeNumber}</b>
                           </Typography>
                         </Box>
                       </Box>

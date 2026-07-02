@@ -604,8 +604,6 @@ const STAT_CARDS = (settings) => [
     icon: <EventAvailableIcon />,
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
-    trend: "+12%",
-    trendUp: true,
   },
   {
     label: "Pending Payroll",
@@ -615,8 +613,6 @@ const STAT_CARDS = (settings) => [
     icon: <PendingActionsIcon />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
-    trend: "-8%",
-    trendUp: false,
   },
   {
     label: "Processed Payroll",
@@ -626,8 +622,6 @@ const STAT_CARDS = (settings) => [
     icon: <WorkHistoryIcon />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
-    trend: "+6%",
-    trendUp: true,
   },
   {
     label: "Released Payslips",
@@ -637,8 +631,6 @@ const STAT_CARDS = (settings) => [
     icon: <ReceiptLongIcon />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
-    trend: "+2%",
-    trendUp: true,
   },
 ];
 
@@ -672,7 +664,7 @@ const QUICK_ACTIONS = (settings) => [
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
   },
   {
-    label: "Announcements",
+    label: "Announce",
     link: "/announcement",
     icon: <CampaignIcon />,
     tooltip: "Announcements/Suspensions/Holidays",
@@ -1327,57 +1319,19 @@ const CompactStatCard = ({
           "&:last-child": { pb: { xs: 1.25, md: 1.75 } },
         }}
       >
-        <Box
+<Box
           sx={{
+            width: 30,
+            height: 30,
+            borderRadius: "8px",
             display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: T.accentFaint,
+            color: T.accent,
           }}
         >
-          <Box
-            sx={{
-              width: 30,
-              height: 30,
-              borderRadius: "8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: T.accentFaint,
-              color: T.accent,
-            }}
-          >
-            {React.cloneElement(card.icon, { sx: { fontSize: 16 } })}
-          </Box>
-          {card.trend && (
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 0.3,
-                px: 0.75,
-                py: 0.2,
-                borderRadius: "6px",
-                bgcolor: card.trendUp
-                  ? "rgba(76,175,80,0.08)"
-                  : "rgba(244,67,54,0.08)",
-              }}
-            >
-              {card.trendUp ? (
-                <TrendingUp sx={{ fontSize: 11, color: "#4caf50" }} />
-              ) : (
-                <TrendingDown sx={{ fontSize: 11, color: "#f44336" }} />
-              )}
-              <Typography
-                sx={{
-                  fontSize: "0.6rem",
-                  fontWeight: 700,
-                  color: card.trendUp ? "#4caf50" : "#f44336",
-                }}
-              >
-                {card.trend}
-              </Typography>
-            </Box>
-          )}
+          {React.cloneElement(card.icon, { sx: { fontSize: 16 } })}
         </Box>
         <Box>
           <Typography
@@ -1537,48 +1491,53 @@ const CompactCalendar = ({
                   }
                   arrow
                 >
-                  <Box
-                    onClick={() => {
-                      if (day) setSelectedDate(currentDate);
-                    }}
-                    sx={{
-                      textAlign: "center",
-                      fontSize: "0.65rem",
-                      borderRadius: "4px",
-                      color: holidayData
-                        ? "#fff"
-                        : day
-                          ? T.text
-                          : "transparent",
-                      background: holidayData
-                        ? T.accent
-                        : isToday
-                          ? T.accentMid
-                          : hasAnnouncements
-                            ? T.accentFaint
-                            : "transparent",
-                      fontWeight:
-                        holidayData || isToday || hasAnnouncements ? 700 : 400,
-                      border: isToday
-                        ? `1.5px solid ${T.accent}`
-                        : hasAnnouncements
-                          ? `1px solid ${T.accentBorder}`
-                          : "none",
-                      cursor: day ? "pointer" : "default",
-                      transition: "all 0.15s",
-                      py: "1px",
-                      "&:hover": day
-                        ? {
-                            background: holidayData
-                              ? T.accentDark
-                              : T.accentFaint,
-                            transform: "scale(1.1)",
-                          }
-                        : {},
-                    }}
-                  >
-                    {day || ""}
-                  </Box>
+                 <Box
+  onClick={() => {
+    if (day) setSelectedDate(currentDate);
+  }}
+  sx={{
+    textAlign: "center",
+    fontSize: "0.65rem",
+    borderRadius: "4px",
+    color: holidayData
+      ? "#fff"
+      : isToday
+        ? "#fff"          // ← added: white text on today's burgundy background
+        : day
+          ? T.text
+          : "transparent",
+    background: holidayData
+      ? T.accent
+      : isToday
+        ? T.accentMid
+        : hasAnnouncements
+          ? T.accentFaint
+          : "transparent",
+    fontWeight:
+      holidayData || isToday || hasAnnouncements ? 700 : 400,
+    border: isToday
+      ? `1.5px solid ${T.accent}`
+      : hasAnnouncements
+        ? `1px solid ${T.accentBorder}`
+        : "none",
+    cursor: day ? "pointer" : "default",
+    transition: "all 0.15s",
+    py: "1px",
+    "&:hover": day
+      ? {
+          background: holidayData
+            ? T.accentDark
+            : isToday
+              ? T.accentDark   // ← optional: keep white text legible on hover too
+              : T.accentFaint,
+          color: (holidayData || isToday) ? "#fff" : undefined,
+          transform: "scale(1.1)",
+        }
+      : {},
+  }}
+>
+  {day || ""}
+</Box>
                 </Tooltip>
               </Grid>
             );
@@ -2824,8 +2783,8 @@ const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
                   No leave credits assigned
                 </Typography>
               </Box>
-            ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+      ) : (
+              <Grid container spacing={1}>
                 {leaveCredits.map((leave, idx) => {
                   const pct =
                     leave.currTotal > 0
@@ -2837,128 +2796,110 @@ const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
                   );
                   const usedDays = leave.currAllocated - leave.currRemaining;
                   return (
-                    <Box
-                      key={idx}
-                      sx={{
-                        p: 1,
-                        borderRadius: "8px",
-                        border: `1px solid ${T.accentBorder}`,
-                        bgcolor: T.accentFaint,
-                      }}
-                    >
+<Grid item xs={4} key={idx}>
                       <Box
                         sx={{
+                          borderRadius: "10px",
+                          border: `1px solid ${T.accentBorder}`,
+                          bgcolor: "#fff",
                           display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          mb: 0.4,
+                          flexDirection: "column",
+                          gap: 0.4,
+                          p: 0.9,
+                          transition: "all 0.15s",
+                          "&:hover": {
+                            boxShadow: `0 4px 14px ${statusColor}22`,
+                            borderColor: `${statusColor}50`,
+                          },
                         }}
                       >
+                        {/* Header: name */}
                         <Typography
                           sx={{
                             fontWeight: 700,
                             color: T.text,
-                            fontSize: "0.7rem",
-                            lineHeight: 1.2,
+                            fontSize: "0.55rem",
+                            lineHeight: 1.25,
+                            overflow: "hidden",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 1,
+                            WebkitBoxOrient: "vertical",
                           }}
                         >
                           {leave.name}
                         </Typography>
-                        <Box
-                          sx={{
-                            px: 0.75,
-                            py: 0.1,
-                            borderRadius: "12px",
-                            bgcolor: `${statusColor}18`,
-                            border: `1px solid ${statusColor}30`,
-                          }}
-                        >
-                          <Typography
-                            sx={{
-                              fontSize: "0.55rem",
-                              fontWeight: 700,
-                              color: statusColor,
-                            }}
-                          >
-                            {leave.code}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "flex-end",
-                          justifyContent: "space-between",
-                          mb: 0.4,
-                        }}
-                      >
-                        <Box>
+
+                        {/* Big number */}
+                        <Box sx={{ textAlign: "center" }}>
                           <Typography
                             sx={{
                               color: statusColor,
                               fontWeight: 800,
-                              fontSize: "1rem",
+                              fontSize: "1.25rem",
                               lineHeight: 1,
                             }}
                           >
                             {leave.currRemaining.toFixed(1)}
                           </Typography>
                           <Typography
-                            sx={{ color: T.faint, fontSize: "0.57rem" }}
+                            sx={{
+                              color: T.faint,
+                              fontSize: "0.5rem",
+                              fontWeight: 600,
+                              mt: 0.1,
+                            }}
                           >
                             days left
                           </Typography>
                         </Box>
-                        <Typography
-                          sx={{ color: T.faint, fontSize: "0.57rem" }}
-                        >
-                          {usedDays < 0 ? 0 : usedDays.toFixed(1)} used /{" "}
-                          {leave.currAllocated.toFixed(1)} total
-                        </Typography>
-                      </Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={Math.min(pct, 100)}
-                        sx={{
-                          height: 3,
-                          borderRadius: 2,
-                          bgcolor: `${statusColor}20`,
-                          ".MuiLinearProgress-bar": {
-                            bgcolor: statusColor,
-                            borderRadius: 2,
-                          },
-                        }}
-                      />
-                      {leave.prevRemaining > 0 && (
-                        <Box
-                          sx={{
-                            mt: 0.5,
-                            px: 0.5,
-                            py: 0.2,
-                            borderRadius: "4px",
-                            bgcolor: "#FFF3E0",
-                            border: "1px dashed #FFB74D",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 0.4,
-                          }}
-                        >
-                          <Add sx={{ fontSize: 9, color: "#EF6C00" }} />
+
+                        {/* Footer: progress + meta */}
+                        <Box>
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(pct, 100)}
+                            sx={{
+                              height: 3.5,
+                              borderRadius: 2,
+                              bgcolor: `${statusColor}18`,
+                              mb: 0.3,
+                              ".MuiLinearProgress-bar": {
+                                bgcolor: statusColor,
+                                borderRadius: 2,
+                              },
+                            }}
+                          />
                           <Typography
                             sx={{
-                              color: "#E65100",
-                              fontWeight: 700,
-                              fontSize: "0.55rem",
+                              color: T.faint,
+                              fontSize: "0.48rem",
+                              fontWeight: 500,
+                              textAlign: "center",
+                              lineHeight: 1.2,
                             }}
                           >
-                            +{leave.prevRemaining.toFixed(1)} days carried over
+                            {usedDays < 0 ? 0 : usedDays.toFixed(1)} /{" "}
+                            {leave.currAllocated.toFixed(1)} used
                           </Typography>
+                          {leave.prevRemaining > 0 && (
+                            <Typography
+                              sx={{
+                                color: "#E65100",
+                                fontWeight: 700,
+                                fontSize: "0.46rem",
+                                textAlign: "center",
+                                mt: 0.15,
+                                lineHeight: 1.2,
+                              }}
+                            >
+                            </Typography>
+                          )}
                         </Box>
-                      )}
-                    </Box>
+                      </Box>
+                    </Grid>
                   );
                 })}
-              </Box>
+              </Grid>
             )}
           </Box>
         </Box>
@@ -3570,14 +3511,13 @@ const AdminHome = () => {
                   <Typography
                     sx={{
                       fontSize: "1.1rem",
-                      fontWeight: 800,
                       color: T.accent,
                       lineHeight: 1.2,
                     }}
                   >
                     Hello,{" "}
-                    <span style={{ color: T.text }}>
-                      {fullName || username}
+                    <span style={{ color: T.text, fontWeight: 700 }}>
+                      {fullName || username} !
                     </span>
                   </Typography>
                   <Typography
@@ -3623,7 +3563,7 @@ const AdminHome = () => {
                   zIndex: 1,
                 }}
               >
-                <Box
+                {/* <Box
                   sx={{
                     px: 2,
                     py: 0.6,
@@ -3641,8 +3581,8 @@ const AdminHome = () => {
                   >
                     Admin Dashboard
                   </Typography>
-                </Box>
-                <Tooltip title="Refresh data">
+                </Box> */}
+                {/* <Tooltip title="Refresh data">
                   <button
                     onClick={refreshAllData}
                     style={{
@@ -3676,7 +3616,7 @@ const AdminHome = () => {
                     <AutorenewIcon sx={{ fontSize: 15 }} />
                     Refresh
                   </button>
-                </Tooltip>
+                </Tooltip> */}
                 <Tooltip title="Notifications">
                   <IconButton
                     size="small"
