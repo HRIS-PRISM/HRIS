@@ -93,6 +93,8 @@ router.get('/payroll/search', authenticateToken, requireAdmin, (req, res) => {
       r.landbankSalaryLoan,
       r.earistCreditCoop,
       r.feu,
+      r.gsl,
+      r.gbk,
       r.liquidatingCash,
       itt.item_description AS position,
       sgt.sg_number,
@@ -261,6 +263,8 @@ router.get('/payroll-with-remittance', authenticateToken, requireAdmin, (req, re
         r.landbankSalaryLoan,
         r.earistCreditCoop,
         r.feu,
+        r.gsl,
+        r.gbk,
         r.liquidatingCash,
         itt.item_description AS position,
         sgt.sg_number,
@@ -416,6 +420,8 @@ router.put(
       landbankSalaryLoan,
       earistCreditCoop,
       feu,
+      gsl,
+      gbk,
       PhilHealthContribution,
       department,
     } = req.body;
@@ -559,6 +565,8 @@ router.put(
                 landbankSalaryLoan || 0,
                 earistCreditCoop || 0,
                 feu || 0,
+                gsl || 0,
+                gbk || 0,
               ];
 
               if (checkResult.length > 0) {
@@ -569,7 +577,7 @@ router.put(
                 cpl = ?, mpl = ?, eal = ?, mplLite = ?, emergencyLoan = ?,
                 pagibigFundCont = ?, pagibig2 = ?, multiPurpLoan = ?,
                 liquidatingCash = ?, landbankSalaryLoan = ?,
-                earistCreditCoop = ?, feu = ?
+                earistCreditCoop = ?, feu = ?, gsl = ?, gbk = ?
               WHERE employeeNumber = ?
             `;
                 db.query(
@@ -593,8 +601,8 @@ router.put(
                 cpl, mpl, eal, mplLite, emergencyLoan,
                 pagibigFundCont, pagibig2, multiPurpLoan,
                 liquidatingCash, landbankSalaryLoan,
-                earistCreditCoop, feu
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                earistCreditCoop, feu, gsl, gbk
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
                 db.query(
                   insertRemittanceQuery,
@@ -1001,6 +1009,8 @@ router.post('/payroll-processed', authenticateToken, requireAdmin, async (req, r
       entry.landbankSalaryLoan,
       entry.earistCreditCoop,
       entry.feu,
+      entry.gsl,
+      entry.gbk,
       entry.PhilHealthContribution,
       entry.department,
     ]);
@@ -1018,7 +1028,7 @@ router.post('/payroll-processed', authenticateToken, requireAdmin, async (req, r
         cpl, mpl, eal, mplLite, emergencyLoan,
         pagibigFundCont, pagibig2, multiPurpLoan,
         position, liquidatingCash, landbankSalaryLoan,
-        earistCreditCoop, feu, PhilHealthContribution, department
+        earistCreditCoop, feu, gsl, gbk, PhilHealthContribution, department
       ) VALUES ?
     `;
 

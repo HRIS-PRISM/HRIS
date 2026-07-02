@@ -26,6 +26,7 @@ const Payroll = require('./payrollRoutes/Payroll');
 const PayrollReleased = require('./payrollRoutes/PayrollReleased');
 const PayrollJO = require('./payrollRoutes/PayrollJO');
 const PayrollFormulas = require('./payrollRoutes/PayrollFormulas');
+const UploadPayroll = require('./payrollRoutes/UploadPayroll');
 const EmployeeCategory = require('./dashboardRoutes/EmployeeCategory');
 const dashboardAuditRoute = require('./dashboardRoutes/DashboardAuditRoute');
 const AutoAttendance = require('./routes/auto-attendance');
@@ -478,6 +479,7 @@ app.get('/api/ot-types', (req, res, next) => {
   serviceCreditRoutes(req, res, next);
 });
 app.use('/api/cto', ctoRoutes);
+app.use('/api/', UploadPayroll);
 app.use('/api/earnings', earningsRoutes);
 app.use('/api/deductions', deductionsRoutes);
 app.use('/api/leave-salary-shortfall', leaveSalaryShortfallRoutes);
