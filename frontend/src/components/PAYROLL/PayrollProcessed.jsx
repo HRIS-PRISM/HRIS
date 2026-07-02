@@ -1143,6 +1143,9 @@ const PayrollProcessed = () => {
                     ['1st Pay', 'pay1st', '1st Pay — First half salary release amount'],
                     ['2nd Pay', 'pay2nd', '2nd Pay — Second half salary release amount'],
                     ['RT Ins.', 'rtIns', 'Retirement Insurance'], ['EC', 'ec', "Employees' Compensation"],
+                    ['REL', 'rel', "Housing Loan"],
+                    ['GBK', 'gbk', "Bicycle Loan"],
+                    ['GSL', 'gsl', "Solar Loan"],
                     ['Date Submitted', null, null],
                   ].map(([label, key, fullName], i) => (
                     <TableCell key={`th-${i}`} sx={{ borderBottom: `2px solid ${T.accentBorder}`, py: 1.5, px: 2, fontSize: '0.62rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap', bgcolor: alpha(T.accent, 0.03), fontFamily: T.font, height: 80 }}>
@@ -1199,6 +1202,9 @@ const PayrollProcessed = () => {
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}>{row.pay2nd ? Number(String(row.pay2nd).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.rtIns ? Number(String(row.rtIns).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.ec ? Number(String(row.ec).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.rel ? Number(String(row.rel).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gbk ? Number(String(row.gbk).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
+                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.gsl ? Number(String(row.gsl).replace(/,/g,'')).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</ExcelTableCell>
                       <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.78rem' }}>{row.dateCreated ? new Date(row.dateCreated).toLocaleString() : ''}</ExcelTableCell>
                     </TableRow>
                   );

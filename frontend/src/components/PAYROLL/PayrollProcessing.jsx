@@ -244,6 +244,8 @@ const PayrollProcess = () => {
     'landbankSalaryLoan',
     'earistCreditCoop',
     'feu',
+    'gsl',
+    'gbk',
     'totalOtherDeds',
     'totalDeductions',
     'rtIns',
@@ -640,6 +642,8 @@ const PayrollProcess = () => {
           landbankSalaryLoan: item.landbankSalaryLoan ?? 0,
           earistCreditCoop: item.earistCreditCoop ?? 0,
           feu: item.feu ?? 0,
+          gsl: item.gsl ?? 0,
+          gbk: item.gbk ?? 0,
           h: item.h ?? 0,
           m: item.m ?? 0,
           s: item.s ?? 0,
@@ -932,6 +936,8 @@ const PayrollProcess = () => {
           landbankSalaryLoan: parseFloat(item.landbankSalaryLoan) || 0,
           earistCreditCoop: parseFloat(item.earistCreditCoop) || 0,
           feu: parseFloat(item.feu) || 0,
+          gsl: parseFloat(item.gsl) || 0,
+          gbk: parseFloat(item.gbk) || 0,
           PhilHealthContribution: parseFloat(item.PhilHealthContribution) || 0,
         };
       });
@@ -1032,6 +1038,9 @@ const PayrollProcess = () => {
         landbankSalaryLoan: sanitizedEditRow.landbankSalaryLoan ?? 0,
         earistCreditCoop: sanitizedEditRow.earistCreditCoop ?? 0,
         feu: sanitizedEditRow.feu ?? 0,
+        rel: sanitizedEditRow.rel ?? 0,
+        gsl: sanitizedEditRow.gsl ?? 0,
+        gbk: sanitizedEditRow.gbk ?? 0,
         withholdingTax: sanitizedEditRow.withholdingTax ?? 0,
         rateNbc594: sanitizedEditRow.rateNbc594 ?? 0,
         nbcDiffl597: sanitizedEditRow.nbcDiffl597 ?? 0,
@@ -1139,6 +1148,9 @@ const PayrollProcess = () => {
     'landbankSalaryLoan',
     'earistCreditCoop',
     'feu',
+    'rel',
+    'gsl',
+    'gbk',
     'totalOtherDeds',
     'totalDeductions',
   ];
@@ -1324,6 +1336,8 @@ const PayrollProcess = () => {
             landbankSalaryLoan: item.landbankSalaryLoan ?? 0,
             earistCreditCoop: item.earistCreditCoop ?? 0,
             feu: item.feu ?? 0,
+            gsl: item.gsl ?? 0,
+            gbk: item.gbk ?? 0,
             withholdingTax: item.withholdingTax ?? 0,
             rateNbc594: item.rateNbc594 ?? 0,
             nbcDiffl597: item.nbcDiffl597 ?? 0,
@@ -2983,7 +2997,7 @@ const PayrollProcess = () => {
                   )}
                   <TableCell
                     align="center"
-                    colSpan={6}
+                    colSpan={8}
                     sx={{
                       border: `1px solid ${T.divider}`,
                       py: 0.9,
@@ -3472,7 +3486,7 @@ const PayrollProcess = () => {
                     'MPL',
                     'MPL Lite',
                     'Emergency Loan (ELA)',
-                    'Housing Loan',
+                    'REL',
                     'Others',
                     'Total GSIS Deds.',
                     'Pag-ibig Contri',
@@ -3484,6 +3498,8 @@ const PayrollProcess = () => {
                     'Landbank Sal. Loan',
                     'Earist Credit Coop',
                     'FEU',
+                    'GSL',
+                    'GBK',
                     'MTSLA Sal. Loan',
                     'Other Disallowance',
                     'Total Other Deds.',
@@ -3608,7 +3624,7 @@ const PayrollProcess = () => {
                       <ExcelTableCell
                         sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
                       >
-                        {formatMoney(row.housingLoan)}
+                        {formatMoney(row.rel)}
                       </ExcelTableCell>
                       <ExcelTableCell
                         sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
@@ -3677,6 +3693,16 @@ const PayrollProcess = () => {
                         sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
                       >
                         {formatMoney(row.feu)}
+                      </ExcelTableCell>
+                      <ExcelTableCell
+                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
+                      >
+                        {formatMoney(row.gsl)}
+                      </ExcelTableCell>
+                      <ExcelTableCell
+                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
+                      >
+                        {formatMoney(row.gbk)}
                       </ExcelTableCell>
                       <ExcelTableCell
                         sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
@@ -4019,6 +4045,7 @@ const PayrollProcess = () => {
                           'EAL',
                           'MPL LITE',
                           'Emergency Loan (ELA)',
+                          'REL',
                           'Total GSIS Deductions',
                           'Pag-ibig Fund Contribution',
                           'Pag-ibig 2',
@@ -4029,6 +4056,8 @@ const PayrollProcess = () => {
                           'LandBank Salary Loan',
                           'Earist Credit COOP.',
                           'FEU',
+                          'GSL',
+                          'GBK',
                           'Total Other Deductions',
                           'Total Deductions',
                         ].map((h, i) => (
@@ -4065,7 +4094,7 @@ const PayrollProcess = () => {
                         )
                         .map((row, index) => {
                           const isDuplicate = duplicateEmployeeNumbers.includes(
-                            `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
+                              `${row.name}|${row.employeeNumber}|${row.startDate}|${row.endDate}`,
                           );
                           return (
                             <TableRow
@@ -4567,6 +4596,11 @@ const PayrollProcess = () => {
                                   : ''}
                               </ExcelTableCell>
                               <ExcelTableCell
+                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
+                      >
+                        {formatMoney(row.rel)}
+                      </ExcelTableCell>
+                              <ExcelTableCell
                                 sx={{
                                   borderBottom: 'none',
                                   fontSize: '0.78rem',
@@ -4695,6 +4729,32 @@ const PayrollProcess = () => {
                               >
                                 {row.feu
                                   ? Number(row.feu).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gsl
+                                  ? Number(row.gsl).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gbk
+                                  ? Number(row.gbk).toLocaleString('en-US', {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2,
                                     })
@@ -5312,6 +5372,8 @@ const PayrollProcess = () => {
                           value: editRow.earistCreditCoop || '0.00',
                         },
                         { label: 'FEU', value: editRow.feu || '0.00' },
+                        { label: 'GSL', value: editRow.gsl || '0.00' },
+                        { label: 'GBK', value: editRow.gbk || '0.00' },
                         {
                           label: 'LandBank Salary Loan',
                           value: editRow.landbankSalaryLoan || '0.00',
@@ -6052,6 +6114,8 @@ const PayrollProcess = () => {
                         value: viewRow.earistCreditCoop,
                       },
                       { label: 'FEU', value: viewRow.feu },
+                      { label: 'GSL', value: viewRow.gsl },
+                      { label: 'GBK', value: viewRow.gbk },
                       {
                         label: 'LandBank Salary Loan',
                         value: viewRow.landbankSalaryLoan,

@@ -873,6 +873,34 @@ const CommutedStatusChip = ({ size = "sm" }) => (
   </Box>
 );
 
+const ForwardedStatusChip = ({ label, size = "sm" }) => (
+  <Box
+    sx={{
+      display: "inline-flex", alignItems: "center", gap: 0.3, lineHeight: 1,
+      px: size === "sm" ? 0.65 : 0.85,
+      py: size === "sm" ? 0.12 : 0.2,
+      borderRadius: "4px",
+      border: "1px dashed rgba(92,107,192,0.45)",
+      bgcolor: "rgba(92,107,192,0.07)",
+      maxWidth: "100%",
+    }}
+  >
+    <ForwardIcon sx={{ fontSize: size === "sm" ? 10 : 12, color: "#5c6bc0", flexShrink: 0 }} />
+    <Typography sx={{
+      fontSize: size === "sm" ? "0.58rem" : "0.68rem",
+      fontWeight: 600,
+      color: "#5c6bc0",
+      fontFamily: T.poppins,
+      letterSpacing: "0.02em",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    }}>
+      {label}
+    </Typography>
+  </Box>
+);
+
 const hoursClose = (a, b) => Math.abs(toNum(a) - toNum(b)) < BALANCE_HRS_EPS;
 
 const getPeriodForwardInfo = (period, periodIndex, allPeriods) => {
@@ -2307,15 +2335,16 @@ const LeaveAssignment = () => {
     if (!selectedEmployee?.employeeNumber) return {};
     const empNum = selectedEmployee.employeeNumber.toString();
     const map = {};
-    assignments.forEach((a) => {
-      if (a.employeeNumber?.toString() !== empNum) return;
-      if (a.period_year?.toString() !== periodYear?.toString()) return;
-      if (periodMonth) {
-        if (!sameMonth(a.period_month, periodMonth) && !sameMonth(a.period_semester, periodMonth)) return;
-      }
-      const prev = map[a.leave_code];
-      if (!prev || Number(a.id) > Number(prev.id)) map[a.leave_code] = a;
-    });
+assignments.forEach((a) => {
+  if (a.employeeNumber?.toString() !== empNum) return;
+  if (a.voided_at) return;   // ← add this line
+  if (a.period_year?.toString() !== periodYear?.toString()) return;
+  if (periodMonth) {
+    if (!sameMonth(a.period_month, periodMonth) && !sameMonth(a.period_semester, periodMonth)) return;
+  }
+  const prev = map[a.leave_code];
+  if (!prev || Number(a.id) > Number(prev.id)) map[a.leave_code] = a;
+});
     return map;
   }, [selectedEmployee, assignments, periodYear, periodMonth]);
 
