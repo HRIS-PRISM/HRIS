@@ -2597,7 +2597,7 @@ const DeductHalfDayVLModal = ({
                       </Typography>
                     </Box>
                     <Box sx={{ position: "relative" }}>
-                      <input
+                      <input 
                         type="number"
                         min={0}
                         step={0.25}

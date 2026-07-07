@@ -1108,7 +1108,7 @@ const EarningRow = ({
             </Box>
             )
           )}
-
+ 
           {!isSnapshotRow && (
             <Box
               onClick={() => onViewAudit && onViewAudit(record)}

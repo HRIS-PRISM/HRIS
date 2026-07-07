@@ -23,7 +23,7 @@ function toNum(v) {
 export function getDeductionSourceBalanceDays(
   sourceValue,
   {
-    assignmentMap = {},
+    assignmentMap = {}, 
     scRemainingHours = 0,
     ctoRemainingHours = 0,
     salaryFallbackDays = null,
