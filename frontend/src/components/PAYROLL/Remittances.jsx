@@ -47,6 +47,7 @@ import {
   HelpOutline as HelpOutlineIcon,
   ErrorOutline as ErrorOutlineIcon,
   Warning as WarningIcon,
+  AccountBalance as GsisSectionIcon,
 } from '@mui/icons-material';
 
 import ReorderIcon from '@mui/icons-material/Reorder';
@@ -523,10 +524,6 @@ const ConfirmModal = ({
 );
 
 // ─── Error / Info Modal ────────────────────────────────────────────────────────
-// NOTE: now supports an optional `details` array (e.g. per-row import warnings).
-// Instead of dumping every warning into one giant unstyled text blob, the
-// summary message stays short and the full list renders in its own
-// scrollable, bounded panel so the modal never breaks out of the viewport.
 const ErrorModal = ({
   open,
   onClose,
@@ -1731,6 +1728,25 @@ const EmployeeRemittance = () => {
     gbk: 'GBK',
   };
 
+  // GSIS-related deductions are grouped together in the forms below so they
+  // don't get visually mixed in with the other, unrelated deduction types.
+  const GSIS_FIELDS = [
+    'gsisSalaryLoan',
+    'gsisPolicyLoan',
+    'gsisArrears',
+    'gfal',
+    'cpl',
+    'mpl',
+    'mplLite',
+    'emergencyLoan',
+    'rel',
+    'gbk',
+    'gsl',
+  ];
+  const OTHER_FIELDS = Object.keys(fieldLabels).filter(
+    (field) => !GSIS_FIELDS.includes(field),
+  );
+
   const getTotalDeductions = (remittance) =>
     Object.keys(fieldLabels)
       .reduce((sum, field) => sum + (parseFloat(remittance[field]) || 0), 0)
@@ -2198,13 +2214,46 @@ const EmployeeRemittance = () => {
 
                 <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
 
-                {/* ── SECTION: Remittance Details ── */}
-                <FormSectionLabel icon={FactCheckIcon}>
-                  Remittance Details
+                {/* ── SECTION: GSIS Deductions ── */}
+                <FormSectionLabel icon={GsisSectionIcon}>
+                  GSIS Deductions
                 </FormSectionLabel>
 
                 <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
-                  {Object.keys(fieldLabels).map((field) => (
+                  {GSIS_FIELDS.map((field) => (
+                    <Grid item xs={12} sm={6} key={field}>
+                      <Typography
+                        sx={{
+                          fontSize: '0.72rem',
+                          fontWeight: 600,
+                          color: T.accent,
+                          mb: 0.5,
+                        }}
+                      >
+                        {fieldLabels[field]}
+                      </Typography>
+                      <FieldInput
+                        type="number"
+                        value={newRemittance[field]}
+                        onChange={(e) => handleChange(field, e.target.value)}
+                        fullWidth
+                        size="small"
+                        inputProps={{ step: '0.01', min: '0' }}
+                        placeholder="0.00"
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+
+                <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                {/* ── SECTION: Other Deductions ── */}
+                <FormSectionLabel icon={FactCheckIcon}>
+                  Other Deductions
+                </FormSectionLabel>
+
+                <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+                  {OTHER_FIELDS.map((field) => (
                     <Grid item xs={12} sm={6} key={field}>
                       <Typography
                         sx={{
@@ -2594,7 +2643,6 @@ const EmployeeRemittance = () => {
         </Grid>
 
         {/* ── Edit / View Modal ── */}
-        {/* CHANGED: maxWidth 700 → 920 for wider modal */}
         <Modal
           open={!!editRemittance}
           onClose={handleCloseModal}
@@ -2829,14 +2877,66 @@ const EmployeeRemittance = () => {
 
                     <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
 
-                    {/* ── Remittance details — 3 columns ── */}
-                    <FormSectionLabel icon={FactCheckIcon}>
-                      Remittance Details
+                    {/* ── GSIS Deductions — 3 columns ── */}
+                    <FormSectionLabel icon={GsisSectionIcon}>
+                      GSIS Deductions
                     </FormSectionLabel>
 
-                    {/* CHANGED: sm={6} → sm={4} for 3-column layout */}
+                    <Grid container spacing={2} sx={{ mb: 2.5 }}>
+                      {GSIS_FIELDS.map((field) => (
+                        <Grid item xs={12} sm={4} key={field}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: T.accent,
+                              mb: 0.5,
+                            }}
+                          >
+                            {fieldLabels[field]}
+                          </Typography>
+                          {isEditing ? (
+                            <FieldInput
+                              type="number"
+                              value={editRemittance[field] || ''}
+                              onChange={(e) =>
+                                handleChange(field, e.target.value, true)
+                              }
+                              fullWidth
+                              size="small"
+                              inputProps={{ step: '0.01', min: '0' }}
+                              placeholder="0.00"
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                px: 1.5,
+                                py: 1,
+                                bgcolor: T.accentFaint,
+                                borderRadius: 2,
+                                border: `1px solid ${T.accentBorder}`,
+                              }}
+                            >
+                              <Typography
+                                sx={{ fontSize: '0.82rem', color: T.text }}
+                              >
+                                {editRemittance[field] || '0.00'}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Grid>
+                      ))}
+                    </Grid>
+
+                    <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                    {/* ── Other Deductions — 3 columns ── */}
+                    <FormSectionLabel icon={FactCheckIcon}>
+                      Other Deductions
+                    </FormSectionLabel>
+
                     <Grid container spacing={2}>
-                      {Object.keys(fieldLabels).map((field) => (
+                      {OTHER_FIELDS.map((field) => (
                         <Grid item xs={12} sm={4} key={field}>
                           <Typography
                             sx={{

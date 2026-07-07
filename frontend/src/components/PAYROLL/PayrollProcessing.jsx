@@ -3016,7 +3016,7 @@ const PayrollProcess = () => {
                   </TableCell>
                   <TableCell
                     align="center"
-                    colSpan={6}
+                    colSpan={4}
                     sx={{
                       border: `1px solid ${T.divider}`,
                       py: 0.9,
@@ -3368,7 +3368,7 @@ const PayrollProcess = () => {
                   ))}
                   <TableCell
                     align="center"
-                    colSpan={12}
+                    colSpan={14}
                     sx={{
                       border: `1px solid ${T.divider}`,
                       py: 0.8,
@@ -3487,6 +3487,8 @@ const PayrollProcess = () => {
                     'MPL Lite',
                     'Emergency Loan (ELA)',
                     'REL',
+                    'GSL',
+                    'GBK',
                     'Others',
                     'Total GSIS Deds.',
                     'Pag-ibig Contri',
@@ -3498,8 +3500,6 @@ const PayrollProcess = () => {
                     'Landbank Sal. Loan',
                     'Earist Credit Coop',
                     'FEU',
-                    'GSL',
-                    'GBK',
                     'MTSLA Sal. Loan',
                     'Other Disallowance',
                     'Total Other Deds.',
@@ -3621,14 +3621,16 @@ const PayrollProcess = () => {
                       >
                         {formatMoney(row.emergencyLoan)}
                       </ExcelTableCell>
-                      <ExcelTableCell
-                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
-                      >
+                     <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>
                         {formatMoney(row.rel)}
                       </ExcelTableCell>
-                      <ExcelTableCell
-                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
-                      >
+                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>
+                        {formatMoney(row.gsl)}
+                      </ExcelTableCell>
+                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>
+                        {formatMoney(row.gbk)}
+                      </ExcelTableCell>
+                      <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>
                         {formatMoney(row.gsisOthers)}
                       </ExcelTableCell>
                       <ExcelTableCell
@@ -3693,16 +3695,6 @@ const PayrollProcess = () => {
                         sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
                       >
                         {formatMoney(row.feu)}
-                      </ExcelTableCell>
-                      <ExcelTableCell
-                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
-                      >
-                        {formatMoney(row.gsl)}
-                      </ExcelTableCell>
-                      <ExcelTableCell
-                        sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
-                      >
-                        {formatMoney(row.gbk)}
                       </ExcelTableCell>
                       <ExcelTableCell
                         sx={{ borderBottom: 'none', fontSize: '0.82rem' }}
@@ -4046,6 +4038,8 @@ const PayrollProcess = () => {
                           'MPL LITE',
                           'Emergency Loan (ELA)',
                           'REL',
+                          'GSL',
+                          'GBK',
                           'Total GSIS Deductions',
                           'Pag-ibig Fund Contribution',
                           'Pag-ibig 2',
@@ -4056,8 +4050,6 @@ const PayrollProcess = () => {
                           'LandBank Salary Loan',
                           'Earist Credit COOP.',
                           'FEU',
-                          'GSL',
-                          'GBK',
                           'Total Other Deductions',
                           'Total Deductions',
                         ].map((h, i) => (
@@ -4600,6 +4592,32 @@ const PayrollProcess = () => {
                       >
                         {formatMoney(row.rel)}
                       </ExcelTableCell>
+                       <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gsl
+                                  ? Number(row.gsl).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
+                              <ExcelTableCell
+                                sx={{
+                                  borderBottom: 'none',
+                                  fontSize: '0.78rem',
+                                }}
+                              >
+                                {row.gbk
+                                  ? Number(row.gbk).toLocaleString('en-US', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })
+                                  : ''}
+                              </ExcelTableCell>
                               <ExcelTableCell
                                 sx={{
                                   borderBottom: 'none',
@@ -4729,32 +4747,6 @@ const PayrollProcess = () => {
                               >
                                 {row.feu
                                   ? Number(row.feu).toLocaleString('en-US', {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })
-                                  : ''}
-                              </ExcelTableCell>
-                              <ExcelTableCell
-                                sx={{
-                                  borderBottom: 'none',
-                                  fontSize: '0.78rem',
-                                }}
-                              >
-                                {row.gsl
-                                  ? Number(row.gsl).toLocaleString('en-US', {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })
-                                  : ''}
-                              </ExcelTableCell>
-                              <ExcelTableCell
-                                sx={{
-                                  borderBottom: 'none',
-                                  fontSize: '0.78rem',
-                                }}
-                              >
-                                {row.gbk
-                                  ? Number(row.gbk).toLocaleString('en-US', {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2,
                                     })
