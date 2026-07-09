@@ -1467,6 +1467,7 @@ const AttendanceSummary = ({
                 leaveByDate={officialCalendarMaps?.leaveByDate || {}}
                 filedLeaveByDate={filedLeaveByDate}
                 metricsTardinessHrs={tardHrs}
+                metricsAbsentDays={absentDays}   
               />
 
               {summaryUpdateNote ? (

@@ -1033,22 +1033,24 @@ const AttendanceModuleNonTeachingStaff = () => {
     localStorage.setItem('attendanceNonTeachingEndDate', endDate);
     setLoading(true); setError('');
     try {
-      const [deviceRows, maps, attendanceRes] = await Promise.all([
-        postAttendanceDevicePreflightNoSync({ apiBaseUrl: API_BASE_URL, getAuthHeaders, personID: employeeNumber, startDate, endDate }),
-        fetchAttendanceCalendarMaps({ apiBaseUrl: API_BASE_URL, getAuthHeaders, startDate, endDate, personId: employeeNumber }),
-        axios.get(`${API_BASE_URL}/attendance/api/attendance`, { params: { personId: employeeNumber, startDate, endDate }, ...getAuthHeaders() }),
-      ]);
-      if (deviceRows.length === 0) {
-        setAttendanceData([]); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
-        showModal('No Device Records Found', 'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.', 'warning', () => { closeModal(); navigate('/view_attendance'); });
-        return;
-      }
-      const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
-      if (rawRows.length === 0) {
-        setAttendanceData([]); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
-        showModal('No Official Time Schedule', `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching Official Time Schedule exists for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`, 'warning', () => { closeModal(); navigate('/official_time'); });
-        return;
-      }
+    const [deviceRows, maps, attendanceRes] = await Promise.all([
+  postAttendanceDevicePreflightNoSync({ apiBaseUrl: API_BASE_URL, getAuthHeaders, personID: employeeNumber, startDate, endDate }),
+  fetchAttendanceCalendarMaps({ apiBaseUrl: API_BASE_URL, getAuthHeaders, startDate, endDate, personId: employeeNumber }),
+  axios.get(`${API_BASE_URL}/attendance/api/attendance`, { params: { personId: employeeNumber, startDate, endDate }, ...getAuthHeaders() }),
+]);
+
+const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];   // ← moved up
+
+if (deviceRows.length === 0 && rawRows.length === 0) {                        // ← added `&& rawRows.length === 0`
+  setAttendanceData([]); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
+  showModal('No Device Records Found', 'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Device.', 'warning', () => { closeModal(); navigate('/view_attendance'); });
+  return;
+}
+if (rawRows.length === 0) {
+  setAttendanceData([]); setSuspensionByDate({}); setLeaveByDate({}); setHolidayByDate({});
+  showModal('No Official Time Schedule', `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching Official Time Schedule exists for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`, 'warning', () => { closeModal(); navigate('/official_time'); });
+  return;
+}
       const processedData = rawRows.map((row) => {
         const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
         const am = calcSegment(timeIN, breaktimeIN, officialTimeIN, officialBreaktimeIN);

@@ -297,7 +297,7 @@ const CTODeductionReceipt = ({
   employee, attendanceData, year, month, onDeductSuccess, refreshKey, empCat,
   onDeductHalfDayVLRequested, halfDayDeductDate, halfDayPendingDates,
   deductedVlHalfDates = [], leaveByDate = {}, filedLeaveByDate = {},
-  metricsTardinessHrs,
+  metricsTardinessHrs, metricsAbsentDays,
 }) => {
   const [absenceDeductionOptions, setAbsenceDeductionOptions] = useState([]);
   const [tardinessDeductionOptions, setTardinessDeductionOptions] = useState([]);
@@ -538,7 +538,10 @@ const CTODeductionReceipt = ({
     employeeNumber:employee?.employeeNumber,startDate:officialStart,endDate:officialEnd,
   });
   const canTrustOfficialMetrics=!officialMetricsLoading&&Boolean(officialStart&&officialEnd&&employee?.employeeNumber);
-  const absentDays=canTrustOfficialMetrics?absentDaysOfficial:toNum(attendanceData?.stats?.absent_days);
+  const absentDaysDerived = canTrustOfficialMetrics ? absentDaysOfficial : toNum(attendanceData?.stats?.absent_days);
+  const absentDays = metricsAbsentDays != null && Number.isFinite(Number(metricsAbsentDays))
+    ? Math.max(0, Number(metricsAbsentDays))
+    : absentDaysDerived;
   const tardHrsFromSummary=attendanceData?.summary?parseHHMM(attendanceData.summary.overallRenderedOfficialTimeTardiness):0;
   const tardHrsAdjustedSummary=Math.max(0,tardHrsFromSummary-absentDays*8);
   const tardHrsDerived=Math.max(lateHrsOfficial>0?lateHrsOfficial:0,tardHrsAdjustedSummary);
@@ -1617,7 +1620,7 @@ const CTODeductionReceipt = ({
 const DeductionReceiptSwitcher = ({
   employee, attendanceData, year, month, onDeductSuccess, refreshKey, empCat,
   onDeductHalfDayVLRequested, halfDayDeductDate, halfDayPendingDates,
-  deductedVlHalfDates, leaveByDate, filedLeaveByDate, metricsTardinessHrs,
+  deductedVlHalfDates, leaveByDate, filedLeaveByDate, metricsTardinessHrs, metricsAbsentDays,
 }) => {
   if (!employee || !attendanceData?.summary) return null;
   return (
@@ -1630,6 +1633,7 @@ const DeductionReceiptSwitcher = ({
       leaveByDate={leaveByDate}
       filedLeaveByDate={filedLeaveByDate}
       metricsTardinessHrs={metricsTardinessHrs}
+      metricsAbsentDays={metricsAbsentDays}
     />
   );
 };
