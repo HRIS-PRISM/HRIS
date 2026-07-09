@@ -624,6 +624,46 @@ const isIncompleteRecord = (record) => {
   return filled.length < 4;
 };
 
+// ─── Fill Break helpers — used by the new "Fill Break" row action ─────────
+const BREAK_IN_DEFAULT = '12:00:00 PM';
+const BREAK_OUT_DEFAULT = '01:00:00 PM';
+const isNoBreakValue = (v) => !v || String(v).trim() === '';
+
+/** Small pill button — appears under Break Out when both break fields are empty */
+const FillBreakBtn = ({ onClick }) => (
+  <Tooltip title="Auto-fill Break In (12:00 PM) & Break Out (1:00 PM)" placement="top">
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        marginTop: 4,
+        background: 'rgba(106,31,138,0.08)',
+        border: '1px solid rgba(106,31,138,0.32)',
+        borderRadius: '6px',
+        padding: '4px 7px',
+        cursor: 'pointer',
+        color: '#6a1f8a',
+        fontSize: '0.62rem',
+        fontWeight: 800,
+        fontFamily: T.font,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        whiteSpace: 'nowrap',
+        width: '100%',
+        boxSizing: 'border-box',
+        transition: 'background-color 0.15s, border-color 0.15s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.16)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.08)'; }}
+    >
+      <AccessTime sx={{ fontSize: 11 }} />
+      Fill Break
+    </button>
+  </Tooltip>
+);
+
 // ─── OrigValueRow — for auto-fill, always show what was there before ───────
 const OrigValueRow = ({ origVal, color }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.2 }}>
@@ -727,6 +767,7 @@ const RecordsRow = memo(function RecordsRow({
   onFieldChange,
   autoFilledRows,
   onAutoFill,
+  onFillBreak,
 }) {
   const rowKey = `${record.personID}-${record.date}`;
   const isAutoFilled = autoFilledRows.has(rowKey);
@@ -745,6 +786,11 @@ const RecordsRow = memo(function RecordsRow({
   const pendingAutofillRemarks = autoFillMeta?.remarks || '';
   const isRestoredToDefault = isDeviceRestoreRemark(savedRemarks);
   const isStateCorrected = isStateCorrectedRemark(savedRemarks);
+
+  // Fill Break — only offer it when the row isn't auto-filled and both break
+  // fields are currently empty (nothing to overwrite/lose).
+  const breakBothEmpty = isNoBreakValue(record.breaktimeIN) && isNoBreakValue(record.breaktimeOUT);
+  const showFillBreak = !isAutoFilled && breakBothEmpty;
 
   const leftBorder = isStateCorrected ? `2px solid ${T.accent}` : isAutoFilled ? `3px solid ${T.accent}` : isRestoredToDefault ? '2px solid #1976d2' : rowDirty ? '3px solid #e65100' : rowSavedMod ? '3px solid #2e7d32' : isManual ? '3px solid #7b1fa2' : '3px solid transparent';
   const rowBg = isStateCorrected ? alpha(T.accent, 0.02) : isAutoFilled ? T.accentFaint : isRestoredToDefault ? 'rgba(33,150,243,0.03)' : rowDirty ? alpha('#e65100', 0.04) : rowSavedMod ? alpha('#2e7d32', 0.04) : isManual ? alpha('#7b1fa2', 0.04) : index % 2 === 0 ? '#fff' : T.rowOdd;
@@ -812,6 +858,11 @@ const RecordsRow = memo(function RecordsRow({
               {isAutoFilled && origVal !== undefined && origVal !== currentVal && (
                 <OrigValueRow origVal={origVal} color={T.accentMid} />
               )}
+              {field === 'breaktimeOUT' && showFillBreak && (
+                <Box sx={{ mt: 0.4 }}>
+                  <FillBreakBtn onClick={() => onFillBreak(index)} />
+                </Box>
+              )}
             </Box>
           );
         })}
@@ -849,6 +900,7 @@ const FullMonthRow = memo(function FullMonthRow({
   onFieldChange,
   autoFilledRows,
   onAutoFill,
+  onFillBreak,
 }) {
   const rowKey = record.date;
   const isAutoFilled = autoFilledRows.has(rowKey);
@@ -869,6 +921,11 @@ const FullMonthRow = memo(function FullMonthRow({
   const pendingAutofillRemarks = autoFillMeta?.remarks || '';
   const isRestoredToDefault = isDeviceRestoreRemark(savedRemarks);
   const isStateCorrected = isStateCorrectedRemark(savedRemarks);
+
+  // Fill Break — only offer it when the row isn't auto-filled and both break
+  // fields are currently empty (nothing to overwrite/lose).
+  const breakBothEmpty = isNoBreakValue(record.breaktimeIN) && isNoBreakValue(record.breaktimeOUT);
+  const showFillBreak = !isAutoFilled && breakBothEmpty;
 
   const leftBorder = isStateCorrected ? `2px solid ${T.accent}` : isAutoFilled ? `3px solid ${T.accent}` : isRestoredToDefault ? '2px solid #1976d2' : rowDirty ? '3px solid #e65100' : rowSavedMod ? '3px solid #2e7d32' : hasTyped ? '3px solid #f59e0b' : '3px solid transparent';
   const rowBg = isStateCorrected ? alpha(T.accent, 0.02) : isAutoFilled ? T.accentFaint : isRestoredToDefault ? 'rgba(33,150,243,0.03)' : rowDirty ? alpha('#e65100', 0.04) : rowSavedMod ? alpha('#2e7d32', 0.04) : record.isNew ? T.noRecord : weekend ? T.weekend : index % 2 === 0 ? '#fff' : T.rowOdd;
@@ -938,6 +995,11 @@ const FullMonthRow = memo(function FullMonthRow({
               )}
               {isAutoFilled && origVal !== undefined && origVal !== currentVal && (
                 <OrigValueRow origVal={origVal} color={T.accentMid} />
+              )}
+              {field === 'breaktimeOUT' && showFillBreak && (
+                <Box sx={{ mt: 0.4 }}>
+                  <FillBreakBtn onClick={() => onFillBreak(index)} />
+                </Box>
               )}
             </Box>
           );
@@ -2020,6 +2082,28 @@ const AttendanceSearch = () => {
 
     const changedDateKeys = new Set(toSave.map((r) => r.date));
 
+    // FIX: changeEntries / changesSummary were previously referenced further
+    // below (inside logAttendanceModificationSave) WITHOUT ever being defined
+    // in this function's scope. That caused a ReferenceError to be thrown
+    // AFTER the PUT request had already succeeded and records had already been
+    // refreshed — so the save actually went through, but the thrown error was
+    // caught by the catch block below and displayed as "Failed to save
+    // records..." even though nothing failed. Building them here (mirroring
+    // saveAll) fixes the false failure message.
+    const changeEntries = toSave.map((rec) => {
+      if (rec.isNew) {
+        return {
+          date: rec.date,
+          changes: EDITABLE_FIELDS
+            .filter((f) => rec[f] && String(rec[f]).trim() !== '')
+            .map((f) => ({ field: f, label: FIELD_LABELS[f], before: '—', after: rec[f] })),
+        };
+      }
+      const saved = savedFullRecords.find((s) => s.date === rec.date);
+      return { date: rec.date, changes: getChanges(rec, saved) };
+    });
+    const changesSummary = buildModificationChangeSummary(changeEntries);
+
     const modSet = new Set(fullEverModified);
     toSave.forEach((rec) => {
       EDITABLE_FIELDS.forEach((f) => {
@@ -2068,12 +2152,49 @@ const AttendanceSearch = () => {
   };
 
   const handleInputChange = useCallback((index, field, value) => {
-    const updated = [...records]; updated[index] = { ...updated[index], [field]: value }; setRecords(updated);
-  }, [records]);
+    setRecords((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
 
   const handleFullInputChange = useCallback((index, field, value) => {
-    const updated = [...fullRecords]; updated[index] = { ...updated[index], [field]: value }; setFullRecords(updated);
-  }, [fullRecords]);
+    setFullRecords((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
+
+  // ── Fill Break — Records tab. Fills Break In (12:00 PM) & Break Out
+  // (1:00 PM) in one atomic state update so both fields are guaranteed to be
+  // applied together (avoids the "only the last field change sticks" issue
+  // that using handleInputChange twice in a row would otherwise cause).
+  const handleFillBreakRecords = useCallback((index) => {
+    setRecords((prev) => {
+      const updated = [...prev];
+      const rec = updated[index];
+      if (!rec) return prev;
+      const breakIn = isNoBreakValue(rec.breaktimeIN) ? BREAK_IN_DEFAULT : rec.breaktimeIN;
+      const breakOut = isNoBreakValue(rec.breaktimeOUT) ? BREAK_OUT_DEFAULT : rec.breaktimeOUT;
+      updated[index] = { ...rec, breaktimeIN: breakIn, breaktimeOUT: breakOut };
+      return updated;
+    });
+  }, []);
+
+  // ── Fill Break — Full Month tab. Same atomic-update approach as above.
+  const handleFillBreakFull = useCallback((index) => {
+    setFullRecords((prev) => {
+      const updated = [...prev];
+      const rec = updated[index];
+      if (!rec) return prev;
+      const breakIn = isNoBreakValue(rec.breaktimeIN) ? BREAK_IN_DEFAULT : rec.breaktimeIN;
+      const breakOut = isNoBreakValue(rec.breaktimeOUT) ? BREAK_OUT_DEFAULT : rec.breaktimeOUT;
+      updated[index] = { ...rec, breaktimeIN: breakIn, breaktimeOUT: breakOut };
+      return updated;
+    });
+  }, []);
 
   const handleAutoFillClickRecords = useCallback((index) => {
     const record = records[index]; if (!record) return;
@@ -2300,7 +2421,7 @@ const AttendanceSearch = () => {
                   </Box>
                 ))}
                 <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                 Type digits · Click AM/PM to toggle · Fill = auto-fill · "was:" = original DB value · Click remarks to expand
+                 Type digits · Click AM/PM to toggle · Fill = auto-fill · Fill Break = quick 12PM–1PM break · "was:" = original DB value · Click remarks to expand
                 </Typography>
               </Box>
             )}
@@ -2340,6 +2461,7 @@ const AttendanceSearch = () => {
                     onFieldChange={handleInputChange}
                     autoFilledRows={autoFilledRecordsRows}
                     onAutoFill={handleAutoFillClickRecords}
+                    onFillBreak={handleFillBreakRecords}
                   />
                 ))
               )}
@@ -2396,7 +2518,7 @@ const AttendanceSearch = () => {
                   </Box>
                 ))}
                 <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                  Fill = auto-fill · "was:" = original DB value · "orig:" = before auto-fill · Click remarks to expand
+                  Fill = auto-fill · Fill Break = quick 12PM–1PM break · "was:" = original DB value · "orig:" = before auto-fill · Click remarks to expand
                 </Typography>
               </Box>
             )}
@@ -2437,6 +2559,7 @@ const AttendanceSearch = () => {
                     onFieldChange={handleFullInputChange}
                     autoFilledRows={autoFilledFullRows}
                     onAutoFill={handleAutoFillClickFull}
+                    onFillBreak={handleFillBreakFull}
                   />
                 ))
               )}

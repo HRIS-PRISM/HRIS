@@ -115,19 +115,25 @@ const getLatestPeriodSnapshot = (periods = []) => {
   return resolveCurrentDisplayPeriod(list);
 };
 
-const computeEffectiveRemaining = (assignment, usageRows = []) => {
+/**
+ * FIXED: `assignment.remaining_hours` is already net of every posted
+ * leave_credit_usage row — the backend recomputes it from the ledger
+ * every time a deduction/restore is applied (see
+ * refreshLeaveAssignmentCacheFromLedger in leaveCreditUsageService).
+ *
+ * Previously this function subtracted usageRows AGAIN on top of that
+ * already-net value, which double-counted every HR-approved deduction
+ * (e.g. a 5-day balance minus one approved 1-day request would show
+ * 2.500 remaining instead of 3.750 — subtracting the same 1 day twice).
+ *
+ * usageRows is intentionally unused now. Kept as an accepted (ignored)
+ * param so existing call sites that still pass it don't need to change.
+ */
+const computeEffectiveRemaining = (assignment, _usageRows = []) => {
   if (!assignment) return 0;
   if (isCommutedLocked(assignment)) return 0;
-  const base = toNum(assignment.remaining_hours);
-  const delta = (usageRows || [])
-    .filter(
-      (u) =>
-        !u.voided_at &&
-        Number(u.leave_assignment_id) === Number(assignment.id),
-    )
-    .filter((u) => String(u.source_type || "").toLowerCase() !== "commutation")
-    .reduce((s, u) => s + toNum(u.hours_delta), 0);
-  return Math.max(0, base + delta);
+  if (isPeriodVoided(assignment)) return 0;
+  return Math.max(0, toNum(assignment.remaining_hours));
 };
 
 const sumDedupedRemainingHours = (assignments, usageRows = []) =>
@@ -175,6 +181,9 @@ const isAfterPeriod = (row, targetYear, targetMonth) => {
   return m > tm;
 };
 
+/**
+ * Most-recent assignment row strictly before target year/month.
+ */
 const findPriorPeriodSnapshot = (assignments = [], targetYear, targetMonth = null) => {
   const periods = latestPeriodsByKey(assignments);
   if (!periods.length) return null;
@@ -207,27 +216,33 @@ const findPriorPeriodSnapshot = (assignments = [], targetYear, targetMonth = nul
   );
 };
 
+/**
+ * Opening balance for a new period = prior period's remaining_hours (running ledger).
+ * Returns 0 if prior period was commuted, voided, or has no remaining.
+ *
+ * FIXED: `prior.total_hours` / `prior.used_hours` are already net of the
+ * ledger (same reasoning as computeEffectiveRemaining above) — so the old
+ * "postDed + usageDelta" math was double-subtracting every approved
+ * deduction from the carry-forward opening balance too. This was the root
+ * cause of leave types like SL showing a Current Balance that didn't match
+ * the prior period's Remaining Balance, while VL happened to look fine
+ * because it had no usage history to expose the double-subtraction.
+ *
+ * We now just read prior.remaining_hours directly, which already IS
+ * "what's left in that prior period" (post-deduction + earned).
+ *
+ * usageRows is intentionally unused now. Kept as an accepted (ignored)
+ * param so existing call sites that still pass it don't need to change.
+ */
 const getPriorPeriodOpeningBalance = (
   assignments = [],
   targetYear,
   targetMonth = null,
-  usageRows = [],
+  _usageRows = [],
 ) => {
   const prior = findPriorPeriodSnapshot(assignments, targetYear, targetMonth);
   if (!prior || isCommutedLocked(prior) || isPeriodVoided(prior)) return 0;
-  const postDed = Math.max(
-    0,
-    toNum(prior.total_hours) || toNum(prior.allocated_hours) - toNum(prior.used_hours),
-  );
-  const usageDelta = (usageRows || [])
-    .filter(
-      (u) =>
-        !u.voided_at &&
-        Number(u.leave_assignment_id) === Number(prior.id),
-    )
-    .filter((u) => String(u.source_type || "").toLowerCase() !== "commutation")
-    .reduce((s, u) => s + toNum(u.hours_delta), 0);
-  return Math.max(0, postDed + usageDelta);
+  return Math.max(0, toNum(prior.remaining_hours));
 };
 
 const getPriorPeriodCarryForwardHours = getPriorPeriodOpeningBalance;
@@ -237,6 +252,15 @@ const queryAsync = (db, sql, params = []) =>
     db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
   });
 
+/**
+ * FIXED: previously this called getPriorPeriodOpeningBalance for the
+ * "opening" amount (post-deduction only, since the old implementation
+ * excluded earned hours) and then ADDED priorEarned on top. Now that
+ * getPriorPeriodOpeningBalance reads prior.remaining_hours directly —
+ * which already includes that prior period's earned balance
+ * (remaining_hours = postDeduction + earnedBalance) — adding priorEarned
+ * again would double-count it. So we just return the opening balance as-is.
+ */
 const getPriorPeriodCarryForwardHoursForEmployee = async (
   db,
   employeeNumber,
@@ -252,33 +276,7 @@ const getPriorPeriodCarryForwardHoursForEmployee = async (
   );
   if (!assignments.length) return 0;
 
-  const ids = latestPeriodsByKey(assignments).map((a) => a.id).filter(Boolean);
-  let usageRows = [];
-  if (ids.length) {
-    const placeholders = ids.map(() => "?").join(",");
-    usageRows = await queryAsync(
-      db,
-      `SELECT * FROM leave_credit_usage
-       WHERE leave_assignment_id IN (${placeholders}) AND voided_at IS NULL`,
-      ids,
-    );
-  }
-
-  const opening = getPriorPeriodOpeningBalance(
-    assignments,
-    targetYear,
-    targetMonth,
-    usageRows,
-  );
-  const ty = parseInt(targetYear, 10);
-  const tm =
-    targetMonth != null && String(targetMonth).trim() !== ""
-      ? parseInt(targetMonth, 10)
-      : NaN;
-  const prior = findPriorPeriodSnapshot(assignments, ty, tm);
-  if (!prior || isCommutedLocked(prior) || isPeriodVoided(prior)) return opening;
-  const priorEarned = await getApprovedEarningsSumForAssignment(db, prior);
-  return opening + priorEarned;
+  return getPriorPeriodOpeningBalance(assignments, targetYear, targetMonth);
 };
 
 const getPriorPeriodSnapshotForEmployee = async (
