@@ -34,6 +34,7 @@ const {
   isPeriodVoided,
   assertPeriodIsCurrentDisplay,
   latestPeriodsByKey,
+  loadLeavePeriodHistoryAsync,
 } = require("../utils/leaveAssignmentBalanceUtils");
 const { isApprovedHalfDayInReviewJson } = require("../utils/halfDayReviewUtils");
 
@@ -1659,6 +1660,31 @@ router.delete("/leave_assignment/:id", requireAdmin, (req, res) => {
   );
 });
 
+// ─── GET /leave_assignment/period-history ─────────────────────────────────────
+router.get("/leave_assignment/period-history", requireAdmin, async (req, res) => {
+  const emp = String(req.query.employeeNumber || "").trim();
+  const leaveCode = String(req.query.leave_code || "").trim();
+  const py = req.query.period_year;
+  const semRaw = req.query.period_semester ?? req.query.period_month;
+
+  if (!emp || !leaveCode || py == null || String(py).trim() === "") {
+    return res.status(400).json({ error: "employeeNumber, leave_code, and period_year are required" });
+  }
+
+  const sem =
+    semRaw != null && String(semRaw).trim() !== ""
+      ? (/^\d+$/.test(String(semRaw).trim()) ? parseInt(String(semRaw), 10) : semRaw)
+      : null;
+
+  try {
+    const history = await loadLeavePeriodHistoryAsync(db, emp, leaveCode, py, sem);
+    res.json(history);
+  } catch (e) {
+    console.error("[leave] period-history:", e.message);
+    res.status(500).json({ error: e.message || "Failed to load period transaction record" });
+  }
+});
+
 // ─── DELETE /leave_assignment/:id/void-period ───────────────────────────────
 // Soft-void current period assignment + matching leave_earnings + credit usage.
 router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res) => {
@@ -1701,20 +1727,11 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       return res.status(400).json({ error: "Period is already voided" });
     }
 
-// Get the remaining BEFORE this new assignment was inserted so we can show before→after
-      const allRowsForBalance = await queryAsync(
-        `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?) AND id != ?`,
-        [employeeNumber, leave_code, insertedId],
-      );
-      const beforeRemaining = getLeaveTypeStatsActive(allRowsForBalance.map(normalizeAssignmentRow)).remainingHours;
-      const afterRemaining = beforeRemaining + fields.allocated_hours;
-      const deltaHrs = fields.allocated_hours;
+    const allRows = (await queryAsync(
+      `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
+      [rec.employeeNumber, rec.leave_code],
+    )).map(normalizeAssignmentRow);
 
-      await insertTransactionLog(
-        String(employeeNumber),
-        `${actorDisplay} assigned ${leaveDesc} (+${deltaHrs.toFixed(3)} hrs) to ${empDisplay}. Balance updated: ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (+${deltaHrs.toFixed(3)} hrs).`,
-        actorEmpNum,
-      );
     const currentCheck = assertPeriodIsCurrentDisplay(rec, allRows);
     if (!currentCheck.ok) {
       return res.status(400).json({ error: currentCheck.error });
@@ -1726,14 +1743,18 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
     const py = rec.period_year;
     const sem = rec.period_semester ?? rec.period_month;
     const semPad = sem != null ? String(sem).padStart(2, "0") : null;
+    const beforeRemaining = toNum(rec.remaining_hours);
 
     const conn = await getPromiseConnection();
     try {
       await conn.beginTransaction();
 
       const [voidAssignResult] = await conn.execute(
-        "UPDATE leave_assignment SET voided_at = NOW() WHERE id = ? AND voided_at IS NULL",
-        [voidId],
+        `UPDATE leave_assignment SET voided_at = NOW()
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+           AND period_year <=> ? AND period_semester <=> ?
+           AND voided_at IS NULL`,
+        [emp, leaveCode, py, sem],
       );
       if (!voidAssignResult.affectedRows) {
         await conn.rollback();
@@ -1749,11 +1770,19 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
         [emp, leaveCode, py, sem, semPad, sem],
       );
 
-      await conn.execute(
-        `UPDATE leave_credit_usage SET voided_at = NOW()
-         WHERE leave_assignment_id = ? AND voided_at IS NULL`,
-        [voidId],
-      );
+      const assignIds = allRows
+        .filter((a) => String(a.period_year) === String(py)
+          && String(a.period_semester ?? a.period_month) === String(sem ?? ""))
+        .map((a) => a.id)
+        .filter((aid) => aid != null);
+
+      if (assignIds.length) {
+        await conn.execute(
+          `UPDATE leave_credit_usage SET voided_at = NOW()
+           WHERE leave_assignment_id IN (${assignIds.map(() => "?").join(",")}) AND voided_at IS NULL`,
+          assignIds,
+        );
+      }
 
       await conn.commit();
     } catch (txErr) {
@@ -1778,6 +1807,7 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       ]);
       const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
       const empDisplay = formatUserDisplayName(emp, empName);
+      const periodLbl = `${py}${sem != null ? ` / ${sem}` : ""}`;
       logAudit(
         { employeeNumber: actorEmpNum },
         `Void Leave Assignment Period - ${leaveDesc}`,
@@ -1785,9 +1815,9 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
         voidId,
         emp,
       );
-     await insertTransactionLog(
-        String(working.employeeNumber),
-        `${actorDisplay} updated ${leaveDesc} for ${empDisplay} — ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (${deltaHrs >= 0 ? "+" : "−"}${Math.abs(deltaHrs).toFixed(3)} hrs)`,
+      await insertTransactionLog(
+        String(emp),
+        `${actorDisplay} voided ${leaveDesc} period ${periodLbl} for ${empDisplay} (prior remaining ${beforeRemaining.toFixed(3)} hrs).`,
         actorEmpNum,
       );
     } catch (e) {

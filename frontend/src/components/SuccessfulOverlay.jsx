@@ -48,6 +48,8 @@ const SuccessfulOverlay = ({ open, action, onClose, showOkButton = false, messag
         return "Status Updated!";
       case "cancel":
         return "Successfully Cancelled!";
+      case "void":
+        return "Successfully Voided!";
       default:
         return "Successful!";
     }

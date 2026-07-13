@@ -93,6 +93,23 @@ export const resolveCurrentDisplayPeriod = (periods = []) => {
 };
 
 
+/** Chronologically next non-voided, non-commuted period after `period`. */
+export const findNextActivePeriodAfter = (period, allPeriods = []) => {
+  if (!period) return null;
+  const sorted = sortPeriodsAsc(latestPeriodsByKey(allPeriods));
+  const key = normalizePeriodKey(period);
+  const idx = sorted.findIndex((p) => normalizePeriodKey(p) === key);
+  if (idx < 0) return null;
+
+  for (let i = idx + 1; i < sorted.length; i += 1) {
+    const candidate = sorted[i];
+    if (!candidate || isPeriodVoided(candidate) || isCommutedLocked(candidate)) continue;
+    return candidate;
+  }
+  return null;
+};
+
+
 export const assertPeriodIsCurrentDisplay = (periodRow, allRows = []) => {
   const emp = periodRow?.employeeNumber;
   const leaveCode = periodRow?.leave_code;
@@ -432,6 +449,21 @@ export const getLeaveTypeDisplayRemaining = (periods = [], earningsList = []) =>
   if (!active) return 0;
   return getDisplayRemainingHours(active, earningsList);
 };
+
+
+export const LEAVE_LEDGER_ENTRY_LABELS = {
+  period_open: "Period opened",
+  allocation: "Credits assigned",
+  deduction: "Leave deducted",
+  restore: "Credits restored",
+  earning: "Earnings credited",
+  adjustment: "Balance adjusted",
+  void: "Period voided",
+};
+
+/** Cache key for period transaction record (leave code + year + semester). */
+export const leavePeriodHistoryKey = (period) =>
+  `${String(period?.leave_code || "").trim()}|${normalizePeriodKey(period)}`;
 
 
 /**

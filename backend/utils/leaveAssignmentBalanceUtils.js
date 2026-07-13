@@ -569,6 +569,235 @@ const getLeaveTypeStatsActive = (assignments, usageRows = []) => {
   };
 };
 
+const LEAVE_LEDGER_ENTRY_LABELS = {
+  period_open: "Period opened",
+  allocation: "Credits assigned",
+  deduction: "Leave deducted",
+  restore: "Credits restored",
+  earning: "Earnings credited",
+  adjustment: "Balance adjusted",
+  void: "Period voided",
+};
+
+const leaveUsageSourceLabel = (sourceType, remarks = "") => {
+  const st = String(sourceType || "").trim().toUpperCase();
+  if (st === "LEAVE_REQUEST") return "Leave request approved";
+  if (st === "TARDINESS_DEDUCTION") return "Tardiness / undertime";
+  if (st === "LEAVE_EARNING") return "Earnings adjustment";
+  if (st === "ATTENDANCE") return "Attendance adjustment";
+  if (st === "RESTORE") return "Credits restored";
+  if (remarks) return String(remarks).slice(0, 80);
+  return LEAVE_LEDGER_ENTRY_LABELS.adjustment;
+};
+
+/**
+ * Build period transaction record for leave assignment (usage lines + earnings).
+ */
+const buildLeavePeriodTransactionHistory = (
+  assignmentRows = [],
+  usageRows = [],
+  earningsRows = [],
+  { employeeNumber, leave_code, period_year, period_semester } = {},
+) => {
+  const assignments = [...assignmentRows].sort((a, b) => toNum(a.id) - toNum(b.id));
+  const activeAssignment =
+    assignments.filter((a) => !isPeriodVoided(a) && !isCommutedLocked(a)).pop()
+    || assignments.filter((a) => !isPeriodVoided(a)).pop()
+    || assignments[assignments.length - 1]
+    || null;
+
+  const alloc = activeAssignment ? toNum(activeAssignment.allocated_hours) : 0;
+  let used = 0;
+  let earned = 0;
+
+  const lines = [];
+
+  if (activeAssignment) {
+    lines.push({
+      id: `open-${activeAssignment.id}`,
+      line_type: "snapshot",
+      entry_kind: "period_open",
+      event_label: LEAVE_LEDGER_ENTRY_LABELS.period_open,
+      created_at: activeAssignment.created_at || activeAssignment.approve_date || null,
+      current_balance: alloc,
+      deducted: 0,
+      post_deduction: alloc,
+      earned_balance: 0,
+      remaining_balance: alloc,
+      is_active: !isPeriodVoided(activeAssignment),
+      is_voided: isPeriodVoided(activeAssignment),
+    });
+  }
+
+  const events = [];
+  (Array.isArray(usageRows) ? usageRows : []).forEach((row) => {
+    events.push({ kind: "usage", row, at: row.created_at || "" });
+  });
+  (Array.isArray(earningsRows) ? earningsRows : [])
+    .filter((e) => String(e.earn_status || "").toLowerCase() === "approved")
+    .forEach((row) => {
+      events.push({ kind: "earning", row, at: row.created_at || row.approved_at || "" });
+    });
+
+  events.sort((a, b) => {
+    const ta = new Date(a.at).getTime() || 0;
+    const tb = new Date(b.at).getTime() || 0;
+    if (ta !== tb) return ta - tb;
+    return toNum(a.row?.id) - toNum(b.row?.id);
+  });
+
+  for (const ev of events) {
+    if (ev.kind === "usage") {
+      const row = ev.row;
+      const delta = toNum(row.hours_delta);
+      if (Math.abs(delta) < 0.001) continue;
+      if (String(row.source_type || "").toLowerCase() === "commutation") continue;
+
+      if (delta < 0) used += -delta;
+      else used = Math.max(0, used - delta);
+
+      const postDed = Math.max(0, alloc - used);
+      const rem = postDed + earned;
+
+      lines.push({
+        id: row.id,
+        line_type: "usage",
+        entry_kind: delta < 0 ? "deduction" : "restore",
+        event_label: leaveUsageSourceLabel(row.source_type, row.remarks),
+        source_type: row.source_type,
+        created_at: row.created_at,
+        voided_at: row.voided_at || null,
+        current_balance: alloc,
+        deducted: used,
+        deducted_delta: delta < 0 ? -delta : 0,
+        restore_delta: delta > 0 ? delta : 0,
+        post_deduction: postDed,
+        earned_balance: earned,
+        remaining_balance: rem,
+        is_active: !row.voided_at,
+        is_voided: !!row.voided_at,
+      });
+    } else {
+      const row = ev.row;
+      const delta = toNum(row.earned_hours);
+      if (Math.abs(delta) < 0.001) continue;
+      earned += delta;
+      const postDed = Math.max(0, alloc - used);
+      const rem = postDed + earned;
+      const voided = !!(row.voided_at || Number(row.voided) === 1);
+      lines.push({
+        id: `earn-${row.id}`,
+        line_type: "earning",
+        entry_kind: "earning",
+        event_label: LEAVE_LEDGER_ENTRY_LABELS.earning,
+        earn_status: row.earn_status,
+        created_at: row.created_at || row.approved_at || null,
+        voided_at: row.voided_at || null,
+        earnings_delta: delta,
+        post_deduction: postDed,
+        earned_balance: earned,
+        remaining_balance: rem,
+        is_active: !voided,
+        is_voided: voided,
+      });
+    }
+  }
+
+  assignments
+    .filter((a) => isPeriodVoided(a))
+    .forEach((a) => {
+      lines.push({
+        id: `void-${a.id}`,
+        line_type: "snapshot",
+        entry_kind: "void",
+        event_label: LEAVE_LEDGER_ENTRY_LABELS.void,
+        created_at: a.voided_at,
+        voided_at: a.voided_at,
+        current_balance: toNum(a.allocated_hours),
+        deducted: toNum(a.used_hours),
+        post_deduction: toNum(a.total_hours),
+        earned_balance: 0,
+        remaining_balance: 0,
+        is_active: false,
+        is_voided: true,
+      });
+    });
+
+  const ledger_lines_active = lines.filter((l) => !l.is_voided);
+  const ledger_lines_voided = lines.filter((l) => l.is_voided);
+
+  return {
+    employeeNumber,
+    leave_code,
+    period_year,
+    period_semester,
+    assignments,
+    ledger_lines: ledger_lines_active,
+    ledger_lines_active,
+    ledger_lines_voided,
+    voided_line_count: ledger_lines_voided.length,
+    active_line_count: ledger_lines_active.length,
+  };
+};
+
+const loadLeavePeriodHistoryAsync = async (
+  db,
+  employeeNumber,
+  leaveCode,
+  periodYear,
+  periodSemester = null,
+) => {
+  const emp = String(employeeNumber || "").trim();
+  const lc = String(leaveCode || "").trim();
+  const py = periodYear;
+  const semRaw = periodSemester != null ? String(periodSemester).trim() : "";
+  const semNum = semRaw !== "" && /^\d+$/.test(semRaw) ? parseInt(semRaw, 10) : null;
+  const semPad = semNum != null ? String(semNum).padStart(2, "0") : null;
+
+  let assignSql = `SELECT * FROM leave_assignment
+    WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?) AND period_year <=> ?`;
+  const assignParams = [emp, lc, py];
+  if (semNum != null) {
+    assignSql += " AND period_semester <=> ?";
+    assignParams.push(semNum);
+  } else if (semRaw) {
+    assignSql += " AND CAST(period_semester AS CHAR) <=> ?";
+    assignParams.push(semRaw);
+  }
+  assignSql += " ORDER BY id ASC";
+
+  const assignments = await queryAsync(db, assignSql, assignParams);
+  const assignIds = assignments.map((a) => a.id).filter((id) => id != null);
+
+  let usageRows = [];
+  if (assignIds.length) {
+    usageRows = await queryAsync(
+      db,
+      `SELECT * FROM leave_credit_usage
+       WHERE leave_assignment_id IN (${assignIds.map(() => "?").join(",")})
+       ORDER BY created_at ASC, id ASC`,
+      assignIds,
+    );
+  }
+
+  let earnSql = `SELECT * FROM leave_earnings
+    WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?) AND period_year <=> ?`;
+  const earnParams = [emp, lc, py];
+  if (semNum != null) {
+    earnSql += " AND (period_month = ? OR period_month = ? OR period_month <=> ?)";
+    earnParams.push(semNum, semPad, semNum);
+  }
+  earnSql += " ORDER BY id ASC";
+  const earnings = await queryAsync(db, earnSql, earnParams);
+
+  return buildLeavePeriodTransactionHistory(assignments, usageRows, earnings, {
+    employeeNumber: emp,
+    leave_code: lc,
+    period_year: py,
+    period_semester: semNum ?? periodSemester,
+  });
+};
+
 module.exports = {
   toNum,
   isCommutedLocked,
@@ -601,4 +830,7 @@ module.exports = {
   repairPeriodCarryForwardIfEmpty,
   buildNewPeriodAssignmentFields,
   resolveActiveAssignmentForDeduction,
+  LEAVE_LEDGER_ENTRY_LABELS,
+  buildLeavePeriodTransactionHistory,
+  loadLeavePeriodHistoryAsync,
 };
