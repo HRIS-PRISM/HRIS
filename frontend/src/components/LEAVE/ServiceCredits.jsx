@@ -828,7 +828,7 @@ const ScPeriodHistoryPanel = ({
     <Box sx={{ py: 1, px: 0.5 }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 0.75, flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: T.poppins }}>
-          Current period ledger ({currentLines.length})
+          Period transaction record ({currentLines.length})
         </Typography>
         {showUndoColumn && periodCanUndo && (
           <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins }}>
