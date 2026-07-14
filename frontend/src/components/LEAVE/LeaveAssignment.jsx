@@ -1410,6 +1410,8 @@ const LeavePeriodSectionRow = ({ label, variant = "section" }) => (
 
 const LeavePeriodTableRow = ({
   period, unit, isCurrent, rowIndex, periodIndex, allPeriods, onTransferPeriod, onVoidPeriod,
+  onEditPeriod,
+  onDeletePeriod,
   commuteLoadingId, voidLoadingId, earningsList,
   expanded = false, onToggleExpand, periodHistory = null, historyLoading = false, payrollLocked = false,
 }) => {
@@ -1534,68 +1536,104 @@ const LeavePeriodTableRow = ({
         bgcolor: isLocked ? COMMUTED_ROW.bgAlt : isVoided ? VOIDED_ROW.bgAlt : isCurrent ? CURRENT.faint : "inherit",
       }}>
         <BalanceRowPlain>
-          {isCurrent && !isLocked && !isVoided && (
+          {(!isLocked && !isVoided && onEditPeriod) && (
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 0.5, width: "100%", minWidth: 96 }}>
-              {onVoidPeriod && (
-                <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : "Void current period (assignment, earnings, and usage)"}>
-                  <span>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={voidLoadingId === period.id || payrollLocked || isVoided}
-                      onClick={() => onVoidPeriod(period)}
-                      startIcon={
-                        payrollLocked
-                          ? <CheckIcon sx={{ fontSize: "14px !important", color: "#1565c0" }} />
-                          : voidLoadingId === period.id
-                            ? <CircularProgress size={12} sx={{ color: "#c62828" }} />
-                            : <BlockIcon sx={{ fontSize: "14px !important" }} />
-                      }
-                      sx={{
-                        textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
-                        py: 0.4, px: 1.5, minWidth: 96, width: "100%",
-                        borderColor: payrollLocked ? "rgba(21,101,192,0.35)" : "#c62828",
-                        color: payrollLocked ? "#1565c0" : "#c62828",
-                        bgcolor: payrollLocked ? "rgba(21,101,192,0.06)" : "transparent",
-                        "&:hover": payrollLocked
-                          ? { bgcolor: "rgba(21,101,192,0.06)" }
-                          : { borderColor: "#b71c1c", bgcolor: "rgba(198,40,40,0.06)" },
-                        "&.Mui-disabled": payrollLocked
-                          ? { borderColor: "rgba(21,101,192,0.35)", color: "#1565c0", bgcolor: "rgba(21,101,192,0.06)" }
-                          : undefined,
-                      }}
-                    >
-                      {voidLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : "Void"}
-                    </Button>
-                  </span>
-                </Tooltip>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={(e) => { e.stopPropagation(); onEditPeriod(period); }}
+                startIcon={<EditIcon sx={{ fontSize: "14px !important" }} />}
+                sx={{
+                  textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                  py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                  borderColor: T.accentBorder, color: T.accent,
+                  bgcolor: "transparent",
+                  "&:hover": { borderColor: T.accent, bgcolor: alpha(T.accent, 0.04) },
+                }}
+              >
+                Edit
+              </Button>
+              {onDeletePeriod && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={(e) => { e.stopPropagation(); onDeletePeriod(period); }}
+                  startIcon={<DeleteIcon sx={{ fontSize: "14px !important" }} />}
+                  sx={{
+                    textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                    py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                    borderColor: "#c62828", color: "#c62828",
+                    bgcolor: "transparent",
+                    "&:hover": { borderColor: "#b71c1c", bgcolor: "rgba(198,40,40,0.06)" },
+                  }}
+                >
+                  Delete
+                </Button>
               )}
-              {remHrs > 0 && onTransferPeriod && (
-                <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : COMMUTATION_COPY.purpose}>
-                  <span>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      disabled={!!commuteLoadingId || payrollLocked}
-                      onClick={(e) => onTransferPeriod(e, period)}
-                      startIcon={
-                        commuteLoadingId === period.id
-                          ? <CircularProgress size={12} sx={{ color: "#fff" }} />
-                          : <CommutationIcon sx={{ fontSize: "14px !important" }} />
-                      }
-                      sx={{
-                        textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
-                        py: 0.4, px: 1.5, minWidth: 96, width: "100%",
-                        bgcolor: T.accent, color: "#fff",
-                        boxShadow: `0 1px 4px ${alpha(T.accent, 0.35)}`,
-                        "&:hover": { bgcolor: T.accentDark, boxShadow: `0 2px 8px ${alpha(T.accent, 0.4)}` },
-                        "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.45), color: "#fff" },
-                      }}
-                    >
-                      {commuteLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : COMMUTATION_COPY.action}
-                    </Button>
-                  </span>
-                </Tooltip>
+              {isCurrent && !isLocked && !isVoided && (onVoidPeriod || (remHrs > 0 && onTransferPeriod)) && (
+                <Box sx={{ display: "grid", gap: 0.5 }}>
+                  {onVoidPeriod && (
+                    <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : "Void current period (assignment, earnings, and usage)"}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={voidLoadingId === period.id || payrollLocked}
+                          onClick={() => onVoidPeriod(period)}
+                          startIcon={
+                            payrollLocked
+                              ? <CheckIcon sx={{ fontSize: "14px !important", color: "#1565c0" }} />
+                              : voidLoadingId === period.id
+                                ? <CircularProgress size={12} sx={{ color: "#c62828" }} />
+                                : <BlockIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                            py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                            borderColor: payrollLocked ? "rgba(21,101,192,0.35)" : "#c62828",
+                            color: payrollLocked ? "#1565c0" : "#c62828",
+                            bgcolor: payrollLocked ? "rgba(21,101,192,0.06)" : "transparent",
+                            "&:hover": payrollLocked
+                              ? { bgcolor: "rgba(21,101,192,0.06)" }
+                              : { borderColor: "#b71c1c", bgcolor: "rgba(198,40,40,0.06)" },
+                            "&.Mui-disabled": payrollLocked
+                              ? { borderColor: "rgba(21,101,192,0.35)", color: "#1565c0", bgcolor: "rgba(21,101,192,0.06)" }
+                              : undefined,
+                          }}
+                        >
+                          {voidLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : "Void"}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
+                  {remHrs > 0 && onTransferPeriod && (
+                    <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : COMMUTATION_COPY.purpose}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          disabled={!!commuteLoadingId || payrollLocked}
+                          onClick={(e) => onTransferPeriod(e, period)}
+                          startIcon={
+                            commuteLoadingId === period.id
+                              ? <CircularProgress size={12} sx={{ color: "#fff" }} />
+                              : <CommutationIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                            py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                            bgcolor: T.accent, color: "#fff",
+                            boxShadow: `0 1px 4px ${alpha(T.accent, 0.35)}`,
+                            "&:hover": { bgcolor: T.accentDark, boxShadow: `0 2px 8px ${alpha(T.accent, 0.4)}` },
+                            "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.45), color: "#fff" },
+                          }}
+                        >
+                          {commuteLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : COMMUTATION_COPY.action}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
+                </Box>
               )}
             </Box>
           )}
@@ -1689,6 +1727,8 @@ const EmployeeLeavesModal = ({
   getEmployeeInfo,
   onTransferPeriod,
   onVoidPeriod,
+  onDeletePeriod,
+  onEditPeriod,
   commuteLoadingId,
   voidLoadingId,
   approvedEarnings = [],
@@ -1748,6 +1788,10 @@ const EmployeeLeavesModal = ({
     };
     const key = leavePeriodHistoryKey(enrichedPeriod);
     const sem = enrichedPeriod.period_semester ?? enrichedPeriod.period_month;
+    // Determine employee category and allow delete only for technical roles
+    const empCatForPeriod = empCatMap[enrichedPeriod.employeeNumber?.toString()] || null;
+    const techKeywords = /\b(technical|tech|it|engineer|developer)\b/i;
+    const allowDelete = empCatForPeriod && empCatForPeriod.label && techKeywords.test(empCatForPeriod.label);
     return {
       period: enrichedPeriod,
       unit,
@@ -1757,6 +1801,8 @@ const EmployeeLeavesModal = ({
       allPeriods: periods,
       onTransferPeriod,
       onVoidPeriod,
+      onEditPeriod,
+      onDeletePeriod: allowDelete ? onDeletePeriod : undefined,
       commuteLoadingId,
       voidLoadingId,
       earningsList,
@@ -3108,11 +3154,12 @@ assignments.forEach((a) => {
     const id      = editAssignment?.id;
     const empNum  = editAssignment?.employeeNumber?.toString().trim();
     const lc      = editAssignment?.leave_code;
+    const month   = normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester);
     if (!id || !empNum || !lc) { setError("Please fill in all required fields"); return; }
-    if (isDuplicateAssignment(empNum, lc, editAssignment.period_year, editAssignment.id)) { setError("This employee already has an assignment for this leave type and period"); return; }
+    if (isDuplicateAssignment(empNum, lc, editAssignment.period_year, editAssignment.id, month)) { setError("This employee already has an assignment for this leave type and period"); return; }
     try {
       await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`,
-        { leave_code: lc, employeeNumber: empNum, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null },
+        { leave_code: lc, employeeNumber: empNum, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: month ?? null },
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");
@@ -3134,15 +3181,36 @@ assignments.forEach((a) => {
     } catch (err) { setError("Error updating: " + (err.response?.data?.error || err.message)); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, closeOuter = true) => {
     if (!window.confirm("Are you sure you want to delete this assignment?")) return;
     try {
       await axios.delete(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");
-      setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null);
+      if (closeOuter) {
+        setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null);
+      }
       await fetchAssignments();
+      if (!closeOuter && selectedEmployeeLeaves) {
+        const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+        const all = Array.isArray(updated.data) ? updated.data : [];
+        const empData = all.filter((a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString());
+        const grouped = empData.reduce((acc, a) => {
+          if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
+          acc[a.leave_code].periods.push(a);
+          return acc;
+        }, {});
+        Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
+        setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
+        if (selectedLeaveTypeInModal) { const r = grouped[selectedLeaveTypeInModal.leave_code]; if (r) setSelectedLeaveTypeInModal(r); }
+      }
       setSuccessAction("delete"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 1000);
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
+  };
+
+  const handleDeletePeriod = async (period) => {
+    await handleDelete(period.id, false);
   };
 
   const refreshModalState = useCallback(async (empNum, leaveCode) => {
@@ -4048,6 +4116,8 @@ assignments.forEach((a) => {
             voidLoadingId={voidLoadingId}
             onTransferPeriod={(e, period) => { e.stopPropagation(); handleOpenCommutationWarning(period); }}
             onVoidPeriod={handleVoidPeriod}
+            onDeletePeriod={handleDeletePeriod}
+            onEditPeriod={handleOpenModal}
             onTogglePeriodExpand={togglePeriodExpand}
             periodHistoryCache={periodHistoryCache}
             historyLoadingKeys={historyLoadingKeys}
@@ -4167,15 +4237,11 @@ assignments.forEach((a) => {
                             </FormControl>
                           </Grid>
                           <Grid item xs={12} sm={6}>
-                            <CreditInput label="Current Balance" valueHours={editAllocatedHours} onChangeHours={setEditAllocatedHours} unit={unit} disabled={isEditLocked} color="#1976d2" />
+                            <Box sx={{ p: 1.5, borderRadius: 2, border: `1px solid ${alpha(T.accent, 0.25)}`, bgcolor: "rgba(25,118,210,0.04)" }}>
+                              <CreditInput label={`Current Balance (${unit === "hours" ? "hrs" : "days"})`} valueHours={editAllocatedHours} onChangeHours={setEditAllocatedHours} unit={unit} disabled={isEditLocked} color="#1976d2" />
+                              <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 0.75, fontFamily: T.poppins }}>Enter the balance in the selected unit and the system will keep the hours equivalent.</Typography>
+                            </Box>
                           </Grid>
-                          {!isEditLocked && (
-                            <Grid item xs={12}>
-                              <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Override: Still Available (hours)</Typography>
-                              <FieldInput type="number" value={toNum(editAssignment.remaining_hours)} onChange={(e) => setEditAssignment({ ...editAssignment, remaining_hours: parseFloat(e.target.value) || 0 })} fullWidth size="small" inputProps={{ min: 0, step: "any" }}
-                                InputProps={{ endAdornment: <InputAdornment position="end"><Typography variant="caption" sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins }}>hrs</Typography></InputAdornment> }} />
-                            </Grid>
-                          )}
                         </Grid>
                       </Box>
                       <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1, flexShrink: 0 }}>
