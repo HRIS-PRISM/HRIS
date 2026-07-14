@@ -250,7 +250,7 @@ router.post(
               mplLite = ?, emergencyLoan = ?, rel = ?, gsl = ?, gbk = ?
           WHERE employeeNumber = ?
         `;
-        await queryAsync(conn, remittanceQuery, [
+        const remResult = await queryAsync(conn, remittanceQuery, [
           row.consoloan,
           row.plreg,
           row.gfal,
@@ -262,6 +262,29 @@ router.post(
           row.gbk,
           employeeNumber,
         ]);
+
+        let action = 'updated';
+        if (!remResult || remResult.affectedRows === 0) {
+          const insertRemSql = `
+            INSERT INTO remittance_table (
+              employeeNumber, gsisSalaryLoan, gsisPolicyLoan, gfal, mpl, mplLite,
+              emergencyLoan, rel, gsl, gbk
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `;
+          await queryAsync(conn, insertRemSql, [
+            employeeNumber,
+            row.consoloan,
+            row.plreg,
+            row.gfal,
+            row.mpl,
+            row.mpl_lite,
+            row.emrgyln,
+            row.rel,
+            row.gsl,
+            row.gbk,
+          ]);
+          action = 'inserted';
+        }
 
         // STEP 5: update payroll_processing
         const payrollQuery = `
@@ -281,6 +304,7 @@ router.post(
           lastname: row.lastname,
           firstname: row.firstname,
           employeeNumber,
+          action,
         });
       }
 

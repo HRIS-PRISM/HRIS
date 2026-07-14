@@ -54,7 +54,8 @@ router.get('/employees/:employeeNumber', authenticateToken, requireSelfOrAdmin('
   const { employeeNumber } = req.params;
 
   const sql = `
-    SELECT u.employeeNumber, ${getFullNameSQL()}
+    SELECT u.employeeNumber, ${getFullNameSQL()},
+           p.firstName, p.middleName, p.lastName, p.nameExtension
     FROM users u
     LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
     WHERE u.employeeNumber = ?
@@ -73,6 +74,33 @@ router.get('/employees/:employeeNumber', authenticateToken, requireSelfOrAdmin('
 });
 
 router.get('/employee-remittance', authenticateToken, requireAdmin, (req, res) => {
+  const currentPage = Math.max(0, parseInt(req.query.page, 10) || 0);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
+  const offset = currentPage * limit;
+  const queryTerm = (req.query.q || '').trim();
+
+  let whereClause = '';
+  const queryParams = [];
+  if (queryTerm) {
+    whereClause = `
+      WHERE (
+        r.employeeNumber LIKE ?
+        OR CONCAT_WS(' ', p.lastName, p.firstName, p.middleName, p.nameExtension) LIKE ?
+        OR CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) LIKE ?
+      )
+    `;
+    const searchTerm = `%${queryTerm}%`;
+    queryParams.push(searchTerm, searchTerm, searchTerm);
+  }
+
+  const countSql = `
+    SELECT COUNT(*) AS total
+    FROM remittance_table r
+    LEFT JOIN users u ON r.employeeNumber = u.employeeNumber
+    LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
+    ${whereClause}
+  `;
+
   const sql = `
     SELECT r.id, r.employeeNumber,
            COALESCE(pp.name,
@@ -86,6 +114,10 @@ router.get('/employee-remittance', authenticateToken, requireAdmin, (req, res) =
                END
              )
            ) as name,
+           p.firstName,
+           p.middleName,
+           p.lastName,
+           p.nameExtension,
            r.liquidatingCash, r.gsisSalaryLoan, r.gsisPolicyLoan, r.gfal, r.gsisArrears,
            r.cpl, r.mpl, r.mplLite, r.emergencyLoan, r.nbc594, r.increment, r.sss,
            r.pagibig, r.pagibigFundCont, r.pagibig2, r.multiPurpLoan,
@@ -94,15 +126,28 @@ router.get('/employee-remittance', authenticateToken, requireAdmin, (req, res) =
     LEFT JOIN users u ON r.employeeNumber = u.employeeNumber
     LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
     LEFT JOIN payroll_processing pp ON r.employeeNumber = pp.employeeNumber
-    ORDER BY r.created_at DESC
+    ${whereClause}
+    ORDER BY COALESCE(p.lastName, ''), COALESCE(p.firstName, ''), COALESCE(p.middleName, ''), COALESCE(p.nameExtension, '')
+    LIMIT ?
+    OFFSET ?
   `;
 
-  db.query(sql, (err, result) => {
+  db.query(countSql, queryParams, (err, countResult) => {
     if (err) {
-      console.error('Error fetching remittance data:', err);
+      console.error('Error fetching remittance count:', err);
       return res.status(500).json({ message: 'Error fetching data', error: err.message });
     }
-    return res.json(result);
+
+    const total = countResult?.[0]?.total || 0;
+    const paramsWithPagination = [...queryParams, limit, offset];
+
+    db.query(sql, paramsWithPagination, (err, result) => {
+      if (err) {
+        console.error('Error fetching remittance data:', err);
+        return res.status(500).json({ message: 'Error fetching data', error: err.message });
+      }
+      return res.json({ total, page: currentPage, limit, data: result });
+    });
   });
 });
 
