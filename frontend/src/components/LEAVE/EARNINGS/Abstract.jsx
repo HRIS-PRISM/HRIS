@@ -45,6 +45,7 @@ import {
   registryContributionDays,
   fetchOverallAttendanceRow,
 } from "./SalaryShortfallRegistry";
+import { aggregateAttendanceResultsForAbstract } from "./aggregateAttendanceResultsForAbstract";
 import usePayrollRealtimeRefresh from "../../../hooks/usePayrollRealtimeRefresh";
 
 const WH = 8;
@@ -308,11 +309,44 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
   const [filterYear, setFilterYear] = useState("all");
   const [filterMonth, setFilterMonth] = useState("all");
 
+  // ── Fetch persisted attendance_result records from database ──
+  const [fetchedRows, setFetchedRows] = useState([]);
+  const [loadingFetch, setLoadingFetch] = useState(false);
+
   useEffect(() => {
     setSentToPayrollKeys(new Set());
     setSelectedPayrollKeys(new Set());
     setAuditExpandedKeys(new Set());
   }, [employee?.employeeNumber, year, month]);
+
+  // Fetch attendance_result records from database for the selected period
+  useEffect(() => {
+    if (!year || !month) {
+      setFetchedRows([]);
+      return;
+    }
+
+    const fetchAttendanceResultsFromDB = async () => {
+      setLoadingFetch(true);
+      try {
+        const url = API_BASE_URL.includes('/api')
+          ? `${API_BASE_URL}/attendance-result`
+          : `${API_BASE_URL}/api/attendance-result`;
+        const { data } = await axios.get(url, {
+          params: { year: String(year), month: String(month) },
+          ...payrollAuthHeaders(),
+        });
+        setFetchedRows(data.rows || []);
+      } catch (err) {
+        console.error("Failed to fetch attendance_result rows:", err);
+        setFetchedRows([]);
+      } finally {
+        setLoadingFetch(false);
+      }
+    };
+
+    fetchAttendanceResultsFromDB();
+  }, [year, month]);
 
   const fetchPayrollExistingPeriodKeys = useCallback(async () => {
     setRefreshingKeys(true);
@@ -354,20 +388,38 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
     return `${mo} ${y} · ${empPart}`;
   }, [employee?.employeeNumber, year, month]);
 
-  // Rows are added exclusively via the "Add to Abstract" button (see EarningsManagement.js),
+  // Combine fetched attendance_result rows with manually added rows
+  // Fetched rows are transformed/aggregated to match the structure of manualRows
+  const allAbstractRows = useMemo(() => {
+    const aggregated = aggregateAttendanceResultsForAbstract(fetchedRows, year, month);
+    
+    // Create a Set of keys from manualRows to avoid duplicates
+    const manualKeys = new Set(manualRows.map(r => r.key));
+    
+    // Add aggregated rows that aren't already in manualRows
+    const combined = [...manualRows];
+    for (const row of aggregated) {
+      if (!manualKeys.has(row.key)) {
+        combined.push(row);
+      }
+    }
+    
+    return combined;
+  }, [fetchedRows, manualRows, year, month]);
+
   // which fetches real attendance_result data (or stages a zero-deduction placeholder) and
-  // passes the result down as `manualRows`. Abstract.js no longer auto-fetches or merges
-  // attendance_result rows on its own — nothing appears here without an explicit click.
+  // passes the result down as `manualRows`. Abstract.js now also auto-fetches persisted
+  // attendance_result rows on mount/period-change and merges them with manual rows.
   //
-  // manualRows can accumulate entries for MULTIPLE employees and periods over the course
-  // of a session. The filter bar below (search / year / month) narrows that full set down;
+  // Combined rows include both manually added (this session) and database-persisted records.
+  // The filter bar below (search / year / month) narrows that full set down;
   // leaving all three filters at their defaults shows everything staged so far.
   const hasActiveFilter = searchQuery.trim() !== "" || filterYear !== "all" || filterMonth !== "all";
 
   const displayRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q && filterYear === "all" && filterMonth === "all") return manualRows;
-    return manualRows.filter((r) => {
+    if (!q && filterYear === "all" && filterMonth === "all") return allAbstractRows;
+    return allAbstractRows.filter((r) => {
       if (q) {
         const empStr = String(r.employeeNumber ?? "").toLowerCase();
         const nameStr = String(r.name ?? "").toLowerCase();
@@ -380,20 +432,20 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
       }
       return true;
     });
-  }, [manualRows, searchQuery, filterYear, filterMonth]);
+  }, [allAbstractRows, searchQuery, filterYear, filterMonth]);
 
   // Distinct years present across every staged row, so the year dropdown only
   // ever offers choices that actually exist (plus whatever period the parent
   // currently has selected, so it's always available even before rows for it exist).
   const availableYears = useMemo(() => {
     const set = new Set();
-    manualRows.forEach((r) => {
+    allAbstractRows.forEach((r) => {
       const { y } = getRowPeriodYearMonth(r);
       if (y) set.add(y);
     });
     if (year != null && year !== "") set.add(Number(year));
     return [...set].sort((a, b) => b - a);
-  }, [manualRows, year]);
+  }, [allAbstractRows, year]);
 
   const clearFilters = useCallback(() => {
     setSearchQuery("");
@@ -408,7 +460,7 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
 
   const deductionRows = useMemo(() => displayRows.filter((r) => r.isDeduction), [displayRows]);
   const coveredRows   = useMemo(() => displayRows.filter((r) => !r.isDeduction), [displayRows]);
-  const isEmpty = manualRows.length === 0;
+  const isEmpty = allAbstractRows.length === 0;
   const isFilteredEmpty = !isEmpty && displayRows.length === 0;
 
   const isRowAlreadySent = useCallback(
@@ -600,21 +652,26 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
       {/* ── Column header ── */}
       <ColHeader icon={AbstractTabIcon} label="Abstract · attendance_result">
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          {manualRows.length > 0 && (
+          {(allAbstractRows.length > 0 || loadingFetch) && (
             <>
-              <StatPill
-                value={hasActiveFilter ? `${displayRows.length}/${manualRows.length}` : displayRows.length}
-                label="records"
-              />
-              <StatPill value={deductionRows.length} label="deductions" accent />
-              <StatPill value={coveredRows.length} label="covered" />
+              {loadingFetch && <CircularProgress size={16} sx={{ color: T.accent }} />}
+              {!loadingFetch && (
+                <>
+                  <StatPill
+                    value={hasActiveFilter ? `${displayRows.length}/${allAbstractRows.length}` : displayRows.length}
+                    label="records"
+                  />
+                  <StatPill value={deductionRows.length} label="deductions" accent />
+                  <StatPill value={coveredRows.length} label="covered" />
+                </>
+              )}
             </>
           )}
         </Box>
       </ColHeader>
 
       {/* ── Filter bar: search employee, filter by year/month, view all ── */}
-      {manualRows.length > 0 && (
+      {allAbstractRows.length > 0 && (
         <Box
           sx={{
             px: 2,
@@ -816,15 +873,12 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
             }}
           >
             <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", color: T.accent, fontFamily: T.poppins, mb: 0.3 }}>
-              Nothing staged for payroll yet
+              No attendance_result records for this period
             </Typography>
             <Typography sx={{ fontSize: "0.72rem", color: T.muted, lineHeight: 1.55, fontFamily: T.poppins }}>
-              <strong>ABSTRACT</strong> only shows rows that were explicitly staged for{" "}
-              <strong>{filterSummary}</strong> — nothing is added automatically, even if the
-              employee has attendance deductions on record.
-              {" "}Go to the <strong>Leave/SC/CTO</strong> tabs, select the employee and period, and
-              use the <strong>Add to Abstract</strong> button below the Earnings Records panel to
-              stage them here — whether they have a deduction to post or none at all.
+              Nothing in <strong>attendance_result</strong> for <strong>{filterSummary}</strong>. 
+              Use the Salary Shortfall tab for the full merged registry. The ABSTRACT tab automatically 
+              shows all persisted <strong>attendance_result</strong> records once they are created.
             </Typography>
           </Alert>
         </Box>
@@ -846,7 +900,7 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
             }
           >
             <Typography sx={{ fontSize: "0.75rem", color: T.muted, fontFamily: T.poppins }}>
-              No staged records match your search / year / month filter. {manualRows.length} record(s) are staged in total.
+              No records match your search / year / month filter. {allAbstractRows.length} record(s) found in total.
             </Typography>
           </Alert>
         </Box>
