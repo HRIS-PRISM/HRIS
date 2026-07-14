@@ -4245,6 +4245,9 @@ const EarningsManagement = () => {
   }, [fetchAttendance]);
 
   // Clear local "already deducted" tracking when switching employee/period.
+  // NOTE: manualAbstractRows is intentionally NOT reset here. It is meant to
+  // accumulate staged rows across multiple employees/periods over the course
+  // of a session (see Abstract.js), so it must survive employee/period switches.
   useEffect(() => {
     setDeductedVlHalfDates([]);
     setFiledLeaveByDate({});
@@ -4253,7 +4256,6 @@ const EarningsManagement = () => {
     setVlHalfCreditSnapshots(null);
     setVlHalfError("");
     setVlHalfCertify(false);
-    setManualAbstractRows([]);
     fetchDeductedVlHalfDates();
     fetchFiledLeaveByDate();
   }, [

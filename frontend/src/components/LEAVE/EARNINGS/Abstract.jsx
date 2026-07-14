@@ -19,6 +19,11 @@ import {
   Snackbar,
   Checkbox,
   IconButton,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputAdornment,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import {
@@ -27,6 +32,8 @@ import {
   Payment as PaymentIcon,
   ExpandMore as ExpandMoreIcon,
   ViewStream as AbstractTabIcon,
+  Search as SearchIcon,
+  FilterAltOff as FilterAltOffIcon,
 } from "@mui/icons-material";
 import {
   payrollAuthHeaders,
@@ -165,6 +172,30 @@ function abstractRowHasPayrollForPeriod(row, filterYear, filterMonth, payrollKey
   return false;
 }
 
+// Best-effort extraction of a row's period year/month, tolerant of whatever
+// shape the row was staged with (explicit periodYear/periodMonth, plain
+// year/month, or only a human-readable "period" label like "Jun 2026").
+function getRowPeriodYearMonth(row) {
+  if (!row) return { y: null, m: null };
+  if (row.periodYear != null && row.periodMonth != null) {
+    return { y: Number(row.periodYear), m: Number(row.periodMonth) };
+  }
+  if (row.year != null && row.month != null) {
+    return { y: Number(row.year), m: Number(row.month) };
+  }
+  const s = String(row.period ?? "");
+  const yearMatch = s.match(/(20\d{2}|19\d{2})/);
+  const y = yearMatch ? Number(yearMatch[1]) : null;
+  let m = null;
+  for (let i = 0; i < MONTH_ABBR.length; i++) {
+    if (s.toLowerCase().includes(MONTH_ABBR[i].toLowerCase())) {
+      m = i + 1;
+      break;
+    }
+  }
+  return { y, m };
+}
+
 // ─── Shared header cell style ─────────────────────────────────────────────────
 
 const thSx = {
@@ -268,6 +299,15 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
   const [payrollExistingPeriodKeys, setPayrollExistingPeriodKeys] = useState(() => new Set());
   const [refreshingKeys, setRefreshingKeys] = useState(false);
 
+  // ── Filter state: search by employee # / name, plus optional year & month ──
+  // These are independent of the `employee`/`year`/`month` props passed down
+  // from the parent — they let the abstract show ALL staged records (across
+  // every employee/period ever added this session) and narrow that view down
+  // on demand, rather than being locked to whatever was last selected upstream.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterYear, setFilterYear] = useState("all");
+  const [filterMonth, setFilterMonth] = useState("all");
+
   useEffect(() => {
     setSentToPayrollKeys(new Set());
     setSelectedPayrollKeys(new Set());
@@ -318,11 +358,58 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
   // which fetches real attendance_result data (or stages a zero-deduction placeholder) and
   // passes the result down as `manualRows`. Abstract.js no longer auto-fetches or merges
   // attendance_result rows on its own — nothing appears here without an explicit click.
-  const displayRows = manualRows;
+  //
+  // manualRows can accumulate entries for MULTIPLE employees and periods over the course
+  // of a session. The filter bar below (search / year / month) narrows that full set down;
+  // leaving all three filters at their defaults shows everything staged so far.
+  const hasActiveFilter = searchQuery.trim() !== "" || filterYear !== "all" || filterMonth !== "all";
+
+  const displayRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q && filterYear === "all" && filterMonth === "all") return manualRows;
+    return manualRows.filter((r) => {
+      if (q) {
+        const empStr = String(r.employeeNumber ?? "").toLowerCase();
+        const nameStr = String(r.name ?? "").toLowerCase();
+        if (!empStr.includes(q) && !nameStr.includes(q)) return false;
+      }
+      if (filterYear !== "all" || filterMonth !== "all") {
+        const { y, m } = getRowPeriodYearMonth(r);
+        if (filterYear !== "all" && String(y ?? "") !== String(filterYear)) return false;
+        if (filterMonth !== "all" && String(m ?? "") !== String(filterMonth)) return false;
+      }
+      return true;
+    });
+  }, [manualRows, searchQuery, filterYear, filterMonth]);
+
+  // Distinct years present across every staged row, so the year dropdown only
+  // ever offers choices that actually exist (plus whatever period the parent
+  // currently has selected, so it's always available even before rows for it exist).
+  const availableYears = useMemo(() => {
+    const set = new Set();
+    manualRows.forEach((r) => {
+      const { y } = getRowPeriodYearMonth(r);
+      if (y) set.add(y);
+    });
+    if (year != null && year !== "") set.add(Number(year));
+    return [...set].sort((a, b) => b - a);
+  }, [manualRows, year]);
+
+  const clearFilters = useCallback(() => {
+    setSearchQuery("");
+    setFilterYear("all");
+    setFilterMonth("all");
+  }, []);
+
+  // Effective period used for payroll-bound lookups: respects an active
+  // year/month filter, otherwise falls back to whatever the parent selected.
+  const effectiveYear = filterYear !== "all" ? filterYear : year;
+  const effectiveMonth = filterMonth !== "all" ? filterMonth : month;
 
   const deductionRows = useMemo(() => displayRows.filter((r) => r.isDeduction), [displayRows]);
   const coveredRows   = useMemo(() => displayRows.filter((r) => !r.isDeduction), [displayRows]);
-  const isEmpty = displayRows.length === 0;
+  const isEmpty = manualRows.length === 0;
+  const isFilteredEmpty = !isEmpty && displayRows.length === 0;
 
   const isRowAlreadySent = useCallback(
     (row) => sentToPayrollKeys.has(row.key),
@@ -331,8 +418,8 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
   // Works for manual rows too — they carry employeeNumber/periodYear/periodMonth
   // in the same shape getPayrollPeriodBounds() expects, so no special-casing needed.
   const isRowAlreadyInPayrollProcessing = useCallback(
-    (row) => abstractRowHasPayrollForPeriod(row, year, month, payrollExistingPeriodKeys),
-    [payrollExistingPeriodKeys, year, month],
+    (row) => abstractRowHasPayrollForPeriod(row, effectiveYear, effectiveMonth, payrollExistingPeriodKeys),
+    [payrollExistingPeriodKeys, effectiveYear, effectiveMonth],
   );
 
   const togglePayrollSelect = useCallback((rowKey) => {
@@ -406,7 +493,7 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
     }
     const byPeriod = new Map();
     for (const r of picked) {
-      const b = getPayrollPeriodBounds(r, year, month);
+      const b = getPayrollPeriodBounds(r, effectiveYear, effectiveMonth);
       if (!b) continue;
       const u = `${b.startDate}|${b.endDate}`;
       const emp = String(r.employeeNumber).trim();
@@ -446,7 +533,7 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
         let nameFromRegistry = null;
         for (const r of picked) {
           if (String(r.employeeNumber).trim() !== emp) continue;
-          const b = getPayrollPeriodBounds(r, year, month);
+          const b = getPayrollPeriodBounds(r, effectiveYear, effectiveMonth);
           if (!b || b.startDate !== p.startDate || b.endDate !== p.endDate) continue;
           sumAbs += registryContributionDays(r);
           if (!nameFromRegistry && r.name) nameFromRegistry = r.name;
@@ -489,10 +576,23 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
     } finally {
       setSubmittingPayroll(false);
     }
-  }, [displayRows, selectedPayrollKeys, isRowAlreadySent, isRowAlreadyInPayrollProcessing, year, month]);
+  }, [displayRows, selectedPayrollKeys, isRowAlreadySent, isRowAlreadyInPayrollProcessing, effectiveYear, effectiveMonth]);
 
   // 15 cols: checkbox + audit + 13 data cols
   const TABLE_COL_SPAN = 15;
+
+  const filterInputSx = {
+    fontFamily: T.poppins,
+    "& .MuiOutlinedInput-root": {
+      fontSize: "0.75rem",
+      fontFamily: T.poppins,
+      bgcolor: "#fff",
+      borderRadius: "8px",
+      "& fieldset": { borderColor: T.accentBorder },
+      "&:hover fieldset": { borderColor: T.accentMid },
+      "&.Mui-focused fieldset": { borderColor: T.accent },
+    },
+  };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", fontFamily: T.poppins }}>
@@ -500,15 +600,94 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
       {/* ── Column header ── */}
       <ColHeader icon={AbstractTabIcon} label="Abstract · attendance_result">
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          {displayRows.length > 0 && (
+          {manualRows.length > 0 && (
             <>
-              <StatPill value={displayRows.length} label="records" />
+              <StatPill
+                value={hasActiveFilter ? `${displayRows.length}/${manualRows.length}` : displayRows.length}
+                label="records"
+              />
               <StatPill value={deductionRows.length} label="deductions" accent />
               <StatPill value={coveredRows.length} label="covered" />
             </>
           )}
         </Box>
       </ColHeader>
+
+      {/* ── Filter bar: search employee, filter by year/month, view all ── */}
+      {manualRows.length > 0 && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            borderBottom: `1px solid ${T.divider}`,
+            bgcolor: "#fff",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            flexWrap: "wrap",
+            flexShrink: 0,
+          }}
+        >
+          <TextField
+            size="small"
+            placeholder="Search employee # or name…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            sx={{ ...filterInputSx, minWidth: 220, flex: "1 1 220px" }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 16, color: T.faint }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 110 }}>
+            <Select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              displayEmpty
+              sx={{ borderRadius: "8px" }}
+            >
+              <MenuItem value="all">All years</MenuItem>
+              {availableYears.map((y) => (
+                <MenuItem key={y} value={String(y)}>{y}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 130 }}>
+            <Select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              displayEmpty
+              sx={{ borderRadius: "8px" }}
+            >
+              <MenuItem value="all">All months</MenuItem>
+              {MONTH_ABBR.map((mo, idx) => (
+                <MenuItem key={mo} value={String(idx + 1)}>{mo}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {hasActiveFilter && (
+            <Button
+              size="small"
+              onClick={clearFilters}
+              startIcon={<FilterAltOffIcon sx={{ fontSize: 14 }} />}
+              sx={{
+                fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
+                fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
+                px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
+                "&:hover": { bgcolor: "rgba(0,0,0,0.03)", borderColor: "rgba(0,0,0,0.15)" },
+              }}
+            >
+              Reset filters
+            </Button>
+          )}
+        </Box>
+      )}
 
       {/* ── Toolbar ── */}
       <Box
@@ -646,6 +825,28 @@ export function Abstract({ employee, year, month, manualRows = [] }) {
               {" "}Go to the <strong>Leave/SC/CTO</strong> tabs, select the employee and period, and
               use the <strong>Add to Abstract</strong> button below the Earnings Records panel to
               stage them here — whether they have a deduction to post or none at all.
+            </Typography>
+          </Alert>
+        </Box>
+      )}
+
+      {isFilteredEmpty && (
+        <Box sx={{ px: 2, pt: 1.5, pb: 0 }}>
+          <Alert
+            severity="info"
+            icon={<InfoOutlinedIcon sx={{ fontSize: 20 }} />}
+            sx={{
+              alignItems: "center", fontFamily: T.poppins,
+              borderRadius: 1.75, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint,
+            }}
+            action={
+              <Button size="small" onClick={clearFilters} sx={{ fontFamily: T.poppins, textTransform: "none", fontWeight: 700, color: T.accent }}>
+                Reset filters
+              </Button>
+            }
+          >
+            <Typography sx={{ fontSize: "0.75rem", color: T.muted, fontFamily: T.poppins }}>
+              No staged records match your search / year / month filter. {manualRows.length} record(s) are staged in total.
             </Typography>
           </Alert>
         </Box>
