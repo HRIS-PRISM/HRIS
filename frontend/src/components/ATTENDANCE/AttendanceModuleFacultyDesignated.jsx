@@ -2670,6 +2670,13 @@ const AttendanceModuleFacultyDesignated = () => {
   }, []);
 
   // ── handleSubmit — with pre-flight device check ──
+  // FIX: Non-Teaching-style behavior — fetch BOTH the raw device punches
+  // (deviceRows, biometric preflight) AND the persisted attendancerecord rows
+  // (rawRows, which include anything saved via Attendance Modification, e.g.
+  // manually_modified = 1 rows, leave-gap rows, schedule-gap rows). We only
+  // show the "No Device Records Found" dialog when BOTH sources are empty —
+  // previously this module bailed out the instant deviceRows was empty,
+  // even if the employee already had manually-entered records for the period.
   const handleSubmit = async () => {
     if (submitInFlightRef.current) return;
     submitInFlightRef.current = true;
@@ -2700,7 +2707,13 @@ const AttendanceModuleFacultyDesignated = () => {
         }),
       ]);
 
-      if (deviceRows.length === 0) {
+      // Compute rawRows BEFORE any early return, so manually-modified /
+      // Attendance-Modification-saved records are visible to the emptiness check.
+      const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
+
+      // Only treat this as "nothing found" when BOTH the device AND the
+      // persisted attendancerecord table are empty for this period.
+      if (deviceRows.length === 0 && rawRows.length === 0) {
         setAttendanceData([]);
         setTardinessOverrides({});
         setSuspensionByDate({});
@@ -2708,7 +2721,7 @@ const AttendanceModuleFacultyDesignated = () => {
         setHolidayByDate({});
         showModal(
           'No Device Records Found',
-          'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.',
+          'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Device.',
           'warning',
           () => {
             closeModal();
@@ -2718,8 +2731,11 @@ const AttendanceModuleFacultyDesignated = () => {
         return;
       }
 
-      const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
-
+      // At this point either the device has punches, or manually-modified
+      // records already exist. If rawRows is still empty here, it means the
+      // device has punches but there is no matching Official Time Schedule
+      // (the join in /api/attendance requires officialtime), so we guide the
+      // user to set that up instead of silently rendering nothing.
       if (rawRows.length === 0) {
         setAttendanceData([]);
         setTardinessOverrides({});

@@ -1485,21 +1485,30 @@ import API_BASE_URL from '../../apiConfig';
             ...getAuthHeaders(),
           }),
         ]);
-        if (deviceRows.length === 0) {
+
+        // ── FIX: fetch rawRows BEFORE the "no device records" guard, and only
+        // treat this as a hard "no records" case when BOTH the raw device
+        // punches AND the manually-entered/modified attendancerecord rows
+        // (Attendance Modification) come back empty. This lets records that
+        // were added/edited via Attendance Modification (and therefore exist
+        // in `attendancerecord` even without matching device punches) still
+        // load in this module — matching Non-Teaching's behavior.
+        const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
+
+        if (deviceRows.length === 0 && rawRows.length === 0) {
           setAttendanceData([]);
           setSuspensionByDate({});
           setLeaveByDate({});
           setHolidayByDate({});
           showModal(
             'No Device Records Found',
-            'No biometric device records were found for this employee within the selected date range.\n\nPlease verify the employee number and date range, or check if the attendance device has synced.\n\nPress OK to open Attendance Device.',
+            'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Device.',
             'warning',
             () => { closeModal(); navigate('/view_attendance'); },
           );
           return;
         }
 
-        const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
         if (rawRows.length === 0) {
           setAttendanceData([]);
           setSuspensionByDate({});
@@ -2905,4 +2914,3 @@ import API_BASE_URL from '../../apiConfig';
 
 
   export default AttendanceModuleFaculty;
-  
