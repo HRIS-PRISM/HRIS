@@ -26,7 +26,10 @@ const Payroll = require('./payrollRoutes/Payroll');
 const PayrollReleased = require('./payrollRoutes/PayrollReleased');
 const PayrollJO = require('./payrollRoutes/PayrollJO');
 const PayrollFormulas = require('./payrollRoutes/PayrollFormulas');
+const UploadPayroll = require('./payrollRoutes/UploadPayroll');
 const EmployeeCategory = require('./dashboardRoutes/EmployeeCategory');
+const dashboardAuditRoute = require('./dashboardRoutes/DashboardAuditRoute');
+const AutoAttendance = require('./routes/auto-attendance');
 
 // Import new organized routes
 const authRoutes = require('./routes/auth');
@@ -57,6 +60,17 @@ const settingsExtendedRoutes = require('./routes/settings-extended');
 const confidentialPasswordRoutes = require('./routes/confidential-password');
 const commutationRoute = require('./routes/commutation');
 const pdsTemplatesRoutes = require('./routes/pds-templates');
+const file201Routes = require('./routes/file201');
+const workingHoursRoutes = require('./routes/workingHoursRoutes');
+const serviceCreditRoutes = require('./routes/serviceCredit');
+const ctoRoutes = require('./routes/ctoRoutes');
+const earningsRoutes = require('./routes/earningsRoutes');
+const deductionsRoutes = require('./routes/deductions');
+const leaveSalaryShortfallRoutes = require('./routes/leaveSalaryShortfallRoutes');
+const attendanceResultRoutes = require('./routes/attendanceResultRoutes');
+const supervisorRoutes = require('./routes/supervisor');
+const attendanceComputationViewStateRoutes = require('./routes/attendanceComputationViewState');
+
 
 
 const app = express();
@@ -71,7 +85,7 @@ const allowedOrigins = [
   'http://192.168.50.97:5137',
   'http://192.168.50.86:5173',
   'http://192.168.50.62:5173',
-  'http://192.168.50.65:5173'
+  'http://192.168.50.55:5173'
 ];
 
 function isOriginAllowed(origin) {
@@ -132,6 +146,62 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.log('Audit log table ready');
   }
 });
+
+// Dedicated earnings / payroll-audit trail (used by earningsRoutes, leave half-day, salary shortfall mirror)
+const ensureEarningsAuditLogTableSQL = `
+  CREATE TABLE IF NOT EXISTS earnings_audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    earning_type VARCHAR(64) NOT NULL,
+    earning_id VARCHAR(64) NULL COMMENT 'Usually leave/sc/cto row id; may be employeeNumber for UI-only rows',
+    action VARCHAR(512) NOT NULL,
+    old_status VARCHAR(64) NULL,
+    new_status VARCHAR(64) NULL,
+    actor VARCHAR(64) NULL,
+    notes TEXT NULL,
+    payload LONGTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_earnings_audit_type_id (earning_type, earning_id),
+    KEY idx_earnings_audit_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureEarningsAuditLogTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure earnings_audit_log table exists:', err.message);
+  } else {
+    console.log('earnings_audit_log table ready');
+  }
+});
+
+db.query(
+  `ALTER TABLE earnings_audit_log
+   MODIFY COLUMN earning_id VARCHAR(64) NULL
+   COMMENT 'Usually leave/sc/cto row id; may be employeeNumber for UI-only rows'`,
+  (alterErr) => {
+    if (alterErr && alterErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('earnings_audit_log earning_id VARCHAR migration:', alterErr.message);
+    }
+  },
+);
+
+// Legacy phpMyAdmin / old installs used VARCHAR(10) earning_type → truncated "attendance", "half_day_p", etc.
+db.query(
+  `ALTER TABLE earnings_audit_log
+   MODIFY COLUMN earning_type VARCHAR(64) NOT NULL`,
+  (alterErr) => {
+    if (alterErr && alterErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('earnings_audit_log earning_type width migration:', alterErr.message);
+    }
+  },
+);
+db.query(
+  `ALTER TABLE earnings_audit_log
+   MODIFY COLUMN action VARCHAR(512) NOT NULL`,
+  (alterErr) => {
+    if (alterErr && alterErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('earnings_audit_log action width migration:', alterErr.message);
+    }
+  },
+);
 
 db.query('ALTER TABLE audit_log ADD COLUMN details_json LONGTEXT NULL', (err) => {
   if (err && err.code !== 'ER_DUP_FIELDNAME') {
@@ -212,6 +282,10 @@ db.query(ensureHolidayTableSQL, (err) => {
 [
   'ALTER TABLE announcements ADD COLUMN date_start DATE NULL',
   'ALTER TABLE announcements ADD COLUMN date_end DATE NULL',
+  'ALTER TABLE announcements ADD COLUMN hr_only TINYINT(1) NOT NULL DEFAULT 0',
+  'ALTER TABLE announcements ADD COLUMN is_flexi TINYINT(1) NOT NULL DEFAULT 0',
+  'ALTER TABLE announcements ADD COLUMN flexi_hours DECIMAL(5,2) NULL',
+  'ALTER TABLE announcements ADD COLUMN flexi_custom_time TIME NULL',
 ].forEach((sql) => {
   db.query(sql, (err) => {
     if (err && err.code !== 'ER_DUP_FIELDNAME')
@@ -312,6 +386,37 @@ db.query(ensureContactStatusEnumSQL, (err) => {
   }
 });
 
+// Ensure working hours rate settings exist (only editable source rates are stored)
+const ensureWorkingHoursRatesTableSQL = `
+  CREATE TABLE IF NOT EXISTS working_hours_rates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    rate_key VARCHAR(20) NOT NULL,
+    rate_value VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_rate_key (rate_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
+db.query(ensureWorkingHoursRatesTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure working_hours_rates table exists:', err.message);
+  } else {
+    console.log('working_hours_rates table ready');
+
+    db.query(
+      `INSERT INTO working_hours_rates (rate_key, rate_value)
+       VALUES ('hour', '0.125'), ('minute', '0.002')
+       ON DUPLICATE KEY UPDATE rate_value = VALUES(rate_value)`,
+      (seedErr) => {
+        if (seedErr) {
+          console.error('working_hours_rates seed migration:', seedErr.message);
+        }
+      },
+    );
+  }
+});
+
 // existing routes
 app.use('/ChildrenRoute', childrenRouter);
 app.use('/VoluntaryRoute', VoluntaryWork);
@@ -332,9 +437,16 @@ app.use('/PayrollRoute', Payroll);
 app.use('/PayrollReleasedRoute', PayrollReleased);
 app.use('/PayrollJORoutes', PayrollJO);
 app.use('/EmploymentCategoryRoutes', EmployeeCategory);
+app.use('/dashboard-audit', dashboardAuditRoute);
 app.use('/', authRoutes);
+app.use('/', supervisorRoutes);
 app.use('/', passwordRoutes);
 app.use('/', settingsRoutes);
+// Public routes (login carousel, MFA prefs, FAQs, etc.) — before routers that use router.use(authenticateToken)
+app.use('/', holidayRoutes);
+app.use('/', announcementsRoutes);
+app.use('/', suspensionsRoutes);
+app.use('/', settingsExtendedRoutes);
 app.use('/', learningRoutes);
 app.use('/', userRoutes);
 app.use('/', pageRoutes);
@@ -344,11 +456,8 @@ app.use('/', itemRoutes);
 app.use('/', salaryRoutes);
 app.use('/', departmentRoutes);
 app.use('/', leaveRoutes);
-app.use('/', holidayRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
-app.use('/', announcementsRoutes);
-app.use('/', suspensionsRoutes);
 app.use('/', auditRoutes);
 app.use('/', tasksRoutes);
 app.use('/', dashboardRoutes);
@@ -356,11 +465,135 @@ app.use('/', notesRoutes);
 app.use('/', eventsRoutes);
 app.use('/', notificationsRoutes);
 app.use('/', reportsRoutes);
-app.use('/', settingsExtendedRoutes);
 app.use('/', confidentialPasswordRoutes);
 app.use('/', PayrollFormulas);
 app.use('/commutationRoute', commutationRoute);
 app.use('/pds-templates', pdsTemplatesRoutes);
+app.use('/file201', file201Routes);
+app.use('/auto-attendance', AutoAttendance);
+app.use('/api/working-hours', workingHoursRoutes);
+app.use('/api/service-credits', serviceCreditRoutes);
+// Legacy alias (older clients called /api/ot-types)
+app.get('/api/ot-types', (req, res, next) => {
+  req.url = '/ot-types';
+  serviceCreditRoutes(req, res, next);
+});
+app.use('/api/cto', ctoRoutes);
+app.use('/api/', UploadPayroll);
+app.use('/api/earnings', earningsRoutes);
+app.use('/api/deductions', deductionsRoutes);
+app.use('/api/leave-salary-shortfall', leaveSalaryShortfallRoutes);
+app.use('/api/attendance-result', attendanceResultRoutes);
+app.use('/api/attendance-computation-view-state', attendanceComputationViewStateRoutes);
+
+const ensureAttendanceResultSQL = `
+  CREATE TABLE IF NOT EXISTS attendance_result (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_number VARCHAR(64) NOT NULL,
+    result_date DATE NOT NULL,
+    source_type VARCHAR(16) NOT NULL COMMENT 'ABSENT | TARDINESS',
+    source_key VARCHAR(160) NOT NULL,
+    original_hours DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    leave_used VARCHAR(32) NOT NULL DEFAULT 'NONE',
+    leave_hours_used DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    unpaid_hours DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    paid_hours DECIMAL(14, 6) NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL,
+    leave_earning_id INT NULL,
+    sc_earning_id INT NULL,
+    cto_earning_id INT NULL,
+    deduction_decision_log_id INT NULL,
+    remarks TEXT NULL,
+    processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_ar_source_key (source_key),
+    KEY idx_ar_emp_date (employee_number, result_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureAttendanceResultSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure attendance_result table:', err.message);
+  } else {
+    console.log('attendance_result table ready');
+  }
+});
+
+const ensureAttendanceComputationViewStateSQL = `
+  CREATE TABLE IF NOT EXISTS attendance_computation_view_state (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_number VARCHAR(64) NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    selected_computation_type VARCHAR(128) NOT NULL,
+    selected_by VARCHAR(128) NULL,
+    selected_at DATETIME NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_acvs_emp_period (employee_number, period_start, period_end)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureAttendanceComputationViewStateSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure attendance_computation_view_state table exists:', err.message);
+  } else {
+    console.log('attendance_computation_view_state table ready');
+  }
+});
+
+const ensureAttendanceRecordRemarksColumns = [
+  `ALTER TABLE attendancerecord ADD COLUMN remarks TEXT NULL COMMENT 'Manual adjustment remarks for this day'`,
+  `ALTER TABLE attendancerecord ADD COLUMN autofill_remarks TEXT NULL COMMENT 'Auto-filled adjustment remarks'`,
+];
+ensureAttendanceRecordRemarksColumns.forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME') {
+      console.error('attendancerecord column ensure:', err.message);
+    }
+  });
+});
+
+const ensureOverallDailyLateColumns = [
+  `ALTER TABLE overall_attendance_record ADD COLUMN daily_late_undertime JSON NULL COMMENT 'Per-day late/undertime for DTR'`,
+  `ALTER TABLE overall_attendance_record ADD COLUMN computation_module_type VARCHAR(64) NULL`,
+];
+ensureOverallDailyLateColumns.forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME') {
+      console.error('overall_attendance_record column ensure:', err.message);
+    }
+  });
+});
+
+db.query('DROP TABLE IF EXISTS dtr_computed_daily_late', (err) => {
+  if (err) {
+    console.warn('dtr_computed_daily_late drop (optional):', err.message);
+  }
+});
+
+const ensureLeaveSalaryShortfallSQL = `
+  CREATE TABLE IF NOT EXISTS leave_salary_shortfall (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_number VARCHAR(64) NOT NULL,
+    period_year INT NOT NULL,
+    period_month INT NOT NULL,
+    negative_balance_days DECIMAL(14, 6) NOT NULL COMMENT 'Balance after deduction in days (often negative)',
+    shortfall_days DECIMAL(14, 6) NOT NULL,
+    shortfall_hours DECIMAL(14, 6) NOT NULL,
+    leave_code VARCHAR(32) NOT NULL,
+    entry_type VARCHAR(64) NULL,
+    leave_earning_id INT NULL,
+    remarks TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_lss_emp_period (employee_number, period_year, period_month),
+    INDEX idx_lss_created (created_at),
+    UNIQUE KEY uq_lss_leave_earning (leave_earning_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+db.query(ensureLeaveSalaryShortfallSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure leave_salary_shortfall table:', err.message);
+  } else {
+    console.log('leave_salary_shortfall table ready');
+  }
+});
 
 // Server startup with Socket.IO
 const PORT = process.env.WEB_PORT || 5000;

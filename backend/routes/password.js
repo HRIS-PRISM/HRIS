@@ -216,14 +216,16 @@ router.post('/verify-recaptcha', async (req, res) => {
 // Verify current password
 router.post('/verify-current-password', authenticateToken, async (req, res) => {
   try {
-    const { email, currentPassword } = req.body;
+    const { email, employeeNumber, currentPassword } = req.body;
 
-    if (!email || !currentPassword) {
-      return res.status(400).json({ error: 'Email and current password are required' });
+    if (!email || !employeeNumber || !currentPassword) {
+      return res.status(400).json({
+        error: 'Email, employee number, and current password are required',
+      });
     }
 
-    const query = 'SELECT password FROM users WHERE email = ?';
-    db.query(query, [email], async (err, results) => {
+    const query = 'SELECT password FROM users WHERE email = ? AND employeeNumber = ? LIMIT 1';
+    db.query(query, [email, employeeNumber], async (err, results) => {
       if (err) {
         console.error('Database error:', err);
         return res.status(500).json({ error: 'Database error' });
@@ -251,21 +253,30 @@ router.post('/verify-current-password', authenticateToken, async (req, res) => {
 // Send password change code
 router.post('/send-password-change-code', authenticateToken, async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, employeeNumber } = req.body;
+
+    if (!email || !employeeNumber) {
+      return res.status(400).json({
+        error: 'Email and employee number are required',
+      });
+    }
 
     const query = `
       SELECT p.firstName, p.middleName, p.lastName, p.nameExtension,
-             CONCAT(p.firstName,
-                    CASE WHEN p.middleName IS NOT NULL THEN CONCAT(' ', p.middleName) ELSE '' END,
-                    ' ', p.lastName,
-                    CASE WHEN p.nameExtension IS NOT NULL THEN CONCAT(' ', p.nameExtension) ELSE '' END
+             CONCAT(
+               p.firstName,
+               CASE WHEN p.middleName IS NOT NULL AND p.middleName != '' THEN CONCAT(' ', p.middleName) ELSE '' END,
+               ' ',
+               p.lastName,
+               CASE WHEN p.nameExtension IS NOT NULL AND p.nameExtension != '' THEN CONCAT(' ', p.nameExtension) ELSE '' END
              ) as fullName
       FROM users u
       LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
-      WHERE u.email = ?
+      WHERE u.email = ? AND u.employeeNumber = ?
+      LIMIT 1
     `;
 
-    db.query(query, [email], async (err, result) => {
+    db.query(query, [email, employeeNumber], async (err, result) => {
       if (err) {
         console.error('DB error:', err);
         return res.status(500).json({ error: 'Database error' });
@@ -277,8 +288,8 @@ router.post('/send-password-change-code', authenticateToken, async (req, res) =>
       const user = result[0];
       const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-      verificationCodes.set(email, {
-        code: code,
+      verificationCodes.set(`${email}:${employeeNumber}`, {
+        code,
         expires: Date.now() + 10 * 60 * 1000,
       });
 
@@ -318,9 +329,15 @@ router.post('/send-password-change-code', authenticateToken, async (req, res) =>
 // Verify password change code
 router.post('/verify-password-change-code', async (req, res) => {
   try {
-    const { email, code } = req.body;
+    const { email, employeeNumber, code } = req.body;
 
-    const storedData = verificationCodes.get(email);
+    if (!email || !employeeNumber || !code) {
+      return res.status(400).json({
+        error: 'Email, employee number, and code are required',
+      });
+    }
+
+    const storedData = verificationCodes.get(`${email}:${employeeNumber}`);
 
     if (!storedData) {
       return res.status(400).json({
@@ -329,7 +346,7 @@ router.post('/verify-password-change-code', async (req, res) => {
     }
 
     if (Date.now() > storedData.expires) {
-      verificationCodes.delete(email);
+      verificationCodes.delete(`${email}:${employeeNumber}`);
       return res.status(400).json({
         error: 'Verification code has expired. Please request a new one.',
       });
@@ -349,7 +366,13 @@ router.post('/verify-password-change-code', async (req, res) => {
 // Complete password change
 router.post('/complete-password-change', async (req, res) => {
   try {
-    const { email, newPassword, confirmPassword } = req.body;
+    const { email, employeeNumber, newPassword, confirmPassword } = req.body;
+
+    if (!email || !employeeNumber || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        error: 'Email, employee number, new password, and confirm password are required',
+      });
+    }
 
     if (newPassword !== confirmPassword) {
       return res.status(400).json({ error: 'Passwords do not match' });
@@ -359,14 +382,14 @@ router.post('/complete-password-change', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const storedData = verificationCodes.get(email);
+    const storedData = verificationCodes.get(`${email}:${employeeNumber}`);
     if (!storedData) {
       return res.status(400).json({ error: 'Invalid or expired session. Please start over.' });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    const query = 'UPDATE users SET password = ?, isDefaultPassword = 0 WHERE email = ?';
-    db.query(query, [hashedPassword, email], (err, result) => {
+    const query = 'UPDATE users SET password = ?, isDefaultPassword = 0 WHERE email = ? AND employeeNumber = ?';
+    db.query(query, [hashedPassword, email, employeeNumber], (err, result) => {
       if (err) {
         console.error('Database error:', err);
         return res.status(500).json({ error: 'Failed to update password' });
@@ -376,7 +399,7 @@ router.post('/complete-password-change', async (req, res) => {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      verificationCodes.delete(email);
+      verificationCodes.delete(`${email}:${employeeNumber}`);
       res.json({ message: 'Password changed successfully' });
     });
   } catch (error) {
@@ -386,7 +409,3 @@ router.post('/complete-password-change', async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-

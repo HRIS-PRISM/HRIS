@@ -9,11 +9,77 @@ const {
   notifyMultipleUsers,
   notifyAnnouncementChanged,
 } = require('../socket/socketService');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
-// GET all announcements (normalize date_start/date_end for backward compat)
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Parse the flexi fields coming from a multipart/form-data body.
+ * Returns { is_flexi, flexi_hours, flexi_custom_time }
+ *
+ *  is_flexi          – boolean  (checkbox / "true" string)
+ *  flexi_hours       – number   (e.g. 2, 1.5) – how many hours of grace
+ *  flexi_custom_time – "HH:MM"  – explicit override instead of computed time
+ */
+function parseFlexiFields(body) {
+  const is_flexi = body.is_flexi === true || body.is_flexi === 'true' || body.is_flexi === '1' ? 1 : 0;
+  const hr_only  = body.hr_only  === true || body.hr_only  === 'true' || body.hr_only  === '1' ? 1 : 0;
+
+  let flexi_hours = null;
+  if (is_flexi && body.flexi_hours !== undefined && body.flexi_hours !== '') {
+    const parsed = parseFloat(body.flexi_hours);
+    flexi_hours = isNaN(parsed) ? 2.0 : parsed;
+  }
+
+  let flexi_custom_time = null;
+  if (is_flexi && body.flexi_custom_time && body.flexi_custom_time.trim() !== '') {
+    // Accept "HH:MM" or "HH:MM:SS" – store as "HH:MM:SS"
+    const t = body.flexi_custom_time.trim();
+    flexi_custom_time = t.length === 5 ? `${t}:00` : t;
+  }
+
+  return { hr_only, is_flexi, flexi_hours, flexi_custom_time };
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/announcements
+// Supports optional query param: ?audience=hr  (filter HR-only)
+// ─────────────────────────────────────────────────────────────
 router.get('/api/announcements', (req, res) => {
-  const query = 'SELECT id, title, about, COALESCE(date_start, date) AS date_start, COALESCE(date_end, date) AS date_end, date, image FROM announcements ORDER BY COALESCE(date_start, date) DESC';
-  db.query(query, (err, results) => {
+  const { audience } = req.query; // "hr" | "all" | undefined
+
+  let whereClause = '';
+  const params = [];
+
+  if (audience === 'employee') {
+    // Employee-facing feed: exclude HR-only items
+    whereClause = 'WHERE hr_only = 0';
+  } else if (audience === 'hr') {
+    whereClause = 'WHERE hr_only = 1';
+  }
+  // "all" or undefined → no filter (admin view)
+
+  const query = `
+    SELECT
+      id,
+      title,
+      about,
+      COALESCE(date_start, date) AS date_start,
+      COALESCE(date_end,   date) AS date_end,
+      date,
+      image,
+      hr_only,
+      is_flexi,
+      flexi_hours,
+      flexi_custom_time
+    FROM announcements
+    ${whereClause}
+    ORDER BY COALESCE(date_start, date) DESC
+  `;
+
+  db.query(query, params, (err, results) => {
     if (err) {
       console.error('Error fetching announcements:', err);
       return res.status(500).json({ error: 'Internal server error' });
@@ -22,58 +88,78 @@ router.get('/api/announcements', (req, res) => {
   });
 });
 
-// POST: Create announcement (Title, About, Date Range)
-router.post('/api/announcements', upload.single('image'), (req, res) => {
+// ─────────────────────────────────────────────────────────────
+// POST /api/announcements  – Create
+// ─────────────────────────────────────────────────────────────
+router.post('/api/announcements', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { title, about, date_start, date_end } = req.body;
+  const { hr_only, is_flexi, flexi_hours, flexi_custom_time } = parseFlexiFields(req.body);
+
   const image = req.file ? `/uploads/${req.file.filename}` : null;
-  const date = date_start || date_end || null;
+  const date  = date_start || date_end || null;
 
-  const query =
-    'INSERT INTO announcements (title, about, date, date_start, date_end, image) VALUES (?, ?, ?, ?, ?, ?)';
-  db.query(query, [title, about, date, date_start || null, date_end || null, image], (err, result) => {
-    if (err) {
-      console.error('Error creating announcement:', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
+  const query = `
+    INSERT INTO announcements
+      (title, about, date, date_start, date_end, image,
+       hr_only, is_flexi, flexi_hours, flexi_custom_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
 
-    // Create notifications for all employees
-    const announcementId = result.insertId;
-    const notificationDescription = `New announcement has been posted. Click to see details.`;
-
-    // Fetch the full announcement data to broadcast
-    db.query('SELECT * FROM announcements WHERE id = ?', [announcementId], (fetchErr, announcementResults) => {
-      if (!fetchErr && announcementResults.length > 0) {
-        const newAnnouncement = announcementResults[0];
-        // Broadcast announcement change to ALL users immediately (fast!)
-        notifyAnnouncementChanged('created', newAnnouncement);
+  db.query(
+    query,
+    [title, about, date, date_start || null, date_end || null, image,
+     hr_only, is_flexi, flexi_hours, flexi_custom_time],
+    (err, result) => {
+      if (err) {
+        console.error('Error creating announcement:', err);
+        return res.status(500).json({ error: 'Internal server error' });
       }
-    });
 
-    // Let admin dashboards refresh in real time ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    broadcastToRoles(
-      ['administrator', 'superadmin', 'technical'],
-      'adminDashboardUpdated',
-      { source: 'announcements', action: 'created', announcementId },
-    );
-    
-    // Fetch all employee numbers and create notifications
-    // Note: We try to be flexible here and support both `users.employeeNumber`
-    // and `person_table.agencyEmployeeNum` so announcements notify all employees
-    // even if one of these fields is not populated.
-    db.query(
-      `
-        SELECT DISTINCT employeeNumber
-        FROM users
-        WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
-        UNION
-        SELECT DISTINCT agencyEmployeeNum AS employeeNumber
-        FROM person_table
-        WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""
-      `,
-      async (userErr, users) => {
+      const announcementId = result.insertId;
+      const notificationDescription = `New announcement has been posted. Click to see details.`;
+
+      // Fetch full row and broadcast
+      db.query('SELECT * FROM announcements WHERE id = ?', [announcementId], (fetchErr, rows) => {
+        if (!fetchErr && rows.length > 0) {
+          notifyAnnouncementChanged('created', rows[0]);
+        }
+      });
+
+      // Admin dashboard real-time refresh
+      broadcastToRoles(
+        ['administrator', 'superadmin', 'technical'],
+        'adminDashboardUpdated',
+        { source: 'announcements', action: 'created', announcementId },
+      );
+
+      // ── Notification targeting ─────────────────────────────
+      // If hr_only → notify only employees whose role is 'hr'
+      // Otherwise  → notify everyone
+      const employeeQuery = hr_only
+        ? `
+            SELECT DISTINCT employeeNumber
+            FROM users
+            WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
+              AND role = 'hr'
+            UNION
+            SELECT DISTINCT agencyEmployeeNum AS employeeNumber
+            FROM person_table
+            WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""
+              AND department_code = 'HR'
+          `
+        : `
+            SELECT DISTINCT employeeNumber
+            FROM users
+            WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
+            UNION
+            SELECT DISTINCT agencyEmployeeNum AS employeeNumber
+            FROM person_table
+            WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""
+          `;
+
+      db.query(employeeQuery, async (userErr, users) => {
         if (userErr) {
           console.error('Error fetching users for notifications:', userErr);
-          // Still return success even if notification creation fails
           return res.status(201).json({
             message: 'Announcement created successfully',
             id: announcementId,
@@ -89,63 +175,45 @@ router.post('/api/announcements', upload.single('image'), (req, res) => {
             ),
           );
 
-          // Create notifications for each employee using promises
-          const notificationPromises = users.map((user) => {
-            return new Promise((resolve) => {
+          const notificationPromises = users.map((user) =>
+            new Promise((resolve) => {
               const empNum = String(user.employeeNumber).trim();
-              if (!empNum) {
-                resolve({ success: false, reason: 'empty employee number' });
-                return;
-              }
+              if (!empNum) { resolve({ success: false }); return; }
 
-              // Try with notification_type, action_link, and announcement_id first
               db.query(
-                `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link, announcement_id) 
+                `INSERT INTO notifications
+                   (employeeNumber, description, read_status, notification_type, action_link, announcement_id)
                  VALUES (?, ?, 0, 'announcement', NULL, ?)`,
                 [empNum, notificationDescription, announcementId],
                 (notifErr) => {
                   if (notifErr) {
-                    // Fallback: try without announcement_id
                     db.query(
-                      `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+                      `INSERT INTO notifications
+                         (employeeNumber, description, read_status, notification_type, action_link)
                        VALUES (?, ?, 0, 'announcement', NULL)`,
                       [empNum, notificationDescription],
                       (fallbackErr) => {
                         if (fallbackErr) {
-                          // Final fallback: try without notification_type and action_link
                           db.query(
-                            `INSERT INTO notifications (employeeNumber, description, read_status) 
+                            `INSERT INTO notifications (employeeNumber, description, read_status)
                              VALUES (?, ?, 0)`,
                             [empNum, notificationDescription],
-                            (finalErr) => {
-                              if (finalErr) {
-                                console.error(`Error creating notification for employee ${empNum}:`, finalErr);
-                                resolve({ success: false, employeeNumber: empNum });
-                              } else {
-                                resolve({ success: true, employeeNumber: empNum });
-                              }
-                            }
+                            (finalErr) => resolve({ success: !finalErr, employeeNumber: empNum }),
                           );
-                        } else {
-                          resolve({ success: true, employeeNumber: empNum });
-                        }
-                      }
+                        } else resolve({ success: true, employeeNumber: empNum });
+                      },
                     );
-                  } else {
-                    resolve({ success: true, employeeNumber: empNum });
-                  }
-                }
+                  } else resolve({ success: true, employeeNumber: empNum });
+                },
               );
-            });
-          });
+            }),
+          );
 
-          // Wait for all notifications to be created (but don't block the response)
           Promise.all(notificationPromises).then((results) => {
-            const successful = results.filter(r => r.success).length;
-            const failed = results.filter(r => !r.success).length;
+            const successful = results.filter((r) => r.success).length;
+            const failed     = results.filter((r) => !r.success).length;
             console.log(`Created ${successful} announcement notifications${failed > 0 ? ` (${failed} failed)` : ''}`);
 
-            // Real-time: now that notifications are inserted, notify each user room
             if (employeeNumbers.length > 0) {
               notifyMultipleUsers(employeeNumbers, 'notificationCreated', {
                 notification_type: 'announcement',
@@ -153,36 +221,45 @@ router.post('/api/announcements', upload.single('image'), (req, res) => {
                 description: notificationDescription,
               });
             }
-          }).catch((err) => {
-            console.error('Error processing notification promises:', err);
-          });
+          }).catch((e) => console.error('Notification promise error:', e));
         }
 
-        res.status(201).json({
-          message: 'Announcement created successfully',
-          id: announcementId,
-        });
-      }
-    );
-  });
+        res.status(201).json({ message: 'Announcement created successfully', id: announcementId });
+      });
+    },
+  );
 });
 
-// PUT: Update announcement (Title, About, Date Range)
-router.put('/api/announcements/:id', upload.single('image'), (req, res) => {
+// ─────────────────────────────────────────────────────────────
+// PUT /api/announcements/:id  – Update
+// ─────────────────────────────────────────────────────────────
+router.put('/api/announcements/:id', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { id } = req.params;
   const { title, about, date_start, date_end } = req.body;
+  const { hr_only, is_flexi, flexi_hours, flexi_custom_time } = parseFlexiFields(req.body);
+
   const image = req.file ? `/uploads/${req.file.filename}` : null;
-  const date = date_start || date_end || null;
+  const date  = date_start || date_end || null;
 
   let query, params;
   if (image) {
-    query =
-      'UPDATE announcements SET title = ?, about = ?, date = ?, date_start = ?, date_end = ?, image = ? WHERE id = ?';
-    params = [title, about, date, date_start || null, date_end || null, image, id];
+    query = `
+      UPDATE announcements
+      SET title = ?, about = ?, date = ?, date_start = ?, date_end = ?, image = ?,
+          hr_only = ?, is_flexi = ?, flexi_hours = ?, flexi_custom_time = ?
+      WHERE id = ?
+    `;
+    params = [title, about, date, date_start || null, date_end || null, image,
+               hr_only, is_flexi, flexi_hours, flexi_custom_time, id];
   } else {
-    query =
-      'UPDATE announcements SET title = ?, about = ?, date = ?, date_start = ?, date_end = ? WHERE id = ?';
-    params = [title, about, date, date_start || null, date_end || null, id];
+    query = `
+      UPDATE announcements
+      SET title = ?, about = ?, date = ?, date_start = ?, date_end = ?,
+          hr_only = ?, is_flexi = ?, flexi_hours = ?, flexi_custom_time = ?
+      WHERE id = ?
+    `;
+    params = [title, about, date, date_start || null, date_end || null,
+               hr_only, is_flexi, flexi_hours, flexi_custom_time, id];
   }
 
   db.query(query, params, (err, result) => {
@@ -194,12 +271,9 @@ router.put('/api/announcements/:id', upload.single('image'), (req, res) => {
       return res.status(404).json({ error: 'Announcement not found' });
     }
 
-    // Fetch the updated announcement data to broadcast
-    db.query('SELECT * FROM announcements WHERE id = ?', [id], (fetchErr, announcementResults) => {
-      if (!fetchErr && announcementResults.length > 0) {
-        const updatedAnnouncement = announcementResults[0];
-        // Broadcast announcement change to ALL users immediately (fast!)
-        notifyAnnouncementChanged('updated', updatedAnnouncement);
+    db.query('SELECT * FROM announcements WHERE id = ?', [id], (fetchErr, rows) => {
+      if (!fetchErr && rows.length > 0) {
+        notifyAnnouncementChanged('updated', rows[0]);
       }
     });
 
@@ -213,37 +287,24 @@ router.put('/api/announcements/:id', upload.single('image'), (req, res) => {
   });
 });
 
-// DELETE: Delete announcement
-router.delete('/api/announcements/:id', (req, res) => {
+// ─────────────────────────────────────────────────────────────
+// DELETE /api/announcements/:id
+// ─────────────────────────────────────────────────────────────
+router.delete('/api/announcements/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
 
-  // First get the announcement to check if it has an image
-  const getQuery = 'SELECT image FROM announcements WHERE id = ?';
-  db.query(getQuery, [id], (err, results) => {
-    if (err) {
-      return res.status(500).json({ error: 'Internal server error' });
-    }
+  db.query('SELECT image FROM announcements WHERE id = ?', [id], (err, results) => {
+    if (err)                  return res.status(500).json({ error: 'Internal server error' });
+    if (results.length === 0) return res.status(404).json({ error: 'Announcement not found' });
 
-    if (results.length === 0) {
-      return res.status(404).json({ error: 'Announcement not found' });
-    }
-
-    // If there's an image, delete it from the filesystem
     if (results[0].image) {
       const imagePath = path.join(__dirname, '..', results[0].image);
-      fs.unlink(imagePath, (err) => {
-        if (err) console.error('Error deleting image:', err);
-      });
+      fs.unlink(imagePath, (e) => { if (e) console.error('Error deleting image:', e); });
     }
 
-    // Delete the announcement from the database
-    const deleteQuery = 'DELETE FROM announcements WHERE id = ?';
-    db.query(deleteQuery, [id], (err) => {
-      if (err) {
-        return res.status(500).json({ error: 'Internal server error' });
-      }
+    db.query('DELETE FROM announcements WHERE id = ?', [id], (err2) => {
+      if (err2) return res.status(500).json({ error: 'Internal server error' });
 
-      // Broadcast announcement deletion to ALL users immediately (fast!)
       notifyAnnouncementChanged('deleted', { id: parseInt(id) });
 
       broadcastToRoles(
@@ -258,7 +319,3 @@ router.delete('/api/announcements/:id', (req, res) => {
 });
 
 module.exports = router;
-
-
-
-

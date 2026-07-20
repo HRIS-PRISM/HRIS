@@ -3,11 +3,16 @@ import React, {
   useState,
   useEffect,
   useMemo,
+  useCallback,
   useDeferredValue,
   useRef,
 } from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
+import {
+  decimalToLeaveDeductionHours,
+  leaveDeductionHoursToDecimal,
+} from '../../utils/workingHoursConvert';
 import { useSocket } from '../../contexts/SocketContext';
 import {
   Typography,
@@ -21,26 +26,23 @@ import {
   Select,
   MenuItem,
   FormControl,
-  Card,
-  CardContent,
-  Avatar,
   Fade,
   Divider,
-  styled,
-  alpha,
   TablePagination,
   CircularProgress,
-  Backdrop,
   Tooltip,
   InputAdornment,
   ToggleButton,
   ToggleButtonGroup,
-  Paper,
-  Snackbar,
   Alert,
   Checkbox,
   Slide,
+  Paper,
+  Card,
+  Autocomplete,
+  Avatar,
 } from '@mui/material';
+import { alpha, styled } from '@mui/material/styles';
 import {
   Add as AddIcon,
   Close,
@@ -65,4040 +67,2659 @@ import {
   DoneAll as DoneAllIcon,
   ThumbDown as ThumbDownIcon,
   HistoryToggleOff,
-  FilterList as FilterIcon,
   Schedule as ScheduleIcon,
+  TableRows as TableRowsIcon,
+  Refresh as RefreshIcon,
+  TableChart as TableChartIcon,
+  Warning as WarningIcon,
+  ErrorOutline as ErrorOutlineIcon,
+  HelpOutline as HelpOutlineIcon,
+  Lock as LockIcon,
+  Work as WorkIcon,
+  FilterAlt as FilterAltIcon,
+  ManageSearch as ManageSearchIcon,
+  OpenInFull as OpenInFullIcon,
+  FullscreenExit as FullscreenExitIcon,
+  NavigateBefore,
+  NavigateNext,
+  ArrowForward as ArrowForwardIcon,
+  AccountBalanceWallet as WalletIcon,
+  Calculate as CalculateIcon,
+  TrendingDown as TrendingDownIcon,
+  Male as MaleIcon,
+  Female as FemaleIcon,
 } from '@mui/icons-material';
+import { DeptBadge, EmpCatBadge } from './EARNINGS/RecordsList';
 
 import SuccessfulOverlay from '../SuccessfulOverlay';
+import LoadingOverlay from '../LoadingOverlay';
 import LeaveDatePickerModal from './LeaveDatePicker';
-import LeaveCredits from './LeaveCredits';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
-import {
-  createThemedCard,
-  createThemedButton,
-  createThemedTextField,
-} from '../../utils/theme';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import { EmploymentCategoryHrPanel } from '../EmploymentCategoryHrPanel';
+// ── FIX: import from the corrected utility (getLeaveTypeStatsActive now returns
+//         remaining_hours as the balance, not total_hours) ────────────────────
+import { getLeaveTypeStatsActive } from './leaveAssignmentBalanceUtils';
+import { getLeaveTypeStatsActive as _getStats } from './leaveAssignmentBalanceUtils'; // alias for ViewModal
 
-// ─── Styled components (matching LeaveRequestUser) ────────────────────────────
+// ─── Theme tokens ──────────────────────────────────────────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+};
 
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-}));
+const TX_LOGS_PER_PAGE = 5;
 
-const ProfessionalButton = styled(Button)(() => ({
+// ─── Styled primitives ─────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
   borderRadius: 12,
-  fontWeight: 600,
-  padding: '10px 20px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.9rem',
-  letterSpacing: '0.025em',
-  '&:hover': { transform: 'translateY(-2px)' },
-  '&:active': { transform: 'translateY(0)' },
-}));
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+});
 
-const ModernTextField = styled(TextField)(() => ({
+const FieldInput = styled(TextField)({
   '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255,255,255,0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      backgroundColor: '#fff',
-      boxShadow: '0 4px 20px rgba(109,35,35,0.12)',
-    },
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
   },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
 
-const RecordCard = styled(Card)(() => ({
-  borderRadius: 14,
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  border: '1px solid rgba(109,35,35,0.08)',
-  boxShadow: '0 2px 10px rgba(109,35,35,0.04)',
-  '&:hover': {
-    boxShadow: '0 8px 24px rgba(109,35,35,0.12)',
-    borderColor: 'rgba(109,35,35,0.18)',
-    transform: 'translateY(-2px)',
-  },
-}));
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
 
-// ─── Shimmer / Wireframe ──────────────────────────────────────────────────────
-
-const lrShimmerKeyframes = `
-@keyframes lrShimmer {
+// ─── Shimmer ───────────────────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
   0%   { background-position: -800px 0; }
   100% { background-position:  800px 0; }
 }
-@keyframes lrPulse {
+@keyframes blink {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
-}
-`;
+  50%       { opacity: 0.55; }
+}`;
 
-const SkeletonBox = ({
-  width = '100%',
-  height = 16,
-  borderRadius = 8,
-  sx = {},
-}) => (
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   <Box
     sx={{
-      width,
-      height,
-      borderRadius: `${borderRadius}px`,
-      background:
-        'linear-gradient(90deg,rgba(109,35,35,0.08) 25%,rgba(109,35,35,0.18) 50%,rgba(109,35,35,0.08) 75%)',
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
       backgroundSize: '800px 100%',
-      animation: 'lrShimmer 1.5s infinite linear',
+      animation: 'shimmer 1.6s infinite linear',
       flexShrink: 0,
       ...sx,
     }}
   />
 );
 
-const LeaveRequestWireframe = ({
-  accentColor = '#6d2323',
-  primaryColor = '#FEF9E1',
-  secondaryColor = '#FFF8E7',
-}) => (
+// ─── Wireframe ─────────────────────────────────────────────────────────────────
+const Wireframe = () => (
   <>
-    <style>{lrShimmerKeyframes}</style>
-    {/* Same outer wrapper as real page */}
+    <style>{shimmerKf}</style>
     <Box
       sx={{
-        py: 4,
-        mt: -5,
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
         width: '100vw',
         maxWidth: '100%',
         position: 'relative',
-        left: '50%',
-        transform: 'translateX(-50%)',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
       }}
     >
-      <Box sx={{ px: { xs: 2, sm: 3, md: 6 }, mx: 'auto', maxWidth: '1800px' }}>
-        {/* ── Header skeleton ── */}
-        <Box
-          sx={{
-            mb: 4,
-            borderRadius: '20px',
-            overflow: 'hidden',
-            border: `1px solid ${alpha(accentColor, 0.1)}`,
-            animation: 'lrPulse 2s ease-in-out infinite',
-          }}
-        >
-          <Box
-            sx={{
-              p: 5,
-              background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
-            {/* radial decorations */}
-            <Box
-              sx={{
-                position: 'absolute',
-                top: -50,
-                right: -50,
-                width: 200,
-                height: 200,
-                borderRadius: '50%',
-                bgcolor: alpha(accentColor, 0.06),
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                bottom: -30,
-                left: '30%',
-                width: 150,
-                height: 150,
-                borderRadius: '50%',
-                bgcolor: alpha(accentColor, 0.04),
-              }}
-            />
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'relative',
-                zIndex: 1,
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                {/* avatar */}
-                <Box
-                  sx={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.12),
-                    mr: 4,
-                    flexShrink: 0,
-                  }}
-                />
-                <Box>
-                  <SkeletonBox
-                    width={290}
-                    height={28}
-                    borderRadius={6}
-                    sx={{ mb: 1.5 }}
-                  />
-                  <SkeletonBox width={370} height={14} borderRadius={4} />
-                </Box>
-              </Box>
-              {/* right: chip + refresh icon + Transaction Logs button */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <SkeletonBox width={90} height={24} borderRadius={12} />
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.1),
-                  }}
-                />
-                <Box
-                  sx={{
-                    width: 158,
-                    height: 48,
-                    borderRadius: '12px',
-                    bgcolor: alpha(accentColor, 0.1),
-                  }}
-                />
-              </Box>
+      <Box sx={{ mb: 3, borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.accentBorder}`, animation: 'blink 2s ease-in-out infinite' }}>
+        <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2.5, position: 'relative', overflow: 'hidden' }}>
+          <Box sx={{ position: 'absolute', top: -50, right: -50, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.06)' }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
+            <Box sx={{ flex: 1 }}><Bone w={220} h={18} sx={{ mb: 1 }} /><Bone w={360} h={11} /></Box>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}><Bone w={160} h={32} r={8} /><Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.1)' }} /></Box>
+        </Box>
+      </Box>
+      <Grid container spacing={3}>
+        <Grid item xs={12} lg={4}>
+          <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: 'blink 2s ease-in-out 0s infinite', height: 'calc(100vh - 280px)' }}>
+            <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} /><Bone w={180} h={13} />
+            </Box>
+            <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              {[100, 160, 120, 140, 110].map((w, i) => (
+                <Box key={i}><Bone w={w} h={10} sx={{ mb: 1 }} /><Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} /></Box>
+              ))}
             </Box>
           </Box>
-        </Box>
-
-        {/* ── Two-column skeleton ── */}
-        <Grid container spacing={4}>
-          {/* Left: Form */}
-          <Grid item xs={12} lg={6}>
-            <Box
-              sx={{
-                borderRadius: '20px',
-                overflow: 'hidden',
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                animation: 'lrPulse 2s ease-in-out 0.08s infinite',
-                height: 'calc(100vh - 200px)',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {/* panel header */}
-              <Box
-                sx={{
-                  p: 4,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                  flexShrink: 0,
-                }}
-              >
-                <Box
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.12),
-                    flexShrink: 0,
-                  }}
-                />
-                <Box>
-                  <SkeletonBox
-                    width={200}
-                    height={16}
-                    borderRadius={4}
-                    sx={{ mb: 0.75 }}
-                  />
-                  <SkeletonBox width={175} height={11} borderRadius={3} />
-                </Box>
-              </Box>
-              {/* form body */}
-              <Box
-                sx={{
-                  p: 4,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 3,
-                  flexGrow: 1,
-                }}
-              >
-                {/* Section: Employee Information */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Box
-                    sx={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: '4px',
-                      bgcolor: alpha(accentColor, 0.15),
-                    }}
-                  />
-                  <SkeletonBox width={180} height={14} borderRadius={4} />
-                </Box>
-                {/* Employee number field */}
-                <Box>
-                  <SkeletonBox
-                    width={130}
-                    height={11}
-                    borderRadius={3}
-                    sx={{ mb: 1 }}
-                  />
-                  <Box
-                    sx={{
-                      height: 44,
-                      borderRadius: '12px',
-                      border: `1px solid ${alpha(accentColor, 0.15)}`,
-                      bgcolor: 'rgba(255,255,255,0.8)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      px: 2,
-                      gap: 1,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: '50%',
-                        bgcolor: alpha(accentColor, 0.15),
-                        flexShrink: 0,
-                      }}
-                    />
-                    <SkeletonBox width="55%" height={12} borderRadius={3} />
-                  </Box>
-                </Box>
-                {/* Divider */}
-                <Box sx={{ height: 1, bgcolor: alpha(accentColor, 0.1) }} />
-                {/* Section: Leave Details */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <Box
-                    sx={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: '4px',
-                      bgcolor: alpha(accentColor, 0.15),
-                    }}
-                  />
-                  <SkeletonBox width={110} height={14} borderRadius={4} />
-                </Box>
-                {/* Leave Type field */}
-                <Box>
-                  <SkeletonBox
-                    width={75}
-                    height={11}
-                    borderRadius={3}
-                    sx={{ mb: 1 }}
-                  />
-                  <Box
-                    sx={{
-                      height: 44,
-                      borderRadius: '12px',
-                      border: `1px solid ${alpha(accentColor, 0.15)}`,
-                      bgcolor: 'rgba(255,255,255,0.8)',
-                    }}
-                  />
-                </Box>
-                {/* Leave Date(s) — button style */}
-                <Box>
-                  <SkeletonBox
-                    width={100}
-                    height={11}
-                    borderRadius={3}
-                    sx={{ mb: 1 }}
-                  />
-                  <Box
-                    sx={{
-                      height: 44,
-                      borderRadius: '12px',
-                      border: `1.5px solid ${alpha(accentColor, 0.3)}`,
-                      bgcolor: alpha(accentColor, 0.04),
-                      display: 'flex',
-                      alignItems: 'center',
-                      px: 2,
-                      gap: 1.5,
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: '4px',
-                        bgcolor: alpha(accentColor, 0.15),
-                      }}
-                    />
-                    <SkeletonBox width={130} height={12} borderRadius={3} />
-                  </Box>
-                </Box>
-                {/* Initial Status field */}
-                <Box>
-                  <SkeletonBox
-                    width={90}
-                    height={11}
-                    borderRadius={3}
-                    sx={{ mb: 1 }}
-                  />
-                  <Box
-                    sx={{
-                      height: 44,
-                      borderRadius: '12px',
-                      border: `1px solid ${alpha(accentColor, 0.15)}`,
-                      bgcolor: 'rgba(255,255,255,0.8)',
-                    }}
-                  />
-                </Box>
-                {/* Submit button — pushed to bottom */}
-                <Box sx={{ mt: 'auto', pt: 1 }}>
-                  <Box
-                    sx={{
-                      height: 52,
-                      borderRadius: '12px',
-                      bgcolor: alpha(accentColor, 0.2),
-                    }}
-                  />
-                </Box>
-              </Box>
-            </Box>
-          </Grid>
-
-          {/* Right: Records */}
-          <Grid item xs={12} lg={6}>
-            <Box
-              sx={{
-                borderRadius: '20px',
-                overflow: 'hidden',
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                animation: 'lrPulse 2s ease-in-out 0.13s infinite',
-                height: 'calc(100vh - 200px)',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {/* panel header — full gradient section */}
-              <Box
-                sx={{
-                  p: 4,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                  flexShrink: 0,
-                }}
-              >
-                {/* title row + Select/View toggle */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    mb: 2.5,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box
-                      sx={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: '50%',
-                        bgcolor: alpha(accentColor, 0.12),
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Box>
-                      <SkeletonBox
-                        width={195}
-                        height={16}
-                        borderRadius={4}
-                        sx={{ mb: 0.75 }}
-                      />
-                      <SkeletonBox width={210} height={11} borderRadius={3} />
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Box
-                      sx={{
-                        width: 82,
-                        height: 34,
-                        borderRadius: '12px',
-                        border: `1px solid ${alpha(accentColor, 0.25)}`,
-                        bgcolor: 'rgba(255,255,255,0.7)',
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        width: 72,
-                        height: 34,
-                        borderRadius: '10px',
-                        border: `1px solid ${alpha(accentColor, 0.2)}`,
-                        bgcolor: 'rgba(255,255,255,0.7)',
-                      }}
-                    />
-                  </Box>
-                </Box>
-                {/* Search + leave type filter */}
-                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                  <Box
-                    sx={{
-                      flex: 1,
-                      height: 40,
-                      borderRadius: '12px',
-                      border: `1px solid ${alpha(accentColor, 0.15)}`,
-                      bgcolor: 'rgba(255,255,255,0.8)',
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      width: 170,
-                      height: 40,
-                      borderRadius: '12px',
-                      border: `1px solid ${alpha(accentColor, 0.15)}`,
-                      bgcolor: 'rgba(255,255,255,0.8)',
-                    }}
-                  />
-                </Box>
-                {/* Status filter chips */}
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  {[72, 100, 110, 72, 82].map((w, i) => (
-                    <Box
-                      key={i}
-                      sx={{
-                        width: w,
-                        height: 28,
-                        borderRadius: '14px',
-                        border: `1px solid ${alpha(accentColor, 0.2)}`,
-                        bgcolor:
-                          i === 0 ? alpha(accentColor, 0.15) : 'transparent',
-                        animation: `lrPulse 2s ease-in-out ${i * 0.06}s infinite`,
-                      }}
-                    />
-                  ))}
-                </Box>
-              </Box>
-
-              {/* Record cards */}
-              <Box
-                sx={{
-                  p: 3,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  flexGrow: 1,
-                }}
-              >
-                {[...Array(4)].map((_, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      borderRadius: '14px',
-                      border: `1px solid ${alpha(accentColor, 0.08)}`,
-                      p: 2.5,
-                      bgcolor: '#fff',
-                      animation: `lrPulse 2s ease-in-out ${i * 0.07}s infinite`,
-                    }}
-                  >
-                    {/* employee number row */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.75,
-                        mb: 1,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: '50%',
-                          bgcolor: alpha(accentColor, 0.15),
-                        }}
-                      />
-                      <SkeletonBox width={70} height={10} borderRadius={3} />
-                    </Box>
-                    {/* name + leave type */}
-                    <SkeletonBox
-                      width="60%"
-                      height={13}
-                      borderRadius={3}
-                      sx={{ mb: 0.5 }}
-                    />
-                    <SkeletonBox
-                      width="45%"
-                      height={11}
-                      borderRadius={3}
-                      sx={{ mb: 1.5 }}
-                    />
-                    {/* date + status chip row */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <SkeletonBox width={90} height={11} borderRadius={3} />
-                      <Box
-                        sx={{
-                          width: 100,
-                          height: 22,
-                          borderRadius: '11px',
-                          bgcolor:
-                            i === 0
-                              ? alpha('#F57C00', 0.15)
-                              : i === 1
-                                ? alpha('#1565C0', 0.12)
-                                : i === 2
-                                  ? alpha('#2E7D32', 0.12)
-                                  : alpha('#C62828', 0.1),
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </Grid>
         </Grid>
-      </Box>
+        <Grid item xs={12} lg={8}>
+          <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: 'blink 2s ease-in-out 0.1s infinite', height: 'calc(100vh - 280px)' }}>
+            <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} /><Bone w={240} h={13} />
+            </Box>
+            <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              {[200, 160, 180, 140, 150, 170].map((w, i) => (
+                <Box key={i}><Bone w={w} h={10} sx={{ mb: 1 }} /><Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: '#fafafa' }} /></Box>
+              ))}
+            </Box>
+          </Box>
+        </Grid>
+      </Grid>
     </Box>
   </>
 );
 
-// ─── LeaveRequest ─────────────────────────────────────────────────────────────
+// ─── Status config ─────────────────────────────────────────────────────────────
+const statusOptions = [
+  { value: '0', label: 'Pending Review',                  short: 'Pending',     color: '#F57C00', bg: '#FFF3E0', icon: AccessTime  },
+  { value: '1', label: 'Immediate Supervisor Approved',   short: 'Supervisor',  color: '#1565C0', bg: '#E3F2FD', icon: CheckCircle },
+  { value: '2', label: 'HR Approved',                     short: 'HR Approved', color: '#2E7D32', bg: '#E8F5E9', icon: CheckCircle },
+  { value: '3', label: 'Denied',                          short: 'Denied',      color: '#C62828', bg: '#FFEBEE', icon: Block       },
+];
 
+const allStatusOptions = [
+  { value: '0', label: 'Pending Review',                  short: 'Pending',     color: '#F57C00', bg: '#FFF3E0', icon: AccessTime  },
+  { value: '1', label: 'Immediate Supervisor Approved',   short: 'Supervisor',  color: '#1565C0', bg: '#E3F2FD', icon: CheckCircle },
+  { value: '2', label: 'HR Approved',                     short: 'HR Approved', color: '#2E7D32', bg: '#E8F5E9', icon: CheckCircle },
+  { value: '3', label: 'Denied',                          short: 'Denied',      color: '#C62828', bg: '#FFEBEE', icon: Block       },
+  { value: '4', label: 'Cancelled',                       short: 'Cancelled',   color: '#757575', bg: '#F5F5F5', icon: CancelIcon  },
+];
+
+const selectSx = {
+  borderRadius: '8px',
+  fontSize: '0.875rem',
+  bgcolor: '#fff',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' },
+};
+
+// ─── Status pill ───────────────────────────────────────────────────────────────
+const StatusPill = ({ status }) => {
+  const opt = allStatusOptions.find((o) => o.value === String(status)) || allStatusOptions[0];
+  const Icon = opt.icon;
+  return (
+    <Chip
+      size="small"
+      icon={<Icon style={{ fontSize: 11, color: opt.color }} />}
+      label={opt.short}
+      sx={{
+        height: 20, fontSize: '0.7rem', fontWeight: 600,
+        bgcolor: opt.bg, color: opt.color,
+        border: `1px solid ${alpha(opt.color, 0.25)}`, borderRadius: '4px',
+        '& .MuiChip-icon': { ml: '4px' },
+      }}
+    />
+  );
+};
+
+// ─── Confirm Modal ─────────────────────────────────────────────────────────────
+const ConfirmModal = ({
+  open, onClose, onConfirm, title, message,
+  confirmLabel = 'Confirm',
+  confirmColor = T.accent, confirmHoverColor = T.accentDark,
+  icon: Icon = HelpOutlineIcon, iconColor = T.accent, iconBg = T.accentFaint,
+  loading = false,
+}) => (
+  <Modal open={open} onClose={onClose} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1400 }}>
+    <Fade in={open}>
+      <Box sx={{ width: '100%', maxWidth: 420, borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', bgcolor: T.surface, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+          <Box sx={{ position: 'absolute', top: -40, right: -30, width: 140, height: 140, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon sx={{ fontSize: 17, color: '#fff' }} />
+            </Box>
+            <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.93rem' }}>{title}</Typography>
+          </Box>
+          <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        <Box sx={{ px: 3.5, py: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: iconBg, border: `1px solid ${alpha(iconColor, 0.2)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.25 }}>
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.875rem', color: T.text, lineHeight: 1.65, pt: 0.5 }}>{message}</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end', gap: 1.25 }}>
+          <AccentButton onClick={onClose} variant="outlined" sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>
+            Cancel
+          </AccentButton>
+          <AccentButton onClick={onConfirm} variant="contained" disabled={loading}
+            startIcon={loading ? <CircularProgress size={12} sx={{ color: '#fff' }} /> : null}
+            sx={{ fontSize: '0.8rem', bgcolor: confirmColor, color: '#fff', boxShadow: `0 2px 10px ${alpha(confirmColor, 0.32)}`, '&:hover': { bgcolor: confirmHoverColor }, '&:disabled': { bgcolor: '#ddd' } }}>
+            {loading ? 'Processing…' : confirmLabel}
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Error Modal ───────────────────────────────────────────────────────────────
+const ErrorModal = ({ open, onClose, title, message, icon: Icon = ErrorOutlineIcon, iconColor = '#C62828', iconBg = '#FFEBEE' }) => (
+  <Modal open={open} onClose={onClose} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1500 }}>
+    <Fade in={open}>
+      <Box sx={{ width: '100%', maxWidth: 420, borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', bgcolor: T.surface, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ px: 3.5, py: 2.5, background: `linear-gradient(180deg,${iconColor} 0%,${alpha(iconColor, 0.82)} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+          <Box sx={{ position: 'absolute', top: -40, right: -30, width: 140, height: 140, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.05)' }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon sx={{ fontSize: 17, color: '#fff' }} />
+            </Box>
+            <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.93rem' }}>{title}</Typography>
+          </Box>
+          <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        <Box sx={{ px: 3.5, py: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: iconBg, border: `1px solid ${alpha(iconColor, 0.2)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.25 }}>
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.875rem', color: T.text, lineHeight: 1.65, pt: 0.5 }}>{message}</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end' }}>
+          <AccentButton onClick={onClose} variant="contained" sx={{ fontSize: '0.8rem', bgcolor: iconColor, color: '#fff', boxShadow: `0 2px 10px ${alpha(iconColor, 0.3)}`, '&:hover': { bgcolor: alpha(iconColor, 0.85) } }}>
+            Understood
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Section label ─────────────────────────────────────────────────────────────
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>
+      {children}
+    </Typography>
+  </Box>
+);
+
+const getLogTimeLabel = (log) => {
+  const loggedAt = log.created_at || log.createdAt || log.timestamp;
+  if (!loggedAt) return null;
+  const d = new Date(loggedAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const normalizeLeaveCategory = (leaveType = {}) => {
+  const text = `${leaveType.leave_description || leaveType.leave_code || ''}`.toLowerCase();
+  if (text.includes('sick')) return 'Sick Leave';
+  if (text.includes('vacation') || text.includes('annual')) return 'Vacation Leave';
+  if (text.includes('emergency')) return 'Emergency Leave';
+  if (text.includes('maternity')) return 'Maternity Leave';
+  if (text.includes('paternity')) return 'Paternity Leave';
+  if (text.includes('bereavement')) return 'Bereavement Leave';
+  return leaveType.leave_description || leaveType.leave_code || 'Other Leave Types';
+};
+
+const getLogLeaveType = (log, leaveTypes = []) => {
+  const message = `${log?.message || ''}`.toLowerCase();
+  if (!message) return null;
+  const bracket = String(log?.message || '').match(/\[([A-Za-z0-9_]+)\]/);
+  if (bracket && bracket[1]) {
+    const code = String(bracket[1]).trim().toLowerCase();
+    const hit = leaveTypes.find((lt) => String(lt.leave_code || '').trim().toLowerCase() === code);
+    if (hit) return hit;
+  }
+  const sorted = [...leaveTypes].sort((a, b) => {
+    const aLen = `${a.leave_description || a.leave_code || ''}`.length;
+    const bLen = `${b.leave_description || b.leave_code || ''}`.length;
+    return bLen - aLen;
+  });
+  return sorted.find((leaveType) => {
+    const description = `${leaveType.leave_description || ''}`.toLowerCase();
+    const code = `${leaveType.leave_code || ''}`.toLowerCase();
+    if (description && message.includes(description)) return true;
+    if (code) {
+      const re = new RegExp(`(^|[^a-z0-9])${code}([^a-z0-9]|$)`, 'i');
+      if (re.test(message)) return true;
+    }
+    return false;
+  }) || null;
+};
+
+const getLogLeaveCategory = (log, leaveTypes = []) => normalizeLeaveCategory(getLogLeaveType(log, leaveTypes) || {});
+
+// ─── Leave Balance Card ────────────────────────────────────────────────────────
+const LeaveBalanceCard = ({ balance, isActive }) => {
+  const isSC  = balance.code === 'SC';
+  const isCTO = balance.code === 'CTO';
+  const cardBg     = isSC ? 'rgba(21,101,192,0.06)'  : isCTO ? 'rgba(27,94,32,0.06)'  : isActive ? T.accentFaint : '#fff';
+  const cardBorder = isSC ? `1px solid rgba(21,101,192,0.28)` : isCTO ? `1px solid rgba(27,94,32,0.28)` : isActive ? `1px solid rgba(109,35,35,0.25)` : `1px solid ${T.accentBorder}`;
+  const codeColor    = isSC ? '#1565C0' : isCTO ? '#1B5E20' : T.accent;
+  const balanceColor = isSC ? '#1565C0' : isCTO ? '#1B5E20' : T.accent;
+  const daysNum = Number(balance.totalDays);
+  const daysStr = (Number.isFinite(daysNum) ? daysNum : 0).toFixed(3);
+  return (
+    <Box sx={{ border: cardBorder, borderRadius: 1.25, px: 0.9, py: 0.55, bgcolor: cardBg, minWidth: 0 }}>
+      <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, color: codeColor, lineHeight: 1.15, letterSpacing: '0.03em' }}>
+        {balance.code}
+      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 0.75, mt: 0.2 }}>
+        <Typography sx={{ fontSize: '0.68rem', fontWeight: 500, color: T.text, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {balance.description}
+        </Typography>
+        <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: balanceColor, flexShrink: 0, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          {daysStr}d
+        </Typography>
+      </Box>
+    </Box>
+  );
+};
+
+const buildRemainingByEmpCode = (assignments, usageRows) => {
+  const byEmp = {};
+  (assignments || []).forEach((a) => {
+    const emp = String(a.employeeNumber ?? '');
+    const code = String(a.leave_code ?? '').trim();
+    if (!emp || !code) return;
+    if (!byEmp[emp]) byEmp[emp] = {};
+    if (!byEmp[emp][code]) byEmp[emp][code] = [];
+    byEmp[emp][code].push(a);
+  });
+  const map = {};
+  Object.keys(byEmp).forEach((emp) => {
+    map[emp] = {};
+    Object.keys(byEmp[emp]).forEach((code) => {
+      map[emp][code] = getLeaveTypeStatsActive(byEmp[emp][code], usageRows).remainingHours;
+    });
+  });
+  return map;
+};
+
+const getRequestBalanceDisplay = (req, remainingMap) => {
+  if (!req) return null;
+  if (String(req.status) === '2') {
+    const afterH = parseFloat(req.deduction_balance_after_hours);
+    const code = req.deduction_charge_to || req.leave_code || '';
+    if (Number.isFinite(afterH)) {
+      return { kind: 'after', code, hours: afterH, label: 'After', value: `${afterH.toFixed(3)} hrs` };
+    }
+    return null;
+  }
+  const emp = String(req.employeeNumber ?? '');
+  const code = String(req.leave_code ?? '').trim();
+  const rem = remainingMap?.[emp]?.[code];
+  if (Number.isFinite(rem)) {
+    return { kind: 'remaining', code, hours: rem, label: 'Remaining', value: `${rem.toFixed(3)} hrs` };
+  }
+  return null;
+};
+
+const RequestBalanceBadge = ({ display, compact = false }) => {
+  if (!display) return null;
+  const isAfter = display.kind === 'after';
+  return (
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.5,
+        px: compact ? 0.75 : 1,
+        py: compact ? 0.25 : 0.4,
+        borderRadius: 1,
+        bgcolor: isAfter ? alpha('#2E7D32', 0.08) : T.accentFaint,
+        border: `0.5px solid ${isAfter ? alpha('#2E7D32', 0.25) : T.accentBorder}`,
+        maxWidth: '100%',
+      }}
+    >
+      {display.code && (
+        <Typography sx={{ fontSize: compact ? '0.62rem' : '0.65rem', fontWeight: 800, color: T.accent, flexShrink: 0 }}>
+          {display.code}
+        </Typography>
+      )}
+      <Typography
+        sx={{
+          fontSize: compact ? '0.65rem' : '0.7rem',
+          fontWeight: 700,
+          color: isAfter ? '#2E7D32' : T.text,
+          fontVariantNumeric: 'tabular-nums',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {display.label}: {display.value}
+      </Typography>
+    </Box>
+  );
+};
+
+const ChargeCodeBadge = ({ code, sx = {} }) => (
+  <Box
+    sx={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      px: 0.85,
+      py: 0.2,
+      borderRadius: 1,
+      bgcolor: 'rgba(109,35,35,0.07)',
+      border: '0.5px solid rgba(109,35,35,0.15)',
+      ...sx,
+    }}
+  >
+    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent, lineHeight: 1.2 }}>{code}</Typography>
+  </Box>
+);
+
+const HrDeductionAppliedCard = ({ request, leaveTypes, chargeTypeDesc }) => {
+  const appliedHours = parseFloat(request.deduction_applied_hours);
+  const appliedRate = parseFloat(request.hr_approval_rate);
+  const chargeToCode = request.deduction_charge_to || null;
+  const balBeforeH = parseFloat(request.deduction_balance_before_hours);
+  const balAfterH = parseFloat(request.deduction_balance_after_hours);
+  const balanceCode = chargeToCode || request.leave_code || '—';
+
+  const tsRaw = request.updated_at || request.updatedAt || request.created_at || request.createdAt;
+  const tsLabel = tsRaw
+    ? new Date(tsRaw).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  return (
+    <Box sx={{ borderRadius: 2.5, border: '0.5px solid rgba(0,0,0,0.1)', overflow: 'hidden', bgcolor: '#fff' }}>
+      <Box
+        sx={{
+          px: 1.5,
+          py: 1,
+          bgcolor: 'rgba(0,0,0,0.03)',
+          borderBottom: '0.5px solid rgba(0,0,0,0.08)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 1,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              px: 1,
+              py: 0.25,
+              borderRadius: 20,
+              bgcolor: alpha('#2E7D32', 0.1),
+              border: '0.5px solid rgba(46,125,50,0.3)',
+            }}
+          >
+            <CheckCircle sx={{ fontSize: 11, color: '#1b5e20' }} />
+            <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#1b5e20', lineHeight: 1 }}>HR approved</Typography>
+          </Box>
+          {chargeToCode && <ChargeCodeBadge code={chargeToCode} />}
+        </Box>
+        {tsLabel && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <ScheduleIcon sx={{ fontSize: 12, color: '#999' }} />
+            <Typography sx={{ fontSize: '0.65rem', color: '#999' }}>{tsLabel}</Typography>
+          </Box>
+        )}
+      </Box>
+
+      <Box sx={{ px: 1.5, py: 1.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+          <Typography sx={{ fontSize: '0.72rem', color: '#777' }}>Charged to</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+            {chargeToCode && <ChargeCodeBadge code={chargeToCode} />}
+            <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text }}>{chargeTypeDesc || balanceCode}</Typography>
+          </Box>
+        </Box>
+
+        <Divider sx={{ borderColor: 'rgba(0,0,0,0.06)' }} />
+
+        <Grid container spacing={1}>
+          {Number.isFinite(appliedHours) && appliedHours > 0 && (
+            <Grid item xs={6}>
+              <Box sx={{ p: 1.25, borderRadius: 1.75, bgcolor: 'rgba(109,35,35,0.04)', border: `0.5px solid ${T.accentBorder}` }}>
+                <Typography sx={{ fontSize: '0.65rem', color: alpha(T.accent, 0.55), textTransform: 'uppercase', letterSpacing: '0.06em', mb: 0.25 }}>
+                  Hours deducted
+                </Typography>
+                <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T.accent, fontVariantNumeric: 'tabular-nums' }}>
+                  {appliedHours.toFixed(3)}
+                  <Box component="span" sx={{ fontSize: '0.65rem', fontWeight: 600, color: alpha(T.accent, 0.45), ml: 0.25 }}>hrs</Box>
+                </Typography>
+              </Box>
+            </Grid>
+          )}
+          {Number.isFinite(appliedRate) && appliedRate > 0 && (
+            <Grid item xs={6}>
+              <Box sx={{ p: 1.25, borderRadius: 1.75, bgcolor: 'rgba(109,35,35,0.04)', border: `0.5px solid ${T.accentBorder}` }}>
+                <Typography sx={{ fontSize: '0.65rem', color: alpha(T.accent, 0.55), textTransform: 'uppercase', letterSpacing: '0.06em', mb: 0.25 }}>
+                  Day rate applied
+                </Typography>
+                <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T.accent, fontVariantNumeric: 'tabular-nums' }}>
+                  {appliedRate.toFixed(3)}
+                  <Box component="span" sx={{ fontSize: '0.65rem', fontWeight: 600, color: alpha(T.accent, 0.45), ml: 0.25 }}>d</Box>
+                </Typography>
+              </Box>
+            </Grid>
+          )}
+        </Grid>
+
+        {(Number.isFinite(balBeforeH) || Number.isFinite(balAfterH)) && (
+          <>
+            <Divider sx={{ borderColor: 'rgba(0,0,0,0.06)' }} />
+            <Box>
+              <Typography sx={{ fontSize: '0.65rem', color: '#888', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', mb: 0.75 }}>
+                Balance on {balanceCode} (hours)
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'stretch', border: '0.5px solid rgba(0,0,0,0.09)', borderRadius: 2, overflow: 'hidden' }}>
+                <Box sx={{ flex: 1, py: 1, px: 1.25, textAlign: 'center', bgcolor: 'rgba(0,0,0,0.02)', borderRight: '0.5px solid rgba(0,0,0,0.08)' }}>
+                  <Typography sx={{ fontSize: '0.65rem', color: '#999', mb: 0.35 }}>Before</Typography>
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#555', fontVariantNumeric: 'tabular-nums' }}>
+                    {Number.isFinite(balBeforeH) ? `${balBeforeH.toFixed(3)} hrs` : '—'}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', px: 0.75, color: '#bbb', bgcolor: 'rgba(0,0,0,0.01)' }}>
+                  <ArrowForwardIcon sx={{ fontSize: 14 }} />
+                </Box>
+                <Box sx={{ flex: 1, py: 1, px: 1.25, textAlign: 'center', bgcolor: alpha('#2E7D32', 0.04) }}>
+                  <Typography sx={{ fontSize: '0.65rem', color: '#999', mb: 0.35 }}>After</Typography>
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#2E7D32', fontVariantNumeric: 'tabular-nums' }}>
+                    {Number.isFinite(balAfterH) ? `${balAfterH.toFixed(3)} hrs` : '—'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          </>
+        )}
+
+        <Divider sx={{ borderColor: 'rgba(0,0,0,0.06)' }} />
+
+        <Typography sx={{ fontSize: '0.65rem', color: '#aaa', lineHeight: 1.5 }}>
+          Ledger lines stored in{' '}
+          <Box component="span" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', bgcolor: 'rgba(0,0,0,0.05)', px: 0.5, borderRadius: 0.5, color: T.accent }}>
+            leave_credit_usage
+          </Box>
+          {' '}· assignment totals updated on{' '}
+          <Box component="span" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', bgcolor: 'rgba(0,0,0,0.05)', px: 0.5, borderRadius: 0.5, color: T.accent }}>
+            leave_assignment
+          </Box>
+        </Typography>
+      </Box>
+    </Box>
+  );
+};
+
+// ─── HR Deduction Panel ────────────────────────────────────────────────────────
+const HrDeductionPanel = ({ modal, setModal, disabled, balances }) => {
+  const activeHourRows = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
+
+  const hoursPerDay = parseFloat(modal.hoursInput) || 0;
+  const duration = Array.isArray(modal.pendingRequest?.leave_date)
+    ? modal.pendingRequest.leave_date.length
+    : String(modal.pendingRequest?.leave_date || '').split(',').filter((s) => s.trim()).length || 1;
+  const totalHours = parseFloat((hoursPerDay * duration).toFixed(3));
+  const totalDays  = parseFloat((totalHours / 8).toFixed(3));
+
+  const selectedBalance = balances.find((b) => b.code === modal.chargeTo) || balances[0];
+  const currentDays     = selectedBalance ? parseFloat((selectedBalance.totalHours / 8).toFixed(3)) : 0;
+  const afterDays       = parseFloat((currentDays - totalDays).toFixed(3));
+  const isInsufficient  = totalHours > (selectedBalance?.totalHours || 0);
+
+  const suggestedRate  = parseFloat(modal.suggestion?.recommended_rate_decimal);
+  const suggestedHours = parseFloat(modal.suggestion?.recommended_hours);
+  const rateChanged    = Number.isFinite(suggestedRate)  && Number.isFinite(parseFloat(modal.rateDecimal))  && Math.abs(suggestedRate  - parseFloat(modal.rateDecimal))  > 0.0001;
+  const hoursChanged   = Number.isFinite(suggestedHours) && Number.isFinite(parseFloat(modal.hoursInput)) && Math.abs(suggestedHours - parseFloat(modal.hoursInput)) > 0.0001;
+  const isOverride = rateChanged || hoursChanged;
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {/* Charge to */}
+      <Box sx={{ mb: 1.5 }}>
+        <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Charge to</Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={modal.chargeTo || (balances[0]?.code ?? '')}
+            disabled={disabled}
+            onChange={(e) => setModal((p) => ({ ...p, chargeTo: e.target.value }))}
+            sx={selectSx}
+            renderValue={(v) => {
+              const b = balances.find((x) => x.code === v);
+              if (!b) return <Typography sx={{ fontSize: '0.875rem', color: T.faint }}>Select balance…</Typography>;
+              return (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{b.code}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: '0.875rem', color: T.text }}>{b.description}</Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{parseFloat((b.totalHours / 8).toFixed(3))}d</Typography>
+                </Box>
+              );
+            }}
+          >
+            {balances.map((b) => (
+              <MenuItem key={b.code} value={b.code} sx={{ py: 1.1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                  <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{b.code}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: '0.875rem' }}>{b.description}</Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{parseFloat((b.totalHours / 8).toFixed(3))}d available</Typography>
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
+
+      {/* Day type + hours */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent }}>Day type</Typography>
+        <ToggleButtonGroup exclusive size="small" value={modal.whDayType}
+          onChange={(_, v) => {
+            if (!v) return;
+            setModal((p) => {
+              const active = v === '6hr' ? p.hours6 : p.hours8;
+              const r = parseFloat(p.rateDecimal);
+              const h = Number.isFinite(r) && r >= 0 ? String(decimalToLeaveDeductionHours(r, active, v)) : p.hoursInput;
+              return { ...p, whDayType: v, hoursInput: h };
+            });
+          }}
+          sx={{ '& .MuiToggleButton-root': { px: 1.1, py: 0.35, fontSize: '0.68rem', fontWeight: 700 } }}>
+          <ToggleButton value="8hr">8 hr</ToggleButton>
+          <ToggleButton value="6hr">6 hr</ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
+      <Grid container spacing={1} sx={{ mb: 1.5 }}>
+        <Grid item xs={6}>
+          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Hours per day</Typography>
+          <TextField fullWidth size="small" type="number" inputProps={{ min: 0.01, step: 0.01 }}
+            value={modal.hoursInput} disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              const active = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
+              const h = parseFloat(v);
+              const r = Number.isFinite(h) && h >= 0 ? String(leaveDeductionHoursToDecimal(h, active, modal.whDayType)) : modal.rateDecimal;
+              setModal((p) => ({ ...p, hoursInput: v, rateDecimal: r }));
+            }}
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } }}
+          />
+        </Grid>
+        <Grid item xs={6}>
+          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Decimal per day</Typography>
+          <TextField fullWidth size="small" type="number" inputProps={{ min: 0.001, step: 0.001 }}
+            value={modal.rateDecimal} disabled={disabled}
+            onChange={(e) => {
+              const v = e.target.value;
+              const active = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
+              const r = parseFloat(v);
+              const h = Number.isFinite(r) && r >= 0 ? String(decimalToLeaveDeductionHours(r, active, modal.whDayType)) : modal.hoursInput;
+              setModal((p) => ({ ...p, rateDecimal: v, hoursInput: h }));
+            }}
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } }}
+          />
+        </Grid>
+      </Grid>
+
+      {isOverride && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>
+            Override reason <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+            <Box component="span" sx={{ fontWeight: 400, color: T.muted, ml: 0.5 }}>(required — values differ from suggestion)</Box>
+          </Typography>
+          <TextField fullWidth size="small" multiline minRows={2}
+            value={modal.overrideReason} disabled={disabled}
+            onChange={(e) => setModal((p) => ({ ...p, overrideReason: e.target.value }))}
+            placeholder="State why the suggested rate/hours are being changed."
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } }}
+          />
+        </Box>
+      )}
+
+      {isInsufficient && (
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, px: 1.5, py: 1.25, mb: 1.5, borderRadius: 2, bgcolor: '#FFF3E0', border: `1px solid rgba(245,124,0,0.35)` }}>
+          <WarningIcon sx={{ fontSize: 15, color: '#E65100', flexShrink: 0, mt: 0.1 }} />
+          <Typography sx={{ fontSize: '0.75rem', color: '#E65100', lineHeight: 1.55 }}>
+            Insufficient balance on <strong>{selectedBalance?.code}</strong>. Needs <strong>{totalDays.toFixed(3)}d</strong> but only <strong>{currentDays.toFixed(3)}d</strong> available. HR may still approve.
+          </Typography>
+        </Box>
+      )}
+
+      <Divider sx={{ borderColor: T.divider, mb: 1.5 }} />
+      <FormSectionLabel icon={CalculateIcon}>Balance after deduction</FormSectionLabel>
+      <Box sx={{ border: `1px solid ${T.divider}`, borderRadius: 2, overflow: 'hidden', mb: 0.75 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.75, py: 1.1, borderBottom: `1px solid ${T.divider}` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WalletIcon sx={{ fontSize: 14, color: T.muted }} />
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+              Current balance <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>({selectedBalance?.code || '—'})</Box>
+            </Typography>
+          </Box>
+          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, fontVariantNumeric: 'tabular-nums' }}>
+            {currentDays.toFixed(3)}d
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.75, py: 1.1, borderBottom: `1px solid ${T.divider}`, bgcolor: 'rgba(198,40,40,0.03)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TrendingDownIcon sx={{ fontSize: 14, color: '#C62828' }} />
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+              Total deduction
+              <Box component="span" sx={{ fontSize: '0.71rem', color: T.faint, ml: 0.75 }}>
+                ({hoursPerDay.toFixed(2)} hrs × {duration} day{duration !== 1 ? 's' : ''})
+              </Box>
+            </Typography>
+          </Box>
+          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#C62828', fontVariantNumeric: 'tabular-nums' }}>
+            — {totalDays.toFixed(3)}d
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.75, py: 1.25, bgcolor: isInsufficient ? 'rgba(245,124,0,0.04)' : 'rgba(46,125,50,0.04)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {isInsufficient ? <WarningIcon sx={{ fontSize: 14, color: '#E65100' }} /> : <CheckCircle sx={{ fontSize: 14, color: '#2E7D32' }} />}
+            <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>Balance after approval</Typography>
+          </Box>
+          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: isInsufficient ? '#E65100' : '#2E7D32' }}>
+            {afterDays.toFixed(3)}d
+          </Typography>
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: '0.68rem', color: T.faint, fontStyle: 'italic' }}>
+        * Preview only. Actual deduction is applied when approval is confirmed.
+      </Typography>
+    </Box>
+  );
+};
+
+// ─── View Modal ────────────────────────────────────────────────────────────────
+const ViewModal = ({
+  open, onClose, request, employeeNames, leaveTypes,
+  onStatusUpdate, statusUpdating,
+  hrApproveModal, setHrApproveModal,
+  onLoadHrDeductionForView, onResetEmbeddedHrForm, onConfirmHrApprove,
+}) => {
+  const [localStatus,      setLocalStatus]      = useState('');
+  const [balances,         setBalances]         = useState([]);
+  const [balancesLoading,  setBalancesLoading]  = useState(false);
+  const [scHours,          setScHours]          = useState(0);
+  const [ctoHours,         setCtoHours]         = useState(0);
+
+  useEffect(() => {
+    if (request) setLocalStatus(String(request.status));
+  }, [request]);
+
+  // ── FIX: fetch usage transactions alongside assignments so getLeaveTypeStatsActive
+  //         can compute the correct effective remaining (not just remaining_hours). ──
+  useEffect(() => {
+    if (!open || !request) return;
+    if (String(request.status) === '2') {
+      setBalances([]);
+      setBalancesLoading(false);
+      setScHours(0);
+      setCtoHours(0);
+      return;
+    }
+    let alive = true;
+    const fetchBalances = async () => {
+      setBalancesLoading(true);
+      try {
+        const [assignRes, scRes, ctoRes, usageRes] = await Promise.allSettled([
+          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/api/earnings/sc/${request.employeeNumber}/balance`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/api/earnings/cto/${request.employeeNumber}/balance`, getAuthHeaders()),
+          // Fetch usage transactions for accurate effective-remaining computation
+          axios.get(
+            `${API_BASE_URL}/leaveRoute/leave_credit_usage?employee=${request.employeeNumber}`,
+            getAuthHeaders(),
+          ),
+        ]);
+        if (!alive) return;
+
+        // Usage rows (graceful fallback if endpoint not yet available)
+        const usageRows =
+          usageRes.status === 'fulfilled' && Array.isArray(usageRes.value?.data)
+            ? usageRes.value.data
+            : [];
+
+        if (assignRes.status === 'fulfilled') {
+          const all  = Array.isArray(assignRes.value.data) ? assignRes.value.data : [];
+          const mine = all.filter((a) => a.employeeNumber?.toString() === request.employeeNumber?.toString());
+
+          const byCode = {};
+          mine.forEach((a) => {
+            if (!byCode[a.leave_code]) byCode[a.leave_code] = [];
+            byCode[a.leave_code].push(a);
+          });
+
+          const map = {};
+          Object.keys(byCode).forEach((code) => {
+            const desc = leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
+            // ── FIX: pass usageRows so commuted assignments show 0 correctly,
+            //         and use stats.allocatedHours (not stats.totalHours) for the
+            //         originally-assigned amount ──────────────────────────────────
+            const stats = getLeaveTypeStatsActive(byCode[code], usageRows);
+            map[code] = {
+              code,
+              description:    desc,
+              // totalHours drives the "Current balance" chip — must be the real remaining
+              totalHours:     stats.remainingHours,
+              // allocatedHours is the originally-assigned amount (reference only)
+              allocatedHours: stats.allocatedHours,
+            };
+          });
+
+          const result = Object.values(map).map((b) => ({
+            ...b,
+            totalDays:     (b.totalHours     / 8).toFixed(3),
+            allocatedDays: (b.allocatedHours / 8).toFixed(3),
+          }));
+          setBalances(result);
+        }
+
+        const scVal  = scRes.status  === 'fulfilled' ? parseFloat(scRes.value?.data?.totalRemaining  || 0) : 0;
+        const ctoVal = ctoRes.status === 'fulfilled' ? parseFloat(ctoRes.value?.data?.totalRemaining || 0) : 0;
+        if (alive) { setScHours(scVal); setCtoHours(ctoVal); }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (alive) setBalancesLoading(false);
+      }
+    };
+    fetchBalances();
+    return () => { alive = false; };
+  }, [open, request?.employeeNumber]); // eslint-disable-line
+
+  const hrEmbedKeyRef = useRef('');
+
+  useEffect(() => {
+    if (!open) { hrEmbedKeyRef.current = ''; onResetEmbeddedHrForm(); return; }
+    if (!request) return;
+    const lockedSt = ['2', '3', '4'].includes(String(request.status));
+    if (lockedSt) { hrEmbedKeyRef.current = ''; return; }
+    if (String(localStatus) === '2') {
+      const key = `${request.id}|${request.leave_code}|${request.leave_date}`;
+      if (hrEmbedKeyRef.current !== key) {
+        hrEmbedKeyRef.current = key;
+        onLoadHrDeductionForView(request).catch(() => {
+          setLocalStatus(String(request.status));
+          hrEmbedKeyRef.current = '';
+        });
+      }
+    } else if (hrEmbedKeyRef.current) {
+      hrEmbedKeyRef.current = '';
+      onResetEmbeddedHrForm();
+    }
+  }, [open, localStatus, request, onLoadHrDeductionForView, onResetEmbeddedHrForm]);
+
+  useEffect(() => {
+    if (!open || !request || String(request.status) !== '2') return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await axios.post(
+          `${API_BASE_URL}/leaveRoute/leave_request/hr-deduction-context`,
+          { employeeNumber: request.employeeNumber, leave_code: request.leave_code },
+          getAuthHeaders(),
+        );
+        if (alive) {
+          setHrApproveModal((p) => ({
+            ...p,
+            employmentTypeName: res.data?.employmentTypeName || '—',
+          }));
+        }
+      } catch {
+        /* employment label is optional */
+      }
+    })();
+    return () => { alive = false; };
+  }, [open, request?.id, request?.status, request?.employeeNumber, request?.leave_code, setHrApproveModal]);
+
+  if (!request) return null;
+
+  const isLocked           = ['2', '3', '4'].includes(String(request.status));
+  const isHrApprovedLocked = String(request.status) === '2';
+  const isHrApprovalFlow   = !isLocked && String(localStatus) === '2' && String(request.status) !== '2';
+  const statusChanged    = localStatus !== String(request.status);
+
+  const empName   = employeeNames[request.employeeNumber] || '—';
+  const leaveType = leaveTypes.find((t) => t.leave_code === request.leave_code);
+  const leaveDates = Array.isArray(request.leave_date)
+    ? request.leave_date
+    : String(request.leave_date || '').split(',').map((s) => s.trim()).filter(Boolean);
+
+  const formatDate = (s) => {
+    const [y, m, d] = s.split('-');
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const filedAt    = request.created_at || request.createdAt;
+  const filedLabel = filedAt
+    ? new Date(filedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'N/A';
+
+  const allBalances = [...balances];
+  if (scHours  > 1e-6) allBalances.push({ code: 'SC',  description: 'Service Credits', totalHours: scHours,  allocatedHours: scHours,  totalDays: (scHours  / 8).toFixed(3), allocatedDays: (scHours  / 8).toFixed(3) });
+  if (ctoHours > 1e-6) allBalances.push({ code: 'CTO', description: 'Comp. Time Off',  totalHours: ctoHours, allocatedHours: ctoHours, totalDays: (ctoHours / 8).toFixed(3), allocatedDays: (ctoHours / 8).toFixed(3) });
+
+  const currentOpt  = allStatusOptions.find((o) => o.value === String(request.status)) || allStatusOptions[0];
+  const CurrentIcon = currentOpt.icon;
+
+  const lockedMessages = {
+    '2': { title: 'HR Approved — Record Locked',  body: 'This request has been approved by HR and is now final.', color: '#2E7D32' },
+    '3': { title: 'Denied — Record Locked',        body: 'This request has been denied and is now final.',        color: '#C62828' },
+    '4': { title: 'Cancelled — Record Locked',     body: 'This request was cancelled by the employee.',           color: '#757575' },
+  };
+
+  const hrBalancesForPanel = allBalances.length > 0 ? allBalances : [];
+  const defaultChargeTo    = hrApproveModal.chargeTo || hrApproveModal.suggestion?.recommended_charge_to || hrBalancesForPanel[0]?.code || '';
+  const hrModalWithCharge  = { ...hrApproveModal, chargeTo: defaultChargeTo };
+
+  const appliedHours   = parseFloat(request.deduction_applied_hours);
+  const appliedRate    = parseFloat(request.hr_approval_rate);
+  const chargeToCode   = request.deduction_charge_to || null;
+  const balBeforeH     = parseFloat(request.deduction_balance_before_hours);
+  const balAfterH      = parseFloat(request.deduction_balance_after_hours);
+  const hasDeductionRecord =
+    String(request.status) === '2' &&
+    (Number.isFinite(appliedHours) && appliedHours > 0 || chargeToCode);
+  const chargeTypeDesc = chargeToCode
+    ? (leaveTypes.find((t) => t.leave_code === chargeToCode)?.leave_description || chargeToCode)
+    : null;
+
+  return (
+    <Modal open={open} onClose={onClose} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
+      <Fade in={open}>
+        <Box sx={{ width: '100%', maxWidth: 980, maxHeight: '92vh', borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', bgcolor: T.surface, display: 'flex', flexDirection: 'column' }}>
+          {/* Header */}
+          <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+            <Box sx={{ position: 'absolute', top: -50, right: -30, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <EventNote sx={{ fontSize: 18, color: '#fff' }} />
+              </Box>
+              <Box>
+                <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }}>Leave Request Details</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>#{request.employeeNumber} • {empName}</Typography>
+                  <Chip size="small" icon={<CurrentIcon style={{ fontSize: 10, color: currentOpt.color }} />} label={currentOpt.short}
+                    sx={{ height: 16, fontSize: '0.62rem', bgcolor: alpha(currentOpt.color, 0.15), color: '#fff', fontWeight: 600 }} />
+                </Box>
+              </Box>
+            </Box>
+            <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
+              <Close sx={{ fontSize: 17 }} />
+            </IconButton>
+          </Box>
+
+          {/* Two-column body */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flexGrow: 1, overflow: 'hidden', minHeight: 0 }}>
+            {/* LEFT: balances (hidden when HR approved) + request info + status */}
+            <Box sx={{ px: 3, py: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, borderRight: `1px solid ${T.divider}`, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+              {isHrApprovedLocked ? (
+                <>
+                  <FormSectionLabel icon={ScheduleIcon}>Status</FormSectionLabel>
+                  <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha('#2E7D32', 0.25)}`, bgcolor: alpha('#2E7D32', 0.04), display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
+                    <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha('#2E7D32', 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <LockIcon sx={{ fontSize: 15, color: '#2E7D32' }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#2E7D32', mb: 0.3 }}>
+                        {lockedMessages['2']?.title}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.76rem', color: T.muted, lineHeight: 1.55 }}>
+                        {lockedMessages['2']?.body}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Divider sx={{ borderColor: T.divider, mb: 2 }} />
+                </>
+              ) : (
+                <>
+                  <FormSectionLabel icon={WalletIcon}>Leave Balances</FormSectionLabel>
+                  {balancesLoading ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1, mb: 2 }}>
+                      <CircularProgress size={14} sx={{ color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>Loading balances…</Typography>
+                    </Box>
+                  ) : allBalances.length === 0 ? (
+                    <Box sx={{ py: 2, textAlign: 'center', border: `1px dashed ${T.accentBorder}`, borderRadius: 2, mb: 2 }}>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>No leave balance data available.</Typography>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 0.65, mb: 0.75 }}>
+                      {allBalances.map((b) => (
+                        <LeaveBalanceCard key={b.code} balance={b} isActive={b.code === request.leave_code} />
+                      ))}
+                    </Box>
+                  )}
+                  <Typography sx={{ fontSize: '0.68rem', color: T.faint, mb: 2 }}>
+                    * Balances shown are current remaining. Deduction applied on HR approval.
+                  </Typography>
+                  <Divider sx={{ borderColor: T.divider, mb: 2 }} />
+                </>
+              )}
+
+              <FormSectionLabel icon={EventNote}>Request Info</FormSectionLabel>
+              <Grid container spacing={1.25} sx={{ mb: 2 }}>
+                {!isHrApprovedLocked && (
+                  <Grid item xs={12}>
+                    <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Employee</Typography>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>#{request.employeeNumber}</Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>{empName}</Typography>
+                    </Box>
+                  </Grid>
+                )}
+                <Grid item xs={6}>
+                  <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Leave type</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: 'rgba(109,35,35,0.08)', border: `0.5px solid ${T.accentBorder}` }}>
+                        <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{request.leave_code}</Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{leaveType?.leave_description || request.leave_code}</Typography>
+                    </Box>
+                  </Box>
+                </Grid>
+                {!isHrApprovedLocked && (
+                  <Grid item xs={6}>
+                    <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Duration</Typography>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{leaveDates.length} day(s)</Typography>
+                    </Box>
+                  </Grid>
+                )}
+                <Grid item xs={isHrApprovedLocked ? 12 : 12}>
+                  <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>{isHrApprovedLocked ? 'Leave date' : 'Leave date(s)'}</Typography>
+                    {isHrApprovedLocked && leaveDates.length === 1 ? (
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{formatDate(leaveDates[0])}</Typography>
+                    ) : (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                        {leaveDates.map((d) => (
+                          <Box key={d} sx={{ px: 1, py: 0.35, borderRadius: 1, bgcolor: 'rgba(109,35,35,0.08)', border: `0.5px solid ${T.accentBorder}` }}>
+                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent }}>{formatDate(d)}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+                </Grid>
+                {!isHrApprovedLocked && (
+                  <Grid item xs={6}>
+                    <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Filed on</Typography>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{filedLabel}</Typography>
+                    </Box>
+                  </Grid>
+                )}
+                <Grid item xs={isHrApprovedLocked ? 12 : 6}>
+                  <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Employment type</Typography>
+                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{hrApproveModal.employmentTypeName || '—'}</Typography>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              {!isHrApprovedLocked && (
+                <>
+                  <Divider sx={{ borderColor: T.divider, mb: 2 }} />
+                  <FormSectionLabel icon={ScheduleIcon}>Status</FormSectionLabel>
+                </>
+              )}
+              {isLocked && !isHrApprovedLocked ? (
+                <>
+                  <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.25)}`, bgcolor: alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.05), display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+                    <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <LockIcon sx={{ fontSize: 15, color: lockedMessages[String(request.status)]?.color || '#757575' }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: lockedMessages[String(request.status)]?.color || '#757575', mb: 0.3 }}>
+                        {lockedMessages[String(request.status)]?.title}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.76rem', color: T.muted, lineHeight: 1.55 }}>
+                        {lockedMessages[String(request.status)]?.body}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </>
+              ) : !isLocked ? (
+                <>
+                  <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, mb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600, flexShrink: 0 }}>Current status</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, minWidth: 0 }}>
+                      <CurrentIcon sx={{ fontSize: 16, color: currentOpt.color, flexShrink: 0 }} />
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: currentOpt.color, textAlign: 'right' }}>{currentOpt.label}</Typography>
+                    </Box>
+                  </Box>
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Update status</Typography>
+                  <FormControl fullWidth size="small">
+                    <Select value={localStatus} onChange={(e) => setLocalStatus(e.target.value)} sx={selectSx}
+                      renderValue={(v) => {
+                        const opt = allStatusOptions.find((o) => o.value === v);
+                        const Icon = opt?.icon;
+                        return (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {Icon && <Icon sx={{ fontSize: 14, color: opt.color }} />}
+                            <Typography sx={{ fontWeight: 600, color: opt?.color, fontSize: '0.875rem' }}>{opt?.label}</Typography>
+                          </Box>
+                        );
+                      }}>
+                      {statusOptions.map((o) => (
+                        <MenuItem key={o.value} value={o.value} sx={{ py: 1.25 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: o.color }} />
+                            <Typography sx={{ fontSize: '0.875rem' }}>{o.label}</Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </>
+              ) : null}
+            </Box>
+
+            {/* RIGHT: HR deduction transaction card, approval panel, or empty state */}
+            <Box sx={{ px: 3, py: 2.5, overflowY: 'auto', display: 'flex', flexDirection: 'column', bgcolor: isHrApprovedLocked ? '#fafafa' : 'transparent', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+              {isHrApprovedLocked ? (
+                <>
+                  <FormSectionLabel icon={TrendingDownIcon}>HR deduction applied</FormSectionLabel>
+                  {hasDeductionRecord ? (
+                    <HrDeductionAppliedCard request={request} leaveTypes={leaveTypes} chargeTypeDesc={chargeTypeDesc} />
+                  ) : (
+                    <Box sx={{ p: 2, borderRadius: 2, border: `1px dashed ${T.accentBorder}`, bgcolor: '#fff', mb: 2 }}>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.muted, lineHeight: 1.55 }}>
+                        HR approved with no deduction record stored on this request.
+                      </Typography>
+                    </Box>
+                  )}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexGrow: 1, textAlign: 'center', px: 2, py: 3, opacity: 0.45, mt: 1 }}>
+                    <Typography sx={{ fontSize: '0.78rem', color: '#bbb', lineHeight: 1.6 }}>
+                      No further actions available.
+                      <br />
+                      This record is locked.
+                    </Typography>
+                  </Box>
+                </>
+              ) : isHrApprovalFlow ? (
+                <>
+                  <FormSectionLabel icon={DoneAllIcon}>Set Deduction</FormSectionLabel>
+                  <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha('#2E7D32', 0.3)}`, bgcolor: alpha('#2E7D32', 0.04), mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: '#2E7D32', mb: 0.5 }}>HR Approval — configure leave deduction</Typography>
+                    <Typography sx={{ fontSize: '0.73rem', color: T.muted, lineHeight: 1.55 }}>Set the charge-to balance, hours per day, and review the computed total before confirming.</Typography>
+                  </Box>
+                  {hrApproveModal.loadingContext ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexGrow: 1, py: 6 }}>
+                      <CircularProgress size={28} sx={{ color: T.accent }} />
+                    </Box>
+                  ) : (
+                    <HrDeductionPanel modal={hrModalWithCharge} setModal={setHrApproveModal} disabled={hrApproveModal.loading} balances={hrBalancesForPanel} />
+                  )}
+                </>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexGrow: 1, textAlign: 'center', gap: 1.5, px: 3, py: 4 }}>
+                  <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <LockIcon sx={{ fontSize: 26, color: alpha(T.accent, 0.3) }} />
+                  </Box>
+                  <Box>
+                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.muted, mb: 0.5 }}>No deduction required</Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.faint, lineHeight: 1.65 }}>
+                      Set the status to{' '}
+                      <Box component="span" sx={{ fontWeight: 700, color: '#2E7D32' }}>HR Approved</Box>
+                      {' '}on the left to configure the leave deduction.
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          </Box>
+
+          {/* Footer */}
+          <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end', gap: 1.25, flexShrink: 0 }}>
+            <AccentButton onClick={onClose} variant="outlined" sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Close</AccentButton>
+            {!isLocked && (
+              <AccentButton
+                onClick={() => (isHrApprovalFlow ? onConfirmHrApprove() : onStatusUpdate(request, localStatus))}
+                disabled={!statusChanged || statusUpdating || (isHrApprovalFlow && (hrApproveModal.loadingContext || hrApproveModal.loading))}
+                variant="contained"
+                startIcon={
+                  statusUpdating || (isHrApprovalFlow && hrApproveModal.loading)
+                    ? <CircularProgress size={12} sx={{ color: '#fff' }} />
+                    : isHrApprovalFlow ? <DoneAllIcon sx={{ fontSize: '14px !important' }} /> : <SaveIcon sx={{ fontSize: '14px !important' }} />
+                }
+                sx={{ fontSize: '0.8rem', bgcolor: isHrApprovalFlow ? '#2E7D32' : T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(isHrApprovalFlow ? '#2E7D32' : T.accent, 0.32)}`, '&:hover': { bgcolor: isHrApprovalFlow ? '#1B5E20' : T.accentDark }, '&:disabled': { bgcolor: '#ddd' } }}>
+                {statusUpdating || (isHrApprovalFlow && hrApproveModal.loading) ? 'Saving…' : isHrApprovalFlow ? 'Confirm HR approval' : 'Save Status'}
+              </AccentButton>
+            )}
+          </Box>
+        </Box>
+      </Fade>
+    </Modal>
+  );
+};
+
+// ─── Transaction Logs Surface ──────────────────────────────────────────────────
+const TransactionLogsSurface = ({
+  variant, logs, totalCount, filteredTotal, loading, error,
+  employeeNames, leaveTypes, auditPage, setAuditPage,
+  searchTerm, setSearchTerm, actionFilter, setActionFilter,
+  leaveFilter, setLeaveFilter, kindMap, getTxKind, renderTxSentence,
+  onClose, onOpenModal, onExpandPanel,
+}) => {
+  const isPanel    = variant === 'panel';
+  const totalPages = Math.max(1, Math.ceil(Math.max(filteredTotal, 0) / TX_LOGS_PER_PAGE));
+  const paginated  = logs.slice((auditPage - 1) * TX_LOGS_PER_PAGE, auditPage * TX_LOGS_PER_PAGE);
+  const leaveFilterOptions = ['all', ...new Map(leaveTypes.map((lt) => [normalizeLeaveCategory(lt), normalizeLeaveCategory(lt)])).keys()];
+
+  return (
+    <SectionCard sx={isPanel ? { height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' } : { width: '100%', maxWidth: 620, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden', flexShrink: 0, gap: 2 }}>
+        <Box sx={{ position: 'absolute', top: -50, right: -30, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1, minWidth: 0 }}>
+          <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <HistoryToggleOff sx={{ fontSize: 18, color: '#fff' }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }} noWrap>Transaction Logs</Typography>
+            <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>
+              {filteredTotal > 0 ? `${filteredTotal} of ${totalCount} recorded action(s)` : 'All activity on leave requests'}
+            </Typography>
+          </Box>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', position: 'relative', zIndex: 1, justifyContent: 'flex-end' }}>
+          {isPanel ? (
+            <AccentButton onClick={onOpenModal} variant="outlined" startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+              sx={{ fontSize: '0.76rem', color: '#fff', borderColor: 'rgba(255,255,255,0.24)', bgcolor: 'rgba(255,255,255,0.08)', '&:hover': { bgcolor: 'rgba(255,255,255,0.14)', borderColor: 'rgba(255,255,255,0.35)', transform: 'none' } }}>
+              Compact modal
+            </AccentButton>
+          ) : (
+            <AccentButton onClick={onExpandPanel} variant="outlined" startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+              sx={{ fontSize: '0.76rem', color: '#fff', borderColor: 'rgba(255,255,255,0.24)', bgcolor: 'rgba(255,255,255,0.08)', '&:hover': { bgcolor: 'rgba(255,255,255,0.14)', borderColor: 'rgba(255,255,255,0.35)', transform: 'none' } }}>
+              Full panel
+            </AccentButton>
+          )}
+          <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
+            {isPanel ? <FullscreenExitIcon sx={{ fontSize: 17 }} /> : <Close sx={{ fontSize: 17 }} />}
+          </IconButton>
+        </Box>
+      </Box>
+
+      {isPanel && (
+        <Box sx={{ px: 3, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Box sx={{ position: 'relative', flex: 1, minWidth: 220 }}>
+              <ManageSearchIcon sx={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: T.faint, pointerEvents: 'none' }} />
+              <FieldInput value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search employee, action, or leave type…" size="small" fullWidth sx={{ '& .MuiOutlinedInput-root': { pl: 1.5 } }} />
+            </Box>
+            <AccentButton onClick={() => setSearchTerm('')} variant="outlined" startIcon={<FilterAltIcon sx={{ fontSize: '14px !important' }} />}
+              sx={{ fontSize: '0.74rem', color: T.accent, borderColor: T.accentBorder, bgcolor: '#fff', '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}>
+              Clear
+            </AccentButton>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {[{ label: 'All actions', value: 'all' }, { label: 'Submitted', value: 'submitted' }, { label: 'Supervisor', value: 'supervisor_approved' }, { label: 'HR approved', value: 'hr_approved' }, { label: 'Denied', value: 'denied' }, { label: 'Cancelled', value: 'cancelled' }, { label: 'Deleted', value: 'deleted' }].map((opt) => (
+              <Box key={opt.value} onClick={() => setActionFilter(opt.value)}
+                sx={{ px: 1.35, py: 0.45, borderRadius: 999, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, border: `1px solid ${actionFilter === opt.value ? T.accent : T.accentBorder}`, color: actionFilter === opt.value ? '#fff' : T.accent, bgcolor: actionFilter === opt.value ? T.accent : '#fff', transition: 'all 0.15s ease', '&:hover': { bgcolor: actionFilter === opt.value ? T.accentDark : T.accentFaint } }}>
+                {opt.label}
+              </Box>
+            ))}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {leaveFilterOptions.map((category, index) => (
+              <Box key={`${category}-${index}`} onClick={() => setLeaveFilter(category)}
+                sx={{ px: 1.35, py: 0.45, borderRadius: 999, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, border: `1px solid ${leaveFilter === category ? T.accent : T.accentBorder}`, color: leaveFilter === category ? '#fff' : T.accent, bgcolor: leaveFilter === category ? T.accent : '#fff', transition: 'all 0.15s ease', '&:hover': { bgcolor: leaveFilter === category ? T.accentDark : T.accentFaint } }}>
+                {category === 'all' ? 'All leave types' : category}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+
+      <Box sx={{ px: 3, py: 2.5, overflowY: 'auto', flexGrow: 1, bgcolor: T.accentFaint, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+        {loading ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {[...Array(TX_LOGS_PER_PAGE)].map((_, i) => (
+              <Box key={i} sx={{ p: 2.5, borderRadius: 2, bgcolor: '#fff', border: `1px solid ${T.accentBorder}`, animation: 'blink 1.6s ease-in-out infinite', animationDelay: `${i * 0.1}s` }}>
+                <Bone w={90} h={16} sx={{ mb: 1 }} /><Bone w="80%" h={12} sx={{ mb: 0.75 }} /><Bone w="55%" h={12} />
+              </Box>
+            ))}
+          </Box>
+        ) : error ? (
+          <Alert severity="error" sx={{ borderRadius: 2 }}>{error}</Alert>
+        ) : filteredTotal === 0 ? (
+          <Box sx={{ py: 10, textAlign: 'center' }}>
+            <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+              <HistoryToggleOff sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted }}>{totalCount === 0 ? 'No activity yet.' : 'No logs match your filters.'}</Typography>
+            <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>{totalCount === 0 ? 'Actions on leave requests will appear here.' : 'Try a different search or leave-type filter.'}</Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {paginated.map((log) => {
+              const kind = getTxKind(log);
+              const { label, color, bg, Icon } = kindMap[kind] || kindMap.activity;
+              const timeLabel   = getLogTimeLabel(log);
+              const leaveType   = getLogLeaveType(log, leaveTypes);
+              const leaveCategory = getLogLeaveCategory(log, leaveTypes);
+              const logEmpNum   = log.employee_id || log.employeeNumber;
+              const logEmpName  = logEmpNum ? employeeNames[logEmpNum] : null;
+              return (
+                <Box key={`log-${log.id}`}
+                  sx={{ bgcolor: '#fff', borderRadius: 2, p: 2.5, border: `1px solid ${T.accentBorder}`, borderLeft: `4px solid ${color}`, boxShadow: '0 1px 4px rgba(0,0,0,0.04)', '&:hover': { boxShadow: `0 4px 12px ${alpha(color, 0.12)}` } }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25, flexWrap: 'wrap', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.25, py: 0.35, borderRadius: '6px', bgcolor: bg, border: `1px solid ${alpha(color, 0.2)}` }}>
+                        <Icon sx={{ fontSize: 12, color }} /><Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color, lineHeight: 1 }}>{label}</Typography>
+                      </Box>
+                    </Box>
+                    {timeLabel && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <ScheduleIcon sx={{ fontSize: 11, color: T.faint }} /><Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{timeLabel}</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 1, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.1, py: 0.32, borderRadius: '6px', bgcolor: alpha(T.accent, 0.05), border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent, lineHeight: 1 }}>{leaveType?.leave_description || leaveCategory}</Typography>
+                    </Box>
+                    {logEmpNum && (
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, px: 1.5, py: 0.5, bgcolor: alpha('#1565C0', 0.05), borderRadius: 1.5, border: '1px solid rgba(21,101,192,0.15)' }}>
+                        <PersonIcon sx={{ fontSize: 14, color: '#1565C0', flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: '#1565C0', lineHeight: 1 }}>
+                          {logEmpNum} {logEmpName && logEmpName !== 'Unknown' && '| '}{logEmpName && logEmpName !== 'Unknown' && logEmpName.toUpperCase()}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  {renderTxSentence(log)}
+                </Box>
+              );
+            })}
+            {totalPages > 1 && (
+              <Box sx={{ mt: 1, pt: 2, borderTop: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <IconButton size="small" disabled={auditPage === 1} onClick={() => setAuditPage((p) => p - 1)}
+                  sx={{ width: 32, height: 32, borderRadius: 1.5, border: `1px solid ${auditPage === 1 ? T.divider : T.accentBorder}`, color: auditPage === 1 ? T.faint : T.accent }}>
+                  <NavigateBefore sx={{ fontSize: 16 }} />
+                </IconButton>
+                <Box sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent, px: 1.25, py: 0.45, borderRadius: 1.5, bgcolor: '#fff', border: `1px solid ${T.accentBorder}` }}>
+                  Page {auditPage} of {totalPages}
+                </Box>
+                <IconButton size="small" disabled={auditPage === totalPages} onClick={() => setAuditPage((p) => p + 1)}
+                  sx={{ width: 32, height: 32, borderRadius: 1.5, border: `1px solid ${auditPage === totalPages ? T.divider : T.accentBorder}`, color: auditPage === totalPages ? T.faint : T.accent }}>
+                  <NavigateNext sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+    </SectionCard>
+  );
+};
+
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  if (!last && !first) {
+    const raw = String(e?.fullName || e?._displayName || '').trim();
+    if (!raw) return e?.employeeNumber ? `#${e.employeeNumber}` : '';
+    if (raw.includes(',')) return raw;
+    return raw;
+  }
+  return last
+    ? `${last.toUpperCase()}, ${[first, mid].filter(Boolean).join(' ')}`
+    : [first, mid].filter(Boolean).join(' ');
+};
+
+const getEmployeeInitials = (e) =>
+  `${e?.lastName?.[0] || ''}${e?.firstName?.[0] || ''}`.toUpperCase() ||
+  (e?.fullName?.[0] || '?').toUpperCase();
+
+const GenderBadge = ({ gender }) => {
+  if (!gender) return null;
+  const isMale = String(gender).trim().toLowerCase() === 'male';
+  return (
+    <Chip
+      size="small"
+      icon={
+        isMale ? (
+          <MaleIcon style={{ fontSize: 11, color: '#1565C0' }} />
+        ) : (
+          <FemaleIcon style={{ fontSize: 11, color: '#c2185b' }} />
+        )
+      }
+      label={gender}
+      sx={{
+        height: 18,
+        fontSize: '0.6rem',
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        bgcolor: isMale ? 'rgba(21,101,192,0.08)' : 'rgba(194,24,91,0.08)',
+        color: isMale ? '#1565C0' : '#c2185b',
+        border: `1px solid ${isMale ? 'rgba(21,101,192,0.25)' : 'rgba(194,24,91,0.25)'}`,
+        borderRadius: '4px',
+      }}
+    />
+  );
+};
+
+const EmployeeProfileRow = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  avatarSize = 24,
+}) => {
+  if (!employee) return null;
+  const num = String(employee.employeeNumber ?? '').trim();
+  const initials = getEmployeeInitials(employee);
+  const name = employee._displayName || buildDisplayName(employee);
+  const dc = deptMap[num];
+  const ec = empCatMap[num];
+  const gender = sexMap[num] || employee.sex || employee.gender;
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+      <Avatar
+        sx={{
+          width: avatarSize,
+          height: avatarSize,
+          bgcolor: T.accent,
+          fontSize: avatarSize <= 24 ? '0.6rem' : '0.8rem',
+          fontWeight: 800,
+          borderRadius: avatarSize <= 24 ? '4px' : '8px',
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </Avatar>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 700,
+            fontSize: avatarSize <= 24 ? '0.8rem' : '0.84rem',
+            color: T.text,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {name}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexWrap: 'wrap', mt: 0.2 }}>
+          <Typography variant="caption" sx={{ color: T.faint, fontSize: '0.62rem' }}>
+            #{num}
+          </Typography>
+          {gender && <GenderBadge gender={gender} />}
+          {dc && <DeptBadge code={dc} />}
+          {ec && <EmpCatBadge label={ec.label} colorHex={ec.colorHex} />}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const EmployeeProfileCard = ({ employee, deptMap = {}, empCatMap = {}, sexMap = {} }) => {
+  if (!employee) return null;
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.25,
+        px: 1.25,
+        py: 1,
+        borderRadius: 2,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fafafa',
+      }}
+    >
+      <EmployeeProfileRow
+        employee={employee}
+        deptMap={deptMap}
+        empCatMap={empCatMap}
+        sexMap={sexMap}
+        avatarSize={44}
+      />
+    </Box>
+  );
+};
+
+// ─── Main component ────────────────────────────────────────────────────────────
 const LeaveRequest = () => {
   const { hasAccess, loading: accessLoading } = usePageAccess('leave-request');
   const { socket, connected } = useSocket();
   const refreshRef = useRef(null);
 
-  const [leaveRequests, setLeaveRequests] = useState([]);
-  const [leaveTypes, setLeaveTypes] = useState([]);
-  const [employeeNames, setEmployeeNames] = useState({});
-  const [newRequest, setNewRequest] = useState({
-    employeeNumber: '',
-    leave_code: '',
-    leave_date: '',
-    status: '0',
-  });
-  const [editRequest, setEditRequest] = useState(null);
-  const [originalRequest, setOriginalRequest] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const deferredSearch = useDeferredValue(searchTerm);
-  const [loading, setLoading] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
-  const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
-  const [dateModalOpen, setDateModalOpen] = useState(false);
-  const [selectedDates, setSelectedDates] = useState([]);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(8);
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [leaveTypeFilter, setLeaveTypeFilter] = useState('all');
-  const [dateRangeFilter, setDateRangeFilter] = useState('all'); // 'all' | 'today' | 'last7' | 'monthly'
-  const [dateFiledFilter, setDateFiledFilter] = useState(''); // specific YYYY-MM-DD date for "date filed"
-  const [viewMode, setViewMode] = useState('grid');
-  const [selectMode, setSelectMode] = useState(false);
+  const [leaveRequests,       setLeaveRequests]       = useState([]);
+  const [leaveTypes,          setLeaveTypes]          = useState([]);
+  const [employeeNames,       setEmployeeNames]       = useState({});
+  const [remainingByEmpCode,  setRemainingByEmpCode]  = useState({});
+  const [employeeOptions,  setEmployeeOptions]  = useState([]);
+  const [deptMap,          setDeptMap]          = useState({});
+  const [empCatMap,        setEmpCatMap]        = useState({});
+  const [sexMap,           setSexMap]           = useState({});
+  const [newRequest,       setNewRequest]       = useState({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
+  const [viewRequest,      setViewRequest]      = useState(null);
+  const [statusUpdating,   setStatusUpdating]   = useState(false);
+  const [searchTerm,       setSearchTerm]       = useState('');
+  const deferredSearch                          = useDeferredValue(searchTerm);
+  const [loading,          setLoading]          = useState(false);
+  const [pageLoading,      setPageLoading]      = useState(true);
+  const [successOpen,      setSuccessOpen]      = useState(false);
+  const [successAction,    setSuccessAction]    = useState('');
+  const [dateModalOpen,    setDateModalOpen]    = useState(false);
+  const [selectedDates,    setSelectedDates]    = useState([]);
+  const [leaveBalance,     setLeaveBalance]     = useState({ loading: false, availableHours: null, error: '' });
+  const [page,             setPage]             = useState(0);
+  const [rowsPerPage,      setRowsPerPage]      = useState(12);
+  const [statusFilter,     setStatusFilter]     = useState('all');
+  const [leaveTypeFilter,  setLeaveTypeFilter]  = useState('all');
+  const [dateRangeFilter,  setDateRangeFilter]  = useState('all');
+  const [dateFiledFilter,  setDateFiledFilter]  = useState('');
+  const [viewMode,         setViewMode]         = useState('grid');
+  const [selectMode,       setSelectMode]       = useState(false);
   const [selectedRequests, setSelectedRequests] = useState([]);
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const [transactionLogsModalOpen, setTransactionLogsModalOpen] =
-    useState(false);
-  const [transactionLogs, setTransactionLogs] = useState([]);
-  const [transactionLogsLoading, setTransactionLogsLoading] = useState(false);
-  const [transactionLogsError, setTransactionLogsError] = useState('');
-  const [auditLogPage, setAuditLogPage] = useState(1);
-  const AUDIT_LOGS_PER_PAGE = 5;
+  const [bulkLoading,      setBulkLoading]      = useState(false);
+  const [txModalOpen,      setTxModalOpen]      = useState(false);
+  const [txPanelOpen,      setTxPanelOpen]      = useState(false);
+  const [txLogs,           setTxLogs]           = useState([]);
+  const [txLoading,        setTxLoading]        = useState(false);
+  const [txError,          setTxError]          = useState('');
+  const [auditPage,        setAuditPage]        = useState(1);
+  const [txSearchTerm,     setTxSearchTerm]     = useState('');
+  const [txActionFilter,   setTxActionFilter]   = useState('all');
+  const [txLeaveFilter,    setTxLeaveFilter]    = useState('all');
+  const AUDIT_PER_PAGE = TX_LOGS_PER_PAGE;
 
-  const { settings } = useSystemSettings();
+  const [errorModal,   setErrorModal]   = useState({ open: false, title: '', message: '', iconColor: '#C62828', iconBg: '#FFEBEE', icon: ErrorOutlineIcon });
+  const [confirmModal, setConfirmModal] = useState({ open: false, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {} });
+  const [hrApproveModal, setHrApproveModal] = useState({
+    open: false, mode: 'single', loading: false, loadingContext: false,
+    whDayType: '8hr', hours8: [], hours6: [], minutes: [], hoursPerDay: 8,
+    employmentTypeName: '', rateSource: '', rateDecimal: '1', hoursInput: '8',
+    chargeTo: '', suggestion: null, overrideReason: '', pendingRequest: null, pendingBulkIds: [],
+  });
 
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const grayColor = settings.textSecondaryColor || '#6c757d';
+  const showError    = (title, message, opts = {}) => setErrorModal({ open: true, title, message, iconColor: '#C62828', iconBg: '#FFEBEE', icon: ErrorOutlineIcon, ...opts });
+  const closeError   = () => setErrorModal((p) => ({ ...p, open: false }));
+  const showConfirm  = (opts) => setConfirmModal({ open: true, title: '', message: '', confirmLabel: 'Confirm', confirmColor: T.accent, confirmHoverColor: T.accentDark, icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint, loading: false, onConfirm: () => {}, ...opts });
+  const closeConfirm = () => setConfirmModal((p) => ({ ...p, open: false, loading: false }));
 
-  const statusOptions = [
-    {
-      value: '0',
-      label: 'Pending Review',
-      short: 'Pending',
-      color: '#F57C00',
-      bg: '#FFF3E0',
-      icon: AccessTime,
-    },
-    {
-      value: '1',
-      label: 'Immediate Supervisor Approved',
-      short: 'Supervisor Approved',
-      color: '#1565C0',
-      bg: '#E3F2FD',
-      icon: CheckCircle,
-    },
-    {
-      value: '2',
-      label: 'HR Approved',
-      short: 'HR Approved',
-      color: '#2E7D32',
-      bg: '#E8F5E9',
-      icon: CheckCircle,
-    },
-    {
-      value: '3',
-      label: 'Denied',
-      short: 'Denied',
-      color: '#C62828',
-      bg: '#FFEBEE',
-      icon: Block,
-    },
-    {
-      value: '4',
-      label: 'Cancelled',
-      short: 'Cancelled',
-      color: '#757575',
-      bg: '#F5F5F5',
-      icon: CancelIcon,
-    },
-  ];
+  const closeHrApproveModal = () => {
+    setHrApproveModal((p) => ({ ...p, open: false, loading: false, loadingContext: false, whDayType: '8hr', hours8: [], hours6: [], minutes: [], suggestion: null, overrideReason: '', chargeTo: '', pendingRequest: null, pendingBulkIds: [] }));
+  };
+
+  const hrViewLoadSeq = useRef(0);
+
+  const loadHrApproveModalData = useCallback(async (employeeNumber, leave_code, leave_date = null) => {
+    const [ratesRes, ctxRes, suggestionRes] = await Promise.all([
+      axios.get(`${API_BASE_URL}/api/working-hours/rates`, getAuthHeaders()),
+      axios.post(`${API_BASE_URL}/leaveRoute/leave_request/hr-deduction-context`, { employeeNumber, leave_code }, getAuthHeaders()),
+      axios.post(`${API_BASE_URL}/leaveRoute/leave_request/deduction-suggestion`, { employeeNumber, leave_code, leave_date, has_leave_form: true, is_half_day_absence: false }, getAuthHeaders()),
+    ]);
+    const d = ratesRes.data || {};
+    const hours8   = Array.isArray(d.hours8)   ? d.hours8   : [];
+    const hours6   = Array.isArray(d.hours6)   ? d.hours6   : [];
+    const minutes  = Array.isArray(d.minutes)  ? d.minutes  : [];
+    const whDayType = '8hr';
+    const active    = hours8;
+    const suggestedRate  = parseFloat(suggestionRes.data?.recommended_rate_decimal);
+    const startDec       = Number.isFinite(suggestedRate) && suggestedRate > 0 ? suggestedRate : 1;
+    const suggestedHours = parseFloat(suggestionRes.data?.recommended_hours);
+    const hrs = Number.isFinite(suggestedHours) && suggestedHours > 0
+      ? suggestedHours
+      : decimalToLeaveDeductionHours(startDec, active, whDayType);
+    const chargeTo = suggestionRes.data?.recommended_charge_to || leave_code || '';
+    return {
+      loadingContext: false, hours8, hours6, minutes, whDayType,
+      hoursPerDay: Number(ctxRes.data?.hoursPerDay) || 8,
+      employmentTypeName: ctxRes.data?.employmentTypeName || '—',
+      rateSource: ctxRes.data?.rateSource || 'default',
+      rateDecimal: String(startDec), hoursInput: String(hrs),
+      chargeTo, suggestion: suggestionRes.data || null, overrideReason: '',
+    };
+  }, []);
+
+  const resetViewEmbeddedHrForm = useCallback(() => {
+    setHrApproveModal((p) => {
+      if (p.open && p.mode === 'bulk') return p;
+      hrViewLoadSeq.current += 1;
+      return { ...p, loadingContext: false, pendingRequest: null, suggestion: null, overrideReason: '', rateDecimal: '1', hoursInput: '8', chargeTo: '' };
+    });
+  }, []);
+
+  const loadHrDeductionForViewModal = useCallback(async (req) => {
+    const n = ++hrViewLoadSeq.current;
+    setHrApproveModal((p) => ({ ...p, open: false, mode: 'single', loadingContext: true, pendingRequest: { ...req }, pendingBulkIds: [] }));
+    try {
+      const patch = await loadHrApproveModalData(req.employeeNumber, req.leave_code, req.leave_date);
+      if (hrViewLoadSeq.current !== n) return;
+      setHrApproveModal((p) => ({ ...p, ...patch }));
+    } catch (e) {
+      if (hrViewLoadSeq.current === n) {
+        showError('Context Failed', e.response?.data?.error || e.message);
+        setHrApproveModal((p) => ({ ...p, loadingContext: false, pendingRequest: null }));
+      }
+      throw e;
+    }
+  }, [loadHrApproveModalData]); // eslint-disable-line
+
+  const userRole = useMemo(() => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return '';
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return (payload.role || payload.userRole || '').toLowerCase();
+    } catch { return ''; }
+  }, []);
+
+  const isPrivilegedRole = ['admin', 'superadmin', 'technical'].includes(userRole);
+
+  useEffect(() => { setPage(0); }, [deferredSearch, statusFilter, leaveTypeFilter, dateRangeFilter, dateFiledFilter]);
+  useEffect(() => { const init = async () => { await fetchAll(); setPageLoading(false); }; init(); }, []); // eslint-disable-line
+  useEffect(() => { refreshRef.current = fetchAll; });
+  useEffect(() => {
+    if (!socket || !connected) return;
+    const handler = () => refreshRef.current?.();
+    socket.on('leaveRequestChanged', handler);
+    return () => socket.off('leaveRequestChanged', handler);
+  }, [socket, connected]);
+
+  // ── FIX: balance preview in the form now uses getLeaveTypeStatsActive which
+  //         correctly returns remaining_hours (via computeEffectiveRemaining).
+  //         Usage transactions are fetched for accuracy but fail silently. ────
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      if (!newRequest.employeeNumber || !newRequest.leave_code) {
+        setLeaveBalance({ loading: false, availableHours: null, error: '' });
+        return;
+      }
+      setLeaveBalance((p) => ({ ...p, loading: true, error: '' }));
+      try {
+        const [creditsRes, usageRes] = await Promise.allSettled([
+          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
+          axios.get(
+            `${API_BASE_URL}/leaveRoute/leave_credit_usage?employee=${newRequest.employeeNumber}&leave_code=${newRequest.leave_code}`,
+            getAuthHeaders(),
+          ),
+        ]);
+
+        const assignment = creditsRes.status === 'fulfilled'
+          ? (Array.isArray(creditsRes.value.data) ? creditsRes.value.data : (creditsRes.value.data?.assignments || []))
+          : [];
+
+        const usageRows = usageRes.status === 'fulfilled' && Array.isArray(usageRes.value?.data)
+          ? usageRes.value.data
+          : [];
+
+        const matches = assignment.filter(
+          (a) => a.employeeNumber?.toString() === newRequest.employeeNumber?.toString()
+               && a.leave_code === newRequest.leave_code,
+        );
+
+        // getLeaveTypeStatsActive now correctly returns the effective remaining
+        const available = getLeaveTypeStatsActive(matches, usageRows).remainingHours;
+        if (!alive) return;
+        setLeaveBalance({ loading: false, availableHours: available, error: '' });
+      } catch (e) {
+        if (!alive) return;
+        setLeaveBalance({ loading: false, availableHours: null, error: 'Failed to load leave balance preview.' });
+      }
+    };
+    run();
+    return () => { alive = false; };
+  }, [newRequest.employeeNumber, newRequest.leave_code]);
+
+  const fetchAll = async () => {
+    try {
+      const [reqRes, typeRes, assignRes, usageRes] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, getAuthHeaders()),
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_table`,   getAuthHeaders()),
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
+        axios.get(`${API_BASE_URL}/leaveRoute/leave_credit_usage`, getAuthHeaders()),
+      ]);
+      if (reqRes.status !== 'fulfilled') throw reqRes.reason;
+      const requests = Array.isArray(reqRes.value?.data) ? reqRes.value.data : [];
+      setLeaveRequests(requests);
+      setLeaveTypes(typeRes.status === 'fulfilled' ? typeRes.value.data : []);
+      const assignments = assignRes.status === 'fulfilled' && Array.isArray(assignRes.value?.data) ? assignRes.value.data : [];
+      const usageRows = usageRes.status === 'fulfilled' && Array.isArray(usageRes.value?.data) ? usageRes.value.data : [];
+      setRemainingByEmpCode(buildRemainingByEmpCode(assignments, usageRows));
+      const names   = {};
+      const empNums = [...new Set(requests.map((r) => r.employeeNumber))];
+      await Promise.all(empNums.map(async (emp) => {
+        try {
+          const res = await axios.get(`${API_BASE_URL}/personalinfo/person_table/${emp}`, getAuthHeaders());
+          names[emp] = [res.data.firstName, res.data.lastName].filter(Boolean).join(' ') || 'Unknown';
+        } catch { names[emp] = 'Unknown'; }
+      }));
+      setEmployeeNames(names);
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          const [usersRes, personalRes, deptRes, empCatRes] = await Promise.allSettled([
+            axios.get(`${API_BASE_URL}/users`, { headers: { Authorization: `Bearer ${token}` } }),
+            axios.get(`${API_BASE_URL}/personalinfo/person_table`, { headers: { Authorization: `Bearer ${token}` } }),
+            axios.get(`${API_BASE_URL}/api/department-assignment`, { headers: { Authorization: `Bearer ${token}` } }),
+            axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, { headers: { Authorization: `Bearer ${token}` } }),
+          ]);
+          let usersData = [];
+          if (usersRes.status === 'fulfilled') {
+            const d = usersRes.value.data;
+            if (Array.isArray(d)) usersData = d;
+            else if (d?.users) usersData = d.users;
+            else if (d?.data)  usersData = d.data;
+          }
+          const sexMap = {};
+          if (personalRes.status === 'fulfilled') {
+            const pd = personalRes.value.data;
+            const personalList = Array.isArray(pd) ? pd : pd?.data || pd?.personalInfo || [];
+            personalList.forEach((p) => {
+              const empNum = p.agencyEmployeeNum?.toString() || p.employeeNumber?.toString() || p.employee_number?.toString();
+              const sex    = p.sex || p.gender || p.Sex || p.Gender;
+              if (empNum && sex) sexMap[empNum] = sex;
+            });
+          }
+          if (deptRes.status === 'fulfilled') {
+            const dMap = {};
+            (Array.isArray(deptRes.value.data) ? deptRes.value.data : []).forEach((a) => {
+              if (!a?.employeeNumber) return;
+              dMap[String(a.employeeNumber)] = a.code || '';
+            });
+            setDeptMap(dMap);
+          }
+          if (empCatRes.status === 'fulfilled') {
+            const cMap = {};
+            (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach((item) => {
+              if (!item.employeeNumber) return;
+              const label =
+                item.parentGroup && item.typeName
+                  ? `${item.parentGroup} | ${item.typeName}`
+                  : item.categoryLabel || '';
+              if (label) {
+                cMap[String(item.employeeNumber)] = {
+                  label,
+                  colorHex: item.colorHex || '#757575',
+                };
+              }
+            });
+            setEmpCatMap(cMap);
+          }
+          setSexMap({ ...sexMap });
+          const options = usersData
+            .map((u) => {
+              const empNum   = u.employeeNumber?.toString() || u.employee_number?.toString();
+              const fullName = u.fullName || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown';
+              const row = {
+                employeeNumber: empNum,
+                fullName,
+                firstName: u.firstName || '',
+                lastName: u.lastName || '',
+                middleName: u.middleName || '',
+                sex: (empNum ? sexMap[empNum] : null) || u.sex || u.gender || null,
+              };
+              return {
+                ...row,
+                _displayName: buildDisplayName(row),
+                _searchKey: `${buildDisplayName(row)} ${empNum}`.toLowerCase(),
+              };
+            })
+            .sort((a, b) => (a._displayName || '').localeCompare(b._displayName || ''));
+          setEmployeeOptions(options);
+        } catch (e) { console.error('Failed to fetch employee list', e); }
+      }
+    } catch (e) { console.error(e); }
+  };
 
   const isSickLeave = (code) => {
     const t = leaveTypes.find((x) => x.leave_code === code);
     if (!t) return false;
-    return (
-      (t.leave_code || '').toLowerCase().includes('sl') ||
-      (t.leave_description || '').toLowerCase().includes('sick')
-    );
-  };
-
-  useEffect(() => {
-    setPage(0);
-  }, [
-    deferredSearch,
-    statusFilter,
-    leaveTypeFilter,
-    dateRangeFilter,
-    dateFiledFilter,
-  ]);
-
-  useEffect(() => {
-    const init = async () => {
-      await fetchAll();
-      setPageLoading(false);
-    };
-    init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    refreshRef.current = fetchAll;
-  });
-
-  useEffect(() => {
-    if (!socket || !connected) return;
-    const handleChanged = () => refreshRef.current?.();
-    socket.on('leaveRequestChanged', handleChanged);
-    return () => socket.off('leaveRequestChanged', handleChanged);
-  }, [socket, connected]);
-
-  const fetchAll = async () => {
-    try {
-      const [reqRes, typeRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, getAuthHeaders()),
-        axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders()),
-      ]);
-      setLeaveRequests(reqRes.data);
-      setLeaveTypes(typeRes.data);
-      const names = {};
-      const empNums = [...new Set(reqRes.data.map((r) => r.employeeNumber))];
-      await Promise.all(
-        empNums.map(async (emp) => {
-          try {
-            const res = await axios.get(
-              `${API_BASE_URL}/personalinfo/person_table/${emp}`,
-              getAuthHeaders(),
-            );
-            names[emp] =
-              [res.data.firstName, res.data.lastName]
-                .filter(Boolean)
-                .join(' ') || 'Unknown';
-          } catch {
-            names[emp] = 'Unknown';
-          }
-        }),
-      );
-      setEmployeeNames(names);
-    } catch (e) {
-      console.error(e);
-    }
+    return (t.leave_code || '').toLowerCase().includes('sl') || (t.leave_description || '').toLowerCase().includes('sick');
   };
 
   const handleAdd = async () => {
-    if (
-      !newRequest.employeeNumber ||
-      !newRequest.leave_code ||
-      !newRequest.leave_date
-    ) {
-      alert('Please fill all required fields');
+    if (!newRequest.employeeNumber || !newRequest.leave_code || !newRequest.leave_date) {
+      showError('Missing Required Fields', 'Please fill in all required fields before submitting.', { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' });
       return;
     }
-    const leaveDates = Array.isArray(newRequest.leave_date)
-      ? newRequest.leave_date
-      : newRequest.leave_date.split(',').filter((d) => d.trim());
-    const hoursRequested = leaveDates.length * 8;
-    const creditsRes = await axios.get(
-      `${API_BASE_URL}/leaveRoute/leave_assignment`,
-      getAuthHeaders(),
-    );
-    const assignment = creditsRes.data?.assignments || [];
-    const leaveAssignment = assignment.find(
-      (a) =>
-        a.employeeNumber?.toString() ===
-          newRequest.employeeNumber?.toString() &&
-        a.leave_code === newRequest.leave_code,
-    );
-    if (leaveAssignment) {
-      const available =
-        (parseFloat(leaveAssignment.allocated_hours) || 0) -
-        (parseFloat(leaveAssignment.used_hours) || 0);
-      if (available < hoursRequested) {
-        alert(
-          `Insufficient allocated hours. Requested: ${(hoursRequested / 8).toFixed(1)} days, Available: ${(available / 8).toFixed(1)} days`,
-        );
-        return;
+    const leaveDates = Array.isArray(newRequest.leave_date) ? newRequest.leave_date : newRequest.leave_date.split(',').filter((d) => d.trim());
+    const leaveName  = leaveTypes.find((t) => t.leave_code === newRequest.leave_code)?.leave_description || newRequest.leave_code;
+    showConfirm({
+      title: 'Confirm Leave Request',
+      message: `Submit a leave request for Employee #${newRequest.employeeNumber}?\n\nLeave Type: ${leaveName}\nDuration: ${leaveDates.length} day(s)`,
+      confirmLabel: 'Submit Request',
+      icon: AddIcon, iconColor: T.accent, iconBg: T.accentFaint,
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        setLoading(true);
+        try {
+          await axios.post(`${API_BASE_URL}/leaveRoute/leave_request`, { employeeNumber: newRequest.employeeNumber, leave_code: newRequest.leave_code, leave_dates: leaveDates, status: Number(newRequest.status) }, getAuthHeaders());
+          setNewRequest({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
+          setSelectedDates([]);
+          setSuccessAction('adding');
+          setSuccessOpen(true);
+          setTimeout(() => setSuccessOpen(false), 2000);
+          fetchAll();
+        } catch (e) {
+          showError('Submission Failed', e.response?.data?.detail || e.response?.data?.error || e.response?.data?.message || e.message);
+        } finally { setLoading(false); closeConfirm(); }
+      },
+    });
+  };
+
+  const handleStatusUpdate = async (req, newStatus) => {
+    const statusObj = allStatusOptions.find((o) => o.value === String(newStatus));
+    showConfirm({
+      title: 'Confirm Status Update',
+      message: `Update this request to "${statusObj?.label}"?`,
+      confirmLabel: 'Update Status',
+      confirmColor: statusObj?.color || T.accent, confirmHoverColor: alpha(statusObj?.color || T.accent, 0.8),
+      icon: statusObj?.icon || HelpOutlineIcon, iconColor: statusObj?.color || T.accent, iconBg: statusObj?.bg || T.accentFaint,
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        setStatusUpdating(true);
+        try {
+          await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/${req.id}`, { employeeNumber: req.employeeNumber, leave_code: req.leave_code, leave_date: req.leave_date, status: Number(newStatus) }, getAuthHeaders());
+          setViewRequest(null);
+          setSuccessAction('status'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
+          fetchAll();
+        } catch { showError('Update Failed', 'Could not update status. Please try again.'); }
+        finally { setStatusUpdating(false); closeConfirm(); }
+      },
+    });
+  };
+
+  const confirmHrApprove = async () => {
+    const rateDec  = parseFloat(hrApproveModal.rateDecimal);
+    const hoursN   = parseFloat(hrApproveModal.hoursInput);
+    if (!(Number.isFinite(rateDec) && rateDec > 0) && !(Number.isFinite(hoursN) && hoursN > 0)) {
+      showError('Invalid deduction', 'Enter a positive decimal rate and/or hours to deduct.');
+      return;
+    }
+    const suggestedRate  = parseFloat(hrApproveModal.suggestion?.recommended_rate_decimal);
+    const suggestedHours = parseFloat(hrApproveModal.suggestion?.recommended_hours);
+    const isOverride =
+      (Number.isFinite(suggestedRate)  && Number.isFinite(rateDec) && Math.abs(suggestedRate  - rateDec) > 0.0001) ||
+      (Number.isFinite(suggestedHours) && Number.isFinite(hoursN)  && Math.abs(suggestedHours - hoursN)  > 0.0001);
+    if (isOverride && !String(hrApproveModal.overrideReason || '').trim()) {
+      showError('Override reason required', 'Please provide an override reason when changing the suggested deduction.');
+      return;
+    }
+    const decisionContext = {
+      decision: isOverride ? 'overridden' : 'accepted',
+      override_reason: String(hrApproveModal.overrideReason || '').trim() || null,
+      system_recommendation: hrApproveModal.suggestion || null,
+      charge_to: hrApproveModal.chargeTo || null,
+    };
+    setHrApproveModal((p) => ({ ...p, loading: true }));
+    try {
+      if (hrApproveModal.mode === 'bulk') {
+        await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/bulk-update`, {
+          ids: hrApproveModal.pendingBulkIds, status: 2,
+          hr_approval_rate: Number.isFinite(rateDec) && rateDec > 0 ? rateDec : undefined,
+          deduction_hours_each: Number.isFinite(hoursN) && hoursN > 0 ? hoursN : undefined,
+          charge_to: hrApproveModal.chargeTo || undefined,
+          decision_context: decisionContext,
+        }, getAuthHeaders());
+        setSuccessAction('bulk'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
+        setSelectedRequests([]); setSelectMode(false); fetchAll(); closeHrApproveModal();
+      } else {
+        const base = hrApproveModal.pendingRequest;
+        if (!base) { closeHrApproveModal(); return; }
+        await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/${base.id}`, {
+          employeeNumber: base.employeeNumber, leave_code: base.leave_code, leave_date: base.leave_date, status: 2,
+          deduction_hours: Number.isFinite(hoursN) && hoursN > 0 ? hoursN : undefined,
+          rate_decimal: Number.isFinite(rateDec) && rateDec > 0 ? rateDec : undefined,
+          charge_to: hrApproveModal.chargeTo || undefined,
+          decision_context: decisionContext,
+        }, getAuthHeaders());
+        setSuccessAction('status'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
+        fetchAll(); setViewRequest(null); closeHrApproveModal();
       }
-    }
-    setLoading(true);
-    try {
-      await axios.post(
-        `${API_BASE_URL}/leaveRoute/leave_request`,
-        {
-          employeeNumber: newRequest.employeeNumber,
-          leave_code: newRequest.leave_code,
-          leave_dates: [newRequest.leave_date],
-          status: Number(newRequest.status),
-        },
-        getAuthHeaders(),
-      );
-      setNewRequest({
-        employeeNumber: '',
-        leave_code: '',
-        leave_date: '',
-        status: '0',
-      });
-      setSelectedDates([]);
-      setSuccessAction('adding');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-      fetchAll();
-    } catch {
-      alert('Error adding request');
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) {
+      showError('HR Approval Failed', e.response?.data?.error || e.response?.data?.message || e.message);
+    } finally { setHrApproveModal((p) => ({ ...p, loading: false })); }
   };
 
-  const handleUpdate = async () => {
-    try {
-      await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
-        {
-          employeeNumber: editRequest.employeeNumber,
-          leave_code: editRequest.leave_code,
-          leave_date: editRequest.leave_date,
-          status: Number(editRequest.status),
-        },
-        getAuthHeaders(),
-      );
-      closeModal();
-      setSuccessAction('edit');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-      fetchAll();
-    } catch {
-      alert('Error updating request');
-    }
-  };
-
-  const handleDelete = async (id, status) => {
-    if (String(status) === '4') {
-      alert('Cannot delete cancelled request');
+  const handleBulkStatusUpdate = (newStatus) => {
+    if (selectedRequests.length === 0) { showError('No Selection', 'Please select at least one leave request.', { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' }); return; }
+    if (String(newStatus) === '2') {
+      const firstId = selectedRequests[0];
+      const row     = leaveRequests.find((r) => r.id === firstId);
+      if (!row) { showError('Bulk Approve', 'Could not load selected requests.'); return; }
+      setHrApproveModal((p) => ({ ...p, open: true, mode: 'bulk', loadingContext: true, pendingRequest: null, pendingBulkIds: [...selectedRequests] }));
+      (async () => {
+        try {
+          const patch = await loadHrApproveModalData(row.employeeNumber, row.leave_code, row.leave_date);
+          setHrApproveModal((p) => ({ ...p, ...patch }));
+        } catch (e) { showError('Context Failed', e.response?.data?.error || e.message); closeHrApproveModal(); }
+      })();
       return;
     }
-    if (!window.confirm('Delete this leave request?')) return;
+    const label = statusOptions.find((o) => o.value === String(newStatus))?.label || 'Unknown';
+    showConfirm({
+      title: 'Bulk Status Update', message: `Update ${selectedRequests.length} request(s) to "${label}"?`,
+      confirmLabel: `Set to ${label.split(' ')[0]}`,
+      confirmColor: newStatus === 1 ? '#1565C0' : newStatus === 2 ? '#2E7D32' : '#C62828',
+      confirmHoverColor: newStatus === 1 ? '#0D47A1' : newStatus === 2 ? '#1B5E20' : '#B71C1C',
+      icon: newStatus === 2 ? DoneAllIcon : newStatus === 3 ? ThumbDownIcon : CheckCircle,
+      iconColor: newStatus === 1 ? '#1565C0' : newStatus === 2 ? '#2E7D32' : '#C62828',
+      iconBg:    newStatus === 1 ? '#E3F2FD' : newStatus === 2 ? '#E8F5E9' : '#FFEBEE',
+      onConfirm: async () => {
+        setBulkLoading(true); setConfirmModal((p) => ({ ...p, loading: true }));
+        try {
+          await axios.put(`${API_BASE_URL}/leaveRoute/leave_request/bulk-update`, { ids: selectedRequests, status: newStatus }, getAuthHeaders());
+          setSuccessAction('bulk'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
+          setSelectedRequests([]); setSelectMode(false); fetchAll();
+        } catch (e) { showError('Bulk Update Failed', 'Error updating requests: ' + (e.response?.data?.error || e.message)); }
+        finally { setBulkLoading(false); closeConfirm(); }
+      },
+    });
+  };
+
+  const isRecordLocked    = (req) => ['2', '3', '4'].includes(String(req?.status));
+  const toggleSelectMode  = () => { setSelectMode(!selectMode); setSelectedRequests([]); };
+  const handleSelectRequest = (id) => setSelectedRequests((prev) => prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]);
+  const handleSelectAll   = () => setSelectedRequests(selectedRequests.length === paged.length ? [] : paged.map((r) => r.id));
+
+  const fetchTxLogs = async () => {
+    setTxLoading(true); setTxError('');
     try {
-      await axios.delete(
-        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
-        getAuthHeaders(),
+      const res    = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request/transactions`, getAuthHeaders());
+      const sorted = (Array.isArray(res.data) ? res.data : []).sort(
+        (a, b) => new Date(b.created_at || b.createdAt || b.timestamp) - new Date(a.created_at || a.createdAt || a.timestamp),
       );
-      closeModal();
-      setSuccessAction('delete');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-      fetchAll();
-    } catch {
-      alert('Error deleting request');
-    }
+      const empNums  = [...new Set(sorted.map((log) => log.employee_id || log.employeeNumber).filter(Boolean))];
+      const newNames = { ...employeeNames };
+      await Promise.all(empNums.map(async (emp) => {
+        if (!newNames[emp]) {
+          try {
+            const nameRes       = await axios.get(`${API_BASE_URL}/personalinfo/person_table/${emp}`, getAuthHeaders());
+            const firstName     = nameRes.data.firstName  || '';
+            const middleName    = nameRes.data.middleName || '';
+            const lastName      = nameRes.data.lastName   || '';
+            const middleInitial = middleName ? middleName.charAt(0) + '.' : '';
+            newNames[emp]       = `${lastName}, ${firstName} ${middleInitial}`.replace(/\s+/g, ' ').trim() || 'Unknown';
+          } catch { newNames[emp] = 'Unknown'; }
+        }
+      }));
+      setEmployeeNames(newNames);
+      setTxLogs(sorted); setAuditPage(1);
+    } catch (e) { setTxError('Failed to load transaction logs.'); setTxLogs([]); }
+    finally { setTxLoading(false); }
   };
 
-  const handleCancel = async (id) => {
-    if (!window.confirm('Cancel this leave request?')) return;
-    try {
-      const r = leaveRequests.find((x) => x.id === id);
-      await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
-        { ...r, status: 4 },
-        getAuthHeaders(),
-      );
-      closeModal();
-      setSuccessAction('cancel');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-      fetchAll();
-    } catch {
-      alert('Error cancelling request');
-    }
-  };
-
-  const closeModal = () => {
-    setEditRequest(null);
-    setOriginalRequest(null);
-    setIsEditing(false);
-  };
-  const hasChanges = () => {
-    if (!editRequest || !originalRequest) return false;
-    return (
-      editRequest.employeeNumber !== originalRequest.employeeNumber ||
-      editRequest.leave_code !== originalRequest.leave_code ||
-      editRequest.leave_date !== originalRequest.leave_date ||
-      editRequest.status !== originalRequest.status
-    );
-  };
-
-  const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) setViewMode(newMode);
-  };
-  const toggleSelectMode = () => {
-    setSelectMode(!selectMode);
-    setSelectedRequests([]);
-  };
-  const handleSelectRequest = (id) =>
-    setSelectedRequests((prev) =>
-      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id],
-    );
-  const handleSelectAll = () =>
-    setSelectedRequests(
-      selectedRequests.length === paged.length ? [] : paged.map((r) => r.id),
-    );
-
-  const handleBulkStatusUpdate = async (newStatus) => {
-    if (selectedRequests.length === 0) {
-      alert('Please select at least one request');
-      return;
-    }
-    const statusLabel =
-      statusOptions.find((o) => o.value === String(newStatus))?.label ||
-      'Unknown';
-    if (
-      !window.confirm(
-        `Update ${selectedRequests.length} request(s) to "${statusLabel}"?`,
-      )
-    )
-      return;
-    setBulkLoading(true);
-    try {
-      await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_request/bulk-update`,
-        { ids: selectedRequests, status: newStatus },
-        getAuthHeaders(),
-      );
-      setSuccessAction('bulk');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-      setSelectedRequests([]);
-      setSelectMode(false);
-      fetchAll();
-    } catch (error) {
-      alert(
-        'Error updating requests: ' +
-          (error.response?.data?.error || error.message),
-      );
-    } finally {
-      setBulkLoading(false);
-    }
-  };
+  useEffect(() => { if (txModalOpen || txPanelOpen) fetchTxLogs(); }, [txModalOpen, txPanelOpen]); // eslint-disable-line
+  useEffect(() => { setAuditPage(1); }, [txSearchTerm, txActionFilter, txLeaveFilter]);
 
   const filtered = useMemo(() => {
     const now = new Date();
-    const todayY = now.getFullYear(),
-      todayM = now.getMonth(),
-      todayD = now.getDate();
-    const todayTime = new Date(todayY, todayM, todayD).getTime();
-    const last7Time = new Date(todayY, todayM, todayD - 6).getTime();
-
-    let data = leaveRequests;
-
-    // Quick range buttons → filter by leave_date (when the leave occurs)
+    const [ty, tm, td] = [now.getFullYear(), now.getMonth(), now.getDate()];
+    const todayTime = new Date(ty, tm, td).getTime();
+    const last7Time = new Date(ty, tm, td - 6).getTime();
+    let data = Array.isArray(leaveRequests) ? leaveRequests : [];
     if (dateRangeFilter !== 'all') {
       data = data.filter((r) => {
-        const rawDate = Array.isArray(r.leave_date)
-          ? r.leave_date[0]
-          : String(r.leave_date || '')
-              .split(',')[0]
-              .trim();
-        if (!rawDate) return false;
-        const [ly, lm, ld] = rawDate.split('-').map(Number);
-        const leaveTime = new Date(ly, lm - 1, ld).getTime();
-        if (dateRangeFilter === 'today' && leaveTime !== todayTime)
-          return false;
-        if (
-          dateRangeFilter === 'last7' &&
-          (leaveTime < last7Time || leaveTime > todayTime)
-        )
-          return false;
-        if (
-          dateRangeFilter === 'monthly' &&
-          (ly !== todayY || lm - 1 !== todayM)
-        )
-          return false;
+        const raw = Array.isArray(r.leave_date) ? r.leave_date[0] : String(r.leave_date || '').split(',')[0].trim();
+        if (!raw) return false;
+        const [ly, lm, ld] = raw.split('-').map(Number);
+        const lt = new Date(ly, lm - 1, ld).getTime();
+        if (dateRangeFilter === 'today'   && lt !== todayTime) return false;
+        if (dateRangeFilter === 'last7'   && (lt < last7Time || lt > todayTime)) return false;
+        if (dateRangeFilter === 'monthly' && (ly !== ty || lm - 1 !== tm)) return false;
         return true;
       });
     }
-
-    // Date Filed picker → filter by created_at (when the request was submitted)
     if (dateFiledFilter) {
       data = data.filter((r) => {
         const raw = r.created_at || r.createdAt || r.dateSubmitted;
         if (!raw) return false;
-        const submitted = new Date(String(raw).replace(' ', 'T'));
+        const s = new Date(String(raw).replace(' ', 'T'));
         const [fy, fm, fd] = dateFiledFilter.split('-').map(Number);
-        return (
-          submitted.getFullYear() === fy &&
-          submitted.getMonth() + 1 === fm &&
-          submitted.getDate() === fd
-        );
+        return s.getFullYear() === fy && s.getMonth() + 1 === fm && s.getDate() === fd;
       });
     }
-
-    if (statusFilter !== 'all')
-      data = data.filter((r) => String(r.status) === statusFilter);
-    if (leaveTypeFilter !== 'all')
-      data = data.filter((r) => r.leave_code === leaveTypeFilter);
+    if (statusFilter    !== 'all') data = data.filter((r) => String(r.status)     === statusFilter);
+    if (leaveTypeFilter !== 'all') data = data.filter((r) => r.leave_code         === leaveTypeFilter);
     const s = (deferredSearch || '').toLowerCase().trim();
-    if (s)
-      data = data.filter(
-        (r) =>
-          (employeeNames[r.employeeNumber] || '').toLowerCase().includes(s) ||
-          (r.employeeNumber || '').toLowerCase().includes(s),
-      );
+    if (s) data = data.filter((r) => (employeeNames[r.employeeNumber] || '').toLowerCase().includes(s) || (r.employeeNumber || '').toLowerCase().includes(s));
     return data;
-  }, [
-    leaveRequests,
-    deferredSearch,
-    employeeNames,
-    statusFilter,
-    leaveTypeFilter,
-    dateRangeFilter,
-    dateFiledFilter,
-  ]);
+  }, [leaveRequests, deferredSearch, employeeNames, statusFilter, leaveTypeFilter, dateRangeFilter, dateFiledFilter]);
 
-  const paged = filtered.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage,
-  );
+  const paged  = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const requestList = Array.isArray(leaveRequests) ? leaveRequests : [];
   const counts = {
-    all: leaveRequests.length,
-    0: leaveRequests.filter((r) => String(r.status) === '0').length,
-    1: leaveRequests.filter((r) => String(r.status) === '1').length,
-    2: leaveRequests.filter((r) => String(r.status) === '2').length,
-    3: leaveRequests.filter((r) => String(r.status) === '3').length,
+    all: requestList.length,
+    '0': requestList.filter((r) => String(r.status) === '0').length,
+    '1': requestList.filter((r) => String(r.status) === '1').length,
+    '2': requestList.filter((r) => String(r.status) === '2').length,
+    '3': requestList.filter((r) => String(r.status) === '3').length,
   };
 
-  const getStatus = (v) =>
-    statusOptions.find((o) => o.value === String(v)) || statusOptions[0];
-  const getType = (c) =>
-    leaveTypes.find((t) => t.leave_code === c) || { leave_description: c };
-  const formatDate = (d) => {
-    if (!d) return 'N/A';
-    const s = Array.isArray(d) ? d[0] : d.split(',')[0];
-    const [y, m, day] = s.trim().split('-');
-    return new Date(y, m - 1, day).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
+  const getType         = (c) => leaveTypes.find((t) => t.leave_code === c) || { leave_description: c };
+  const formatDate      = (d) => { if (!d) return 'N/A'; const s = Array.isArray(d) ? d[0] : d.split(',')[0]; const [y, m, day] = s.trim().split('-'); return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
   const formatDateRange = (d) => {
     if (!d) return 'N/A';
-    const dates = (
-      Array.isArray(d) ? d : d.split(',').map((s) => s.trim())
-    ).filter(Boolean);
-    if (dates.length === 0) return 'N/A';
-    const fmt = (s) => {
-      const [y, m, day] = s.trim().split('-');
-      return new Date(y, m - 1, day).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    };
+    const dates = (Array.isArray(d) ? d : d.split(',').map((s) => s.trim())).filter(Boolean);
+    if (!dates.length) return 'N/A';
+    const fmt    = (s) => { const [y, m, day] = s.trim().split('-'); return new Date(y, m - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
     if (dates.length === 1) return `on ${fmt(dates[0])}`;
     const sorted = [...dates].sort();
-    return `from ${fmt(sorted[0])} to ${fmt(sorted[sorted.length - 1])}`;
-  };
-  const formatDateTime = (d) => {
-    if (!d) return 'N/A';
-    return new Date(d).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return `${fmt(sorted[0])} – ${fmt(sorted[sorted.length - 1])}`;
   };
 
-  const renderTransactionMessage = (message) => {
-    const safeMessage = message || 'No message';
-    const lower = safeMessage.toLowerCase();
-    const highlights = [];
-    if (lower.includes('immediate supervisor')) {
-      highlights.push({ pattern: /immediate supervisor/gi, color: '#1565C0' });
-      highlights.push({ pattern: /\bapprove\b/gi, color: '#1565C0' });
-    } else if (lower.includes('hr') && lower.includes('approve')) {
-      highlights.push({ pattern: /\bhr\b/gi, color: '#2E7D32' });
-      highlights.push({ pattern: /\bapprove\b/gi, color: '#2E7D32' });
-    } else if (lower.includes('rejected'))
-      highlights.push({ pattern: /\brejected\b/gi, color: '#C62828' });
-    else if (lower.includes('requested'))
-      highlights.push({ pattern: /\brequested\b/gi, color: '#D4A017' });
-    if (!highlights.length) return safeMessage;
-    let rendered = [safeMessage];
-    highlights.forEach(({ pattern, color }, idx) => {
-      rendered = rendered.flatMap((part, partIdx) => {
-        if (typeof part !== 'string') return [part];
-        const chunks = part.split(pattern);
-        const matches = part.match(pattern) || [];
-        if (!matches.length) return [part];
-        const out = [];
-        chunks.forEach((chunk, i) => {
-          if (chunk) out.push(chunk);
-          if (i < matches.length)
-            out.push(
-              <Box
-                component="span"
-                key={`hl-${idx}-${partIdx}-${i}`}
-                sx={{ color, fontWeight: 700 }}
-              >
-                {matches[i]}
-              </Box>,
-            );
-        });
-        return out;
-      });
-    });
-    return <>{rendered}</>;
-  };
+  const leaveDatesForNew = useMemo(() => {
+    const raw   = newRequest.leave_date;
+    const dates = Array.isArray(raw) ? raw : String(raw || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return dates.length ? dates : selectedDates;
+  }, [newRequest.leave_date, selectedDates]);
 
-  const fetchTransactionLogs = async () => {
-    setTransactionLogsLoading(true);
-    setTransactionLogsError('');
-    try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_request/transactions`,
-        getAuthHeaders(),
+  const hoursRequested       = useMemo(() => leaveDatesForNew.length * 8, [leaveDatesForNew.length]);
+  const balanceAvailableHours = leaveBalance.availableHours ?? null;
+  const noBalance    = balanceAvailableHours !== null && !leaveBalance.loading && newRequest.employeeNumber && newRequest.leave_code && balanceAvailableHours <= 0;
+  const isOverBalance = balanceAvailableHours !== null && !leaveBalance.loading && newRequest.employeeNumber && newRequest.leave_code && hoursRequested > 0 && balanceAvailableHours < hoursRequested;
+  const canAdd = !loading && newRequest.employeeNumber && newRequest.leave_code && newRequest.leave_date;
+
+  const buildTxSentence  = (log) => { const raw = (log.message || '').trim(); return raw.charAt(0).toUpperCase() + raw.slice(1) + (raw.endsWith('.') ? '' : '.'); };
+  const renderTxBalanceHighlight = (sentence) => {
+    const marker = 'Balance updated:';
+    const idx = sentence.indexOf(marker);
+    if (idx === -1) return null;
+    return (
+      <Box sx={{ mt: 1, px: 1.25, py: 0.85, borderRadius: 1.5, bgcolor: alpha('#2E7D32', 0.06), border: `1px solid ${alpha('#2E7D32', 0.2)}` }}>
+        <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#2E7D32', fontFamily: 'monospace' }}>
+          {sentence.slice(idx).replace(/\.$/, '')}
+        </Typography>
+      </Box>
+    );
+  };
+  const renderTxSentence = (log) => {
+    const sentence   = buildTxSentence(log);
+    const empNum     = log.employee_id || log.employeeNumber;
+    const empName    = empNum ? employeeNames[empNum] : null;
+    const candidates = [];
+    if (empName && empName !== 'Unknown') candidates.push(empName);
+    if (empNum) { candidates.push(`#${empNum}`); candidates.push(empNum); }
+    const found = candidates.filter((term) => sentence.includes(term)).sort((a, b) => sentence.indexOf(a) - sentence.indexOf(b));
+    if (!found.length) {
+      const mainText = sentence.includes('Balance updated:')
+        ? sentence.slice(0, sentence.indexOf('Balance updated:')).trim()
+        : sentence;
+      return (
+        <Box>
+          <Typography sx={{ fontSize: '0.86rem', fontWeight: 400, color: T.text, lineHeight: 1.6 }}>{mainText}</Typography>
+          {renderTxBalanceHighlight(sentence)}
+        </Box>
       );
-      const sorted = (Array.isArray(res.data) ? res.data : []).sort(
-        (a, b) =>
-          new Date(a.created_at || a.createdAt || a.timestamp) -
-          new Date(b.created_at || b.createdAt || b.timestamp),
-      );
-      setTransactionLogs(sorted);
-    } catch (e) {
-      console.error(e);
-      setTransactionLogsError('Failed to load transaction logs.');
-      setTransactionLogs([]);
-    } finally {
-      setTransactionLogsLoading(false);
     }
+    const segments = [];
+    let remaining  = sentence;
+    found.forEach((term) => {
+      const idx = remaining.indexOf(term);
+      if (idx === -1) return;
+      if (idx > 0) segments.push({ text: remaining.slice(0, idx), bold: false });
+      segments.push({ text: remaining.slice(idx, idx + term.length), bold: true });
+      remaining = remaining.slice(idx + term.length);
+    });
+    if (remaining) segments.push({ text: remaining, bold: false });
+    const mainSentence = sentence.includes('Balance updated:')
+      ? sentence.slice(0, sentence.indexOf('Balance updated:')).trim()
+      : sentence;
+    let rem = mainSentence;
+    const mainSegments = [];
+    found.forEach((term) => {
+      const idx = rem.indexOf(term);
+      if (idx === -1) return;
+      if (idx > 0) mainSegments.push({ text: rem.slice(0, idx), bold: false });
+      mainSegments.push({ text: rem.slice(idx, idx + term.length), bold: true });
+      rem = rem.slice(idx + term.length);
+    });
+    if (rem) mainSegments.push({ text: rem, bold: false });
+    return (
+      <Box>
+        <Typography component="p" sx={{ fontSize: '0.86rem', color: T.text, lineHeight: 1.6, m: 0 }}>
+          {mainSegments.map((seg, i) => seg.bold ? <Box key={i} component="span" sx={{ fontWeight: 900, color: T.text }}>{seg.text}</Box> : <Box key={i} component="span" sx={{ fontWeight: 400 }}>{seg.text}</Box>)}
+        </Typography>
+        {renderTxBalanceHighlight(sentence)}
+      </Box>
+    );
   };
+
+  const getTxKind = (log) => {
+    const lower = (log.message || '').toLowerCase();
+    if (lower.includes('deleted')) return 'deleted';
+    if (lower.includes('reversed') || lower.includes('reversal')) return 'reversal';
+    if (lower.includes('hr') && lower.includes('approv')) return 'hr_approved';
+    if ((lower.includes('supervisor') || lower.includes('immediate')) && lower.includes('approv')) return 'supervisor_approved';
+    if (lower.includes('approv')) return 'approved';
+    if (lower.includes('reject') || lower.includes('denied') || lower.includes('deny')) return 'denied';
+    if (lower.includes('cancel')) return 'cancelled';
+    if (lower.includes('submit') || lower.includes('request') || lower.includes('filed')) return 'submitted';
+    if (lower.includes('pending')) return 'pending';
+    return 'activity';
+  };
+
+  const kindMap = {
+    submitted:           { label: 'Submitted',          color: T.accent,  bg: T.accentFaint, Icon: AddIcon      },
+    pending:             { label: 'Pending',             color: '#F57C00', bg: '#FFF8E1',     Icon: AccessTime   },
+    supervisor_approved: { label: 'Supervisor Approved', color: '#1565C0', bg: '#E3F2FD',     Icon: CheckCircle  },
+    hr_approved:         { label: 'HR Approved',         color: '#2E7D32', bg: '#E8F5E9',     Icon: CheckCircle  },
+    approved:            { label: 'Approved',            color: '#2E7D32', bg: '#E8F5E9',     Icon: CheckCircle  },
+    denied:              { label: 'Denied',              color: '#C62828', bg: '#FFEBEE',     Icon: Block        },
+    cancelled:           { label: 'Cancelled',           color: '#757575', bg: '#F5F5F5',     Icon: CancelIcon   },
+    deleted:             { label: 'Deleted',             color: '#C62828', bg: '#FFEBEE',     Icon: DeleteIcon   },
+    reversal:            { label: 'VL Reversal',         color: '#B71C1C', bg: '#FFEBEE',     Icon: Block        },
+    activity:            { label: 'Activity',            color: '#546E7A', bg: '#ECEFF1',     Icon: ScheduleIcon },
+  };
+
+  const filteredTxLogs = useMemo(() => {
+    const search = txSearchTerm.toLowerCase().trim();
+    return txLogs.filter((log) => {
+      const kind = getTxKind(log);
+      if (txActionFilter !== 'all' && kind !== txActionFilter) return false;
+      const leaveCategory = getLogLeaveCategory(log, leaveTypes);
+      if (txLeaveFilter !== 'all' && leaveCategory !== txLeaveFilter) return false;
+      if (!search) return true;
+      const logEmpNum    = String(log.employee_id || log.employeeNumber || '').toLowerCase();
+      const employeeLabel = logEmpNum ? String(employeeNames[logEmpNum] || '').toLowerCase() : '';
+      const message      = String(log.message || '').toLowerCase();
+      const leaveType    = getLogLeaveType(log, leaveTypes);
+      const leaveText    = `${leaveType?.leave_code || ''} ${leaveType?.leave_description || ''}`.toLowerCase();
+      const actionLabel  = String(kindMap[kind]?.label || '').toLowerCase();
+      return [logEmpNum, employeeLabel, message, leaveText, leaveCategory.toLowerCase(), actionLabel].some((v) => v.includes(search));
+    });
+  }, [txLogs, txSearchTerm, txActionFilter, txLeaveFilter, leaveTypes, employeeNames]); // eslint-disable-line
 
   useEffect(() => {
-    if (transactionLogsModalOpen) fetchTransactionLogs();
-  }, [transactionLogsModalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+    const maxPage = Math.max(1, Math.ceil(Math.max(filteredTxLogs.length, 0) / AUDIT_PER_PAGE));
+    if (auditPage > maxPage) setAuditPage(maxPage);
+  }, [auditPage, filteredTxLogs.length]);
 
-  // ── Wireframe ─────────────────────────────────────────────────────────────
-  if (accessLoading) {
-    return (
-      <LeaveRequestWireframe
-        accentColor={accentColor}
-        primaryColor={primaryColor}
-        secondaryColor={secondaryColor}
-      />
-    );
-  }
+  if (accessLoading) return <Wireframe />;
+  if (!hasAccess)    return <AccessDenied />;
+  if (pageLoading)   return <Wireframe />;
 
-  if (!hasAccess) return <AccessDenied />;
-
-  if (pageLoading) {
-    return (
-      <LeaveRequestWireframe
-        accentColor={accentColor}
-        primaryColor={primaryColor}
-        secondaryColor={secondaryColor}
-      />
-    );
-  }
+  const selectedEmployeeObj = employeeOptions.find((o) => o.employeeNumber === newRequest.employeeNumber) || null;
 
   return (
-    <Fade in timeout={500}>
-      <Box
-        sx={{
-          py: { xs: 2, md: 4 },
-          mt: { xs: 0, md: -5 },
-          width: '100%',
-          maxWidth: '1600px',
-          mx: 'auto',
-          overflowX: 'hidden',
-        }}
-      >
-        <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
-          <Backdrop
-            sx={{ color: primaryColor, zIndex: (t) => t.zIndex.drawer + 1 }}
-            open={loading}
-          >
-            <Box sx={{ textAlign: 'center' }}>
-              <CircularProgress color="inherit" size={60} thickness={4} />
-              <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-                Processing leave request...
-              </Typography>
+    <Fade in timeout={400}>
+      <Box sx={{ py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 }, width: '100vw', maxWidth: '100%', position: 'relative', left: '63%', transform: 'translateX(-61%)', px: { xs: 2, sm: 3, md: 6 } }}>
+        <LoadingOverlay open={loading} message="Processing leave request…" />
+        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
+        <ErrorModal   open={errorModal.open}   onClose={closeError}   title={errorModal.title}   message={errorModal.message}   icon={errorModal.icon}     iconColor={errorModal.iconColor}     iconBg={errorModal.iconBg} />
+        <ConfirmModal open={confirmModal.open} onClose={closeConfirm} onConfirm={confirmModal.onConfirm} title={confirmModal.title} message={confirmModal.message} confirmLabel={confirmModal.confirmLabel} confirmColor={confirmModal.confirmColor} confirmHoverColor={confirmModal.confirmHoverColor} icon={confirmModal.icon} iconColor={confirmModal.iconColor} iconBg={confirmModal.iconBg} loading={confirmModal.loading} />
+
+        <ViewModal
+          open={!!viewRequest} onClose={() => setViewRequest(null)}
+          request={viewRequest} employeeNames={employeeNames} leaveTypes={leaveTypes}
+          onStatusUpdate={handleStatusUpdate} statusUpdating={statusUpdating}
+          hrApproveModal={hrApproveModal} setHrApproveModal={setHrApproveModal}
+          onLoadHrDeductionForView={loadHrDeductionForViewModal}
+          onResetEmbeddedHrForm={resetViewEmbeddedHrForm}
+          onConfirmHrApprove={confirmHrApprove}
+        />
+
+        {/* Page Header */}
+        <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+          <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)' }} />
+            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+              <ReorderIcon sx={{ fontSize: 32, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>Leave Request Management</Typography>
+                <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>Administrative Panel • Submit and manage employee leave requests</Typography>
+              </Box>
             </Box>
-          </Backdrop>
-
-          <SuccessfulOverlay
-            open={successOpen}
-            action={successAction}
-            onClose={() => setSuccessOpen(false)}
-          />
-
-          {/* ── Header ── */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 4 }}>
-              <GlassCard
-                sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}
-              >
-                <Box
-                  sx={{
-                    p: 5,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: -50,
-                      right: -50,
-                      width: 200,
-                      height: 200,
-                      background:
-                        'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      bottom: -30,
-                      left: '30%',
-                      width: 150,
-                      height: 150,
-                      background:
-                        'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                    }}
-                  />
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    position="relative"
-                    zIndex={1}
-                  >
-                    <Box display="flex" alignItems="center">
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.15),
-                          mr: 4,
-                          width: 64,
-                          height: 64,
-                          boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                        }}
-                      >
-                        <BusinessIcon
-                          sx={{ color: accentColor, fontSize: 32 }}
-                        />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h4"
-                          component="h1"
-                          sx={{
-                            fontWeight: 700,
-                            mb: 1,
-                            lineHeight: 1.2,
-                            color: accentColor,
-                          }}
-                        >
-                          Leave Request Management
-                        </Typography>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            opacity: 0.8,
-                            fontWeight: 400,
-                            color: accentDark,
-                          }}
-                        >
-                          Administrative Panel • Submit and manage employee
-                          leave requests
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Button
-                        onClick={() => {
-                          setTransactionLogsModalOpen(true);
-                          setAuditLogPage(1);
-                        }}
-                        startIcon={<HistoryToggleOff />}
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                          color: accentColor,
-                          borderRadius: 3,
-                          px: 2,
-                          py: 1,
-                          fontWeight: 600,
-                          fontSize: '0.85rem',
-                          textTransform: 'none',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Transaction Logs
-                      </Button>
-                      <Tooltip title="Refresh Data">
-                        <IconButton
-                          onClick={() => fetchAll()}
-                          sx={{
-                            bgcolor: alpha(accentColor, 0.1),
-                            '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                            color: accentColor,
-                            width: 48,
-                            height: 48,
-                          }}
-                        >
-                          <Refresh />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
-                </Box>
-              </GlassCard>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>{leaveRequests.length} {leaveRequests.length === 1 ? 'record' : 'records'}</Typography>
+              </Box>
+              <AccentButton onClick={() => { setTxModalOpen(true); setAuditPage(1); }} variant="contained" startIcon={<HistoryToggleOff sx={{ fontSize: '15px !important' }} />}
+                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}>
+                Transaction Logs
+              </AccentButton>
             </Box>
-          </Fade>
+          </Box>
+        </SectionCard>
 
-          {/* ── Two-column layout ── */}
-          <Grid container spacing={4}>
-            {/* Left: Add New Request */}
-            <Grid item xs={12} lg={6}>
-              <Fade in timeout={700}>
-                <GlassCard
-                  sx={{
-                    height: 'calc(100vh - 200px)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    border: `1px solid ${alpha(accentColor, 0.1)}`,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      p: 4,
-                      background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
+        <Grid container spacing={2}>
+          {/* LEFT: Add New Request */}
+          <Grid item xs={12} lg={4}>
+            <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint }}>
+                <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>Add New Leave Request</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: '0.72rem', color: T.faint }}><Box component="span" sx={{ color: '#c62828' }}>*</Box> required</Typography>
+              </Box>
+              <Box sx={{ px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+                <Box sx={{ mb: 2 }}>
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                    Search Employee <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                  </Typography>
+                  <Autocomplete
+                    value={selectedEmployeeObj}
+                    onChange={(e, v) => { setNewRequest({ ...newRequest, employeeNumber: v?.employeeNumber || '' }); setSelectedDates([]); }}
+                    options={employeeOptions} autoHighlight
+                    getOptionLabel={(o) => {
+                      if (!o) return '';
+                      const label = o._displayName || buildDisplayName(o);
+                      return o.employeeNumber ? `${label} (${o.employeeNumber})` : label;
                     }}
-                  >
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.12),
-                        width: 40,
-                        height: 40,
-                        mr: 2,
-                      }}
-                    >
-                      <EventNote sx={{ color: accentColor, fontSize: 22 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 700,
-                          color: accentColor,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Add New Leave Request
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: accentDark, opacity: 0.8 }}
-                      >
-                        Create a new leave request entry
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      p: 4,
-                      flexGrow: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      overflowY: 'auto',
-                      '&::-webkit-scrollbar': { width: 6 },
-                      '&::-webkit-scrollbar-track': {
-                        background: alpha(primaryColor, 0.5),
-                        borderRadius: 3,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: alpha(accentColor, 0.3),
-                        borderRadius: 3,
-                      },
-                    }}
-                  >
-                    {/* Employee Information */}
-                    <Box sx={{ mb: 3 }}>
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', mb: 2.5 }}
-                      >
-                        <PersonIcon
-                          sx={{ color: accentColor, fontSize: 20, mr: 1.5 }}
-                        />
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            fontSize: '1rem',
-                          }}
-                        >
-                          Employee Information
-                          <Box
-                            component="span"
-                            sx={{ color: '#C62828', ml: 1, fontWeight: 400 }}
-                          >
-                            *
-                          </Box>
-                        </Typography>
-                      </Box>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                      >
-                        Employee Number
-                      </Typography>
-                      <ModernTextField
-                        value={newRequest.employeeNumber}
-                        onChange={(e) =>
-                          setNewRequest({
-                            ...newRequest,
-                            employeeNumber: e.target.value,
-                          })
-                        }
-                        fullWidth
-                        size="small"
-                        placeholder="Enter employee ID"
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <PersonIcon
-                                sx={{ color: accentColor, fontSize: 20 }}
-                              />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </Box>
-
-                    <Divider
-                      sx={{ my: 2, borderColor: alpha(accentColor, 0.1) }}
-                    />
-
-                    {/* Leave Details */}
-                    <Box sx={{ mb: 3 }}>
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', mb: 2.5 }}
-                      >
-                        <EventNote
-                          sx={{ color: accentColor, fontSize: 20, mr: 1.5 }}
-                        />
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            fontSize: '1rem',
-                          }}
-                        >
-                          Leave Details
-                        </Typography>
-                      </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Leave Type{' '}
-                            <Box component="span" sx={{ color: '#C62828' }}>
-                              *
-                            </Box>
-                          </Typography>
-                          <ModernTextField
-                            select
-                            fullWidth
-                            size="small"
-                            value={newRequest.leave_code}
-                            onChange={(e) => {
-                              setNewRequest({
-                                ...newRequest,
-                                leave_code: e.target.value,
-                              });
-                              setSelectedDates([]);
-                            }}
-                            SelectProps={{
-                              displayEmpty: true,
-                              renderValue: (value) =>
-                                value ? (
-                                  `${value} — ${leaveTypes.find((t) => t.leave_code === value)?.leave_description || ''}`
-                                ) : (
-                                  <em style={{ color: '#aaa' }}>
-                                    Select Leave Type
-                                  </em>
-                                ),
-                            }}
-                          >
-                            <MenuItem value="">
-                              <em>Select Leave Type</em>
-                            </MenuItem>
-                            {leaveTypes.map((t) => (
-                              <MenuItem key={t.id} value={t.leave_code}>
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 1,
-                                  }}
-                                >
-                                  <Chip
-                                    label={t.leave_code}
-                                    size="small"
-                                    sx={{
-                                      bgcolor: alpha(accentColor, 0.1),
-                                      color: accentColor,
-                                      fontWeight: 700,
-                                      fontSize: '0.7rem',
-                                      height: 20,
-                                    }}
-                                  />
-                                  <Typography variant="body2">
-                                    {t.leave_description}
-                                  </Typography>
-                                </Box>
-                              </MenuItem>
-                            ))}
-                          </ModernTextField>
-                        </Grid>
-
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Leave Date(s){' '}
-                            <Box component="span" sx={{ color: '#C62828' }}>
-                              *
-                            </Box>
-                          </Typography>
-                          <ProfessionalButton
-                            variant="outlined"
-                            onClick={() => setDateModalOpen(true)}
-                            startIcon={<CalendarMonth />}
-                            fullWidth
-                            sx={{
-                              height: 44,
-                              border: `1.5px solid ${accentColor}`,
-                              color: accentColor,
-                              justifyContent: 'flex-start',
-                              bgcolor: alpha(accentColor, 0.04),
-                              '&:hover': {
-                                bgcolor: alpha(accentColor, 0.08),
-                                border: `1.5px solid ${accentColor}`,
-                              },
-                            }}
-                          >
-                            {selectedDates.length > 0
-                              ? `${selectedDates.length} date(s) selected`
-                              : 'Select Leave Dates'}
-                          </ProfessionalButton>
-                          {isSickLeave(newRequest.leave_code) && (
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                color: '#1565C0',
-                                mt: 0.5,
-                                display: 'block',
-                                fontStyle: 'italic',
-                              }}
-                            >
-                              * Past dates allowed for sick leave
-                            </Typography>
-                          )}
-                          <LeaveDatePickerModal
-                            open={dateModalOpen}
-                            onClose={() => {
-                              setNewRequest({
-                                ...newRequest,
-                                leave_date: selectedDates.join(','),
-                              });
-                              setDateModalOpen(false);
-                            }}
-                            selectedDates={selectedDates}
-                            setSelectedDates={setSelectedDates}
-                            accentColor={accentColor}
-                            accentDark={accentDark}
-                            primaryColor={primaryColor}
-                            secondaryColor={secondaryColor}
-                            allowPastDates={isSickLeave(newRequest.leave_code)}
-                          />
-                        </Grid>
-
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Initial Status
-                          </Typography>
-                          <ModernTextField
-                            select
-                            fullWidth
-                            size="small"
-                            value={newRequest.status}
-                            onChange={(e) =>
-                              setNewRequest({
-                                ...newRequest,
-                                status: e.target.value,
-                              })
-                            }
-                            SelectProps={{
-                              renderValue: (value) =>
-                                statusOptions.find((o) => o.value === value)
-                                  ?.label || 'Select Status',
-                            }}
-                          >
-                            {statusOptions.slice(0, 2).map((o) => (
-                              <MenuItem key={o.value} value={o.value}>
-                                {o.label}
-                              </MenuItem>
-                            ))}
-                          </ModernTextField>
-                        </Grid>
-                      </Grid>
-                    </Box>
-
-                    <Box sx={{ mt: 'auto', pt: 2 }}>
-                      <ProfessionalButton
-                        onClick={handleAdd}
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        fullWidth
-                        sx={{
-                          py: 1.5,
-                          fontSize: '1rem',
-                          backgroundColor: accentColor,
-                          color: textSecondaryColor,
-                          boxShadow: `0 4px 14px ${alpha(accentColor, 0.35)}`,
-                          '&:hover': {
-                            backgroundColor: accentDark,
-                            boxShadow: `0 6px 20px ${alpha(accentColor, 0.45)}`,
-                          },
-                        }}
-                      >
-                        Add Leave Request
-                      </ProfessionalButton>
-                    </Box>
-                  </Box>
-                </GlassCard>
-              </Fade>
-            </Grid>
-
-            {/* Right: Records */}
-            <Grid item xs={12} lg={6}>
-              <Fade in timeout={900}>
-                <GlassCard
-                  sx={{
-                    height: 'calc(100vh - 200px)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    border: `1px solid ${alpha(accentColor, 0.1)}`,
-                  }}
-                >
-                  {/* Records header */}
-                  <Box
-                    sx={{
-                      p: 4,
-                      background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                      borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                    }}
-                  >
-                    <Box
-                      display="flex"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      mb={2.5}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Avatar
-                          sx={{
-                            bgcolor: alpha(accentColor, 0.12),
-                            width: 40,
-                            height: 40,
-                            mr: 2,
-                          }}
-                        >
-                          <ReorderIcon
-                            sx={{ color: accentColor, fontSize: 22 }}
-                          />
-                        </Avatar>
-                        <Box>
-                          <Typography
-                            variant="h6"
-                            sx={{
-                              fontWeight: 700,
-                              color: accentColor,
-                              lineHeight: 1.2,
-                            }}
-                          >
-                            Leave Request Records
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{ color: accentDark, opacity: 0.8 }}
-                          >
-                            Click a record to view and manage details
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Tooltip
-                          title={
-                            selectMode
-                              ? 'Exit Selection Mode'
-                              : 'Select Multiple'
-                          }
-                        >
-                          <Button
-                            onClick={toggleSelectMode}
-                            size="small"
-                            variant={selectMode ? 'contained' : 'outlined'}
-                            startIcon={
-                              selectMode ? (
-                                <CheckBoxIcon />
-                              ) : (
-                                <CheckBoxOutlineBlankIcon />
-                              )
-                            }
-                            sx={{
-                              color: selectMode
-                                ? textSecondaryColor
-                                : accentColor,
-                              backgroundColor: selectMode
-                                ? accentColor
-                                : 'transparent',
-                              borderColor: alpha(accentColor, 0.4),
-                              borderRadius: 3,
-                              textTransform: 'none',
-                              fontWeight: 600,
-                              fontSize: '0.8rem',
-                              '&:hover': {
-                                backgroundColor: selectMode
-                                  ? accentDark
-                                  : alpha(accentColor, 0.08),
-                                borderColor: accentColor,
-                              },
-                            }}
-                          >
-                            {selectMode ? 'Cancel' : 'Select'}
-                          </Button>
-                        </Tooltip>
-                        <ToggleButtonGroup
-                          value={viewMode}
-                          exclusive
-                          onChange={handleViewModeChange}
-                          size="small"
-                          sx={{
-                            bgcolor: alpha(accentColor, 0.06),
-                            borderRadius: 2,
-                            '& .MuiToggleButton-root': {
-                              color: accentColor,
-                              borderColor: alpha(accentColor, 0.2),
-                              px: 1.5,
-                              '&.Mui-selected': {
-                                bgcolor: alpha(accentColor, 0.15),
-                                color: accentColor,
-                              },
-                            },
-                          }}
-                        >
-                          <ToggleButton value="grid">
-                            <ViewModuleIcon fontSize="small" />
-                          </ToggleButton>
-                          <ToggleButton value="list">
-                            <ViewListIcon fontSize="small" />
-                          </ToggleButton>
-                        </ToggleButtonGroup>
-                      </Box>
-                    </Box>
-
-                    {/* Row 1: date-range quick filters + leave type + date filed */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        flexWrap: 'wrap',
-                        mb: 1.5,
-                      }}
-                    >
-                      {[
-                        { label: 'All', value: 'all' },
-                        { label: 'Today', value: 'today' },
-                        { label: 'Last 7 Days', value: 'last7' },
-                        { label: 'This Month', value: 'monthly' },
-                      ].map((range) => (
-                        <Button
-                          key={range.value}
-                          size="small"
-                          onClick={() => setDateRangeFilter(range.value)}
-                          sx={{
-                            borderRadius: 2,
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            fontSize: '0.78rem',
-                            px: 1.5,
-                            py: 0.4,
-                            minHeight: 30,
-                            border: `1px solid ${alpha(accentColor, 0.35)}`,
-                            bgcolor:
-                              dateRangeFilter === range.value
-                                ? accentColor
-                                : 'transparent',
-                            color:
-                              dateRangeFilter === range.value
-                                ? textSecondaryColor
-                                : accentColor,
-                            boxShadow: 'none',
-                            '&:hover': {
-                              bgcolor:
-                                dateRangeFilter === range.value
-                                  ? accentDark
-                                  : alpha(accentColor, 0.08),
-                              boxShadow: 'none',
-                            },
-                          }}
-                        >
-                          {range.label}
-                        </Button>
-                      ))}
-                      <Box sx={{ flex: 1 }} />
-                      <ModernTextField
-                        select
-                        size="small"
-                        value={leaveTypeFilter}
-                        onChange={(e) => {
-                          setLeaveTypeFilter(e.target.value);
-                          setPage(0);
-                        }}
-                        sx={{ minWidth: 150 }}
-                        SelectProps={{
-                          renderValue: (v) => (v === 'all' ? 'All Types' : v),
-                        }}
-                      >
-                        <MenuItem value="all">All Leave Types</MenuItem>
-                        {leaveTypes.map((type) => (
-                          <MenuItem
-                            key={type.leave_code}
-                            value={type.leave_code}
-                          >
-                            {type.leave_code} — {type.leave_description}
-                          </MenuItem>
-                        ))}
-                      </ModernTextField>
-                      <ModernTextField
-                        type="date"
-                        size="small"
-                        label="Date Filed"
-                        value={dateFiledFilter}
-                        onChange={(e) => {
-                          setDateFiledFilter(e.target.value);
-                          setPage(0);
-                        }}
-                        InputLabelProps={{ shrink: true }}
-                        inputProps={{
-                          max: new Date().toISOString().split('T')[0],
-                        }}
-                        sx={{ minWidth: 160 }}
-                      />
-                    </Box>
-
-                    {/* Row 2: search */}
-                    <Box sx={{ mb: 1.5 }}>
-                      <ModernTextField
-                        size="small"
-                        placeholder="Search by name or employee ID..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        fullWidth
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <SearchIcon
-                                sx={{ color: accentColor, fontSize: 20 }}
-                              />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </Box>
-
-                    {/* Row 3: status buttons — stretched full width */}
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      {[
-                        {
-                          label: `All (${counts.all})`,
-                          value: 'all',
-                          color: accentColor,
-                        },
-                        {
-                          label: `Pending (${counts['0']})`,
-                          value: '0',
-                          color: '#F57C00',
-                        },
-                        {
-                          label: `Supervisor (${counts['1']})`,
-                          value: '1',
-                          color: '#1565C0',
-                        },
-                        {
-                          label: `HR (${counts['2']})`,
-                          value: '2',
-                          color: '#2E7D32',
-                        },
-                        {
-                          label: `Denied (${counts['3']})`,
-                          value: '3',
-                          color: '#C62828',
-                        },
-                      ].map((f) => (
-                        <Button
-                          key={f.value}
-                          onClick={() => {
-                            setStatusFilter(f.value);
-                            setPage(0);
-                          }}
-                          sx={{
-                            flex: 1,
-                            py: 0.9,
-                            borderRadius: 2,
-                            fontWeight: 700,
-                            fontSize: '0.78rem',
-                            textTransform: 'none',
-                            border: `1.5px solid ${f.color}`,
-                            bgcolor:
-                              statusFilter === f.value
-                                ? f.color
-                                : 'transparent',
-                            color: statusFilter === f.value ? '#fff' : f.color,
-                            minWidth: 0,
-                            lineHeight: 1.3,
-                            '&:hover': {
-                              bgcolor:
-                                statusFilter === f.value
-                                  ? f.color
-                                  : alpha(f.color, 0.1),
-                              border: `1.5px solid ${f.color}`,
-                            },
-                          }}
-                        >
-                          {f.label}
-                        </Button>
-                      ))}
-                    </Box>
-                  </Box>
-
-                  {/* Records list */}
-                  <Box
-                    sx={{
-                      flexGrow: 1,
-                      overflowY: 'auto',
-                      p: 3,
-                      '&::-webkit-scrollbar': { width: 6 },
-                      '&::-webkit-scrollbar-track': {
-                        background: alpha(primaryColor, 0.5),
-                        borderRadius: 3,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: alpha(accentColor, 0.4),
-                        borderRadius: 3,
-                        '&:hover': { background: accentColor },
-                      },
-                    }}
-                  >
-                    {paged.length === 0 ? (
-                      <Box sx={{ textAlign: 'center', py: 8 }}>
-                        <EventNote
-                          sx={{
-                            fontSize: 56,
-                            color: alpha(accentColor, 0.2),
-                            mb: 2,
-                          }}
-                        />
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            color: alpha(accentColor, 0.6),
-                            fontWeight: 600,
-                          }}
-                        >
-                          No Records Found
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{ color: '#999', mt: 1 }}
-                        >
-                          {searchTerm ||
-                          statusFilter !== 'all' ||
-                          leaveTypeFilter !== 'all'
-                            ? 'Try adjusting your search or filter'
-                            : 'Add your first leave request'}
-                        </Typography>
-                      </Box>
-                    ) : viewMode === 'grid' ? (
-                      <Grid container spacing={2}>
-                        {paged.map((req) => {
-                          const status = getStatus(req.status);
-                          const type = getType(req.leave_code);
-                          const isCancelled = String(req.status) === '4';
-                          const StatusIcon = status.icon;
-                          const isSelected = selectedRequests.includes(req.id);
-                          return (
-                            <Grid item xs={12} sm={6} key={req.id}>
-                              <RecordCard
-                                onClick={(e) => {
-                                  if (selectMode && !isCancelled) {
-                                    e.stopPropagation();
-                                    handleSelectRequest(req.id);
-                                  } else if (!isCancelled && !selectMode) {
-                                    setEditRequest({ ...req });
-                                    setOriginalRequest({ ...req });
-                                    setIsEditing(false);
-                                  }
-                                }}
-                                sx={{
-                                  cursor: isCancelled ? 'default' : 'pointer',
-                                  opacity: isCancelled ? 0.6 : 1,
-                                  border: isSelected
-                                    ? `2px solid ${accentColor}`
-                                    : `1px solid ${alpha(accentColor, 0.08)}`,
-                                  bgcolor: isSelected
-                                    ? alpha(accentColor, 0.04)
-                                    : '#fff',
-                                  position: 'relative',
-                                }}
-                              >
-                                {selectMode && !isCancelled && (
-                                  <Checkbox
-                                    checked={isSelected}
-                                    onChange={(e) => {
-                                      e.stopPropagation();
-                                      handleSelectRequest(req.id);
-                                    }}
-                                    sx={{
-                                      position: 'absolute',
-                                      top: 6,
-                                      right: 6,
-                                      zIndex: 10,
-                                      color: accentColor,
-                                      '&.Mui-checked': { color: accentColor },
-                                    }}
-                                  />
-                                )}
-                                <CardContent
-                                  sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}
-                                >
-                                  <Typography
-                                    variant="body2"
-                                    fontWeight={700}
-                                    color={accentColor}
-                                    sx={{ mb: 0.25, lineHeight: 1.4 }}
-                                    noWrap
-                                  >
-                                    {employeeNames[req.employeeNumber] ||
-                                      'Loading...'}{' '}
-                                    <Box
-                                      component="span"
-                                      sx={{
-                                        fontWeight: 500,
-                                        fontSize: '0.78rem',
-                                        opacity: 0.75,
-                                      }}
-                                    >
-                                      ({req.employeeNumber})
-                                    </Box>
-                                  </Typography>
-                                  <Typography
-                                    variant="body2"
-                                    color="#555"
-                                    sx={{ mb: 1, fontSize: '0.82rem' }}
-                                  >
-                                    applied for{' '}
-                                    <Box
-                                      component="span"
-                                      sx={{
-                                        fontWeight: 700,
-                                        color: accentColor,
-                                      }}
-                                    >
-                                      {type.leave_description || req.leave_code}
-                                    </Box>
-                                  </Typography>
-                                  <Box
-                                    sx={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 0.75,
-                                      mb: 1.25,
-                                    }}
-                                  >
-                                    <CalendarMonth
-                                      sx={{ fontSize: 13, color: '#888' }}
-                                    />
-                                    <Typography
-                                      variant="caption"
-                                      color="#777"
-                                      sx={{ fontSize: '0.74rem' }}
-                                    >
-                                      {formatDateRange(req.leave_date)}
-                                    </Typography>
-                                  </Box>
-                                  <Box
-                                    sx={{
-                                      display: 'flex',
-                                      justifyContent: 'flex-end',
-                                    }}
-                                  >
-                                    <Chip
-                                      icon={
-                                        <StatusIcon sx={{ fontSize: 13 }} />
-                                      }
-                                      label={status.short}
-                                      size="small"
-                                      sx={{
-                                        bgcolor: status.bg,
-                                        color: status.color,
-                                        fontWeight: 600,
-                                        fontSize: '0.68rem',
-                                        height: 22,
-                                        '& .MuiChip-icon': {
-                                          color: status.color,
-                                        },
-                                      }}
-                                    />
-                                  </Box>
-                                </CardContent>
-                              </RecordCard>
-                            </Grid>
-                          );
-                        })}
-                      </Grid>
-                    ) : (
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 1.5,
-                        }}
-                      >
-                        {paged.map((req) => {
-                          const status = getStatus(req.status);
-                          const type = getType(req.leave_code);
-                          const isCancelled = String(req.status) === '4';
-                          const StatusIcon = status.icon;
-                          const isSelected = selectedRequests.includes(req.id);
-                          return (
-                            <RecordCard
-                              key={req.id}
-                              onClick={(e) => {
-                                if (selectMode && !isCancelled) {
-                                  e.stopPropagation();
-                                  handleSelectRequest(req.id);
-                                } else if (!isCancelled && !selectMode) {
-                                  setEditRequest({ ...req });
-                                  setOriginalRequest({ ...req });
-                                  setIsEditing(false);
-                                }
-                              }}
-                              sx={{
-                                cursor: isCancelled ? 'default' : 'pointer',
-                                opacity: isCancelled ? 0.6 : 1,
-                                border: isSelected
-                                  ? `2px solid ${accentColor}`
-                                  : `1px solid ${alpha(accentColor, 0.08)}`,
-                                bgcolor: isSelected
-                                  ? alpha(accentColor, 0.04)
-                                  : '#fff',
-                              }}
-                            >
-                              <Box sx={{ p: 2.5 }}>
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: 1.5,
-                                  }}
-                                >
-                                  {selectMode && !isCancelled && (
-                                    <Checkbox
-                                      checked={isSelected}
-                                      onChange={(e) => {
-                                        e.stopPropagation();
-                                        handleSelectRequest(req.id);
-                                      }}
-                                      sx={{
-                                        p: 0,
-                                        mt: 0.25,
-                                        color: accentColor,
-                                        '&.Mui-checked': { color: accentColor },
-                                      }}
-                                    />
-                                  )}
-                                  <PersonIcon
-                                    sx={{
-                                      fontSize: 18,
-                                      color: accentColor,
-                                      mt: 0.25,
-                                      flexShrink: 0,
-                                    }}
-                                  />
-                                  <Box sx={{ flexGrow: 1 }}>
-                                    <Typography
-                                      variant="body2"
-                                      fontWeight={700}
-                                      color={accentColor}
-                                      sx={{ lineHeight: 1.4 }}
-                                    >
-                                      {employeeNames[req.employeeNumber] ||
-                                        'Loading...'}{' '}
-                                      <Box
-                                        component="span"
-                                        sx={{
-                                          fontWeight: 500,
-                                          fontSize: '0.78rem',
-                                          opacity: 0.75,
-                                        }}
-                                      >
-                                        ({req.employeeNumber})
-                                      </Box>
-                                    </Typography>
-                                    <Typography
-                                      variant="body2"
-                                      color="#555"
-                                      sx={{ fontSize: '0.82rem', mb: 0.5 }}
-                                    >
-                                      applied for{' '}
-                                      <Box
-                                        component="span"
-                                        sx={{
-                                          fontWeight: 700,
-                                          color: accentColor,
-                                        }}
-                                      >
-                                        {type.leave_description ||
-                                          req.leave_code}
-                                      </Box>
-                                    </Typography>
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1,
-                                      }}
-                                    >
-                                      <CalendarMonth
-                                        sx={{ fontSize: 13, color: '#aaa' }}
-                                      />
-                                      <Typography
-                                        variant="caption"
-                                        color="#666"
-                                        fontSize="0.74rem"
-                                      >
-                                        {formatDateRange(req.leave_date)}
-                                      </Typography>
-                                      <Chip
-                                        icon={
-                                          <StatusIcon sx={{ fontSize: 13 }} />
-                                        }
-                                        label={status.short}
-                                        size="small"
-                                        sx={{
-                                          bgcolor: status.bg,
-                                          color: status.color,
-                                          fontWeight: 600,
-                                          fontSize: '0.68rem',
-                                          height: 22,
-                                          ml: 'auto',
-                                          '& .MuiChip-icon': {
-                                            color: status.color,
-                                          },
-                                        }}
-                                      />
-                                    </Box>
-                                  </Box>
-                                </Box>
-                              </Box>
-                            </RecordCard>
-                          );
-                        })}
-                      </Box>
-                    )}
-                  </Box>
-
-                  {/* Bulk action toolbar */}
-                  {selectMode && (
-                    <Slide
-                      direction="up"
-                      in={selectMode}
-                      mountOnEnter
-                      unmountOnExit
-                    >
-                      <Paper
-                        elevation={4}
-                        sx={{
-                          p: 2,
-                          bgcolor: primaryColor,
-                          borderTop: `2px solid ${accentColor}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 2,
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1.5,
-                          }}
-                        >
-                          <Checkbox
-                            checked={
-                              selectedRequests.length === paged.length &&
-                              paged.length > 0
-                            }
-                            indeterminate={
-                              selectedRequests.length > 0 &&
-                              selectedRequests.length < paged.length
-                            }
-                            onChange={handleSelectAll}
-                            sx={{
-                              color: accentColor,
-                              '&.Mui-checked, &.MuiCheckbox-indeterminate': {
-                                color: accentColor,
-                              },
-                            }}
-                          />
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, color: accentColor }}
-                          >
-                            {selectedRequests.length === 0
-                              ? 'Select items'
-                              : `${selectedRequests.length} item${selectedRequests.length > 1 ? 's' : ''} selected`}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          <Button
-                            onClick={() => handleBulkStatusUpdate(1)}
-                            disabled={
-                              selectedRequests.length === 0 || bulkLoading
-                            }
-                            variant="contained"
-                            size="small"
-                            startIcon={
-                              bulkLoading ? (
-                                <CircularProgress size={14} />
-                              ) : (
-                                <CheckCircle />
-                              )
-                            }
-                            sx={{
-                              bgcolor: '#1565C0',
-                              color: '#fff',
-                              borderRadius: 2,
-                              textTransform: 'none',
-                              fontWeight: 600,
-                              '&:hover': { bgcolor: '#0D47A1' },
-                              '&:disabled': { bgcolor: '#ccc' },
-                            }}
-                          >
-                            Supervisor
-                          </Button>
-                          <Button
-                            onClick={() => handleBulkStatusUpdate(2)}
-                            disabled={
-                              selectedRequests.length === 0 || bulkLoading
-                            }
-                            variant="contained"
-                            size="small"
-                            startIcon={
-                              bulkLoading ? (
-                                <CircularProgress size={14} />
-                              ) : (
-                                <DoneAllIcon />
-                              )
-                            }
-                            sx={{
-                              bgcolor: '#2E7D32',
-                              color: '#fff',
-                              borderRadius: 2,
-                              textTransform: 'none',
-                              fontWeight: 600,
-                              '&:hover': { bgcolor: '#1B5E20' },
-                              '&:disabled': { bgcolor: '#ccc' },
-                            }}
-                          >
-                            HR Approve
-                          </Button>
-                          <Button
-                            onClick={() => handleBulkStatusUpdate(3)}
-                            disabled={
-                              selectedRequests.length === 0 || bulkLoading
-                            }
-                            variant="contained"
-                            size="small"
-                            startIcon={
-                              bulkLoading ? (
-                                <CircularProgress size={14} />
-                              ) : (
-                                <ThumbDownIcon />
-                              )
-                            }
-                            sx={{
-                              bgcolor: '#C62828',
-                              color: '#fff',
-                              borderRadius: 2,
-                              textTransform: 'none',
-                              fontWeight: 600,
-                              '&:hover': { bgcolor: '#B71C1C' },
-                              '&:disabled': { bgcolor: '#ccc' },
-                            }}
-                          >
-                            Deny
-                          </Button>
-                        </Box>
-                      </Paper>
-                    </Slide>
-                  )}
-
-                  {/* Pagination */}
-                  {filtered.length > 0 && (
-                    <Box
-                      sx={{
-                        px: 3,
-                        py: 1.5,
-                        borderTop: `1px solid ${alpha(accentColor, 0.08)}`,
-                      }}
-                    >
-                      <TablePagination
-                        component="div"
-                        count={filtered.length}
-                        page={page}
-                        onPageChange={(e, p) => setPage(p)}
-                        rowsPerPage={rowsPerPage}
-                        onRowsPerPageChange={(e) => {
-                          setRowsPerPage(+e.target.value);
-                          setPage(0);
-                        }}
-                        rowsPerPageOptions={[8, 16, 24]}
-                        sx={{
-                          '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
-                            { fontWeight: 600, fontSize: '0.85rem' },
-                        }}
-                      />
-                    </Box>
-                  )}
-                </GlassCard>
-              </Fade>
-            </Grid>
-          </Grid>
-
-          {/* ── Transaction Logs Modal ── */}
-          <Modal
-            open={transactionLogsModalOpen}
-            onClose={() => setTransactionLogsModalOpen(false)}
-          >
-            <Fade in={transactionLogsModalOpen}>
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: { xs: '92%', sm: '85%', md: 680 },
-                  maxHeight: '85vh',
-                  bgcolor: '#fff',
-                  border: `1px solid ${alpha(accentColor, 0.15)}`,
-                  boxShadow: `0 24px 64px ${alpha(accentColor, 0.25)}`,
-                  borderRadius: 3,
-                  overflow: 'hidden',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                {/* ── Modal Header ── */}
-                <Box
-                  sx={{
-                    p: 3,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderBottom: `1px solid ${alpha(accentColor, 0.12)}`,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.12),
-                        width: 40,
-                        height: 40,
-                      }}
-                    >
-                      <HistoryToggleOff
-                        sx={{ color: accentColor, fontSize: 22 }}
-                      />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 700,
-                          color: accentColor,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Transaction Logs
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: accentDark, opacity: 0.75 }}
-                      >
-                        {transactionLogs.length > 0
-                          ? `${transactionLogs.length} recorded action(s)`
-                          : 'All activity on leave requests'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    onClick={() => setTransactionLogsModalOpen(false)}
-                    sx={{
-                      color: accentColor,
-                      '&:hover': { bgcolor: alpha(accentColor, 0.08) },
-                    }}
-                  >
-                    <Close />
-                  </IconButton>
-                </Box>
-
-                {/* ── Modal Body ── */}
-                <Box
-                  sx={{
-                    p: 3,
-                    overflowY: 'auto',
-                    flexGrow: 1,
-                    bgcolor: alpha(primaryColor, 0.25),
-                    '&::-webkit-scrollbar': { width: 5 },
-                    '&::-webkit-scrollbar-track': { background: 'transparent' },
-                    '&::-webkit-scrollbar-thumb': {
-                      background: alpha(accentColor, 0.25),
-                      borderRadius: 3,
-                    },
-                  }}
-                >
-                  {transactionLogsLoading ? (
-                    <Box
-                      sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
-                    >
-                      {[...Array(AUDIT_LOGS_PER_PAGE)].map((_, i) => (
-                        <Box
-                          key={i}
-                          sx={{
-                            p: 2.5,
-                            borderRadius: 2,
-                            bgcolor: '#fff',
-                            border: `1px solid ${alpha(accentColor, 0.08)}`,
-                            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                            animation: 'lrPulse 1.6s ease-in-out infinite',
-                            animationDelay: `${i * 0.1}s`,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              mb: 1.25,
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                height: 20,
-                                width: 90,
-                                borderRadius: 1,
-                                bgcolor: alpha(accentColor, 0.08),
-                              }}
-                            />
-                            <Box
-                              sx={{
-                                height: 12,
-                                width: 110,
-                                borderRadius: 1,
-                                bgcolor: alpha(accentColor, 0.05),
-                              }}
-                            />
-                          </Box>
-                          <Box
-                            sx={{
-                              height: 14,
-                              width: '80%',
-                              borderRadius: 1,
-                              bgcolor: alpha(accentColor, 0.06),
-                              mb: 0.75,
-                            }}
-                          />
-                          <Box
-                            sx={{
-                              height: 14,
-                              width: '55%',
-                              borderRadius: 1,
-                              bgcolor: alpha(accentColor, 0.04),
-                            }}
-                          />
-                        </Box>
-                      ))}
-                    </Box>
-                  ) : transactionLogsError ? (
-                    <Alert severity="error" sx={{ borderRadius: 2 }}>
-                      {transactionLogsError}
-                    </Alert>
-                  ) : transactionLogs.length === 0 ? (
-                    <Box sx={{ textAlign: 'center', py: 8 }}>
-                      <HistoryToggleOff
-                        sx={{
-                          fontSize: 52,
-                          color: alpha(accentColor, 0.2),
-                          mb: 2,
-                        }}
-                      />
-                      <Typography
-                        variant="body1"
-                        sx={{ color: '#888', fontWeight: 500 }}
-                      >
-                        No activity yet.
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: '#bbb' }}>
-                        Actions on leave requests will appear here.
-                      </Typography>
-                    </Box>
-                  ) : (
-                    (() => {
-                      const totalPages = Math.ceil(
-                        transactionLogs.length / AUDIT_LOGS_PER_PAGE,
-                      );
-                      const paginated = transactionLogs.slice(
-                        (auditLogPage - 1) * AUDIT_LOGS_PER_PAGE,
-                        auditLogPage * AUDIT_LOGS_PER_PAGE,
-                      );
-
+                    isOptionEqualToValue={(o, v) => o.employeeNumber === v.employeeNumber}
+                    filterOptions={(options, { inputValue }) => { const s = inputValue.toLowerCase().trim(); if (!s) return options.slice(0, 80); return options.filter((o) => (o._searchKey || '').includes(s)).slice(0, 80); }}
+                    renderOption={(props, option) => {
+                      const { key, ...rest } = props;
                       return (
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 1.5,
-                          }}
-                        >
-                          {paginated.map((log) => {
-                            const loggedAt =
-                              log.created_at ||
-                              log.createdAt ||
-                              log.date_created ||
-                              log.timestamp;
-                            const raw = (log.message || '').trim();
-                            const lower = raw.toLowerCase();
-                            const actor =
-                              log.actor ||
-                              log.performed_by ||
-                              log.action_by ||
-                              null;
-                            const eventType =
-                              log.event_type || log.action || null;
-
-                            /* ── Classify (all types including payroll-generated entries) ── */
-                            let kind = 'activity';
-                            if (
-                              lower.includes('deleted') ||
-                              lower.includes('payroll record deleted')
-                            )
-                              kind = 'deleted';
-                            else if (
-                              lower.includes('reversed') ||
-                              lower.includes('reversal') ||
-                              (lower.includes('restored') &&
-                                lower.includes('balance'))
-                            )
-                              kind = 'reversal';
-                            else if (
-                              lower.includes('tardiness') ||
-                              (lower.includes('deducted') &&
-                                lower.includes('hrs'))
-                            )
-                              kind = 'deduction';
-                            else if (
-                              lower.includes('credit') &&
-                              (lower.includes('added') ||
-                                lower.includes('monthly'))
-                            )
-                              kind = 'credit_added';
-                            else if (
-                              lower.includes('balance') &&
-                              (lower.includes('remaining') ||
-                                lower.includes('after deduction') ||
-                                lower.includes('adjusted') ||
-                                lower.includes('finalized'))
-                            )
-                              kind = 'balance_update';
-                            else if (
-                              lower.includes('assigned') &&
-                              (lower.includes('leave') || lower.includes('hrs'))
-                            )
-                              kind = 'assigned';
-                            else if (
-                              lower.includes('hr') &&
-                              lower.includes('approv')
-                            )
-                              kind = 'hr_approved';
-                            else if (
-                              (lower.includes('immediate supervisor') ||
-                                lower.includes('supervisor')) &&
-                              lower.includes('approv')
-                            )
-                              kind = 'supervisor_approved';
-                            else if (lower.includes('approv'))
-                              kind = 'approved';
-                            else if (
-                              lower.includes('reject') ||
-                              lower.includes('denied') ||
-                              lower.includes('deny')
-                            )
-                              kind = 'denied';
-                            else if (lower.includes('cancel'))
-                              kind = 'cancelled';
-                            else if (
-                              lower.includes('submit') ||
-                              lower.includes('request') ||
-                              lower.includes('filed')
-                            )
-                              kind = 'submitted';
-                            else if (lower.includes('pending'))
-                              kind = 'pending';
-                            if (eventType) {
-                              const et = eventType.toLowerCase();
-                              if (et.includes('submit')) kind = 'submitted';
-                              else if (
-                                et.includes('approve') &&
-                                et.includes('hr')
-                              )
-                                kind = 'hr_approved';
-                              else if (et.includes('approve'))
-                                kind = 'approved';
-                              else if (
-                                et.includes('reject') ||
-                                et.includes('den')
-                              )
-                                kind = 'denied';
-                              else if (et.includes('cancel'))
-                                kind = 'cancelled';
-                            }
-
-                            const kindMap = {
-                              submitted: {
-                                label: 'Submitted',
-                                color: accentColor,
-                                bg: alpha(accentColor, 0.08),
-                                Icon: AddIcon,
-                              },
-                              pending: {
-                                label: 'Pending',
-                                color: '#F57C00',
-                                bg: '#FFF8E1',
-                                Icon: AccessTime,
-                              },
-                              supervisor_approved: {
-                                label: 'Supervisor Approved',
-                                color: '#1565C0',
-                                bg: '#E3F2FD',
-                                Icon: CheckCircle,
-                              },
-                              hr_approved: {
-                                label: 'HR Approved',
-                                color: '#2E7D32',
-                                bg: '#E8F5E9',
-                                Icon: CheckCircle,
-                              },
-                              approved: {
-                                label: 'Approved',
-                                color: '#2E7D32',
-                                bg: '#E8F5E9',
-                                Icon: CheckCircle,
-                              },
-                              denied: {
-                                label: 'Denied',
-                                color: '#C62828',
-                                bg: '#FFEBEE',
-                                Icon: Block,
-                              },
-                              cancelled: {
-                                label: 'Cancelled',
-                                color: '#757575',
-                                bg: '#F5F5F5',
-                                Icon: CancelIcon,
-                              },
-                              deleted: {
-                                label: 'Deleted',
-                                color: '#C62828',
-                                bg: '#FFEBEE',
-                                Icon: DeleteIcon,
-                              },
-                              reversal: {
-                                label: 'VL Reversal',
-                                color: '#B71C1C',
-                                bg: '#FFEBEE',
-                                Icon: Block,
-                              },
-                              deduction: {
-                                label: 'Deduction',
-                                color: '#E65100',
-                                bg: '#FFF3E0',
-                                Icon: AccessTime,
-                              },
-                              credit_added: {
-                                label: 'Credit Added',
-                                color: '#2E7D32',
-                                bg: '#E8F5E9',
-                                Icon: AddIcon,
-                              },
-                              balance_update: {
-                                label: 'Balance Update',
-                                color: '#1565C0',
-                                bg: '#E3F2FD',
-                                Icon: HistoryToggleOff,
-                              },
-                              assigned: {
-                                label: 'Leave Assigned',
-                                color: '#1565C0',
-                                bg: '#E3F2FD',
-                                Icon: AddIcon,
-                              },
-                              activity: {
-                                label: 'Activity',
-                                color: '#546E7A',
-                                bg: '#ECEFF1',
-                                Icon: ScheduleIcon,
-                              },
-                            };
-                            const { label, color, bg, Icon } =
-                              kindMap[kind] || kindMap.activity;
-
-                            /* ── Extract WHO from the raw message text ── */
-                            const nameIdMatches = [
-                              ...raw.matchAll(
-                                /([A-Z][a-zA-ZÀ-ÿ'.,-]+(?:\s+[A-Z][a-zA-ZÀ-ÿ'.,-]+)*)\s+\((\w[\w-]*)\)/g,
-                              ),
-                            ];
-                            const rolePrefixRe =
-                              /^(Immediate Supervisor|HR Officer|Supervisor)\s+/i;
-                            let actorName = null,
-                              actorId = null;
-                            if (nameIdMatches.length > 0) {
-                              actorName = nameIdMatches[0][1]
-                                .trim()
-                                .replace(rolePrefixRe, '')
-                                .trim();
-                              actorId = nameIdMatches[0][2];
-                            }
-                            const subjectId =
-                              log.employee_id || log.employeeNumber || null;
-                            let subjectName = null;
-                            for (const m of nameIdMatches) {
-                              if (m[2] === String(subjectId)) {
-                                subjectName = m[1]
-                                  .trim()
-                                  .replace(rolePrefixRe, '')
-                                  .trim();
-                                break;
-                              }
-                            }
-                            if (!subjectName && nameIdMatches.length >= 2)
-                              subjectName = nameIdMatches[
-                                nameIdMatches.length - 1
-                              ][1]
-                                .trim()
-                                .replace(rolePrefixRe, '')
-                                .trim();
-                            const actorIsSameAsSubject =
-                              actorId &&
-                              subjectId &&
-                              String(actorId) === String(subjectId);
-
-                            // For payroll-generated entries, no actor appears in the message — fall back to a system label
-                            const isPayrollGenerated = [
-                              'deleted',
-                              'reversal',
-                              'deduction',
-                              'credit_added',
-                              'balance_update',
-                            ].includes(kind);
-                            const showSystemActor =
-                              isPayrollGenerated && !actorName;
-
-                            /* ── Build a clean, readable sentence for the admin view ── */
-                            const buildAdminSentence = () => {
-                              const subjectRef = subjectName
-                                ? `${subjectName} (#${subjectId})`
-                                : subjectId
-                                  ? `Employee #${subjectId}`
-                                  : 'Employee';
-                              const codeMatch = raw.match(/\b([A-Z]{2,4})\b/);
-                              const leaveCode = codeMatch
-                                ? codeMatch[1]
-                                : 'leave';
-                              const isoDate = raw.match(/\d{4}-\d{2}-\d{2}/);
-                              const dateHint = isoDate
-                                ? formatDate(isoDate[0])
-                                : null;
-                              switch (kind) {
-                                case 'submitted': {
-                                  const nameRef =
-                                    actorIsSameAsSubject && actorName
-                                      ? actorName
-                                      : subjectRef;
-                                  return dateHint
-                                    ? `${nameRef} filed a ${leaveCode} leave request for ${dateHint}.`
-                                    : `${nameRef} submitted a ${leaveCode} leave request.`;
-                                }
-                                case 'supervisor_approved': {
-                                  const actorLabel =
-                                    actorName && !actorIsSameAsSubject
-                                      ? actorName
-                                      : 'Immediate Supervisor';
-                                  return dateHint
-                                    ? `${subjectRef}'s ${leaveCode} request for ${dateHint} was approved by ${actorLabel}.`
-                                    : `${subjectRef}'s ${leaveCode} leave request was approved by ${actorLabel}.`;
-                                }
-                                case 'hr_approved': {
-                                  const actorLabel =
-                                    actorName && !actorIsSameAsSubject
-                                      ? actorName
-                                      : 'HR Officer';
-                                  return dateHint
-                                    ? `${subjectRef}'s ${leaveCode} request for ${dateHint} was fully approved by ${actorLabel}.`
-                                    : `${subjectRef}'s ${leaveCode} leave request was fully approved by ${actorLabel}.`;
-                                }
-                                case 'approved': {
-                                  const actorLabel =
-                                    actorName && !actorIsSameAsSubject
-                                      ? `by ${actorName}`
-                                      : '';
-                                  return `${subjectRef}'s ${leaveCode} leave request was approved${actorLabel ? ` ${actorLabel}` : ''}.`;
-                                }
-                                case 'denied': {
-                                  const actorLabel =
-                                    actorName && !actorIsSameAsSubject
-                                      ? `by ${actorName}`
-                                      : '';
-                                  return dateHint
-                                    ? `${subjectRef}'s ${leaveCode} request for ${dateHint} was denied${actorLabel ? ` ${actorLabel}` : ''}.`
-                                    : `${subjectRef}'s ${leaveCode} leave request was denied${actorLabel ? ` ${actorLabel}` : ''}.`;
-                                }
-                                case 'cancelled':
-                                  return dateHint
-                                    ? `${subjectRef} cancelled their ${leaveCode} request for ${dateHint}.`
-                                    : `${subjectRef}'s ${leaveCode} leave request was cancelled.`;
-                                case 'deleted':
-                                  if (lower.includes('payroll'))
-                                    return `A payroll record was deleted by Admin/HR. ${subjectRef}'s VL monthly credit has been reversed and their balance adjusted.`;
-                                  return dateHint
-                                    ? `${subjectRef}'s ${leaveCode} leave record for ${dateHint} was deleted by Admin/HR.`
-                                    : `A leave record for ${subjectRef} was deleted by Admin/HR.`;
-                                case 'reversal': {
-                                  const creditMatch = raw.match(
-                                    /\+?\s*([\d.]+)\s*hrs?\s*(has been\s*)?reversed/i,
-                                  );
-                                  const fromMatch = raw.match(
-                                    /from\s+([\d.]+)\s*hrs?/i,
-                                  );
-                                  const toMatch =
-                                    raw.match(/to\s+([\d.]+)\s*hrs?/i);
-                                  const creditAmt = creditMatch
-                                    ? creditMatch[1]
-                                    : null;
-                                  if (fromMatch && toMatch)
-                                    return `VL credit${creditAmt ? ` of \u221210 hrs`.replace('10', creditAmt) : ''} reversed for ${subjectRef}. Balance restored from ${fromMatch[1]} to ${toMatch[1]} hrs.`;
-                                  return `VL credit was reversed for ${subjectRef}.`;
-                                }
-                                case 'deduction': {
-                                  const hrsMatch =
-                                    raw.match(/([\d.]+)\s*hrs?/i);
-                                  return lower.includes('tardiness')
-                                    ? `Tardiness deduction of ${hrsMatch ? hrsMatch[1] : ''} hrs applied to ${subjectRef}'s VL balance.`
-                                    : `A deduction was applied to ${subjectRef}'s leave balance.`;
-                                }
-                                case 'credit_added': {
-                                  const addHrs =
-                                    raw.match(/\+([\d.]+)\s*hrs?/i);
-                                  const fromHrs = raw.match(
-                                    /from\s+([\d.]+)\s*hrs?/i,
-                                  );
-                                  const toHrs =
-                                    raw.match(/to\s+([\d.]+)\s*hrs?/i);
-                                  if (fromHrs && toHrs)
-                                    return `Monthly VL credit of +${addHrs ? addHrs[1] : ''} hrs added for ${subjectRef}. Balance updated from ${fromHrs[1]} hrs to ${toHrs[1]} hrs.`;
-                                  return `Monthly VL credit${addHrs ? ` of +${addHrs[1]} hrs` : ''} was added for ${subjectRef}.`;
-                                }
-                                case 'balance_update': {
-                                  const remMatch = raw.match(
-                                    /([\d.]+)\s*hrs?\s*remaining/i,
-                                  );
-                                  return remMatch
-                                    ? `${subjectRef}'s VL balance after deduction is ${remMatch[1]} hrs.`
-                                    : `Leave balance has been updated for ${subjectRef}.`;
-                                }
-                                case 'assigned': {
-                                  const assignMatch = raw.match(
-                                    /assigned\s+(.+?)\s*\(/i,
-                                  );
-                                  const leaveTypeName = assignMatch
-                                    ? assignMatch[1].trim()
-                                    : leaveCode;
-                                  return `${leaveTypeName} was credited to ${subjectRef}'s account.`;
-                                }
-                                default: {
-                                  const s =
-                                    raw.charAt(0).toUpperCase() + raw.slice(1);
-                                  return s.endsWith('.') ? s : s + '.';
-                                }
-                              }
-                            };
-
-                            /* ── Timestamp (WHEN) ── */
-                            const timeLabel = (() => {
-                              if (!loggedAt) return null;
-                              const d = new Date(loggedAt);
-                              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-                            })();
-
-                            return (
-                              <Box
-                                key={`log-${log.id}`}
-                                sx={{
-                                  bgcolor: '#fff',
-                                  border: `1px solid ${alpha(color, 0.18)}`,
-                                  borderLeft: `4px solid ${color}`,
-                                  borderRadius: 2,
-                                  p: 2.5,
-                                  boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
-                                  transition: 'box-shadow 0.2s ease',
-                                  '&:hover': {
-                                    boxShadow: `0 4px 16px ${alpha(color, 0.12)}`,
-                                  },
-                                }}
-                              >
-                                {/* ── Row 1: WHAT + WHEN ── */}
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    mb: 1.25,
-                                    flexWrap: 'wrap',
-                                    gap: 1,
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 0.6,
-                                      px: 1.25,
-                                      py: 0.35,
-                                      borderRadius: '6px',
-                                      bgcolor: bg,
-                                      border: `1px solid ${alpha(color, 0.2)}`,
-                                    }}
-                                  >
-                                    <Icon sx={{ fontSize: 13, color }} />
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.72rem',
-                                        fontWeight: 700,
-                                        color,
-                                        lineHeight: 1,
-                                      }}
-                                    >
-                                      {label}
-                                    </Typography>
-                                  </Box>
-                                  {timeLabel && (
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 0.5,
-                                      }}
-                                    >
-                                      <ScheduleIcon
-                                        sx={{ fontSize: 12, color: '#c0c0c0' }}
-                                      />
-                                      <Typography
-                                        variant="caption"
-                                        sx={{
-                                          color: '#b0b0b0',
-                                          fontSize: '0.72rem',
-                                        }}
-                                      >
-                                        {timeLabel}
-                                      </Typography>
-                                    </Box>
-                                  )}
-                                </Box>
-
-                                {/* ── Row 2: WHO — PERFORMED BY + EMPLOYEE ── */}
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    gap: 1.5,
-                                    mb: 1.25,
-                                    flexWrap: 'wrap',
-                                  }}
-                                >
-                                  {/* PERFORMED BY — explicit actor when different from subject */}
-                                  {actorName && !actorIsSameAsSubject && (
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 0.75,
-                                        px: 1.25,
-                                        py: 0.6,
-                                        bgcolor: alpha(accentColor, 0.06),
-                                        borderRadius: '8px',
-                                        border: `1px solid ${alpha(accentColor, 0.15)}`,
-                                      }}
-                                    >
-                                      <PersonIcon
-                                        sx={{
-                                          fontSize: 14,
-                                          color: accentColor,
-                                        }}
-                                      />
-                                      <Box>
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.62rem',
-                                            color: '#aaa',
-                                            lineHeight: 1,
-                                            mb: 0.2,
-                                            fontWeight: 600,
-                                            letterSpacing: '0.04em',
-                                          }}
-                                        >
-                                          PERFORMED BY
-                                        </Typography>
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.82rem',
-                                            fontWeight: 700,
-                                            color: accentColor,
-                                            lineHeight: 1.2,
-                                          }}
-                                        >
-                                          {actorName}
-                                        </Typography>
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.68rem',
-                                            color: '#888',
-                                            lineHeight: 1,
-                                            mt: 0.2,
-                                          }}
-                                        >
-                                          #{actorId}
-                                        </Typography>
-                                      </Box>
-                                    </Box>
-                                  )}
-                                  {/* PERFORMED BY — system fallback for payroll-generated entries */}
-                                  {showSystemActor && (
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 0.75,
-                                        px: 1.25,
-                                        py: 0.6,
-                                        bgcolor: alpha('#546E7A', 0.06),
-                                        borderRadius: '8px',
-                                        border:
-                                          '1px solid rgba(84,110,122,0.2)',
-                                      }}
-                                    >
-                                      <BusinessIcon
-                                        sx={{ fontSize: 14, color: '#546E7A' }}
-                                      />
-                                      <Box>
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.62rem',
-                                            color: '#aaa',
-                                            lineHeight: 1,
-                                            mb: 0.2,
-                                            fontWeight: 600,
-                                            letterSpacing: '0.04em',
-                                          }}
-                                        >
-                                          PERFORMED BY
-                                        </Typography>
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.82rem',
-                                            fontWeight: 700,
-                                            color: '#546E7A',
-                                            lineHeight: 1.2,
-                                          }}
-                                        >
-                                          Admin / HR System
-                                        </Typography>
-                                      </Box>
-                                    </Box>
-                                  )}
-                                  {/* EMPLOYEE — always shown so admin knows whose record was affected */}
-                                  {subjectId && (
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 0.75,
-                                        px: 1.25,
-                                        py: 0.6,
-                                        bgcolor: alpha('#1565C0', 0.05),
-                                        borderRadius: '8px',
-                                        border:
-                                          '1px solid rgba(21,101,192,0.15)',
-                                        ml: 'auto',
-                                      }}
-                                    >
-                                      <PersonIcon
-                                        sx={{ fontSize: 14, color: '#1565C0' }}
-                                      />
-                                      <Box>
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.62rem',
-                                            color: '#aaa',
-                                            lineHeight: 1,
-                                            mb: 0.2,
-                                            fontWeight: 600,
-                                            letterSpacing: '0.04em',
-                                          }}
-                                        >
-                                          EMPLOYEE
-                                        </Typography>
-                                        {(subjectName ||
-                                          (actorIsSameAsSubject &&
-                                            actorName)) && (
-                                          <Typography
-                                            sx={{
-                                              fontSize: '0.82rem',
-                                              fontWeight: 700,
-                                              color: '#1565C0',
-                                              lineHeight: 1.2,
-                                            }}
-                                          >
-                                            {subjectName || actorName}
-                                          </Typography>
-                                        )}
-                                        <Typography
-                                          sx={{
-                                            fontSize: '0.68rem',
-                                            color: '#888',
-                                            lineHeight: 1,
-                                            mt:
-                                              subjectName ||
-                                              (actorIsSameAsSubject &&
-                                                actorName)
-                                                ? 0.2
-                                                : 0,
-                                          }}
-                                        >
-                                          #{subjectId}
-                                        </Typography>
-                                      </Box>
-                                    </Box>
-                                  )}
-                                </Box>
-
-                                {/* ── Row 3: Clean sentence ── */}
-                                <Typography
-                                  sx={{
-                                    fontSize: '0.85rem',
-                                    color: '#444',
-                                    lineHeight: 1.65,
-                                    fontWeight: 400,
-                                  }}
-                                >
-                                  {buildAdminSentence()}
-                                </Typography>
-                              </Box>
-                            );
-                          })}
-
-                          {/* ── Pagination ── */}
-                          {totalPages > 1 && (
-                            <Box
-                              sx={{
-                                mt: 1,
-                                pt: 2,
-                                borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                              }}
-                            >
-                              <Typography
-                                variant="caption"
-                                sx={{ color: '#aaa', fontSize: '0.75rem' }}
-                              >
-                                Showing{' '}
-                                {(auditLogPage - 1) * AUDIT_LOGS_PER_PAGE + 1}–
-                                {Math.min(
-                                  auditLogPage * AUDIT_LOGS_PER_PAGE,
-                                  transactionLogs.length,
-                                )}{' '}
-                                of {transactionLogs.length}
-                              </Typography>
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.5,
-                                }}
-                              >
-                                <IconButton
-                                  size="small"
-                                  disabled={auditLogPage === 1}
-                                  onClick={() => setAuditLogPage((p) => p - 1)}
-                                  sx={{
-                                    width: 30,
-                                    height: 30,
-                                    borderRadius: '8px',
-                                    border: `1px solid ${alpha(accentColor, auditLogPage === 1 ? 0.1 : 0.25)}`,
-                                    color:
-                                      auditLogPage === 1 ? '#ccc' : accentColor,
-                                    '&:hover': {
-                                      bgcolor: alpha(accentColor, 0.06),
-                                    },
-                                  }}
-                                >
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      fontSize: '1rem',
-                                      lineHeight: 1,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    ‹
-                                  </Box>
-                                </IconButton>
-                                {Array.from(
-                                  { length: totalPages },
-                                  (_, i) => i + 1,
-                                ).map((page) => (
-                                  <IconButton
-                                    key={page}
-                                    size="small"
-                                    onClick={() => setAuditLogPage(page)}
-                                    sx={{
-                                      width: 30,
-                                      height: 30,
-                                      borderRadius: '8px',
-                                      fontSize: '0.78rem',
-                                      fontWeight:
-                                        page === auditLogPage ? 700 : 400,
-                                      bgcolor:
-                                        page === auditLogPage
-                                          ? accentColor
-                                          : 'transparent',
-                                      color:
-                                        page === auditLogPage ? '#fff' : '#666',
-                                      border: `1px solid ${page === auditLogPage ? accentColor : alpha(accentColor, 0.15)}`,
-                                      '&:hover': {
-                                        bgcolor:
-                                          page === auditLogPage
-                                            ? accentColor
-                                            : alpha(accentColor, 0.06),
-                                      },
-                                    }}
-                                  >
-                                    {page}
-                                  </IconButton>
-                                ))}
-                                <IconButton
-                                  size="small"
-                                  disabled={auditLogPage === totalPages}
-                                  onClick={() => setAuditLogPage((p) => p + 1)}
-                                  sx={{
-                                    width: 30,
-                                    height: 30,
-                                    borderRadius: '8px',
-                                    border: `1px solid ${alpha(accentColor, auditLogPage === totalPages ? 0.1 : 0.25)}`,
-                                    color:
-                                      auditLogPage === totalPages
-                                        ? '#ccc'
-                                        : accentColor,
-                                    '&:hover': {
-                                      bgcolor: alpha(accentColor, 0.06),
-                                    },
-                                  }}
-                                >
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      fontSize: '1rem',
-                                      lineHeight: 1,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    ›
-                                  </Box>
-                                </IconButton>
-                              </Box>
-                            </Box>
-                          )}
-                        </Box>
+                        <li key={key} {...rest}>
+                          <EmployeeProfileRow
+                            employee={option}
+                            deptMap={deptMap}
+                            empCatMap={empCatMap}
+                            sexMap={sexMap}
+                          />
+                        </li>
                       );
-                    })()
+                    }}
+                    renderInput={(params) => (
+                      <FieldInput {...params} fullWidth size="small" placeholder="Search name or employee ID…"
+                        InputProps={{ ...params.InputProps, startAdornment: (<><InputAdornment position="start"><PersonIcon sx={{ fontSize: 15, color: T.muted }} /></InputAdornment>{params.InputProps.startAdornment}</>) }}
+                      />
+                    )}
+                    sx={{ width: '100%' }}
+                    noOptionsText="No employees found"
+                  />
+                </Box>
+
+                {selectedEmployeeObj ? (
+                  <Box sx={{ mb: 2.5 }}>
+                    <EmployeeProfileCard
+                      employee={selectedEmployeeObj}
+                      deptMap={deptMap}
+                      empCatMap={empCatMap}
+                      sexMap={sexMap}
+                    />
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02) }}>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic' }}>No employee selected yet</Typography>
+                  </Box>
+                )}
+
+                <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+                <FormSectionLabel icon={WorkIcon}>Leave Details</FormSectionLabel>
+
+                <Box sx={{ mb: 2 }}>
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                    Leave Type <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                  </Typography>
+                  <FormControl fullWidth size="small">
+                    <Select value={newRequest.leave_code} onChange={(e) => { setNewRequest({ ...newRequest, leave_code: e.target.value }); setSelectedDates([]); }} displayEmpty sx={selectSx}
+                      renderValue={(v) => v ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 800, color: T.accent }}>{v}</Typography>
+                          </Box>
+                          <Typography sx={{ fontSize: '0.875rem' }}>{leaveTypes.find((t) => t.leave_code === v)?.leave_description || ''}</Typography>
+                        </Box>
+                      ) : <Typography sx={{ fontSize: '0.875rem', color: T.faint }}>Select leave type…</Typography>}>
+                      <MenuItem value=""><em>Select Leave Type</em></MenuItem>
+                      {leaveTypes.map((t) => (
+                        <MenuItem key={t.id} value={t.leave_code}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: '0.7rem', fontWeight: 800, color: T.accent }}>{t.leave_code}</Typography>
+                            </Box>
+                            <Typography sx={{ fontSize: '0.875rem' }}>{t.leave_description}</Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+
+                <Box sx={{ mb: 2 }}>
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                    Leave Date(s) <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                  </Typography>
+                  <AccentButton variant="outlined" onClick={() => setDateModalOpen(true)} fullWidth startIcon={<CalendarMonth sx={{ fontSize: '15px !important' }} />}
+                    sx={{ height: 40, border: `1.5px solid ${T.accentBorder}`, color: selectedDates.length ? T.accent : T.muted, justifyContent: 'flex-start', px: 1.5, bgcolor: selectedDates.length ? T.accentFaint : '#fff', '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent, transform: 'none' } }}>
+                    <Typography sx={{ fontSize: '0.875rem' }}>{selectedDates.length > 0 ? `${selectedDates.length} date(s) selected` : 'Select leave dates…'}</Typography>
+                  </AccentButton>
+                  {isSickLeave(newRequest.leave_code) && (
+                    <Typography sx={{ fontSize: '0.68rem', color: '#1565C0', mt: 0.5, fontStyle: 'italic' }}>* Past dates allowed for sick leave</Typography>
                   )}
+                  <LeaveDatePickerModal
+                    open={dateModalOpen}
+                    onClose={() => { setNewRequest({ ...newRequest, leave_date: selectedDates.join(',') }); setDateModalOpen(false); }}
+                    selectedDates={selectedDates} setSelectedDates={setSelectedDates}
+                    accentColor={T.accent} accentDark={T.accentDark} primaryColor="#fdf5f5" secondaryColor="#f0dede"
+                    allowPastDates={isSickLeave(newRequest.leave_code)} adminOverride={isPrivilegedRole}
+                  />
+                </Box>
+
+                {/* Balance preview — now shows real-time remaining via getLeaveTypeStatsActive */}
+                {(newRequest.employeeNumber && newRequest.leave_code) && (
+                  <Box sx={{ mb: 2 }}>
+                    {leaveBalance.loading ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CircularProgress size={14} /><Typography sx={{ fontSize: '0.72rem', color: T.muted }}>Checking leave balance…</Typography>
+                      </Box>
+                    ) : leaveBalance.error ? (
+                      <Alert severity="warning" sx={{ py: 0.5, px: 1, fontSize: '0.75rem' }}>{leaveBalance.error}</Alert>
+                    ) : (leaveBalance.availableHours !== null) ? (
+                      (noBalance || isOverBalance) ? (
+                        <Alert severity="warning" sx={{ py: 0.5, px: 1, fontSize: '0.75rem' }}>
+                          {noBalance
+                            ? `No leave balance on record (reference: ${(leaveBalance.availableHours / 8).toFixed(3)} day(s)). You may still submit; HR will review.`
+                            : `Insufficient balance (reference) — requested ${(hoursRequested / 8).toFixed(3)} day(s), available ${(leaveBalance.availableHours / 8).toFixed(3)} day(s). You may still submit; HR may still approve.`}
+                        </Alert>
+                      ) : (
+                        <Alert severity="success" sx={{ py: 0.5, px: 1, fontSize: '0.75rem' }}>
+                          {`Balance OK — ${(leaveBalance.availableHours / 8).toFixed(3)} day(s) remaining`}
+                        </Alert>
+                      )
+                    ) : null}
+                  </Box>
+                )}
+
+                <Box sx={{ mt: 'auto' }}>
+                  <AccentButton onClick={handleAdd} variant="contained" fullWidth startIcon={<AddIcon sx={{ fontSize: '16px !important' }} />} disabled={!canAdd}
+                    sx={{ height: 42, bgcolor: canAdd ? T.accent : '#d0d0d0', color: canAdd ? '#fff' : '#888', boxShadow: canAdd ? `0 2px 10px ${alpha(T.accent, 0.32)}` : 'none', '&:hover': { bgcolor: canAdd ? T.accentDark : '#d0d0d0' }, '&:disabled': { bgcolor: '#d0d0d0 !important', color: '#888 !important', boxShadow: 'none !important', transform: 'none !important' } }}>
+                    {loading ? 'Submitting…' : 'Add Leave Request'}
+                  </AccentButton>
                 </Box>
               </Box>
-            </Fade>
-          </Modal>
+            </SectionCard>
+          </Grid>
 
-          {/* ── Edit / View Modal ── */}
-          <Modal
-            open={!!editRequest}
-            onClose={closeModal}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <GlassCard
-              sx={{
-                width: '90%',
-                maxWidth: '700px',
-                maxHeight: '90vh',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                border: `1px solid ${alpha(accentColor, 0.15)}`,
-              }}
-            >
-              {editRequest && (
-                <>
-                  {/* Modal header */}
-                  <Box
-                    sx={{
-                      p: 3,
-                      background: `linear-gradient(135deg, ${accentDark} 0%, ${accentColor} 100%)`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha('#fff', 0.15),
-                          width: 36,
-                          height: 36,
-                        }}
-                      >
-                        <EventNote
-                          sx={{ color: textSecondaryColor, fontSize: 20 }}
-                        />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            fontWeight: 700,
-                            color: textSecondaryColor,
-                            lineHeight: 1.2,
-                          }}
-                        >
-                          {isEditing
-                            ? 'Edit Leave Request'
-                            : 'Leave Request Details'}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{ color: alpha(textSecondaryColor, 0.75) }}
-                        >
-                          #{editRequest.employeeNumber} •{' '}
-                          {employeeNames[editRequest.employeeNumber] || '—'}
-                        </Typography>
-                      </Box>
+          {/* RIGHT: Records */}
+          <Grid item xs={12} lg={8}>
+            {txPanelOpen ? (
+              <TransactionLogsSurface variant="panel"
+                logs={filteredTxLogs} totalCount={txLogs.length} filteredTotal={filteredTxLogs.length}
+                loading={txLoading} error={txError}
+                employeeNames={employeeNames} leaveTypes={leaveTypes}
+                auditPage={auditPage} setAuditPage={setAuditPage}
+                searchTerm={txSearchTerm} setSearchTerm={setTxSearchTerm}
+                actionFilter={txActionFilter} setActionFilter={setTxActionFilter}
+                leaveFilter={txLeaveFilter} setLeaveFilter={setTxLeaveFilter}
+                kindMap={kindMap} getTxKind={getTxKind} renderTxSentence={renderTxSentence}
+                onClose={() => setTxPanelOpen(false)}
+                onOpenModal={() => { setTxPanelOpen(false); setTxModalOpen(true); setAuditPage(1); }}
+                onExpandPanel={() => {}}
+              />
+            ) : (
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+                {/* Toolbar */}
+                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <TableRowsIcon sx={{ fontSize: 17, color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>Leave Request Records</Typography>
                     </Box>
-                    <IconButton
-                      onClick={closeModal}
-                      sx={{
-                        color: textSecondaryColor,
-                        '&:hover': { bgcolor: alpha('#fff', 0.1) },
-                      }}
-                    >
-                      <Close />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Tooltip title={selectMode ? 'Exit Selection Mode' : 'Select Multiple'}>
+                        <AccentButton onClick={toggleSelectMode} size="small" variant={selectMode ? 'contained' : 'outlined'}
+                          startIcon={selectMode ? <CheckBoxIcon sx={{ fontSize: '13px !important' }} /> : <CheckBoxOutlineBlankIcon sx={{ fontSize: '13px !important' }} />}
+                          sx={{ fontSize: '0.72rem', px: 1.25, py: 0.35, height: 28, bgcolor: selectMode ? T.accent : 'transparent', color: selectMode ? '#fff' : T.accent, borderColor: T.accentBorder, '&:hover': { bgcolor: selectMode ? T.accentDark : T.accentFaint, borderColor: T.accent, transform: 'none' } }}>
+                          {selectMode ? 'Cancel' : 'Select'}
+                        </AccentButton>
+                      </Tooltip>
+                      <ToggleButtonGroup value={viewMode} exclusive onChange={(_, v) => v && setViewMode(v)} size="small"
+                        sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent } } }}>
+                        <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                        <ToggleButton value="list"><ViewListIcon  sx={{ fontSize: 14 }} /></ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
                   </Box>
 
-                  <Box
-                    sx={{
-                      p: 4,
-                      flexGrow: 1,
-                      overflowY: 'auto',
-                      minHeight: 0,
-                      '&::-webkit-scrollbar': { width: 6 },
-                      '&::-webkit-scrollbar-track': {
-                        background: alpha(primaryColor, 0.5),
-                        borderRadius: 3,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: alpha(accentColor, 0.3),
-                        borderRadius: 3,
-                      },
-                    }}
-                  >
-                    {/* HR Approved lock notice */}
-                    {String(editRequest.status) === '2' && (
-                      <Alert
-                        severity="info"
-                        sx={{
-                          mb: 3,
-                          bgcolor: '#E3F2FD',
-                          borderColor: '#1565C0',
-                          color: '#0D47A1',
-                          borderRadius: 2,
-                          '& .MuiAlert-icon': { color: '#1565C0' },
-                        }}
-                      >
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          🔒 This request has been HR Approved and cannot be
-                          edited or deleted.
-                        </Typography>
-                      </Alert>
-                    )}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                    <AccentButton onClick={() => { setTxPanelOpen(true); setTxModalOpen(false); setAuditPage(1); }} variant="outlined"
+                      startIcon={<OpenInFullIcon sx={{ fontSize: '14px !important' }} />}
+                      sx={{ fontSize: '0.74rem', px: 1.25, py: 0.35, height: 28, color: T.accent, borderColor: T.accentBorder, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}>
+                      Open audit module
+                    </AccentButton>
+                    <Typography sx={{ fontSize: '0.74rem', color: T.muted }}>Search and filter logs without leaving this page.</Typography>
+                  </Box>
 
-                    {/* Employee Information */}
-                    <Box sx={{ mb: 3 }}>
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', mb: 2 }}
-                      >
-                        <PersonIcon
-                          sx={{ color: accentColor, fontSize: 20, mr: 1.5 }}
-                        />
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            fontSize: '1rem',
-                          }}
-                        >
-                          Employee Information
-                        </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                    {[{ label: 'All', value: 'all' }, { label: 'Today', value: 'today' }, { label: 'Last 7d', value: 'last7' }, { label: 'This Month', value: 'monthly' }].map((range) => (
+                      <Box key={range.value} onClick={() => setDateRangeFilter(range.value)}
+                        sx={{ px: 1.5, py: 0.4, borderRadius: 1.5, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600, bgcolor: dateRangeFilter === range.value ? T.accent : 'transparent', color: dateRangeFilter === range.value ? '#fff' : T.accent, border: `1px solid ${dateRangeFilter === range.value ? T.accent : T.accentBorder}`, '&:hover': { bgcolor: dateRangeFilter === range.value ? T.accentDark : T.accentHover }, transition: 'all 0.15s' }}>
+                        {range.label}
                       </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Employee Number
-                          </Typography>
-                          {isEditing && String(editRequest.status) !== '2' ? (
-                            <ModernTextField
-                              value={editRequest.employeeNumber}
-                              onChange={(e) =>
-                                setEditRequest({
-                                  ...editRequest,
-                                  employeeNumber: e.target.value,
-                                })
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Box
-                              sx={{
-                                p: 1.5,
-                                bgcolor: alpha(primaryColor, 0.6),
-                                borderRadius: 2,
-                                border: `1px solid ${alpha(accentColor, 0.15)}`,
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 700, color: accentColor }}
-                              >
-                                #{editRequest.employeeNumber}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: '#666' }}
-                              >
-                                {employeeNames[editRequest.employeeNumber]}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Leave Type
-                          </Typography>
-                          {isEditing && String(editRequest.status) !== '2' ? (
-                            <ModernTextField
-                              select
-                              fullWidth
-                              size="small"
-                              value={editRequest.leave_code}
-                              onChange={(e) =>
-                                setEditRequest({
-                                  ...editRequest,
-                                  leave_code: e.target.value,
-                                })
-                              }
-                              SelectProps={{
-                                displayEmpty: true,
-                                renderValue: (v) =>
-                                  v ? (
-                                    `${v} — ${leaveTypes.find((t) => t.leave_code === v)?.leave_description || ''}`
-                                  ) : (
-                                    <em>Select Type</em>
-                                  ),
-                              }}
-                            >
-                              <MenuItem value="">
-                                <em>Select Type</em>
-                              </MenuItem>
-                              {leaveTypes.map((t) => (
-                                <MenuItem key={t.id} value={t.leave_code}>
-                                  {t.leave_code} — {t.leave_description}
-                                </MenuItem>
-                              ))}
-                            </ModernTextField>
-                          ) : (
-                            <Box
-                              sx={{
-                                p: 1.5,
-                                bgcolor: alpha(primaryColor, 0.6),
-                                borderRadius: 2,
-                                border: `1px solid ${alpha(accentColor, 0.15)}`,
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 700, color: '#333' }}
-                              >
-                                {
-                                  getType(editRequest.leave_code)
-                                    .leave_description
-                                }
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: '#666' }}
-                              >
-                                Code: {editRequest.leave_code}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Grid>
-                      </Grid>
-                    </Box>
-
-                    <Divider
-                      sx={{ my: 2.5, borderColor: alpha(accentColor, 0.1) }}
+                    ))}
+                    <Box sx={{ flex: 1 }} />
+                    <FormControl size="small" sx={{ minWidth: 130 }}>
+                      <Select value={leaveTypeFilter} onChange={(e) => { setLeaveTypeFilter(e.target.value); setPage(0); }} displayEmpty sx={{ ...selectSx, fontSize: '0.78rem' }}>
+                        <MenuItem value="all">All Types</MenuItem>
+                        {leaveTypes.map((t) => <MenuItem key={t.leave_code} value={t.leave_code}>{t.leave_code} — {t.leave_description}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <FieldInput type="date" size="small" label="Date Filed" value={dateFiledFilter}
+                      onChange={(e) => { setDateFiledFilter(e.target.value); setPage(0); }}
+                      InputLabelProps={{ shrink: true }} inputProps={{ max: new Date().toISOString().split('T')[0] }}
+                      sx={{ minWidth: 150 }}
                     />
+                  </Box>
 
-                    {/* Leave Details */}
-                    <Box sx={{ mb: 3 }}>
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', mb: 2 }}
-                      >
-                        <EventNote
-                          sx={{ color: accentColor, fontSize: 20, mr: 1.5 }}
-                        />
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            fontSize: '1rem',
-                          }}
-                        >
-                          Leave Details
-                        </Typography>
+                  <FieldInput size="small" placeholder="Search by name or employee ID…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} fullWidth sx={{ mb: 1.5 }}
+                    InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 15, color: T.muted }} /></InputAdornment> }}
+                  />
+
+                  <Box sx={{ display: 'flex', gap: 0.75 }}>
+                    {[{ label: `All (${counts.all})`, value: 'all', color: T.accent }, { label: `Pending (${counts['0']})`, value: '0', color: '#F57C00' }, { label: `Supervisor (${counts['1']})`, value: '1', color: '#1565C0' }, { label: `HR (${counts['2']})`, value: '2', color: '#2E7D32' }, { label: `Denied (${counts['3']})`, value: '3', color: '#C62828' }].map((f) => (
+                      <Box key={f.value} onClick={() => { setStatusFilter(f.value); setPage(0); }}
+                        sx={{ flex: 1, textAlign: 'center', py: 0.6, borderRadius: 1.5, cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700, lineHeight: 1.3, bgcolor: statusFilter === f.value ? f.color : 'transparent', color: statusFilter === f.value ? '#fff' : f.color, border: `1.5px solid ${f.color}`, transition: 'all 0.15s', '&:hover': { bgcolor: statusFilter === f.value ? f.color : alpha(f.color, 0.1) } }}>
+                        {f.label}
                       </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Leave Date
-                          </Typography>
-                          {isEditing && String(editRequest.status) !== '2' ? (
-                            <ModernTextField
-                              type="date"
-                              value={
-                                editRequest.leave_date?.split(',')[0] || ''
-                              }
-                              onChange={(e) =>
-                                setEditRequest({
-                                  ...editRequest,
-                                  leave_date: e.target.value,
-                                })
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Box
-                              sx={{
-                                p: 1.5,
-                                bgcolor: alpha(primaryColor, 0.6),
-                                borderRadius: 2,
-                                border: `1px solid ${alpha(accentColor, 0.15)}`,
-                              }}
-                            >
-                              <Typography variant="body2">
-                                {formatDate(editRequest.leave_date)}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Grid>
-                        <Grid item xs={6}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                          >
-                            Status
-                          </Typography>
-                          <ModernTextField
-                            select
-                            fullWidth
-                            size="small"
-                            value={String(editRequest.status)}
-                            onChange={async (e) => {
-                              const s = e.target.value;
-                              setEditRequest({ ...editRequest, status: s });
-                              if (!isEditing) {
-                                try {
-                                  await axios.put(
-                                    `${API_BASE_URL}/leaveRoute/leave_request/${editRequest.id}`,
-                                    { ...editRequest, status: +s },
-                                    getAuthHeaders(),
-                                  );
-                                  closeModal();
-                                  setSuccessAction('status');
-                                  setSuccessOpen(true);
-                                  setTimeout(() => setSuccessOpen(false), 2000);
-                                  fetchAll();
-                                } catch {
-                                  alert('Error updating status');
-                                }
-                              }
-                            }}
-                            disabled={
-                              isEditing || String(editRequest.status) === '2'
-                            }
-                            SelectProps={{
-                              renderValue: (value) => {
-                                const opt = statusOptions.find(
-                                  (o) => o.value === value,
-                                );
-                                const Icon = opt?.icon;
-                                return (
-                                  <Box
-                                    sx={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 1,
-                                    }}
-                                  >
-                                    {Icon && (
-                                      <Icon
-                                        sx={{ fontSize: 16, color: opt.color }}
-                                      />
-                                    )}
-                                    <Typography
-                                      sx={{
-                                        fontWeight: 600,
-                                        color: opt?.color,
-                                        fontSize: '0.9rem',
-                                      }}
-                                    >
-                                      {opt?.label}
-                                    </Typography>
-                                  </Box>
-                                );
-                              },
-                            }}
-                          >
-                            {statusOptions.map((o) => (
-                              <MenuItem
-                                key={o.value}
-                                value={o.value}
-                                sx={{ py: 1.5 }}
-                              >
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 1.5,
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      width: 8,
-                                      height: 8,
-                                      borderRadius: '50%',
-                                      bgcolor: o.color,
-                                    }}
-                                  />
-                                  <Typography sx={{ fontWeight: 500 }}>
-                                    {o.label}
-                                  </Typography>
+                    ))}
+                  </Box>
+                </Box>
+
+                {/* Records list */}
+                <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                  {paged.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                        <EventNote sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>{leaveRequests.length === 0 ? 'No leave requests yet' : 'No records match your search'}</Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>{leaveRequests.length === 0 ? 'Use the form on the left to add a request.' : 'Try a different filter or search term.'}</Typography>
+                    </Box>
+                  ) : viewMode === 'grid' ? (
+                    <Grid container spacing={1.5} alignItems="stretch">
+                      {paged.map((req) => {
+                        const type       = getType(req.leave_code);
+                        const locked     = isRecordLocked(req);
+                        const isSelected = selectedRequests.includes(req.id);
+                        const balanceDisplay = getRequestBalanceDisplay(req, remainingByEmpCode);
+                        return (
+                          <Grid item xs={12} sm={3} key={req.id} sx={{ display: 'flex' }}>
+                            <Box onClick={() => { if (selectMode && !locked) handleSelectRequest(req.id); else setViewRequest({ ...req }); }}
+                              sx={{ width: '100%', display: 'flex', flexDirection: 'column', p: 2, borderRadius: 2, cursor: 'pointer', opacity: locked ? 0.62 : 1, bgcolor: isSelected ? T.accentFaint : '#fff', border: isSelected ? `1.5px solid ${T.accent}` : `1px solid ${T.accentBorder}`, position: 'relative', transition: 'all 0.13s', '&:hover': { bgcolor: T.rowHover, borderColor: T.accent } }}>
+                              {selectMode && !locked && (<Checkbox checked={isSelected} onChange={() => handleSelectRequest(req.id)} onClick={(e) => e.stopPropagation()} sx={{ position: 'absolute', top: 4, right: 4, p: 0, color: T.accent, '&.Mui-checked': { color: T.accent } }} size="small" />)}
+                              {locked && (<Box sx={{ position: 'absolute', top: 6, right: 6 }}><LockIcon sx={{ fontSize: 11, color: T.faint }} /></Box>)}
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}><PersonIcon sx={{ fontSize: 12, color: T.faint }} /><Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{req.employeeNumber}</Typography></Box>
+                              <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, mb: 0.25 }} noWrap>{employeeNames[req.employeeNumber] || 'Loading…'}</Typography>
+                              <Typography sx={{ fontSize: '0.75rem', color: T.muted, mb: 0.75, flexGrow: 1 }}>applied for <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>{type.leave_description || req.leave_code}</Box></Typography>
+                              {balanceDisplay && (
+                                <Box sx={{ mb: 0.75 }}>
+                                  <RequestBalanceBadge display={balanceDisplay} compact />
                                 </Box>
-                              </MenuItem>
-                            ))}
-                          </ModernTextField>
-                        </Grid>
-                      </Grid>
-                    </Box>
+                              )}
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><CalendarMonth sx={{ fontSize: 11, color: T.faint }} /><Typography sx={{ fontSize: '0.7rem', color: T.muted }}>{formatDateRange(req.leave_date)}</Typography></Box>
+                                <StatusPill status={req.status} />
+                              </Box>
+                            </Box>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  ) : (
+                    <>
+                      <Box sx={{ px: 1.5, py: 1, display: 'grid', gridTemplateColumns: '100px 1fr 110px 90px 115px 72px', gap: 1, alignItems: 'center', bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1 }}>
+                        {['Emp. No', 'Employee', 'Leave Type', 'Date', 'Balance', 'Status'].map((col) => (
+                          <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col}</Typography>
+                        ))}
+                      </Box>
+                      {paged.map((req, idx) => {
+                        const locked     = isRecordLocked(req);
+                        const isSelected = selectedRequests.includes(req.id);
+                        const balanceDisplay = getRequestBalanceDisplay(req, remainingByEmpCode);
+                        return (
+                          <Box key={req.id} onClick={() => { if (selectMode && !locked) handleSelectRequest(req.id); else setViewRequest({ ...req }); }}
+                            sx={{ px: 1.5, py: 1.25, display: 'grid', gridTemplateColumns: '100px 1fr 110px 90px 115px 72px', gap: 1, alignItems: 'center', borderRadius: 1.5, cursor: 'pointer', opacity: locked ? 0.62 : 1, bgcolor: isSelected ? T.accentFaint : idx % 2 === 0 ? T.rowEven : T.rowOdd, border: isSelected ? `1px solid ${T.accent}` : '1px solid transparent', transition: 'background 0.13s ease', '&:hover': { bgcolor: T.rowHover } }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              {selectMode && !locked && (<Checkbox checked={isSelected} onChange={() => handleSelectRequest(req.id)} onClick={(e) => e.stopPropagation()} sx={{ p: 0, mr: 0.5, color: T.accent, '&.Mui-checked': { color: T.accent } }} size="small" />)}
+                              <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>{req.employeeNumber}</Typography>
+                            </Box>
+                            <Typography sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }} noWrap>{employeeNames[req.employeeNumber] || 'Loading…'}</Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                                <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{req.leave_code}</Typography>
+                              </Box>
+                            </Box>
+                            <Typography sx={{ fontSize: '0.75rem', color: T.muted }} noWrap>{formatDate(req.leave_date)}</Typography>
+                            <Box sx={{ minWidth: 0 }}>
+                              {balanceDisplay ? (
+                                <RequestBalanceBadge display={balanceDisplay} compact />
+                              ) : (
+                                <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>—</Typography>
+                              )}
+                            </Box>
+                            <StatusPill status={req.status} />
+                          </Box>
+                        );
+                      })}
+                    </>
+                  )}
+                </Box>
 
-                    {/* Leave Balance */}
-                    <Box
-                      sx={{
-                        mt: 2,
-                        p: 2.5,
-                        bgcolor: alpha(primaryColor, 0.6),
-                        borderRadius: 2,
-                        border: `1px solid ${alpha(accentColor, 0.12)}`,
-                      }}
-                    >
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 700, mb: 1.5, color: accentColor }}
-                      >
-                        Employee Leave Balance
-                      </Typography>
-                      <LeaveCredits
-                        personID={editRequest.employeeNumber}
-                        compact
-                        accentColor={accentColor}
-                      />
+                {/* Bulk action toolbar */}
+                {selectMode && (
+                  <Slide direction="up" in={selectMode} mountOnEnter unmountOnExit>
+                    <Box sx={{ px: 3, py: 1.75, borderTop: `2px solid ${T.accent}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Checkbox checked={selectedRequests.length === paged.length && paged.length > 0} indeterminate={selectedRequests.length > 0 && selectedRequests.length < paged.length} onChange={handleSelectAll} sx={{ color: T.accent, '&.Mui-checked, &.MuiCheckbox-indeterminate': { color: T.accent } }} size="small" />
+                        <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.accent }}>{selectedRequests.length === 0 ? 'Select items' : `${selectedRequests.length} selected`}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        {[{ label: 'Supervisor', status: 1, color: '#1565C0', hov: '#0D47A1', Icon: CheckCircle }, { label: 'HR Approve', status: 2, color: '#2E7D32', hov: '#1B5E20', Icon: DoneAllIcon }, { label: 'Deny', status: 3, color: '#C62828', hov: '#B71C1C', Icon: ThumbDownIcon }].map(({ label, status, color, hov, Icon }) => (
+                          <AccentButton key={label} onClick={() => handleBulkStatusUpdate(status)} disabled={selectedRequests.length === 0 || bulkLoading} variant="contained" size="small"
+                            startIcon={bulkLoading ? <CircularProgress size={11} /> : <Icon sx={{ fontSize: '13px !important' }} />}
+                            sx={{ fontSize: '0.72rem', px: 1.25, height: 28, bgcolor: color, '&:hover': { bgcolor: hov }, '&:disabled': { bgcolor: '#ccc' } }}>
+                            {label}
+                          </AccentButton>
+                        ))}
+                      </Box>
                     </Box>
-                  </Box>
+                  </Slide>
+                )}
 
-                  {/* Bottom Action Bar */}
-                  <Box
-                    sx={{
-                      borderTop: `1px solid ${alpha(accentColor, 0.12)}`,
-                      bgcolor: '#fff',
-                      px: 3,
-                      py: 2,
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                      gap: 2,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {!isEditing ? (
-                      <>
-                        <ProfessionalButton
-                          onClick={() => handleCancel(editRequest.id)}
-                          disabled={['2', '3', '4'].includes(
-                            String(editRequest.status),
-                          )}
-                          variant="outlined"
-                          sx={{
-                            borderColor: '#F57C00',
-                            color: '#F57C00',
-                            '&:hover': { bgcolor: alpha('#F57C00', 0.08) },
-                            '&:disabled': {
-                              borderColor: '#ccc',
-                              color: '#ccc',
-                            },
-                          }}
-                        >
-                          Cancel Request
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          onClick={() =>
-                            handleDelete(editRequest.id, editRequest.status)
-                          }
-                          disabled={['2', '4'].includes(
-                            String(editRequest.status),
-                          )}
-                          startIcon={<DeleteIcon />}
-                          variant="outlined"
-                          sx={{
-                            borderColor: accentColor,
-                            color: accentColor,
-                            '&:hover': {
-                              bgcolor: alpha(accentColor, 0.08),
-                              borderColor: accentDark,
-                              color: accentDark,
-                            },
-                            '&:disabled': {
-                              borderColor: '#ccc',
-                              color: '#ccc',
-                            },
-                          }}
-                        >
-                          Delete
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          onClick={() => setIsEditing(true)}
-                          disabled={['2', '4'].includes(
-                            String(editRequest.status),
-                          )}
-                          startIcon={<EditIcon />}
-                          variant="contained"
-                          sx={{
-                            bgcolor: accentColor,
-                            color: textSecondaryColor,
-                            '&:hover': { bgcolor: accentDark },
-                            '&:disabled': { bgcolor: '#ddd' },
-                          }}
-                        >
-                          Edit
-                        </ProfessionalButton>
-                      </>
-                    ) : (
-                      <>
-                        <ProfessionalButton
-                          onClick={() => {
-                            setEditRequest({ ...originalRequest });
-                            setIsEditing(false);
-                          }}
-                          startIcon={<CancelIcon />}
-                          variant="outlined"
-                          sx={{
-                            borderColor: '#6c757d',
-                            color: '#6c757d',
-                            '&:hover': { bgcolor: alpha('#6c757d', 0.08) },
-                          }}
-                        >
-                          Cancel
-                        </ProfessionalButton>
-                        <ProfessionalButton
-                          onClick={handleUpdate}
-                          startIcon={<SaveIcon />}
-                          disabled={!hasChanges()}
-                          variant="contained"
-                          sx={{
-                            bgcolor: hasChanges()
-                              ? accentColor
-                              : alpha(accentColor, 0.4),
-                            color: textSecondaryColor,
-                            '&:hover': {
-                              bgcolor: hasChanges()
-                                ? accentDark
-                                : alpha(accentColor, 0.4),
-                            },
-                            '&:disabled': {
-                              color: alpha(textSecondaryColor, 0.5),
-                            },
-                          }}
-                        >
-                          Save Changes
-                        </ProfessionalButton>
-                      </>
-                    )}
+                {filtered.length > 0 && (
+                  <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+                    <TablePagination component="div" count={filtered.length} page={page} onPageChange={(_, p) => setPage(p)} rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }} rowsPerPageOptions={[12, 24, 48]}
+                      sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: '0.78rem', fontWeight: 600 } }}
+                    />
                   </Box>
+                )}
+              </SectionCard>
+            )}
+          </Grid>
+        </Grid>
+
+        {/* Transaction Logs Modal */}
+        <Modal open={txModalOpen} onClose={() => setTxModalOpen(false)} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
+          <Fade in={txModalOpen}>
+            <Box sx={{ width: '100%', maxWidth: 620 }}>
+              <TransactionLogsSurface variant="modal"
+                logs={filteredTxLogs} totalCount={txLogs.length} filteredTotal={filteredTxLogs.length}
+                loading={txLoading} error={txError}
+                employeeNames={employeeNames} leaveTypes={leaveTypes}
+                auditPage={auditPage} setAuditPage={setAuditPage}
+                searchTerm={txSearchTerm} setSearchTerm={setTxSearchTerm}
+                actionFilter={txActionFilter} setActionFilter={setTxActionFilter}
+                leaveFilter={txLeaveFilter} setLeaveFilter={setTxLeaveFilter}
+                kindMap={kindMap} getTxKind={getTxKind} renderTxSentence={renderTxSentence}
+                onClose={() => setTxModalOpen(false)}
+                onOpenModal={() => { setTxPanelOpen(false); setTxModalOpen(true); setAuditPage(1); }}
+                onExpandPanel={() => { setTxPanelOpen(true); setTxModalOpen(false); setAuditPage(1); }}
+              />
+            </Box>
+          </Fade>
+        </Modal>
+
+        {/* HR Approve bulk modal */}
+        <Modal open={hrApproveModal.open} onClose={hrApproveModal.loading ? undefined : closeHrApproveModal} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1600 }}>
+          <Box sx={{ width: '100%', maxWidth: 440, borderRadius: 3, overflow: 'hidden', bgcolor: T.surface, boxShadow: '0 24px 64px rgba(0,0,0,0.22)' }}>
+            <Box sx={{ px: 3, py: 2.25, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem' }}>HR approval — bulk deduction</Typography>
+              <IconButton size="small" disabled={hrApproveModal.loading} onClick={closeHrApproveModal} sx={{ color: 'rgba(255,255,255,0.8)' }}><Close sx={{ fontSize: 18 }} /></IconButton>
+            </Box>
+            <Box sx={{ px: 3, py: 2.5 }}>
+              {hrApproveModal.loadingContext ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={36} sx={{ color: T.accent }} /></Box>
+              ) : (
+                <>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.text, mb: 2 }}>
+                    Approving <strong>{hrApproveModal.pendingBulkIds?.length ?? 0}</strong> request(s). Sample row uses employee #
+                    <strong>{leaveRequests.find((r) => r.id === hrApproveModal.pendingBulkIds[0])?.employeeNumber ?? '—'}</strong> for category reference.
+                  </Typography>
+                  <HrDeductionPanel modal={hrApproveModal} setModal={setHrApproveModal} disabled={hrApproveModal.loading} balances={[]} />
                 </>
               )}
-            </GlassCard>
-          </Modal>
-        </Box>
+            </Box>
+            <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+              <Button variant="outlined" size="small" disabled={hrApproveModal.loading || hrApproveModal.loadingContext} onClick={closeHrApproveModal} sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted }}>Cancel</Button>
+              <Button variant="contained" size="small" disabled={hrApproveModal.loading || hrApproveModal.loadingContext} onClick={confirmHrApprove} sx={{ fontSize: '0.8rem', bgcolor: '#2E7D32', color: '#fff', '&:hover': { bgcolor: '#1B5E20' } }}>
+                {hrApproveModal.loading ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Confirm HR approval'}
+              </Button>
+            </Box>
+          </Box>
+        </Modal>
       </Box>
     </Fade>
   );
 };
+
 
 export default LeaveRequest;

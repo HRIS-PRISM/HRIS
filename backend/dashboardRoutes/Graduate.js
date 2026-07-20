@@ -8,8 +8,15 @@ const socketService = require("../socket/socketService");
 
 
 const router = express.Router();
+const authenticateToken = require("./authMiddleware");
+const {
+  fetchDashboardRow,
+  logDashboardCreate,
+  logDashboardUpdate,
+  logDashboardDelete,
+} = require("./dashboardAuditHelper");
 
-
+router.use(authenticateToken);
 
 
 
@@ -94,6 +101,8 @@ router.post("/graduate-table", (req, res) => {
         person_id,
       });
 
+      logDashboardCreate(req, "graduate_table", result.insertId, req.body);
+
       res.status(201).json({
         message: "Graduate study added successfully",
         id: result.insertId,
@@ -129,36 +138,43 @@ router.put("/graduate-table/:id", (req, res) => {
     WHERE id = ?
   `;
 
-  db.query(
-    query,
-    [
-      person_id,
-      graduateNameOfSchool || null,
-      graduateDegree || null,
-      graduatePeriodFrom || null,
-      graduatePeriodTo || null,
-      graduateHighestAttained || null,
-      graduateYearGraduated || null,
-      graduateScholarshipAcademicHonorsReceived || null,
-      id,
-    ],
-    (err, result) => {
-      if (err) {
-        console.error("Error updating graduate study:", err);
-        return res.status(500).json({ error: "Error updating graduate study" });
-      }
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ error: "Graduate study not found" });
-      }
+  fetchDashboardRow("graduate_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).json({ error: "Error updating graduate study" });
+    if (!oldRow) return res.status(404).json({ error: "Graduate study not found" });
 
-      socketService.notifyGraduateChanged("updated", {
-        id: Number(id),
+    db.query(
+      query,
+      [
         person_id,
-      });
+        graduateNameOfSchool || null,
+        graduateDegree || null,
+        graduatePeriodFrom || null,
+        graduatePeriodTo || null,
+        graduateHighestAttained || null,
+        graduateYearGraduated || null,
+        graduateScholarshipAcademicHonorsReceived || null,
+        id,
+      ],
+      (err, result) => {
+        if (err) {
+          console.error("Error updating graduate study:", err);
+          return res.status(500).json({ error: "Error updating graduate study" });
+        }
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ error: "Graduate study not found" });
+        }
 
-      res.json({ message: "Graduate study updated successfully" });
-    }
-  );
+        logDashboardUpdate(req, "graduate_table", id, oldRow, req.body);
+
+        socketService.notifyGraduateChanged("updated", {
+          id: Number(id),
+          person_id,
+        });
+
+        res.json({ message: "Graduate study updated successfully" });
+      }
+    );
+  });
 });
 
 // DELETE - Remove a graduate study by ID
@@ -166,18 +182,25 @@ router.delete("/graduate-table/:id", (req, res) => {
   const { id } = req.params;
   const query = `DELETE FROM graduate_table WHERE id = ?`;
 
-  db.query(query, [id], (err, result) => {
-    if (err) {
-      console.error("Error deleting graduate study:", err);
-      return res.status(500).json({ error: "Error deleting graduate study" });
-    }
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Graduate study not found" });
-    }
+  fetchDashboardRow("graduate_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).json({ error: "Error deleting graduate study" });
+    if (!oldRow) return res.status(404).json({ error: "Graduate study not found" });
 
-    socketService.notifyGraduateChanged("deleted", { id: Number(id) });
+    db.query(query, [id], (err, result) => {
+      if (err) {
+        console.error("Error deleting graduate study:", err);
+        return res.status(500).json({ error: "Error deleting graduate study" });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: "Graduate study not found" });
+      }
 
-    res.json({ message: "Graduate study deleted successfully" });
+      logDashboardDelete(req, "graduate_table", id, oldRow);
+
+      socketService.notifyGraduateChanged("deleted", { id: Number(id) });
+
+      res.json({ message: "Graduate study deleted successfully" });
+    });
   });
 });
 

@@ -1,10 +1,15 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useDeferredValue,
+} from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
 import { useSocket } from '../../contexts/SocketContext';
 import {
-  Container,
   Typography,
   TextField,
   Button,
@@ -26,16 +31,14 @@ import {
   CardContent,
   Fade,
   Divider,
-  Backdrop,
   styled,
+  alpha,
   Avatar,
   Tooltip,
-  alpha,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
-  FormHelperText,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -47,49 +50,305 @@ import {
   Search as SearchIcon,
   ViewList as ViewListIcon,
   ViewModule as ViewModuleIcon,
-  ChildCare as ChildCareIcon,
   Person as PersonIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Group as GroupIcon,
   FamilyRestroom as FamilyRestroomIcon,
+  ChildCare as ChildCareIcon,
   Refresh,
-  NavigateNext as NextIcon,
-  NavigateBefore as PrevIcon,
 } from '@mui/icons-material';
-
+import ReorderIcon from '@mui/icons-material/Reorder';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AccessDenied from '../AccessDenied';
-import { useNavigate } from 'react-router-dom';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
-import {
-  useCRUDButtonStyles,
-  useCRUDButtonStylesOutlined,
-} from '../../hooks/useCRUDButtonStyles';
 import usePageAccess from '../../hooks/usePageAccess';
-import {
-  createThemedCard,
-  createThemedButton,
-  createThemedTextField,
-} from '../../utils/theme';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
-// Stable themed components
-const ThemedCard = styled(Card, {
-  shouldForwardProp: (prop) => prop !== 'settings',
-})(({ settings = {} }) => createThemedCard(settings));
+// ─── Theme tokens (mirroring EmploymentCategoryManagement) ───────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+};
 
-const ThemedButton = styled(Button, {
-  shouldForwardProp: (prop) => prop !== 'settings',
-})(({ settings = {}, variant = 'contained' }) =>
-  createThemedButton(settings, variant),
+// ─── Styled primitives (mirroring EmploymentCategoryManagement) ───────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
+const shimmerKeyframes = `
+@keyframes childShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes childPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.60; }
+}
+`;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
+      backgroundSize: '800px 100%',
+      animation: 'childShimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
 );
 
-const ThemedTextField = styled(TextField, {
-  shouldForwardProp: (prop) => prop !== 'settings',
-})(({ settings = {} }) => createThemedTextField(settings));
+// ─── Section label used inside form panels ────────────────────────────────────
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: '0.68rem',
+        fontWeight: 700,
+        letterSpacing: '0.09em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
 
-// Employee Autocomplete Component
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
+const ChildrenWireframe = () => (
+  <>
+    <style>{shimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'childPulse 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 180,
+              height: 180,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Bone w={220} h={18} sx={{ mb: 1 }} />
+              <Bone w={360} h={11} />
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.1)',
+            }}
+          />
+        </Box>
+      </Box>
+      <Grid container spacing={3}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={col === 0 ? 4 : 8} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                animation: `childPulse 2s ease-in-out ${col * 0.1}s infinite`,
+                height: 'calc(100vh - 280px)',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 1.25,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 15,
+                    height: 15,
+                    borderRadius: '50%',
+                    bgcolor: 'rgba(109,35,35,0.12)',
+                  }}
+                />
+                <Bone w={180} h={13} />
+              </Box>
+              <Box
+                sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}
+              >
+                {[100, 160, 120, 140, 110].map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box
+                      sx={{
+                        height: 40,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─── System settings hook (inline, mirroring EmploymentCategoryManagement) ───
+const useLocalSystemSettings = () => {
+  const [settings, setSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem('systemSettings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {
+      primaryColor: '#894444',
+      secondaryColor: '#6d2323',
+      accentColor: '#FEF9E1',
+      textColor: '#FFFFFF',
+      textPrimaryColor: '#6D2323',
+      textSecondaryColor: '#FEF9E1',
+      hoverColor: '#6D2323',
+      backgroundColor: '#FFFFFF',
+    };
+  });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const url = API_BASE_URL.includes('/api')
+          ? `${API_BASE_URL}/system-settings`
+          : `${API_BASE_URL}/api/system-settings`;
+        const response = await axios.get(url);
+        if (response.data && typeof response.data === 'object') {
+          setSettings(response.data);
+          localStorage.setItem('systemSettings', JSON.stringify(response.data));
+        }
+      } catch (e) {
+        console.error('Error fetching system settings:', e);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  return settings;
+};
+
+// ─── Employee Autocomplete ────────────────────────────────────────────────────
+const buildEmployeeTextField = () =>
+  styled(TextField)(() => ({
+    '& .MuiOutlinedInput-root': {
+      borderRadius: 8,
+      fontSize: '0.875rem',
+      backgroundColor: '#fff',
+      '& fieldset': { borderColor: T.accentBorder },
+      '&:hover fieldset': { borderColor: T.accent },
+      '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    },
+  }));
+
 const EmployeeAutocomplete = ({
   value,
   onChange,
@@ -101,7 +360,6 @@ const EmployeeAutocomplete = ({
   selectedEmployee,
   onEmployeeSelect,
   dropdownDisabled = false,
-  settings = {},
 }) => {
   const [query, setQuery] = useState('');
   const [employees, setEmployees] = useState([]);
@@ -109,42 +367,36 @@ const EmployeeAutocomplete = ({
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
-  const inputRef = useRef(null);
+
+  const EmpTextField = useMemo(() => buildEmployeeTextField(), []);
 
   useEffect(() => {
-    if (value && !selectedEmployee) {
-      fetchEmployeeById(value);
-    }
-  }, [value]);
+    if (value && !selectedEmployee) fetchEmployeeById(value);
+  }, [value]); // eslint-disable-line
 
   useEffect(() => {
-    if (selectedEmployee) {
-      setQuery(selectedEmployee.name || '');
-    } else if (!value) {
-      setQuery('');
-    }
+    if (selectedEmployee) setQuery(selectedEmployee.name || '');
+    else if (!value) setQuery('');
   }, [selectedEmployee, value]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
         setShowDropdown(false);
-      }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const fetchEmployees = async (searchQuery) => {
+  const fetchEmployees = async (q) => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(searchQuery)}`,
-        getAuthHeaders(),
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
+        getAuthHeaders()
       );
-      setEmployees(response.data);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
+      setEmployees(r.data);
+    } catch {
       setEmployees([]);
     } finally {
       setIsLoading(false);
@@ -154,102 +406,59 @@ const EmployeeAutocomplete = ({
   const fetchAllEmployees = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
+      const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
-      setEmployees(response.data);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
+      setEmployees(r.data);
+    } catch {
       setEmployees([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchEmployeeById = async (employeeNumber) => {
+  const fetchEmployeeById = async (empNum) => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/${employeeNumber}`,
-        getAuthHeaders(),
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/${empNum}`,
+        getAuthHeaders()
       );
-      const employee = response.data;
-      onEmployeeSelect(employee);
-      setQuery(employee.name || '');
-    } catch (error) {
-      console.error('Error fetching employee by ID:', error);
+      onEmployeeSelect(r.data);
+      setQuery(r.data.name || '');
+    } catch (err) {
+      if (err.response?.status !== 404) console.error(err);
     }
   };
 
   const handleInputChange = (e) => {
-    const inputValue = e.target.value;
-    setQuery(inputValue);
+    const v = e.target.value;
+    setQuery(v);
     setShowDropdown(true);
-
-    if (selectedEmployee && inputValue !== selectedEmployee.name) {
+    if (selectedEmployee && v !== selectedEmployee.name) {
       onEmployeeSelect(null);
       onChange('');
     }
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
+    clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      if (inputValue.trim().length >= 2) {
-        fetchEmployees(inputValue);
-      } else if (inputValue.trim().length === 0) {
-        fetchAllEmployees();
-      } else {
-        setEmployees([]);
-      }
+      if (v.trim().length >= 2) fetchEmployees(v);
+      else if (v.trim().length === 0) fetchAllEmployees();
+      else setEmployees([]);
     }, 300);
-  };
-
-  const handleEmployeeSelect = (employee) => {
-    onEmployeeSelect(employee);
-    setQuery(employee.name);
-    setShowDropdown(false);
-    onChange(employee.employeeNumber);
-  };
-
-  const handleInputFocus = () => {
-    setShowDropdown(true);
-    if (employees.length === 0 && !isLoading) {
-      if (query.length >= 2) {
-        fetchEmployees(query);
-      } else {
-        fetchAllEmployees();
-      }
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Escape') {
-      setShowDropdown(false);
-    }
-  };
-
-  const handleDropdownClick = () => {
-    if (!showDropdown) {
-      setShowDropdown(true);
-      if (employees.length === 0 && !isLoading) {
-        fetchAllEmployees();
-      }
-    } else {
-      setShowDropdown(false);
-    }
   };
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={dropdownRef}>
-      <ThemedTextField
-        settings={settings}
-        ref={inputRef}
+      <EmpTextField
         value={query}
         onChange={handleInputChange}
-        onFocus={handleInputFocus}
-        onKeyDown={handleKeyDown}
+        onFocus={() => {
+          setShowDropdown(true);
+          if (!employees.length && !isLoading) {
+            query.length >= 2 ? fetchEmployees(query) : fetchAllEmployees();
+          }
+        }}
+        onKeyDown={(e) => e.key === 'Escape' && setShowDropdown(false)}
         placeholder={placeholder}
         disabled={disabled}
         required={required}
@@ -260,99 +469,113 @@ const EmployeeAutocomplete = ({
         size="small"
         InputProps={{
           startAdornment: (
-            <PersonIcon
-              sx={{
-                color:
-                  settings.textPrimaryColor ||
-                  settings.primaryColor ||
-                  '#6D2323',
-                mr: 1,
-              }}
-            />
+            <PersonIcon sx={{ color: T.muted, mr: 1, fontSize: 15 }} />
           ),
           endAdornment: (
             <IconButton
-              onClick={dropdownDisabled ? undefined : handleDropdownClick}
+              onClick={
+                dropdownDisabled
+                  ? undefined
+                  : () => {
+                      if (!showDropdown) {
+                        setShowDropdown(true);
+                        if (!employees.length && !isLoading) fetchAllEmployees();
+                      } else setShowDropdown(false);
+                    }
+              }
               size="small"
               disabled={dropdownDisabled}
-              sx={{
-                color:
-                  settings.textPrimaryColor ||
-                  settings.primaryColor ||
-                  '#6D2323',
-              }}
+              sx={{ color: T.muted }}
             >
-              {showDropdown ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              {showDropdown ? (
+                <ExpandLessIcon sx={{ fontSize: 15 }} />
+              ) : (
+                <ExpandMoreIcon sx={{ fontSize: 15 }} />
+              )}
             </IconButton>
           ),
         }}
       />
-
       {showDropdown && (
         <Paper
-          elevation={3}
+          elevation={4}
           sx={{
             position: 'absolute',
             top: '100%',
             left: 0,
             right: 0,
-            zIndex: 1000,
-            maxHeight: 300,
+            zIndex: 1300,
+            maxHeight: 280,
             overflow: 'auto',
-            mt: 1,
+            mt: 0.75,
             borderRadius: 2,
+            border: `1px solid ${T.accentBorder}`,
           }}
         >
           {isLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" sx={{ ml: 1 }}>
-                Loading...
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                p: 2,
+                gap: 1,
+              }}
+            >
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography variant="body2" sx={{ fontSize: '0.8rem', color: T.muted }}>
+                Loading…
               </Typography>
             </Box>
           ) : employees.length > 0 ? (
-            <List dense>
-              {employees.map((employee) => (
+            <List dense disablePadding>
+              {employees.map((emp) => (
                 <ListItem
-                  key={employee.employeeNumber}
+                  key={emp.employeeNumber}
                   button
-                  onClick={() => handleEmployeeSelect(employee)}
+                  onClick={() => {
+                    onEmployeeSelect(emp);
+                    setQuery(emp.name);
+                    setShowDropdown(false);
+                    onChange(emp.employeeNumber);
+                  }}
                   sx={{
-                    '&:hover': {
-                      backgroundColor: alpha(
-                        settings.accentColor ||
-                          settings.backgroundColor ||
-                          '#FEF9E1',
-                        0.3,
-                      ),
-                    },
+                    py: 1,
+                    px: 1.5,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    borderBottom: `1px solid ${T.divider}`,
                   }}
                 >
-                  <ListItemText
-                    primary={employee.name}
-                    secondary={`#${employee.employeeNumber}`}
-                    primaryTypographyProps={{
-                      fontWeight: 'bold',
-                      color: settings.textPrimaryColor || '#6D2323',
-                    }}
-                    secondaryTypographyProps={{
-                      color: settings.textSecondaryColor || '#666',
-                    }}
-                  />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Avatar
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        fontSize: '0.72rem',
+                        bgcolor: T.accent,
+                        color: '#fff',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {emp.name?.charAt(0)?.toUpperCase() || '?'}
+                    </Avatar>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>
+                        {emp.name}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                        #{emp.employeeNumber}
+                      </Typography>
+                    </Box>
+                  </Box>
                 </ListItem>
               ))}
             </List>
-          ) : query.length >= 2 ? (
-            <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                No employees found matching "{query}"
-              </Typography>
-            </Box>
           ) : (
             <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                {employees.length === 0
-                  ? 'No employees available'
+              <Typography sx={{ fontSize: '0.8rem', color: T.faint, fontStyle: 'italic' }}>
+                {query.length >= 2
+                  ? `No employees found for "${query}"`
                   : 'Type to search or scroll to browse'}
               </Typography>
             </Box>
@@ -363,13 +586,41 @@ const EmployeeAutocomplete = ({
   );
 };
 
-const Children = () => {
-  const { socket, connected } = useSocket();
-  const refreshChildrenRef = useRef(null);
-  const { settings } = useSystemSettings();
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const getAge = (dateOfBirth) => {
+  if (!dateOfBirth) return 'N/A';
+  const today = new Date();
+  const birth = new Date(dateOfBirth);
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+};
 
+const fullName = (c) =>
+  [
+    c.childrenFirstName,
+    c.childrenMiddleName,
+    c.childrenLastName,
+    c.childrenNameExtension ? `, ${c.childrenNameExtension}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+const Children = () => {
+  useLocalSystemSettings(); // keeps localStorage in sync, same as ECM pattern
+
+  const { socket, connected } = useSocket();
+  const refreshRef = useRef(null);
+
+  // ── State ──
   const [children, setChildren] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearch = useDeferredValue(searchTerm);
+
   const [newChild, setNewChild] = useState({
     childrenFirstName: '',
     childrenMiddleName: '',
@@ -378,164 +629,137 @@ const Children = () => {
     dateOfBirth: '',
     person_id: '',
   });
-  
-  // Pagination State
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(20);
-
-  // Modal States
   const [selectedEmployee, setSelectedEmployee] = useState(null);
-  
-  // Split View Modal State
-  const [employeeChildrenModal, setEmployeeChildrenModal] = useState({
+  const [errors, setErrors] = useState({});
+
+  const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successAction, setSuccessAction] = useState('');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  const [viewMode, setViewMode] = useState('grid');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
+
+  // Modal — split view
+  const [modalState, setModalState] = useState({
     open: false,
     employeeId: null,
     employeeName: '',
     children: [],
   });
-  
-  // Detail View State (Right Side)
   const [selectedChild, setSelectedChild] = useState(null);
   const [tempChildData, setTempChildData] = useState(null);
   const [isEditingChild, setIsEditingChild] = useState(false);
+  const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
 
-  const [loading, setLoading] = useState(false);
-  const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
-  const [errors, setErrors] = useState({});
-  const [viewMode, setViewMode] = useState('grid');
+  // Access control
+  const { hasAccess } = usePageAccess('children');
 
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success',
-  });
-
-  const showSnackbar = (message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity });
-  };
-
-  const navigate = useNavigate();
-
-  // Stable themed components
-  const GlassCard = ThemedCard;
-  const ProfessionalButton = ThemedButton;
-  const ModernTextField = ThemedTextField;
-
-  // Colors
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark =
-    settings.secondaryColor || settings.hoverColor || '#8B3333';
-  const grayColor = settings.textSecondaryColor || '#6c757d';
-
-  // Access Control
-  const {
-    hasAccess,
-    loading: accessLoading,
-    error: accessError,
-  } = usePageAccess('children');
+  useEffect(() => { setPage(0); }, [deferredSearch]);
 
   useEffect(() => {
-    fetchChildren();
-  }, []);
+    fetchChildren().finally(() => setPageLoading(false));
+  }, []); // eslint-disable-line
 
-  const fetchChildren = async () => {
-    try {
-      const result = await axios.get(
-        `${API_BASE_URL}/childrenRoute/children-table`,
-        getAuthHeaders(),
-      );
-      setChildren(result.data);
-
-      const uniqueEmployeeIds = [
-        ...new Set(result.data.map((c) => c.person_id).filter(Boolean)),
-      ];
-      const namesMap = {};
-
-      await Promise.all(
-        uniqueEmployeeIds.map(async (id) => {
-          try {
-            const response = await axios.get(
-              `${API_BASE_URL}/Remittance/employees/${id}`,
-              getAuthHeaders(),
-            );
-            namesMap[id] = response.data.name || 'Unknown';
-          } catch (error) {
-            namesMap[id] = 'Unknown';
-          }
-        }),
-      );
-
-      setEmployeeNames(namesMap);
-    } catch (error) {
-      console.error('Error fetching children:', error);
-      showSnackbar(
-        'Failed to fetch children records. Please try again.',
-        'error',
-      );
-    }
-  };
-
-  useEffect(() => {
-    refreshChildrenRef.current = fetchChildren;
-  });
+  useEffect(() => { refreshRef.current = fetchChildren; });
 
   useEffect(() => {
     if (!socket || !connected) return;
-    const handleChanged = () => {
-      refreshChildrenRef.current?.();
-    };
-    socket.on('childrenTableChanged', handleChanged);
-    return () => {
-      socket.off('childrenTableChanged', handleChanged);
-    };
+    const handler = () => refreshRef.current?.();
+    socket.on('childrenTableChanged', handler);
+    return () => socket.off('childrenTableChanged', handler);
   }, [socket, connected]);
 
-  const groupChildrenByEmployee = () => {
-    const grouped = {};
-    children.forEach((child) => {
-      if (!grouped[child.person_id]) {
-        grouped[child.person_id] = {
-          employeeId: child.person_id,
-          employeeName: employeeNames[child.person_id] || 'Unknown',
+  const showSnackbar = (message, severity = 'success') =>
+    setSnackbar({ open: true, message, severity });
+
+  const fetchChildren = async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/childrenRoute/children-table`,
+        getAuthHeaders()
+      );
+      setChildren(r.data);
+
+      const ids = [...new Set(r.data.map((c) => c.person_id).filter(Boolean))];
+      const namesMap = {};
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await axios.get(
+              `${API_BASE_URL}/Remittance/employees/${id}`,
+              getAuthHeaders()
+            );
+            namesMap[id] = res.data.name || 'Unknown';
+          } catch {
+            namesMap[id] = 'Unknown';
+          }
+        })
+      );
+      setEmployeeNames(namesMap);
+    } catch {
+      showSnackbar('Failed to fetch children records.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Grouped & filtered data ──
+  const groupedData = useMemo(() => {
+    const map = {};
+    children.forEach((c) => {
+      if (!map[c.person_id]) {
+        map[c.person_id] = {
+          employeeId: c.person_id,
+          employeeName: employeeNames[c.person_id] || 'Unknown',
           children: [],
         };
       }
-      grouped[child.person_id].children.push(child);
+      map[c.person_id].children.push(c);
     });
-    return Object.values(grouped);
+    return Object.values(map);
+  }, [children, employeeNames]);
+
+  const filteredData = useMemo(() => {
+    const q = (deferredSearch || '').toString().toLowerCase().trim();
+    if (!q) return groupedData;
+    return groupedData.filter(
+      (g) =>
+        g.employeeId?.toString().includes(q) ||
+        g.employeeName?.toLowerCase().includes(q) ||
+        g.children.some((c) =>
+          fullName(c).toLowerCase().includes(q)
+        )
+    );
+  }, [groupedData, deferredSearch]);
+
+  const pagedData = useMemo(
+    () => filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredData, page, rowsPerPage]
+  );
+
+  // ── CRUD ──
+  const validateAdd = () => {
+    const errs = {};
+    if (!newChild.person_id) errs.person_id = 'Required';
+    if (!newChild.childrenFirstName?.trim()) errs.childrenFirstName = 'Required';
+    if (!newChild.childrenLastName?.trim()) errs.childrenLastName = 'Required';
+    if (!newChild.dateOfBirth) errs.dateOfBirth = 'Required';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
-  const validateForm = () => {
-    const newErrors = {};
-    const requiredFields = [
-      'childrenFirstName',
-      'childrenLastName',
-      'dateOfBirth',
-      'person_id',
-    ];
-    requiredFields.forEach((field) => {
-      if (!newChild[field] || newChild[field].trim() === '') {
-        newErrors[field] = 'This field is required';
-      }
-    });
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleAdd = async () => {
-    if (!validateForm()) {
-      showSnackbar('Please fill in all required fields', 'error');
-      return;
-    }
+  const handleCreate = async () => {
+    if (!validateAdd()) { showSnackbar('Please fill in all required fields.', 'error'); return; }
     setLoading(true);
     try {
       await axios.post(
         `${API_BASE_URL}/childrenRoute/children-table`,
         newChild,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setNewChild({
         childrenFirstName: '',
@@ -547,72 +771,82 @@ const Children = () => {
       });
       setSelectedEmployee(null);
       setErrors({});
+      fetchChildren();
       setTimeout(() => {
         setLoading(false);
         setSuccessAction('adding');
         setSuccessOpen(true);
         setTimeout(() => setSuccessOpen(false), 2000);
       }, 300);
-      fetchChildren();
     } catch (err) {
-      console.error('Error adding data:', err);
+      showSnackbar(err.response?.data?.error || 'Failed to add child record.', 'error');
       setLoading(false);
-      showSnackbar('Failed to add child record. Please try again.', 'error');
     }
   };
 
-  const handleChange = (field, value) => {
-    setNewChild({ ...newChild, [field]: value });
-    if (errors[field]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
-      });
-    }
-  };
-
-  const handleEmployeeChange = (employeeNumber) => {
-    setNewChild({ ...newChild, person_id: employeeNumber });
-    setErrors((prev) => {
-      const newErrors = { ...prev };
-      delete newErrors.person_id;
-      return newErrors;
-    });
-  };
-
-  const handleEmployeeSelect = (employee) => {
-    setSelectedEmployee(employee);
-  };
-
-  // Modal Handlers
-  const handleOpenEmployeeChildrenModal = (employeeId, employeeName, children) => {
-    setEmployeeChildrenModal({
-      open: true,
-      employeeId,
-      employeeName,
-      children,
-    });
-    // Select first child by default if available
-    if (children.length > 0) {
-      selectChild(children[0]);
-    } else {
-      setSelectedChild(null);
-      setTempChildData(null);
+  const handleUpdate = async () => {
+    if (!tempChildData) return;
+    setLoading(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/childrenRoute/children-table/${tempChildData.id}`,
+        tempChildData,
+        getAuthHeaders()
+      );
+      const updatedList = modalState.children.map((c) =>
+        c.id === tempChildData.id ? { ...tempChildData } : c
+      );
+      setModalState((s) => ({ ...s, children: updatedList }));
+      setSelectedChild({ ...tempChildData });
       setIsEditingChild(false);
+      fetchChildren();
+      setSuccessAction('edit');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch {
+      showSnackbar('Failed to update child record.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCloseEmployeeChildrenModal = () => {
-    setEmployeeChildrenModal({
-      open: false,
-      employeeId: null,
-      employeeName: '',
-      children: [],
-    });
+  const handleDelete = async () => {
+    if (!selectedChild) return;
+    if (!window.confirm('Are you sure you want to delete this child record?')) return;
+    setLoading(true);
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/childrenRoute/children-table/${selectedChild.id}`,
+        getAuthHeaders()
+      );
+      const updatedList = modalState.children.filter((c) => c.id !== selectedChild.id);
+      setModalState((s) => ({ ...s, children: updatedList }));
+      if (updatedList.length > 0) selectChild(updatedList[0]);
+      else { setSelectedChild(null); setTempChildData(null); }
+      fetchChildren();
+      setSuccessAction('delete');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch {
+      showSnackbar('Failed to delete child record.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Modal helpers ──
+  const openModal = (group) => {
+    setModalState({ open: true, employeeId: group.employeeId, employeeName: group.employeeName, children: group.children });
+    if (group.children.length > 0) selectChild(group.children[0]);
+    else { setSelectedChild(null); setTempChildData(null); setIsEditingChild(false); }
+  };
+
+  const closeModal = () => {
+    setModalState({ open: false, employeeId: null, employeeName: '', children: [] });
     setSelectedChild(null);
     setTempChildData(null);
     setIsEditingChild(false);
+    setSelectedEditEmployee(null);
   };
 
   const selectChild = (child) => {
@@ -621,1390 +855,872 @@ const Children = () => {
     setIsEditingChild(false);
   };
 
-  const handleDetailChange = (field, value) => {
-    setTempChildData({ ...tempChildData, [field]: value });
+  const hasChanges = () => {
+    if (!tempChildData || !selectedChild) return false;
+    return JSON.stringify(tempChildData) !== JSON.stringify(selectedChild);
   };
 
-  const handleUpdateChild = async () => {
-    if (!tempChildData) return;
-    
-    setLoading(true);
-    try {
-      await axios.put(
-        `${API_BASE_URL}/childrenRoute/children-table/${tempChildData.id}`,
-        tempChildData,
-        getAuthHeaders(),
-      );
-      
-      // Update local modal state immediately
-      const updatedChildren = employeeChildrenModal.children.map(c => 
-        c.id === tempChildData.id ? { ...tempChildData } : c
-      );
-      setEmployeeChildrenModal(prev => ({ ...prev, children: updatedChildren }));
-      
-      setSelectedChild({ ...tempChildData });
-      setIsEditingChild(false);
-      
-      fetchChildren(); // Refresh global data
-      setSuccessAction('edit');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error updating child:', err);
-      showSnackbar('Failed to update child record. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const canAdd =
+    !loading &&
+    !!newChild.person_id &&
+    !!newChild.childrenFirstName?.trim() &&
+    !!newChild.childrenLastName?.trim() &&
+    !!newChild.dateOfBirth;
 
-  const handleDeleteChild = async () => {
-    if (!selectedChild) return;
-
-    if (!window.confirm('Are you sure you want to delete this child record?')) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await axios.delete(
-        `${API_BASE_URL}/childrenRoute/children-table/${selectedChild.id}`,
-        getAuthHeaders(),
-      );
-
-      // Update local modal state
-      const updatedChildren = employeeChildrenModal.children.filter(c => c.id !== selectedChild.id);
-      setEmployeeChildrenModal(prev => ({ ...prev, children: updatedChildren }));
-
-      // Select next available or clear
-      if (updatedChildren.length > 0) {
-        selectChild(updatedChildren[0]);
-      } else {
-        setSelectedChild(null);
-        setTempChildData(null);
-      }
-
-      fetchChildren();
-      setSuccessAction('delete');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error deleting child:', err);
-      showSnackbar('Failed to delete child record. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setTempChildData({ ...selectedChild });
-    setIsEditingChild(false);
-  };
-
-  const getAge = (dateOfBirth) => {
-    if (!dateOfBirth) return 'N/A';
-    const today = new Date();
-    const birthDate = new Date(dateOfBirth);
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (
-      monthDiff < 0 ||
-      (monthDiff === 0 && today.getDate() < birthDate.getDate())
-    ) {
-      age--;
-    }
-    return age;
-  };
-
-  const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
-    }
-  };
-
-  // Pagination Logic
-  const [searchTerm, setSearchTerm] = useState('');
-  const groupedChildren = groupChildrenByEmployee();
-  const filteredGroupedChildren = groupedChildren.filter((group) => {
-    const employeeName = group.employeeName.toLowerCase();
-    const employeeId = group.employeeId?.toString() || '';
-    const childrenNames = group.children
-      .map((child) =>
-        `${child.childrenFirstName} ${child.childrenMiddleName} ${child.childrenLastName}`.toLowerCase(),
-      )
-      .join(' ');
-    const search = searchTerm.toLowerCase();
-    return (
-      employeeId.includes(search) ||
-      employeeName.includes(search) ||
-      childrenNames.includes(search)
-    );
-  });
-
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  // Avoid layout shift
-  useEffect(() => {
-    if (page > 0 && page * rowsPerPage >= filteredGroupedChildren.length) {
-      setPage(0);
-    }
-  }, [filteredGroupedChildren.length, rowsPerPage, page]);
-
-  if (hasAccess === null) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <CircularProgress sx={{ color: accentColor, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: accentColor }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
-
+  // ── Access guard ──
   if (hasAccess === false) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Children Information. Contact your administrator to request access."
+        message="You do not have permission to access Children Information."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
     );
   }
 
-  // Pagination calculations
-  const totalRows = filteredGroupedChildren.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
-  const startRow = totalRows === 0 ? 0 : page * rowsPerPage + 1;
-  const endRow = Math.min((page + 1) * rowsPerPage, totalRows);
-
-  const paginatedData = (() => {
-    const start = page * rowsPerPage;
-    const end = start + rowsPerPage;
-    return filteredGroupedChildren.slice(start, end);
-  })();
+  if (pageLoading) return <ChildrenWireframe />;
 
   return (
-    <Box
-      sx={{
-        py: { xs: 2, md: 4 },
-        mt: { xs: 0, md: -5 },
-        width: '100%',
-        maxWidth: '1600px',
-        mx: 'auto',
-        overflowX: 'hidden',
-      }}
-    >
-      <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard settings={settings}>
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: accentColor,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
-                >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: 'rgba(109,35,35,0.15)',
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
-                      }}
-                    >
-                      <FamilyRestroomIcon
-                        sx={{ color: accentColor, fontSize: 32 }}
-                      />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: accentColor,
-                        }}
-                      >
-                        Children Information Management
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: accentDark,
-                        }}
-                      >
-                        Add and manage children records for employees
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={() => window.location.reload()}
-                        sx={{
-                          bgcolor: 'rgba(109,35,35,0.1)',
-                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                          color: accentColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh sx={{ fontSize: 24 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Loading Backdrop */}
-        <Backdrop
+    <>
+      <style>{shimmerKeyframes}</style>
+      <Fade in timeout={400}>
+        <Box
           sx={{
-            color: primaryColor,
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Processing child record...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Main Content */}
-        <Grid container spacing={4}>
-          {/* Add New Child Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={700}>
-              <GlassCard
-                settings={settings}
-                sx={{
-                  height: 'calc(100vh - 200px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                <Box
-                  sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <ChildCareIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                      Add New Child
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                      Fill in the child's information
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflowY: 'auto',
-                  }}
-                >
-                  <Box sx={{ mb: 3 }}>
-                    <Typography
-                      variant="h5"
-                      sx={{
-                        fontWeight: 600,
-                        mb: 2,
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information{' '}
-                      <span
-                        style={{
-                          marginLeft: '12px',
-                          fontWeight: 400,
-                          opacity: 0.7,
-                          color: 'red',
-                        }}
-                      >
-                        *
-                      </span>
-                    </Typography>
-
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Search Employee
-                        </Typography>
-                        <EmployeeAutocomplete
-                          value={newChild.person_id}
-                          onChange={handleEmployeeChange}
-                          selectedEmployee={selectedEmployee}
-                          onEmployeeSelect={handleEmployeeSelect}
-                          placeholder="Search and select employee..."
-                          required
-                          error={!!errors.person_id}
-                          helperText={errors.person_id || ''}
-                          settings={settings}
-                        />
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Selected Employee
-                        </Typography>
-                        {selectedEmployee ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: alpha(
-                                settings.accentColor ||
-                                  settings.backgroundColor ||
-                                  '#FEF9E1',
-                                0.8,
-                              ),
-                              border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              paddingLeft: '10px',
-                              gap: 1.5,
-                            }}
-                          >
-                            <PersonIcon
-                              sx={{ color: accentColor, fontSize: 20 }}
-                            />
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                flex: 1,
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: accentColor,
-                                  fontSize: '14px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {selectedEmployee.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: settings.textPrimaryColor || '#A31D1D',
-                                  fontSize: '12px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                ID: {selectedEmployee.employeeNumber}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                              border: `2px dashed ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              minHeight: '30px',
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: grayColor,
-                                fontStyle: 'italic',
-                                fontSize: '14px',
-                              }}
-                            >
-                              No employee selected
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    </Grid>
-                  </Box>
-
-                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-                  <Typography
-                    variant="h5"
-                    sx={{
-                      fontWeight: 600,
-                      mb: 3,
-                      color: accentColor,
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <ChildCareIcon sx={{ mr: 2, fontSize: 24 }} />
-                    {newChild.childrenFirstName || newChild.childrenLastName ? `${newChild.childrenFirstName} ${newChild.childrenMiddleName ? newChild.childrenMiddleName + ' ' : ''}${newChild.childrenLastName}${newChild.childrenNameExtension ? ', ' + newChild.childrenNameExtension : ''}`.trim() : 'Child Details'}
-                  </Typography>
-
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        First Name <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        value={newChild.childrenFirstName}
-                        onChange={(e) =>
-                          handleChange('childrenFirstName', e.target.value)
-                        }
-                        fullWidth
-                        size="small"
-                        error={!!errors.childrenFirstName}
-                        helperText={errors.childrenFirstName || ''}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Middle Name
-                      </Typography>
-                      <ModernTextField
-                        value={newChild.childrenMiddleName}
-                        onChange={(e) =>
-                          handleChange('childrenMiddleName', e.target.value)
-                        }
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Last Name <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        value={newChild.childrenLastName}
-                        onChange={(e) =>
-                          handleChange('childrenLastName', e.target.value)
-                        }
-                        fullWidth
-                        size="small"
-                        error={!!errors.childrenLastName}
-                        helperText={errors.childrenLastName || ''}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Name Extension
-                      </Typography>
-                      <ModernTextField
-                        value={newChild.childrenNameExtension}
-                        onChange={(e) =>
-                          handleChange('childrenNameExtension', e.target.value)
-                        }
-                        fullWidth
-                        size="small"
-                        placeholder="e.g., Jr., Sr., III"
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography
-                        variant="body2"
-                        sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                      >
-                        Date of Birth <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        type="date"
-                        value={newChild.dateOfBirth}
-                        onChange={(e) =>
-                          handleChange('dateOfBirth', e.target.value)
-                        }
-                        fullWidth
-                        size="small"
-                        InputLabelProps={{ shrink: true }}
-                        error={!!errors.dateOfBirth}
-                        helperText={errors.dateOfBirth || ''}
-                      />
-                    </Grid>
-                  </Grid>
-
-                  <Box sx={{ mt: 'auto', pt: 3 }}>
-                    <ProfessionalButton
-                      onClick={handleAdd}
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      fullWidth
-                      sx={{
-                        backgroundColor: accentColor,
-                        color: primaryColor,
-                        py: 1.5,
-                        fontSize: '1rem',
-                        '&:hover': {
-                          backgroundColor: accentDark,
-                        },
-                      }}
-                    >
-                      Add Child Record
-                    </ProfessionalButton>
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Fade>
-          </Grid>
-
-          {/* Employee Children Records Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={900}>
-              <GlassCard
-                settings={settings}
-                sx={{
-                  height: 'calc(100vh - 200px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                <Box
-                  sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <FamilyRestroomIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                        Employee Children Records
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                        View and manage children records by employee
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <ToggleButtonGroup
-                    value={viewMode}
-                    exclusive
-                    onChange={handleViewModeChange}
-                    aria-label="view mode"
-                    size="small"
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                      '& .MuiToggleButton-root': {
-                        color: accentColor,
-                        borderColor: alpha(
-                          settings.primaryColor || '#6d2323',
-                          0.5,
-                        ),
-                        padding: '4px 8px',
-                        '&.Mui-selected': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          color: accentColor,
-                        },
-                      },
-                    }}
-                  >
-                    <ToggleButton value="grid" aria-label="grid view">
-                      <ViewModuleIcon fontSize="small" />
-                    </ToggleButton>
-                    <ToggleButton value="list" aria-label="list view">
-                      <ViewListIcon fontSize="small" />
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-                </Box>
-
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                    pt: 2,
-                  }}
-                >
-                  <Box sx={{ mb: 2, flexShrink: 0 }}>
-                    <ModernTextField
-                      size="small"
-                      variant="outlined"
-                      placeholder="Search by Employee ID, Name, or Child Name"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      fullWidth
-                      InputProps={{
-                        startAdornment: (
-                          <SearchIcon sx={{ color: accentColor, mr: 1 }} />
-                        ),
-                      }}
-                    />
-                  </Box>
-
-                  {/* Scrollable Area */}
-                  <Box
-                    sx={{
-                      flexGrow: 1,
-                      overflowY: 'auto',
-                      pr: 1,
-                      '&::-webkit-scrollbar': {
-                        width: '6px',
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        background: '#f1f1f1',
-                        borderRadius: '3px',
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: accentColor,
-                        borderRadius: '3px',
-                      },
-                    }}
-                  >
-                    {viewMode === 'grid' ? (
-                      <Grid container spacing={1.5}>
-                        {paginatedData.map((group) => (
-                          <Grid
-                            item
-                            xs={12}
-                            sm={6}
-                            md={6}
-                            lg={6}
-                            key={group.employeeId}
-                          >
-                            <Card
-                              onClick={() =>
-                                handleOpenEmployeeChildrenModal(
-                                  group.employeeId,
-                                  group.employeeName,
-                                  group.children,
-                                )
-                              }
-                              sx={{
-                                cursor: 'pointer',
-                                border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.15)}`,
-                                height: '100%',
-                                backgroundColor: '#ffffff',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                                transition: 'all 0.2s ease',
-                                '&:hover': {
-                                  borderColor: accentColor,
-                                  transform: 'translateY(-4px)',
-                                  boxShadow: '0 8px 16px rgba(109,35,35,0.1)',
-                                },
-                              }}
-                            >
-                              <CardContent
-                                sx={{
-                                  p: 1.5,
-                                  flexGrow: 1,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  textAlign: 'center',
-                                  gap: 0.5,
-                                }}
-                              >
-                                <Avatar
-                                  sx={{
-                                    bgcolor: alpha(accentColor, 0.1),
-                                    color: accentColor,
-                                    width: 36,
-                                    height: 36,
-                                  }}
-                                >
-                                  <FamilyRestroomIcon sx={{ fontSize: 20 }} />
-                                </Avatar>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: accentColor,
-                                    fontWeight: 'bold',
-                                    fontSize: '0.7rem',
-                                    lineHeight: 1.2,
-                                  }}
-                                >
-                                  ID: {group.employeeId}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="600"
-                                  color="#333"
-                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
-                                >
-                                  {group.employeeName}
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    ) : (
-                      paginatedData.map((group) => (
-                        <Card
-                          key={group.employeeId}
-                          onClick={() =>
-                            handleOpenEmployeeChildrenModal(
-                              group.employeeId,
-                              group.employeeName,
-                              group.children,
-                            )
-                          }
-                          sx={{
-                            cursor: 'pointer',
-                            border: '1px solid rgba(109, 35, 35, 0.1)',
-                            mb: 1,
-                            backgroundColor: '#fff',
-                            '&:hover': {
-                              borderColor: accentColor,
-                              backgroundColor: alpha(
-                                settings.accentColor ||
-                                  settings.backgroundColor ||
-                                  '#FEF9E1',
-                                0.2,
-                              ),
-                            },
-                          }}
-                        >
-                          <Box sx={{ p: 1 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              <FamilyRestroomIcon
-                                sx={{ fontSize: 18, color: accentColor, mr: 1.5 }}
-                              />
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: accentColor,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold',
-                                    lineHeight: 1.1,
-                                  }}
-                                >
-                                  ID: {group.employeeId}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
-                                >
-                                  {group.employeeName}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Box>
-                        </Card>
-                      ))
-                    )}
-
-                    {paginatedData.length === 0 && (
-                      <Box textAlign="center" py={4}>
-                        <Typography
-                          variant="h6"
-                          color={accentColor}
-                          fontWeight="bold"
-                          sx={{ mb: 1 }}
-                        >
-                          No Records Found
-                        </Typography>
-                        <Typography variant="body2" color={grayColor}>
-                          Try adjusting your search criteria
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-
-                  {/* Fixed Footer - Pagination */}
-                  <Box
-                    sx={{
-                      flexShrink: 0,
-                      mt: 2,
-                      pt: 1.5,
-                      borderTop: `1px solid ${alpha(accentColor, 0.15)}`,
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                      alignItems: 'center',
-                      backgroundColor: '#fff',
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-end',
-                        gap: 0.5,
-                      }}
-                    >
-                      {/* Rows per page */}
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.75,
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: '0.75rem',
-                            color: accentColor,
-                            fontWeight: 600,
-                          }}
-                        >
-                          Rows per page:
-                        </Typography>
-                        <FormControl size="small" sx={{ minWidth: 70 }}>
-                          <Select
-                            value={rowsPerPage}
-                            onChange={handleChangeRowsPerPage}
-                            sx={{ fontSize: '0.75rem', height: 28 }}
-                          >
-                            <MenuItem value={20}>20</MenuItem>
-                            <MenuItem value={40}>40</MenuItem>
-                            <MenuItem value={60}>60</MenuItem>
-                            <MenuItem value={80}>80</MenuItem>
-                            <MenuItem value={100}>100</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </Box>
-
-                      {/* Total + Pagination */}
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.5,
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: '0.75rem',
-                            color: accentColor,
-                          }}
-                        >
-                          {startRow}-{endRow} of {totalRows}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => setPage((p) => Math.max(0, p - 1))}
-                          disabled={page <= 0}
-                          sx={{ color: accentColor, p: 0.5 }}
-                        >
-                          <PrevIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setPage((p) => Math.min(totalPages - 1, p + 1))
-                          }
-                          disabled={page >= totalPages - 1}
-                          sx={{ color: accentColor, p: 0.5 }}
-                        >
-                          <NextIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Box>
-                    </Box>
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Fade>
-          </Grid>
-        </Grid>
-
-        {/* Employee Children Modal - Split View */}
-        <Modal
-          open={employeeChildrenModal.open}
-          onClose={handleCloseEmployeeChildrenModal}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: '100vw',
+            maxWidth: '100%',
+            position: 'relative',
+            left: '63%',
+            transform: 'translateX(-61%)',
+            px: { xs: 2, sm: 3, md: 6 },
           }}
         >
-          <GlassCard
-            settings={settings}
-            sx={{
-              width: '95%',
-              maxWidth: '1200px',
-              height: '85vh',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Header with Gradient and White Text */}
+          <LoadingOverlay open={loading} message="Processing child record…" />
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
+            showOkButton={true}
+          />
+
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
             <Box
               sx={{
-                p: 3,
-                background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
-                color: '#ffffff', // Explicitly White as requested
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                flexShrink: 0,
+                position: 'relative',
+                overflow: 'hidden',
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <FamilyRestroomIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
+              <Box
+                sx={{
+                  position: 'absolute', top: -50, right: -50,
+                  width: 200, height: 200, borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+                }}
+              />
+              <Box
+                sx={{
+                  position: 'absolute', bottom: -30, left: '30%',
+                  width: 150, height: 150, borderRadius: '50%',
+                  background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+                }}
+              />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+                <FamilyRestroomIcon sx={{ fontSize: 32, color: T.accent }} />
                 <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                    Children of {employeeChildrenModal.employeeName}
+                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                    Children Information Management
                   </Typography>
-                  <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                    Employee ID: {employeeChildrenModal.employeeId} |{' '}
-                    {employeeChildrenModal.children.length}{' '}
-                    {employeeChildrenModal.children.length === 1
-                      ? 'Child'
-                      : 'Children'}
+                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                    Administrative Panel • Add and manage children records for employees
                   </Typography>
                 </Box>
               </Box>
-              <IconButton
-                onClick={handleCloseEmployeeChildrenModal}
-                sx={{ color: '#ffffff' }}
-              >
-                <Close />
-              </IconButton>
-            </Box>
-
-            {/* Split Body */}
-            <Box
-              sx={{
-                flexGrow: 1,
-                display: 'flex',
-                overflow: 'hidden',
-                backgroundColor: '#fff',
-              }}
-            >
-              {/* Left Panel: List of Children */}
-              <Box
-                sx={{
-                  width: '350px',
-                  borderRight: '1px solid rgba(0,0,0,0.1)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  backgroundColor: '#f9f9f9',
-                }}
-              >
-                <Box sx={{ p: 2, borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-                  <Typography variant="subtitle2" fontWeight="bold">
-                    Children List
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <Box
+                  sx={{
+                    px: 2.5, py: 0.75, borderRadius: 6,
+                    bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}`,
+                  }}
+                >
+                  <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                    {children.length} {children.length === 1 ? 'record' : 'records'}
                   </Typography>
                 </Box>
-                <List sx={{ flexGrow: 1, overflowY: 'auto', p: 1 }}>
-                  {employeeChildrenModal.children.map((child) => (
-                    <ListItem
-                      key={child.id}
-                      button
-                      selected={selectedChild?.id === child.id}
-                      onClick={() => selectChild(child)}
+                <DashboardModuleAuditLogs tableName="children_table" moduleLabel="Children Information" />
+                <Tooltip title="Refresh Data">
+                  <IconButton
+                    onClick={fetchChildren}
+                    sx={{
+                      bgcolor: alpha(T.accent, 0.08), color: T.accent,
+                      width: 36, height: 36,
+                      '&:hover': { bgcolor: alpha(T.accent, 0.15) },
+                    }}
+                  >
+                    <Refresh sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          </SectionCard>
+
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+
+            {/* ── LEFT: Add New Child ── */}
+            <Grid item xs={12} lg={4}>
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+
+                {/* Panel header */}
+                <Box
+                  sx={{
+                    px: 3.5, py: 1.25,
+                    borderBottom: `1px solid ${T.divider}`,
+                    display: 'flex', alignItems: 'center', gap: 1.5,
+                    bgcolor: T.accentFaint,
+                  }}
+                >
+                  <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>
+                    Add New Child
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                    <Box component="span" sx={{ color: '#c62828' }}>*</Box> required
+                  </Typography>
+                </Box>
+
+                {/* Scrollable body */}
+                <Box
+                  sx={{
+                    px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto',
+                    display: 'flex', flexDirection: 'column', gap: 0,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                  }}
+                >
+                  {/* ── SECTION: Employee ── */}
+                  <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Search Employee <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <EmployeeAutocomplete
+                      value={newChild.person_id}
+                      onChange={(val) => {
+                        setNewChild((r) => ({ ...r, person_id: val }));
+                        setErrors((e) => { const n = { ...e }; delete n.person_id; return n; });
+                      }}
+                      selectedEmployee={selectedEmployee}
+                      onEmployeeSelect={setSelectedEmployee}
+                      placeholder="Search name or employee ID…"
+                      required
+                      error={!!errors.person_id}
+                      helperText={errors.person_id || ''}
+                    />
+                  </Box>
+
+                  {/* Employee preview pill */}
+                  {selectedEmployee ? (
+                    <Box
                       sx={{
-                        borderRadius: 1,
-                        mb: 1,
-                        border: selectedChild?.id === child.id
-                          ? `1px solid ${accentColor}`
-                          : '1px solid transparent',
-                        backgroundColor: selectedChild?.id === child.id
-                          ? alpha(accentColor, 0.1)
-                          : 'transparent',
-                        '&.Mui-selected': {
-                          backgroundColor: alpha(accentColor, 0.1),
-                          '&:hover': {
-                            backgroundColor: alpha(accentColor, 0.2),
-                          },
-                        },
+                        display: 'flex', alignItems: 'center', gap: 1.25,
+                        px: 1.75, py: 1.25, mb: 2.5, borderRadius: 2,
+                        bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
                       }}
                     >
-                      <ListItemText
-                        primary={
-                          <Typography variant="body2" fontWeight="bold" noWrap>
-                            {child.childrenFirstName} {child.childrenLastName}
-                          </Typography>
-                        }
-                        secondary={
-                          <Typography variant="caption" noWrap>
-                            Age: {getAge(child.dateOfBirth)} yrs
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                  ))}
-                  {employeeChildrenModal.children.length === 0 && (
-                    <Box p={2} textAlign="center">
-                      <Typography variant="body2" color="textSecondary">
-                        No children added.
+                      <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: '0.78rem', color: T.accent, fontWeight: 700, flexShrink: 0 }}>
+                        {selectedEmployee.name?.charAt(0)?.toUpperCase() || '?'}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
+                          {selectedEmployee.name}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>
+                          #{selectedEmployee.employeeNumber}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2,
+                        py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02),
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic' }}>
+                        No employee selected yet
                       </Typography>
                     </Box>
                   )}
-                </List>
-              </Box>
 
-              {/* Right Panel: Child Details / Edit Form */}
-              <Box
-                sx={{
-                  flexGrow: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }}
-              >
-                {selectedChild ? (
-                  <>
-                    <Box
+                  <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                  {/* ── SECTION: Child Details ── */}
+                  <FormSectionLabel icon={ChildCareIcon}>Child Details</FormSectionLabel>
+
+                  {/* First Name */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      First Name <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      value={newChild.childrenFirstName}
+                      onChange={(e) => {
+                        setNewChild((r) => ({ ...r, childrenFirstName: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.childrenFirstName; return n; });
+                      }}
+                      fullWidth size="small"
+                      error={!!errors.childrenFirstName}
+                      helperText={errors.childrenFirstName || ''}
+                    />
+                  </Box>
+
+                  {/* Middle Name */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Middle Name
+                    </Typography>
+                    <FieldInput
+                      value={newChild.childrenMiddleName}
+                      onChange={(e) => setNewChild((r) => ({ ...r, childrenMiddleName: e.target.value }))}
+                      fullWidth size="small"
+                    />
+                  </Box>
+
+                  {/* Last Name */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Last Name <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      value={newChild.childrenLastName}
+                      onChange={(e) => {
+                        setNewChild((r) => ({ ...r, childrenLastName: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.childrenLastName; return n; });
+                      }}
+                      fullWidth size="small"
+                      error={!!errors.childrenLastName}
+                      helperText={errors.childrenLastName || ''}
+                    />
+                  </Box>
+
+                  {/* Name Extension */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Name Extension
+                    </Typography>
+                    <FieldInput
+                      value={newChild.childrenNameExtension}
+                      onChange={(e) => setNewChild((r) => ({ ...r, childrenNameExtension: e.target.value }))}
+                      placeholder="e.g., Jr., Sr., III"
+                      fullWidth size="small"
+                    />
+                  </Box>
+
+                  {/* Date of Birth */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Date of Birth <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      type="date"
+                      value={newChild.dateOfBirth}
+                      onChange={(e) => {
+                        setNewChild((r) => ({ ...r, dateOfBirth: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.dateOfBirth; return n; });
+                      }}
+                      fullWidth size="small"
+                      InputLabelProps={{ shrink: true }}
+                      error={!!errors.dateOfBirth}
+                      helperText={errors.dateOfBirth || ''}
+                    />
+                  </Box>
+
+                  {/* Submit */}
+                  <Box sx={{ mt: 'auto' }}>
+                    {(selectedEmployee || newChild.childrenFirstName) && (
+                      <AccentButton
+                        onClick={() => {
+                          setNewChild({ childrenFirstName: '', childrenMiddleName: '', childrenLastName: '', childrenNameExtension: '', dateOfBirth: '', person_id: '' });
+                          setSelectedEmployee(null);
+                          setErrors({});
+                        }}
+                        variant="outlined"
+                        fullWidth
+                        sx={{
+                          mb: 1, height: 36, fontSize: '0.8rem',
+                          borderColor: T.accentBorder, color: T.muted,
+                          '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent },
+                        }}
+                      >
+                        Clear Form
+                      </AccentButton>
+                    )}
+                    <AccentButton
+                      onClick={handleCreate}
+                      variant="contained"
+                      fullWidth
+                      disabled={!canAdd}
+                      startIcon={
+                        loading
+                          ? <CircularProgress size={14} sx={{ color: '#fff' }} />
+                          : <AddIcon sx={{ fontSize: '16px !important' }} />
+                      }
                       sx={{
-                        p: 2,
-                        borderBottom: '1px solid rgba(0,0,0,0.1)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        backgroundColor: '#fff',
+                        height: 42,
+                        bgcolor: canAdd ? T.accent : '#d0d0d0',
+                        color: canAdd ? '#fff' : '#888',
+                        boxShadow: canAdd ? `0 2px 10px ${alpha(T.accent, 0.32)}` : 'none',
+                        '&:hover': {
+                          bgcolor: canAdd ? T.accentDark : '#d0d0d0',
+                          boxShadow: canAdd ? `0 4px 16px ${alpha(T.accent, 0.38)}` : 'none',
+                        },
+                        '&:disabled': { bgcolor: '#d0d0d0 !important', color: '#888 !important', boxShadow: 'none !important', transform: 'none !important' },
                       }}
                     >
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: accentColor }}>
-                        {selectedChild ? `${selectedChild.childrenFirstName} ${selectedChild.childrenMiddleName ? selectedChild.childrenMiddleName + ' ' : ''}${selectedChild.childrenLastName}${selectedChild.childrenNameExtension ? ', ' + selectedChild.childrenNameExtension : ''}`.trim() : 'Child Details'}
+                      {loading ? 'Adding…' : 'Add Child Record'}
+                    </AccentButton>
+                  </Box>
+                </Box>
+              </SectionCard>
+            </Grid>
+
+            {/* ── RIGHT: Records ── */}
+            <Grid item xs={12} lg={8}>
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+
+                {/* Records header / toolbar */}
+                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+                  {/* Title row */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                        Employee Children Records
                       </Typography>
                     </Box>
-
-                    <Box
-                      sx={{
-                        flexGrow: 1,
-                        overflowY: 'auto',
-                        p: 3,
-                      }}
-                    >
-                      <Grid container spacing={3}>
-                        {/* Read Only or Editable Fields */}
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
-                          >
-                            First Name
-                          </Typography>
-                          {isEditingChild ? (
-                            <ModernTextField
-                              value={tempChildData.childrenFirstName}
-                              onChange={(e) =>
-                                handleDetailChange('childrenFirstName', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                              {selectedChild.childrenFirstName}
-                            </Typography>
-                          )}
-                        </Grid>
-
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
-                          >
-                            Middle Name
-                          </Typography>
-                          {isEditingChild ? (
-                            <ModernTextField
-                              value={tempChildData.childrenMiddleName}
-                              onChange={(e) =>
-                                handleDetailChange('childrenMiddleName', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Typography variant="body1">
-                              {selectedChild.childrenMiddleName || 'N/A'}
-                            </Typography>
-                          )}
-                        </Grid>
-
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
-                          >
-                            Last Name
-                          </Typography>
-                          {isEditingChild ? (
-                            <ModernTextField
-                              value={tempChildData.childrenLastName}
-                              onChange={(e) =>
-                                handleDetailChange('childrenLastName', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                              {selectedChild.childrenLastName}
-                            </Typography>
-                          )}
-                        </Grid>
-
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
-                          >
-                            Name Extension
-                          </Typography>
-                          {isEditingChild ? (
-                            <ModernTextField
-                              value={tempChildData.childrenNameExtension}
-                              onChange={(e) =>
-                                handleDetailChange('childrenNameExtension', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Typography variant="body1">
-                              {selectedChild.childrenNameExtension || 'N/A'}
-                            </Typography>
-                          )}
-                        </Grid>
-
-                        <Grid item xs={12}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, mb: 1, color: grayColor }}
-                          >
-                            Date of Birth
-                          </Typography>
-                          {isEditingChild ? (
-                            <ModernTextField
-                              type="date"
-                              value={tempChildData.dateOfBirth?.split('T')[0] || ''}
-                              onChange={(e) =>
-                                handleDetailChange('dateOfBirth', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                            />
-                          ) : (
-                            <Typography variant="body1">
-                              {selectedChild.dateOfBirth?.split('T')[0] || 'N/A'}
-                            </Typography>
-                          )}
-                        </Grid>
-                      </Grid>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>
+                          {filteredData.length} groups
+                        </Typography>
+                      </Box>
+                      <ToggleButtonGroup
+                        value={viewMode}
+                        exclusive
+                        onChange={(_, v) => v && setViewMode(v)}
+                        size="small"
+                        sx={{
+                          '& .MuiToggleButton-root': {
+                            px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted,
+                            '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                        <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                      </ToggleButtonGroup>
                     </Box>
+                  </Box>
 
-                    {/* Footer Actions */}
-                    <Box
-                      sx={{
-                        p: 2,
-                        borderTop: '1px solid rgba(0,0,0,0.1)',
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        gap: 2,
-                        backgroundColor: '#fff',
-                      }}
-                    >
-                      {isEditingChild ? (
-                        <>
-                          <ProfessionalButton
-                            onClick={handleCancelEdit}
-                            variant="outlined"
-                            startIcon={<CancelIcon />}
+                  {/* Search */}
+                  <FieldInput
+                    size="small"
+                    placeholder="Search by employee ID, name, or child name…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} />,
+                    }}
+                  />
+                </Box>
+
+                {/* Records list */}
+                <Box
+                  sx={{
+                    flexGrow: 1, overflowY: 'auto', p: 2,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                  }}
+                >
+                  {pagedData.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box
+                        sx={{
+                          width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2,
+                        }}
+                      >
+                        <FamilyRestroomIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                        {groupedData.length === 0 ? 'No records yet' : 'No records match your search'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                        {groupedData.length === 0
+                          ? 'Use the form on the left to add a child record.'
+                          : 'Try a different search term.'}
+                      </Typography>
+                    </Box>
+                  ) : viewMode === 'grid' ? (
+                    <Grid container spacing={1.5} alignItems="stretch">
+                      {pagedData.map((group) => (
+                        <Grid item xs={12} sm={3} key={group.employeeId} sx={{ display: 'flex' }}>
+                          <Box
+                            onClick={() => openModal(group)}
                             sx={{
-                              borderColor: settings.cancelButtonColor || '#6c757d',
-                              color: settings.cancelButtonColor || '#6c757d',
-                              minWidth: '100px',
-                            }}
-                          >
-                            Cancel
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            onClick={handleUpdateChild}
-                            variant="contained"
-                            startIcon={<SaveIcon />}
-                            sx={{
-                              backgroundColor: accentColor,
-                              color: primaryColor,
-                              minWidth: '100px',
-                              '&:hover': { backgroundColor: accentDark },
-                            }}
-                          >
-                            Save
-                          </ProfessionalButton>
-                        </>
-                      ) : (
-                        <>
-                          <ProfessionalButton
-                            onClick={() => setIsEditingChild(true)}
-                            variant="contained"
-                            startIcon={<EditIcon />}
-                            size="small"
-                            sx={{
-                              backgroundColor: accentColor,
-                              color: primaryColor,
-                              minWidth: '100px',
-                              mr: 1,
-                              '&:hover': { backgroundColor: accentDark },
-                            }}
-                          >
-                            Edit
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            onClick={handleDeleteChild}
-                            variant="outlined"
-                            startIcon={<DeleteIcon />}
-                            sx={{
-                              borderColor:
-                                settings.deleteButtonColor ||
-                                settings.primaryColor ||
-                                '#6d2323',
-                              color:
-                                settings.deleteButtonColor ||
-                                settings.primaryColor ||
-                                '#6d2323',
-                              minWidth: '100px',
+                              width: '100%', display: 'flex', flexDirection: 'column',
+                              p: 2, borderRadius: 2, cursor: 'pointer', bgcolor: '#fff',
+                              border: `1px solid ${T.accentBorder}`, position: 'relative',
+                              transition: 'all 0.13s',
                               '&:hover': {
-                                backgroundColor: alpha(
-                                  settings.deleteButtonColor ||
-                                    settings.primaryColor ||
-                                    '#6d2323',
-                                  0.1,
-                                ),
+                                bgcolor: T.rowHover, borderColor: T.accent,
+                                transform: 'translateY(-2px)',
+                                boxShadow: `0 4px 14px ${alpha(T.accent, 0.12)}`,
                               },
                             }}
                           >
-                            Delete
-                          </ProfessionalButton>
-                        </>
-                      )}
-                    </Box>
-                  </>
-                ) : (
-                  <Box
-                    sx={{
-                      flexGrow: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: grayColor,
-                    }}
-                  >
-                    <Typography variant="h6">
-                      Select a child from the list to view details
-                    </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+                              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: T.accent, flexShrink: 0 }} />
+                              <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                                #{group.employeeId}
+                              </Typography>
+                            </Box>
+                            <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, mb: 1, flexGrow: 1 }} noWrap>
+                              {group.employeeName}
+                            </Typography>
+                            <Chip
+                              label={`${group.children.length} ${group.children.length === 1 ? 'child' : 'children'}`}
+                              size="small"
+                              sx={{
+                                height: 20, fontSize: '0.7rem', fontWeight: 600,
+                                color: T.accent, bgcolor: alpha(T.accent, 0.08),
+                                border: `1px solid ${alpha(T.accent, 0.25)}`,
+                                borderRadius: '4px', '& .MuiChip-label': { px: 0.75 },
+                              }}
+                            />
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  ) : (
+                    <>
+                      {/* List header */}
+                      <Box
+                        sx={{
+                          px: 1.5, py: 1,
+                          display: 'grid', gridTemplateColumns: '110px 1fr 120px',
+                          gap: 1, alignItems: 'center',
+                          bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1,
+                        }}
+                      >
+                        {['Emp. No', 'Employee', 'Children'].map((col) => (
+                          <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                            {col}
+                          </Typography>
+                        ))}
+                      </Box>
+                      {pagedData.map((group, idx) => (
+                        <Box
+                          key={group.employeeId}
+                          onClick={() => openModal(group)}
+                          sx={{
+                            px: 1.5, py: 1.25,
+                            display: 'grid', gridTemplateColumns: '110px 1fr 120px',
+                            gap: 1, alignItems: 'center', borderRadius: 1.5,
+                            cursor: 'pointer',
+                            bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                            border: '1px solid transparent',
+                            transition: 'background 0.13s ease',
+                            '&:hover': { bgcolor: T.rowHover },
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: T.accent, flexShrink: 0 }} />
+                            <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>{group.employeeId}</Typography>
+                          </Box>
+                          <Typography sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }} noWrap>
+                            {group.employeeName}
+                          </Typography>
+                          <Chip
+                            label={`${group.children.length} ${group.children.length === 1 ? 'child' : 'children'}`}
+                            size="small"
+                            sx={{
+                              height: 20, fontSize: '0.68rem', fontWeight: 600,
+                              color: T.accent, bgcolor: alpha(T.accent, 0.08),
+                              border: `1px solid ${alpha(T.accent, 0.25)}`,
+                              borderRadius: '4px', '& .MuiChip-label': { px: 0.75 },
+                            }}
+                          />
+                        </Box>
+                      ))}
+                    </>
+                  )}
+                </Box>
+
+                {/* Pagination */}
+                {filteredData.length > 0 && (
+                  <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+                    <TablePagination
+                      component="div"
+                      count={filteredData.length}
+                      page={page}
+                      onPageChange={(_, newPage) => setPage(newPage)}
+                      rowsPerPage={rowsPerPage}
+                      onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                      rowsPerPageOptions={[12, 24, 48, 96]}
+                      sx={{
+                        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                          { fontSize: '0.78rem', fontWeight: 600 },
+                      }}
+                    />
                   </Box>
                 )}
-              </Box>
-            </Box>
-          </GlassCard>
-        </Modal>
+              </SectionCard>
+            </Grid>
+          </Grid>
 
-        <SuccessfulOverlay
-          open={successOpen}
-          action={successAction}
-          onClose={() => setSuccessOpen(false)}
-        />
-
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={3000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert
-            onClose={() => setSnackbar({ ...snackbar, open: false })}
-            severity={snackbar.severity}
-            sx={{ width: '100%' }}
+          {/* ── Split-View Modal ── */}
+          <Modal
+            open={modalState.open}
+            onClose={closeModal}
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}
           >
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-      </Box>
-    </Box>
+            <Fade in={modalState.open}>
+              <Box
+                sx={{
+                  width: '95%', maxWidth: 900, height: '85vh',
+                  borderRadius: 3, overflow: 'hidden',
+                  boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+                  bgcolor: T.surface, display: 'flex', flexDirection: 'column',
+                }}
+              >
+                {/* Modal header */}
+                <Box
+                  sx={{
+                    px: 3.5, py: 2.5, background: T.headerGrad,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    position: 'relative', overflow: 'hidden', flexShrink: 0,
+                  }}
+                >
+                  <Box sx={{ position: 'absolute', top: -40, right: -30, width: 140, height: 140, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+                    <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FamilyRestroomIcon sx={{ fontSize: 18, color: '#fff' }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }}>
+                        Children of {modalState.employeeName}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>
+                        Employee #{modalState.employeeId} • {modalState.children.length}{' '}
+                        {modalState.children.length === 1 ? 'child' : 'children'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <IconButton
+                    onClick={closeModal}
+                    size="small"
+                    sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}
+                  >
+                    <Close sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Box>
+
+                {/* Split body */}
+                <Box sx={{ flexGrow: 1, display: 'flex', overflow: 'hidden' }}>
+
+                  {/* Left panel — child list */}
+                  <Box
+                    sx={{
+                      width: 280, flexShrink: 0,
+                      borderRight: `1px solid ${T.divider}`,
+                      display: 'flex', flexDirection: 'column',
+                      bgcolor: T.accentFaint,
+                    }}
+                  >
+
+                    <List sx={{ flexGrow: 1, overflowY: 'auto', p: 1, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                      {modalState.children.map((child) => (
+                        <ListItem
+                          key={child.id}
+                          button
+                          selected={selectedChild?.id === child.id}
+                          onClick={() => selectChild(child)}
+                          sx={{
+                            borderRadius: 1.5, mb: 0.75,
+                            border: selectedChild?.id === child.id ? `1px solid ${T.accent}` : '1px solid transparent',
+                            bgcolor: selectedChild?.id === child.id ? alpha(T.accent, 0.08) : 'transparent',
+                            '&.Mui-selected': { bgcolor: alpha(T.accent, 0.08), '&:hover': { bgcolor: alpha(T.accent, 0.13) } },
+                            '&:hover': { bgcolor: T.accentFaint },
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, width: '100%' }}>
+                            <Avatar sx={{ width: 28, height: 28, bgcolor: alpha(T.accent, 0.15), color: T.accent, fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>
+                              {child.childrenFirstName?.charAt(0)?.toUpperCase() || '?'}
+                            </Avatar>
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
+                                {child.childrenFirstName} {child.childrenLastName}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>
+                                Age: {getAge(child.dateOfBirth)} yrs
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </ListItem>
+                      ))}
+                      {modalState.children.length === 0 && (
+                        <Box sx={{ p: 2, textAlign: 'center' }}>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
+                            No children added yet.
+                          </Typography>
+                        </Box>
+                      )}
+                    </List>
+                  </Box>
+
+                  {/* Right panel — detail / edit */}
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {selectedChild ? (
+                      <>
+                        {/* Detail body — Option C: avatar hero + kv table / edit form */}
+                        <Box
+                          sx={{
+                            flexGrow: 1, overflowY: 'auto',
+                            '&::-webkit-scrollbar': { width: 4 },
+                            '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                          }}
+                        >
+                          {!isEditingChild ? (
+                            <>
+                              {/* ── Avatar hero ── */}
+                              <Box
+                                sx={{
+                                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                  py: 4, px: 3,
+                                  borderBottom: `1px solid ${T.divider}`,
+                                  background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+                                  position: 'relative',
+                                }}
+                              >
+                                {/* Mode chip — top right */}
+                                <Box sx={{ position: 'absolute', top: 12, right: 14 }}>
+                                  <Chip
+                                    label="View mode"
+                                    size="small"
+                                    sx={{ height: 16, fontSize: '0.62rem', bgcolor: alpha(T.accent, 0.08), color: T.muted, fontWeight: 500 }}
+                                  />
+                                </Box>
+
+                                <Avatar
+                                  sx={{
+                                    width: 72, height: 72,
+                                    bgcolor: alpha(T.accent, 0.15),
+                                    color: T.accent,
+                                    fontSize: '1.75rem',
+                                    fontWeight: 700,
+                                    mb: 1.5,
+                                    border: `2px solid ${alpha(T.accent, 0.2)}`,
+                                  }}
+                                >
+                                  {selectedChild.childrenFirstName?.charAt(0)?.toUpperCase() || '?'}
+                                </Avatar>
+
+                                <Typography sx={{ fontSize: '1.1rem', fontWeight: 900, color: T.accent, lineHeight: 1.25, textAlign: 'center' }}>
+                                  {fullName(selectedChild)}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, mt: 0.5 }}>
+                                  {getAge(selectedChild.dateOfBirth)} years old
+                                </Typography>
+                              </Box>
+
+                              {/* ── Key-value rows ── */}
+                              <Box sx={{ px: 3.5, py: 2.5 }}>
+                                {[
+                                  { label: 'First name',      value: selectedChild.childrenFirstName },
+                                  { label: 'Middle name',     value: selectedChild.childrenMiddleName || '—' },
+                                  { label: 'Last name',       value: selectedChild.childrenLastName },
+                                  { label: 'Name extension',  value: selectedChild.childrenNameExtension || '—' },
+                                  { label: 'Date of birth',   value: selectedChild.dateOfBirth?.split('T')[0] || '—' },
+                                ].map(({ label, value }, i, arr) => (
+                                  <Box
+                                    key={label}
+                                    sx={{
+                                      display: 'flex', alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      py: 1.5,
+                                      borderBottom: i < arr.length - 1 ? `1px solid ${T.divider}` : 'none',
+                                    }}
+                                  >
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600, letterSpacing: '0.03em' }}>
+                                      {label}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.85rem',
+                                        fontWeight: value === '—' ? 400 : 700,
+                                        color: value === '—' ? T.faint : T.text,
+                                        fontStyle: value === '—' ? 'italic' : 'normal',
+                                        textAlign: 'right',
+                                        maxWidth: '60%',
+                                      }}
+                                    >
+                                      {value}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </>
+                          ) : (
+                            /* ── Edit form (single-column stacked) ── */
+                            <Box sx={{ px: 3.5, py: 3 }}>
+                              {/* Edit mode chip */}
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
+                                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>
+                                  Edit Child Record
+                                </Typography>
+                                <Chip
+                                  label="Editing"
+                                  size="small"
+                                  sx={{ height: 16, fontSize: '0.62rem', bgcolor: 'rgba(255,200,0,0.18)', color: '#b8860b', fontWeight: 600 }}
+                                />
+                              </Box>
+                              <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                              {/* First Name */}
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>First Name</Typography>
+                                <FieldInput value={tempChildData.childrenFirstName} onChange={(e) => setTempChildData((r) => ({ ...r, childrenFirstName: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              {/* Middle Name */}
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Middle Name</Typography>
+                                <FieldInput value={tempChildData.childrenMiddleName} onChange={(e) => setTempChildData((r) => ({ ...r, childrenMiddleName: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              {/* Last Name */}
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Last Name</Typography>
+                                <FieldInput value={tempChildData.childrenLastName} onChange={(e) => setTempChildData((r) => ({ ...r, childrenLastName: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              {/* Name Extension */}
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Name Extension</Typography>
+                                <FieldInput value={tempChildData.childrenNameExtension} onChange={(e) => setTempChildData((r) => ({ ...r, childrenNameExtension: e.target.value }))} placeholder="e.g., Jr., Sr., III" fullWidth size="small" />
+                              </Box>
+                              {/* Date of Birth */}
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Date of Birth</Typography>
+                                <FieldInput type="date" value={tempChildData.dateOfBirth?.split('T')[0] || ''} onChange={(e) => setTempChildData((r) => ({ ...r, dateOfBirth: e.target.value }))} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+                              </Box>
+                              {/* Age (computed, read-only) */}
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Age (computed)</Typography>
+                                <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                                  <Typography sx={{ fontSize: '0.82rem', color: T.muted }}>
+                                    {getAge(tempChildData.dateOfBirth)} years old
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Box>
+                          )}
+                        </Box>
+
+                        {/* Modal footer */}
+                        <Box
+                          sx={{
+                            px: 3.5, py: 2,
+                            borderTop: `1px solid ${T.divider}`,
+                            bgcolor: '#f9f9f9',
+                            display: 'flex', justifyContent: 'flex-end', gap: 1.25,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {!isEditingChild ? (
+                            <>
+                              <AccentButton
+                                onClick={handleDelete}
+                                variant="outlined"
+                                startIcon={<DeleteIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{
+                                  fontSize: '0.8rem', borderColor: '#e57373', color: '#c62828',
+                                  '&:hover': { bgcolor: 'rgba(198,40,40,0.04)', borderColor: '#c62828', transform: 'none' },
+                                }}
+                              >
+                                Delete
+                              </AccentButton>
+                              <AccentButton
+                                onClick={() => setIsEditingChild(true)}
+                                variant="contained"
+                                startIcon={<EditIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}
+                              >
+                                Edit Record
+                              </AccentButton>
+                            </>
+                          ) : (
+                            <>
+                              <AccentButton
+                                onClick={() => { setTempChildData({ ...selectedChild }); setIsEditingChild(false); }}
+                                variant="outlined"
+                                startIcon={<CancelIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
+                              >
+                                Cancel
+                              </AccentButton>
+                              <AccentButton
+                                onClick={handleUpdate}
+                                disabled={!hasChanges()}
+                                variant="contained"
+                                startIcon={<SaveIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}
+                              >
+                                Save Changes
+                              </AccentButton>
+                            </>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 1 }}>
+                        <ChildCareIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.2) }} />
+                        <Typography sx={{ fontSize: '0.88rem', color: T.faint, fontStyle: 'italic' }}>
+                          Select a child from the list to view details
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              </Box>
+            </Fade>
+          </Modal>
+
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={3000}
+            onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          >
+            <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2 }}>
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+        </Box>
+      </Fade>
+    </>
   );
 };
 

@@ -24,7 +24,7 @@ import {
   Link,
   IconButton,
 } from "@mui/material";
-import { AccessTime, Lock, Logout, Email, Facebook, ContactSupport } from "@mui/icons-material";
+import { AccessTime, Lock, Logout, Email, Facebook, ContactSupport, LoginOutlined } from "@mui/icons-material";
 import axios from "axios";
 import ProtectedRoute from "./components/ProtectedRoute";
 import {
@@ -81,6 +81,8 @@ import AttendanceModuleFaculty from "./components/ATTENDANCE/AttendanceModuleFac
 import AttendanceModuleFaculty40 from "./components/ATTENDANCE/AttendanceModuleFacultyDesignated";
 import OverallAttendancePage from "./components/ATTENDANCE/AttendanceSummary";
 import OfficialTimeForm from "./components/ATTENDANCE/OfficialTimeForm";
+import MyAttendance from "./components/MyAttendance";
+import AttendanceAdjustmentReports from "./components/ATTENDANCE/AttendanceAdjustmentReports";
 
 import Remittances from "./components/PAYROLL/Remittances";
 import ItemTable from "./components/PAYROLL/ItemTable";
@@ -112,12 +114,14 @@ import SubjectStillToBeTaken from "./components/FORMS/SubjectStillToBeTaken";
 import IndividualFacultyLoading from "./components/FORMS/IndividualFacultyLoading";
 import HrmsRequestForms from "./components/FORMS/HRMSRequestForms";
 import EmploymentCategoryManagement from "./components/EmploymentCategory";
+import AbsencesReport from "./components/LEAVE/AbsencesReport";
 
 import PDSTemplates from "./components/PDS/PDSTemplates";
 import PDS1 from "./components/PDS/PDS1";
 import PDS2 from "./components/PDS/PDS2";
 import PDS3 from "./components/PDS/PDS3";
 import PDS4 from "./components/PDS/PDS4";
+import File201Admin from "./components/FILE201/File201Admin";
 
 import Payslip from "./components/PAYROLL/Payslip";
 import PayslipOverall from "./components/PAYROLL/RETIRED-PayslipOverall";
@@ -131,6 +135,10 @@ import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
 import LeaveCredits from "./components/LEAVE/LeaveCredits";
 import Leave from "./components/FORMS/Leave";
 import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
+import ServiceCredits from "./components/LEAVE/ServiceCredits";
+import LeaveRequestSupervisor from "./components/LEAVE/LeaveRequestSupervisor";
+import SupervisorAssignment from "./components/LEAVE/SupervisorAssignment";
+import DailyTimeRecordSupervisor from "./components/ATTENDANCE/DailyTimeRecordSupervisor";
 
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
@@ -140,6 +148,14 @@ import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
 import UnderConstruction from "./components/UnderConstruction";
 import DailyTimeRecordFaculty from "./components/ATTENDANCE/DailyTimeRecordOverall";
+import WorkingHoursConverter from "./components/WorkingHoursConverter";
+import CompensatoryTimeOff from "./components/LEAVE/CompensatoryTimeOff";
+import AssignmentManagement from "./components/LEAVE/AssignmentManagement";
+import EarningsManagement from "./components/LEAVE/EarningsManagement";
+
+import RecordsPanel from "./components/LEAVE/RecordsPanel";
+import { adminPage, allUserPage, superTechPage, technicalPage, ADMIN_ROUTE_ROLES } from "./utils/gatedRoutes";
+
 
 function applySystemCSSVariables(s) {
   const root = document.documentElement;
@@ -182,7 +198,6 @@ function applySystemCSSVariables(s) {
     s.destructiveButtonHoverColor || "#5a6268",
   );
 
-  // Modal CSS variables — available in any module via var(--modal-*)
   root.style.setProperty("--modal-bg", s.modalBackgroundColor || "#FFFFFF");
   root.style.setProperty("--modal-header-bg", s.modalHeaderColor || "#6d2323");
   root.style.setProperty(
@@ -339,7 +354,6 @@ function App() {
         },
       },
 
-
       MuiTableHead: {
         styleOverrides: {
           root: {
@@ -352,7 +366,6 @@ function App() {
         },
       },
 
-
       MuiChip: {
         styleOverrides: {
           filled: {
@@ -361,7 +374,6 @@ function App() {
           },
         },
       },
-
 
       MuiTab: {
         styleOverrides: {
@@ -372,7 +384,6 @@ function App() {
           },
         },
       },
-
 
       MuiLinearProgress: {
         styleOverrides: {
@@ -450,9 +461,6 @@ function App() {
         ],
       },
 
-      // ── Modal / Dialog overrides ───────────────────────────────────────────
-      // These apply automatically to every Dialog across all modules.
-      // No changes needed in individual module files.
       MuiDialog: {
         styleOverrides: {
           paper: {
@@ -460,6 +468,8 @@ function App() {
             border: `1.5px solid ${systemSettings.modalBorderColor || "#894444"}`,
             borderRadius: 12,
             boxShadow: `0 8px 40px ${systemSettings.modalBorderColor || "#894444"}33`,
+            // Custom attendance modals use Box/Typography instead of DialogTitle; inherit Poppins here so body + native buttons match the app.
+            fontFamily: "Poppins, sans-serif",
           },
         },
       },
@@ -504,18 +514,14 @@ function App() {
     },
   });
 
-  // --- Idle and token expiration handling ---
   const [idleWarningOpen, setIdleWarningOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-
   const [sessionExpired, setSessionExpired] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
 
   const idleTimeoutRef = useRef(null);
   const logoutTimeoutRef = useRef(null);
 
-
-  // SESSION EXPIRATION TIMES (in milliseconds)
   const IDLE_WARNING_TIME = 20 * 60 * 1000;
   const AUTO_LOGOUT_TIME = 30 * 60 * 1000;
   const COUNTDOWN_SECONDS = (AUTO_LOGOUT_TIME - IDLE_WARNING_TIME) / 1000;
@@ -568,11 +574,11 @@ function App() {
   };
 
   useEffect(() => {
-  const clockInterval = setInterval(() => {
-    setCurrentTime(new Date());
-  }, 1000);
-  return () => clearInterval(clockInterval);
-}, []);
+    const clockInterval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(clockInterval);
+  }, []);
 
   useEffect(() => {
     let interval;
@@ -634,124 +640,124 @@ function App() {
           overflow: "hidden",
         }}
       >
-<AppBar
-  position="fixed"
-  sx={{
-    zIndex: 1201,
-    bgcolor: systemSettings.secondaryColor,
-    height: "62px",
-    overflow: "hidden",
-  }}
->
-  <Toolbar sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-    {/* LEFT: Logo + System Name */}
-    <Box sx={{ display: "flex", alignItems: "center" }}>
-      <Box
-        sx={{
-          width: 46,
-          height: 46,
-          marginRight: "10px",
-          marginLeft: "-15px",
-          borderRadius: "50%",
-          border: "1px solid white",
-          overflow: "hidden",
-          flexShrink: 0,
-          bgcolor: "rgba(255,255,255,0.15)",
-        }}
-      >
-        {systemSettings.institutionLogo && (
-          <img
-            src={systemSettings.institutionLogo}
-            alt="Institution Logo"
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-              imageRendering: "auto",
-            }}
-          />
-        )}
-      </Box>
-      <Box>
-        <Typography
-          variant="body2"
-          noWrap
+        <AppBar
+          position="fixed"
           sx={{
-            lineHeight: 1.2,
-            color: systemSettings.textColor,
-            marginTop: "8px",
+            zIndex: 1201,
+            bgcolor: systemSettings.secondaryColor,
+            height: "62px",
+            overflow: "hidden",
           }}
         >
-          {systemSettings.institutionName}
-        </Typography>
-        <Typography
-          variant="subtitle1"
-          noWrap
-          sx={{
-            color: systemSettings.textColor,
-            fontWeight: "bold",
-            marginTop: "-5px",
-          }}
-        >
-          {systemSettings.systemName}
-        </Typography>
-      </Box>
-    </Box>
+          <Toolbar sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            {/* LEFT: Logo + System Name */}
+            <Box sx={{ display: "flex", alignItems: "center" }}>
+              <Box
+                sx={{
+                  width: 46,
+                  height: 46,
+                  marginRight: "10px",
+                  marginLeft: "-15px",
+                  borderRadius: "50%",
+                  border: "1px solid white",
+                  overflow: "hidden",
+                  flexShrink: 0,
+                  bgcolor: "rgba(255,255,255,0.15)",
+                }}
+              >
+                {systemSettings.institutionLogo && (
+                  <img
+                    src={systemSettings.institutionLogo}
+                    alt="Institution Logo"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      display: "block",
+                      imageRendering: "auto",
+                    }}
+                  />
+                )}
+              </Box>
+              <Box>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{
+                    lineHeight: 1.2,
+                    color: systemSettings.textColor,
+                    marginTop: "8px",
+                  }}
+                >
+                  {systemSettings.institutionName}
+                </Typography>
+                <Typography
+                  variant="subtitle1"
+                  noWrap
+                  sx={{
+                    color: systemSettings.textColor,
+                    fontWeight: "bold",
+                    marginTop: "-5px",
+                  }}
+                >
+                  {systemSettings.systemName}
+                </Typography>
+              </Box>
+            </Box>
 
-{/* RIGHT: Live Clock — only shown on authenticated pages */}
-{isAuthenticatedPage && (
-  <Box
-    sx={{
-      display: "flex",
-      alignItems: "center",
-      gap: 1,
-      bgcolor: "rgba(255,255,255,0.1)",
-      border: "1px solid rgba(255,255,255,0.2)",
-      borderRadius: "8px",
-      px: 2,
-      py: 0.5,
-    }}
-  >
-    <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
-    <Box>
-      <Typography
-        sx={{
-          fontWeight: "bold",
-          fontFamily: "monospace",
-          fontSize: "1rem",
-          letterSpacing: 1.5,
-          color: systemSettings.textColor,
-          lineHeight: 1.2,
-        }}
-      >
-        {currentTime.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })}
-      </Typography>
-      <Typography
-        sx={{
-          fontSize: "0.65rem",
-          color: systemSettings.textColor,
-          opacity: 0.75,
-          letterSpacing: 0.5,
-          lineHeight: 1,
-        }}
-      >
-        {currentTime.toLocaleDateString([], {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })}
-      </Typography>
-    </Box>
-  </Box>
-)}
-  </Toolbar>
-</AppBar>
+            {/* RIGHT: Live Clock */}
+            {isAuthenticatedPage && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  bgcolor: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: "8px",
+                  px: 2,
+                  py: 0.5,
+                }}
+              >
+                <AccessTime sx={{ fontSize: 18, color: systemSettings.textColor, opacity: 0.85 }} />
+                <Box>
+                  <Typography
+                    sx={{
+                      fontWeight: "bold",
+                      fontFamily: "monospace",
+                      fontSize: "1rem",
+                      letterSpacing: 1.5,
+                      color: systemSettings.textColor,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {currentTime.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: "0.65rem",
+                      color: systemSettings.textColor,
+                      opacity: 0.75,
+                      letterSpacing: 0.5,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {currentTime.toLocaleDateString([], {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </Toolbar>
+        </AppBar>
 
         {!["/", "/login", "/register", "/forgot-password"].includes(
           location.pathname,
@@ -782,7 +788,7 @@ function App() {
             marginLeft: drawerOpen ? `${drawerWidth}px` : `${collapsedWidth}px`,
             transition: "margin-left 0.3s ease",
             fontFamily: "Poppins, sans-serif",
-    minHeight: "fit-content",
+            minHeight: "fit-content",
             "& .MuiPaper-root": { borderColor: systemSettings.primaryColor },
             "& .MuiButton-contained": {
               backgroundColor: systemSettings.primaryColor,
@@ -800,8 +806,26 @@ function App() {
           <Toolbar />
           <Routes>
             <Route path="/register" element={<Register />} />
-            <Route path="/bulk-register" element={<BulkRegister />} />
-            <Route path="/registration" element={<Registration />} />
+            <Route
+              path="/bulk-register"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <BulkRegister />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/registration"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <Registration />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route
@@ -949,6 +973,22 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/my-attendance"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <MyAttendance />
+                </ProtectedRoute>
+              }
+            />
+            
             <Route
               path="/view_attendance"
               element={
@@ -1129,7 +1169,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-              <Route
+            <Route
               path="/pds-templates"
               element={
                 <ProtectedRoute
@@ -1139,6 +1179,21 @@ function App() {
                   ]}
                 >
                   <PDSTemplates />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/file201"
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "staff",
+                    "administrator",
+                    "superadmin",
+                    "technical",
+                  ]}
+                >
+                  <File201Admin />
                 </ProtectedRoute>
               }
             />
@@ -1157,7 +1212,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            
             <Route
               path="/pds2"
               element={
@@ -1325,183 +1379,75 @@ function App() {
             />
             <Route
               path="/assessment-clearance"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <AssessmentClearance />
-                </ProtectedRoute>
-              }
+              element={adminPage(AssessmentClearance, 'assessment-clearance', 'You do not have permission to access Assessment Clearance forms.')}
             />
             <Route
               path="/clearance"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <Clearance />
-                </ProtectedRoute>
-              }
+              element={adminPage(Clearance, 'clearance', 'You do not have permission to access Clearance forms.')}
             />
             <Route
               path="/clearance-back"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <ClearanceBack />
-                </ProtectedRoute>
-              }
+              element={adminPage(ClearanceBack, 'clearance-back', 'You do not have permission to access Clearance forms.')}
             />
             <Route
               path="/faculty-clearance"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <FacultyClearance />
-                </ProtectedRoute>
-              }
+              element={adminPage(FacultyClearance, 'faculty-clearance', 'You do not have permission to access Faculty Clearance forms.')}
             />
             <Route
               path="/faculty-clearance-70-days"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <FacultyClearance70Days />
-                </ProtectedRoute>
-              }
+              element={adminPage(FacultyClearance70Days, 'faculty-clearance-70-days', 'You do not have permission to access Faculty Clearance forms.')}
             />
             <Route
               path="/hrms-request-forms"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <HrmsRequestForms />
-                </ProtectedRoute>
-              }
+              element={adminPage(HrmsRequestForms, 'hrms-request-forms', 'You do not have permission to access HRMS Request forms.')}
             />
             <Route
               path="/individual-faculty-loading"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <IndividualFacultyLoading />
-                </ProtectedRoute>
-              }
+              element={adminPage(IndividualFacultyLoading, 'individual-faculty-loading', 'You do not have permission to access Individual Faculty Loading forms.')}
             />
             <Route
               path="/in-service-training"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <InServiceTraining />
-                </ProtectedRoute>
-              }
+              element={adminPage(InServiceTraining, 'in-service-training', 'You do not have permission to access In-Service Training forms.')}
             />
             <Route
               path="/leave-card"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <LeaveCard />
-                </ProtectedRoute>
-              }
+              element={adminPage(LeaveCard, 'leave-card', 'You do not have permission to access Leave Card forms.')}
             />
             <Route
               path="/leave-card-back"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <LeaveCardBack />
-                </ProtectedRoute>
-              }
+              element={adminPage(LeaveCardBack, 'leave-card-back', 'You do not have permission to access Leave Card forms.')}
             />
             <Route
               path="/leave-form"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <Leave />
-                </ProtectedRoute>
-              }
+              element={adminPage(Leave, 'leave-form', 'You do not have permission to access Leave forms.')}
             />
             <Route
               path="/locator-slip"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <LocatorSlip />
-                </ProtectedRoute>
-              }
+              element={adminPage(LocatorSlip, 'locator-slip', 'You do not have permission to access Locator Slip forms.')}
             />
             <Route
               path="/permission-to-teach"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <PermissionToTeach />
-                </ProtectedRoute>
-              }
+              element={adminPage(PermissionToTeach, 'permission-to-teach', 'You do not have permission to access Permission to Teach forms.')}
             />
             <Route
               path="/request-for-id"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <RequestForID />
-                </ProtectedRoute>
-              }
+              element={adminPage(RequestForID, 'request-for-id', 'You do not have permission to access Request for ID forms.')}
             />
             <Route
               path="/saln-front"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <SalnFront />
-                </ProtectedRoute>
-              }
+              element={adminPage(SalnFront, 'saln-front', 'You do not have permission to access SALN forms.')}
             />
             <Route
               path="/saln-back"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <SalnBack />
-                </ProtectedRoute>
-              }
+              element={adminPage(SalnBack, 'saln-back', 'You do not have permission to access SALN forms.')}
             />
             <Route
               path="/scholarship-agreement"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <ScholarshipAgreement />
-                </ProtectedRoute>
-              }
+              element={adminPage(ScholarshipAgreement, 'scholarship-agreement', 'You do not have permission to access Scholarship Agreement forms.')}
             />
             <Route
               path="/subject"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <SubjectStillToBeTaken />
-                </ProtectedRoute>
-              }
+              element={adminPage(SubjectStillToBeTaken, 'subject', 'You do not have permission to access Subject forms.')}
             />
             <Route
               path="/profile"
@@ -1548,21 +1494,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            {/* <Route
-              path="/overall-payslip"
-              element={
-                <ProtectedRoute
-                  allowedRoles={[
-                    "staff",
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                  ]}
-                >
-                  <PayslipOverall />
-                </ProtectedRoute>
-              }
-            /> */}
             <Route
               path="/distribution-payslip"
               element={
@@ -1609,7 +1540,7 @@ function App() {
               }
             />
             <Route
-              path="admin-home"
+              path="/admin-home"
               element={
                 <ProtectedRoute
                   allowedRoles={[
@@ -1624,19 +1555,8 @@ function App() {
               }
             />
             <Route
-              path="employee-category"
-              element={
-                <ProtectedRoute
-                  allowedRoles={[
-                    "staff",
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                  ]}
-                >
-                  <EmploymentCategoryManagement />
-                </ProtectedRoute>
-              }
+              path="/employee-category"
+              element={adminPage(EmploymentCategoryManagement, 'employee-category', 'You do not have permission to access Employee Category.')}
             />
             <Route
               path="/leave-table"
@@ -1658,6 +1578,15 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/absences-report"
+              element={adminPage(AbsencesReport, 'absences-report', 'You do not have permission to access Absences Report.')}
+            />
+            <Route
+              path="/attendance-adjustment-reports"
+              element={adminPage(AttendanceAdjustmentReports, 'attendance-adjustment-reports', 'You do not have permission to access Attendance Adjustment Reports.')}
+            />
+              
             <Route
               path="/leave-request-user"
               element={
@@ -1694,79 +1623,100 @@ function App() {
               }
             />
             <Route
-              path="/users-list"
+              path="/service-credits"
               element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
-                  <UsersList />
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <ServiceCredits />
                 </ProtectedRoute>
               }
+            />
+            <Route
+              path="/cto"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <CompensatoryTimeOff />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/assignment-management"
+              element={adminPage(AssignmentManagement, 'assignment-management', 'You do not have permission to access Assignment Management.')}
+            />
+            <Route
+              path="/earnings-management"
+              element={adminPage(EarningsManagement, 'earnings-management', 'You do not have permission to access Earnings Management.')}
+            />
+            <Route
+              path="/supervisor-assignment"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical"]}
+                >
+                  <SupervisorAssignment />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leave-request-supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
+                >
+                  <LeaveRequestSupervisor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/daily-time-record-supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
+                >
+                  <DailyTimeRecordSupervisor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users-list"
+              element={superTechPage(UsersList, 'users-list', 'You do not have permission to access User Management.')}
             />
             <Route
               path="/pages-list"
-              element={
-                <ProtectedRoute allowedRoles={["technical"]}>
-                  <PagesList />
-                </ProtectedRoute>
-              }
+              element={technicalPage(PagesList, 'pages-list', 'You do not have permission to access Page Management.')}
             />
             <Route
               path="/audit-logs"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <AuditLogs />
-                </ProtectedRoute>
-              }
+              element={adminPage(AuditLogs, 'audit-logs', 'You do not have permission to access Audit Logs.')}
             />
             <Route
               path="/reports"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["administrator", "superadmin", "technical"]}
-                >
-                  <Reports />
-                </ProtectedRoute>
-              }
+              element={adminPage(Reports, 'reports', 'You do not have permission to access Reports.')}
             />
             <Route
               path="/employee-reports"
-              element={
-                <ProtectedRoute
-                  allowedRoles={[
-                    "staff",
-                    "administrator",
-                    "superadmin",
-                    "technical",
-                  ]}
-                >
-                  <EmployeeReports />
-                </ProtectedRoute>
-              }
+              element={allUserPage(EmployeeReports, 'employee-reports', 'You do not have permission to access Employee Reports.')}
             />
             <Route
               path="/system-settings"
-              element={
-                <ProtectedRoute
-                  allowedRoles={["technical"]}
-                >
-                  <SystemSetting />
-                </ProtectedRoute>
-              }
+              element={technicalPage(SystemSetting, 'system-settings', 'You do not have permission to access System Settings.')}
             />
             <Route
               path="/payroll-formulas"
-              element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
-                  <PayrollFormulas />
-                </ProtectedRoute>
-              }
+              element={superTechPage(PayrollFormulas, 'payroll-formulas', 'You do not have permission to access Payroll Formulas.')}
             />
             <Route
               path="/admin-security"
+              element={superTechPage(AdminSecurity, 'admin-security', 'You do not have permission to access Admin Security.')}
+            />
+            <Route
+              path="/working-hours"
               element={
-                <ProtectedRoute allowedRoles={["superadmin", "technical"]}>
-                  <AdminSecurity />
+                <ProtectedRoute allowedRoles={ADMIN_ROUTE_ROLES}>
+                  <WorkingHoursConverter />
                 </ProtectedRoute>
               }
             />
@@ -1775,162 +1725,353 @@ function App() {
           </Routes>
         </Box>
 
-        {/* IDLE WARNING DIALOG */}
+        {/* ── IDLE WARNING DIALOG ─────────────────────────────────────────────── */}
         <Dialog
           open={idleWarningOpen && isAuthenticatedPage}
           PaperProps={{
             sx: {
-              borderRadius: 3,
-              boxShadow: "0px 10px 30px rgba(0,0,0,0.15)",
+              borderRadius: "20px",
               overflow: "hidden",
+              background: "rgba(255,248,231,0.98)",
+              border: "1px solid rgba(128,0,32,0.15)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              maxWidth: 400,
+              width: "100%",
             },
           }}
         >
+          {/* Crimson header */}
           <Box
             sx={{
-              bgcolor: systemSettings.primaryColor,
-              color: "white",
-              p: 3,
+              background: "#800020",
+              px: 3,
+              py: 2.5,
               display: "flex",
               alignItems: "center",
-              gap: 2,
+              gap: 1.5,
             }}
           >
-            <AccessTime sx={{ fontSize: 32 }} />
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 600, letterSpacing: 0.5 }}
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.15)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
             >
-              SESSION EXPIRING SOON
-            </Typography>
-          </Box>
-
-          <DialogContent sx={{ pb: 1 }}>
-            <Box sx={{ textAlign: "center", py: 2 }}>
+              <AccessTime sx={{ color: "#fff", fontSize: 20 }} />
+            </Box>
+            <Box>
               <Typography
-                variant="body1"
-                sx={{ color: "text.secondary", mb: 2 }}
+                sx={{
+                  fontSize: "0.62rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.2em",
+                  color: "rgba(255,255,255,0.65)",
+                  textTransform: "uppercase",
+                  mb: 0.25,
+                }}
               >
-                You have been inactive. For security purposes, you will be
-                logged out in:
+                Security Notice
               </Typography>
               <Typography
-                variant="h3"
                 sx={{
-                  fontWeight: 700,
-                  color: systemSettings.primaryColor,
+                  fontSize: "1.05rem",
+                  fontWeight: 800,
+                  color: "#fff",
+                  lineHeight: 1.2,
+                }}
+              >
+                Session Expiring Soon
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Gradient accent bar */}
+          <Box
+            sx={{
+              height: 3,
+              background: "linear-gradient(90deg, #800020, #e84a4a)",
+            }}
+          />
+
+          <DialogContent
+            sx={{
+              background: "transparent",
+              pt: 3,
+              pb: 2,
+              px: 3,
+            }}
+          >
+            <Typography
+              sx={{
+                color: "rgba(75,0,0,0.65)",
+                fontSize: "0.82rem",
+                textAlign: "center",
+                lineHeight: 1.6,
+                mb: 2,
+              }}
+            >
+              You have been inactive. For security purposes, you will be logged
+              out in:
+            </Typography>
+
+            <Box sx={{ textAlign: "center", mb: 2 }}>
+              <Typography
+                sx={{
+                  fontSize: "2.8rem",
+                  fontWeight: 800,
+                  color: "#800020",
                   fontFamily: "monospace",
-                  mb: 1,
+                  letterSpacing: "2px",
+                  lineHeight: 1,
                 }}
               >
                 {formatTime(timeLeft)}
               </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={(timeLeft / COUNTDOWN_SECONDS) * 100}
+              <Typography
                 sx={{
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: "#e0e0e0",
-                  "& .MuiLinearProgress-bar": {
-                    backgroundColor: systemSettings.primaryColor,
-                  },
+                  fontSize: "0.68rem",
+                  color: "rgba(128,0,32,0.45)",
+                  mt: 0.5,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                }}
+              >
+                minutes remaining
+              </Typography>
+            </Box>
+
+            {/* Progress bar */}
+            <Box
+              sx={{
+                height: 6,
+                bgcolor: "rgba(128,0,32,0.1)",
+                borderRadius: "4px",
+                overflow: "hidden",
+                mb: 0.5,
+              }}
+            >
+              <Box
+                sx={{
+                  height: "100%",
+                  bgcolor: "#800020",
+                  borderRadius: "4px",
+                  width: `${(timeLeft / COUNTDOWN_SECONDS) * 100}%`,
+                  transition: "width 1s linear",
                 }}
               />
             </Box>
           </DialogContent>
 
-          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
-            <Button
+          <DialogActions
+            sx={{
+              background: "transparent",
+              px: 3,
+              pb: 3,
+              pt: 0,
+              gap: 1.25,
+              borderTop: "none",
+            }}
+          >
+            <Box
+              component="button"
               onClick={handleLogout}
-              startIcon={<Logout />}
-              variant="outlined"
               sx={{
-                textTransform: "none",
-                fontWeight: 500,
-                color: "#6d2323",
-                borderColor: "#6d2323",
-                "&:hover": {
-                  borderColor: "#757575",
-                  backgroundColor: "rgba(117, 117, 117, 0.04)",
-                },
+                flex: 1,
+                height: 46,
+                background: "transparent",
+                border: "1px solid rgba(128,0,32,0.35)",
+                borderRadius: "12px",
+                color: "#800020",
+                fontSize: "0.84rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "background 0.2s",
+                "&:hover": { background: "rgba(128,0,32,0.05)" },
               }}
             >
               Logout Now
-            </Button>
-            <Button
+            </Box>
+            <Box
+              component="button"
               onClick={() => {
                 setIdleWarningOpen(false);
                 resetIdleTimer();
               }}
-              variant="contained"
-              disableElevation
               sx={{
-                px: 3,
-                textTransform: "none",
+                flex: 1.5,
+                height: 46,
+                background: "#800020",
+                border: "none",
+                borderRadius: "12px",
+                color: "#fff",
+                fontSize: "0.84rem",
                 fontWeight: 600,
-                backgroundColor: systemSettings.primaryColor,
-                "&:hover": { backgroundColor: systemSettings.hoverColor },
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "background 0.2s",
+                "&:hover": { background: "#6a001a" },
               }}
             >
               Stay Logged In
-            </Button>
+            </Box>
           </DialogActions>
         </Dialog>
 
-        {/* SESSION EXPIRED DIALOG */}
+        {/* ── SESSION EXPIRED DIALOG ──────────────────────────────────────────── */}
         <Dialog
           open={sessionExpired}
           PaperProps={{
             sx: {
-              borderRadius: 3,
-              boxShadow: "0px 10px 30px rgba(0,0,0,0.15)",
+              borderRadius: "20px",
               overflow: "hidden",
+              background: "rgba(255,248,231,0.98)",
+              border: "1px solid rgba(128,0,32,0.15)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              maxWidth: 480,
+              width: "100%",
             },
           }}
         >
+          {/* Crimson header */}
           <Box
             sx={{
-              bgcolor: systemSettings.primaryColor,
-              color: "white",
-              p: 3,
+              background: "#800020",
+              px: 3.5,
+              py: 3,
               display: "flex",
               alignItems: "center",
-              gap: 2,
+              gap: 1.5,
             }}
           >
-            <Lock sx={{ fontSize: 32 }} />
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 600, letterSpacing: 0.5 }}
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                bgcolor: "rgba(255,255,255,0.15)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
             >
-              SESSION EXPIRED
-            </Typography>
+              <Lock sx={{ color: "#fff", fontSize: 22 }} />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: "0.62rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.22em",
+                  color: "rgba(255,255,255,0.65)",
+                  textTransform: "uppercase",
+                  mb: 0.3,
+                  fontFamily: "Poppins, sans-serif",
+                }}
+              >
+                Authentication
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: "1.15rem",
+                  fontWeight: 800,
+                  color: "#fff",
+                  lineHeight: 1.2,
+                  fontFamily: "Poppins, sans-serif",
+                }}
+              >
+                Session Expired
+              </Typography>
+            </Box>
           </Box>
 
-          <DialogContent sx={{ textAlign: "center", py: 3 }}>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {/* Gradient accent bar */}
+          <Box
+            sx={{
+              height: 3,
+              background: "linear-gradient(90deg, #800020, #e84a4a)",
+            }}
+          />
+
+          <DialogContent
+            sx={{
+              background: "transparent",
+              pt: 4,
+              pb: 2,
+              px: 4,
+              textAlign: "center",
+            }}
+          >
+            <Box
+              sx={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                bgcolor: "rgba(128,0,32,0.08)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                mx: "auto",
+                mb: 2.5,
+              }}
+            >
+              <Lock sx={{ color: "#800020", fontSize: 30 }} />
+            </Box>
+            <Typography
+              sx={{
+                color: "rgba(75,0,0,0.65)",
+                fontSize: "0.88rem",
+                lineHeight: 1.75,
+                fontFamily: "Poppins, sans-serif",
+              }}
+            >
               You have been inactive for an extended period. For security
-              purposes, your session has expired. Please log in again.
+              purposes, your session has expired. Please sign in again to
+              continue.
             </Typography>
           </DialogContent>
 
-          <DialogActions sx={{ px: 3, pb: 3 }}>
-            <Button
+          <DialogActions
+            sx={{
+              background: "transparent",
+              px: 4,
+              pb: 4,
+              pt: 1,
+              borderTop: "none",
+            }}
+          >
+            <Box
+              component="button"
               onClick={handleSessionExpiredClose}
-              variant="contained"
-              fullWidth
-              disableElevation
               sx={{
-                py: 1.2,
-                textTransform: "none",
+                width: "100%",
+                height: 52,
+                background: "#800020",
+                border: "none",
+                borderRadius: "12px",
+                color: "#fff",
+                fontSize: "0.92rem",
                 fontWeight: 600,
-                backgroundColor: systemSettings.primaryColor,
-                "&:hover": { backgroundColor: systemSettings.hoverColor },
+                cursor: "pointer",
+                fontFamily: "Poppins, sans-serif",
+                letterSpacing: "0.04em",
+                transition: "background 0.2s",
+                "&:hover": { background: "#6a001a" },
               }}
             >
-              OKAY
-            </Button>
+              Back to Sign In
+            </Box>
           </DialogActions>
         </Dialog>
       </Box>
@@ -1963,16 +2104,16 @@ function App() {
         </Typography>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <IconButton
-  onClick={() => {
-    window.location.href = "/settings?tab=contactus";
-  }}
-  color="inherit"
-  size="small"
-  title="Contact Us"
->
-  <ContactSupport fontSize="small" />
-</IconButton>
+          <IconButton
+            onClick={() => {
+              window.location.href = "/settings?tab=contactus";
+            }}
+            color="inherit"
+            size="small"
+            title="Contact Us"
+          >
+            <ContactSupport fontSize="small" />
+          </IconButton>
           <IconButton
             component="a"
             href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}
@@ -2001,4 +2142,3 @@ export default function WrappedApp() {
     </SystemSettingsProvider>
   );
 }
-

@@ -5,6 +5,7 @@ const { upload } = require('../middleware/upload');
 const path = require('path');
 const fs = require('fs');
 const { broadcastToRoles, notifyMultipleUsers } = require('../socket/socketService');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 // GET all suspensions (normalize date_start/date_end for backward compat)
 router.get('/api/suspensions', (req, res) => {
@@ -20,7 +21,7 @@ router.get('/api/suspensions', (req, res) => {
 });
 
 // POST: Create suspension (Title, About, Date Range, Reason)
-router.post('/api/suspensions', upload.single('image'), (req, res) => {
+router.post('/api/suspensions', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { title, about, date_start, date_end, reason } = req.body;
   const image = req.file ? `/uploads/${req.file.filename}` : null;
   const date = date_start || date_end || null;
@@ -100,7 +101,7 @@ router.post('/api/suspensions', upload.single('image'), (req, res) => {
 });
 
 // DELETE: Delete suspension
-router.delete('/api/suspensions/:id', (req, res) => {
+router.delete('/api/suspensions/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   if (isNaN(id)) {
     return res.status(400).json({ error: 'Invalid ID format' });

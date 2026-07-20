@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
+
+router.use(authenticateToken, requireAdmin);
 
 // GET all tasks
 router.get('/tasks', (req, res) => {
@@ -19,7 +22,7 @@ router.post('/tasks', (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
       res.json({ id: result.insertId, title, priority, completed: false });
-    }
+    },
   );
 });
 
@@ -32,7 +35,7 @@ router.put('/tasks/:id/toggle', (req, res) => {
     (err) => {
       if (err) return res.status(500).json(err);
       res.json({ success: true });
-    }
+    },
   );
 });
 
@@ -46,7 +49,3 @@ router.delete('/tasks/:id', (req, res) => {
 });
 
 module.exports = router;
-
-
-
-

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, ADMIN_ROLES } = require('../middleware/auth');
 
 // Helper function to get current month and year
 const getCurrentPeriod = () => {
@@ -29,7 +29,7 @@ const checkReportExists = async (reportType, month, year) => {
 };
 
 // GET Dashboard Statistics (for reports)
-router.get('/api/reports/dashboard/stats', authenticateToken, async (req, res) => {
+router.get('/api/reports/dashboard/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -60,7 +60,7 @@ router.get('/api/reports/dashboard/stats', authenticateToken, async (req, res) =
 });
 
 // GET Attendance Overview (for reports)
-router.get('/api/reports/attendance-overview', authenticateToken, async (req, res) => {
+router.get('/api/reports/attendance-overview', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year, days = 7 } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -90,7 +90,7 @@ router.get('/api/reports/attendance-overview', authenticateToken, async (req, re
 });
 
 // GET Department Distribution (for reports)
-router.get('/api/reports/department-distribution', authenticateToken, async (req, res) => {
+router.get('/api/reports/department-distribution', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -120,7 +120,7 @@ router.get('/api/reports/department-distribution', authenticateToken, async (req
 });
 
 // GET Payroll Summary (for reports)
-router.get('/api/reports/payroll-summary', authenticateToken, async (req, res) => {
+router.get('/api/reports/payroll-summary', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -150,7 +150,7 @@ router.get('/api/reports/payroll-summary', authenticateToken, async (req, res) =
 });
 
 // GET Monthly Attendance Trend (for reports)
-router.get('/api/reports/monthly-attendance', authenticateToken, async (req, res) => {
+router.get('/api/reports/monthly-attendance', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -180,7 +180,7 @@ router.get('/api/reports/monthly-attendance', authenticateToken, async (req, res
 });
 
 // GET Employee Statistics (for reports)
-router.get('/api/reports/employee-stats', authenticateToken, async (req, res) => {
+router.get('/api/reports/employee-stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -210,7 +210,7 @@ router.get('/api/reports/employee-stats', authenticateToken, async (req, res) =>
 });
 
 // POST Generate Report
-router.post('/api/reports/generate', authenticateToken, async (req, res) => {
+router.post('/api/reports/generate', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { report_type } = req.body;
     const period = getCurrentPeriod();
@@ -606,7 +606,7 @@ async function generateLeaveReport(period) {
 }
 
 // GET Department Employee Count
-router.get('/api/reports/department-employees', authenticateToken, async (req, res) => {
+router.get('/api/reports/department-employees', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -636,7 +636,7 @@ router.get('/api/reports/department-employees', authenticateToken, async (req, r
 });
 
 // GET Payroll Budget per Department
-router.get('/api/reports/payroll-budget', authenticateToken, async (req, res) => {
+router.get('/api/reports/payroll-budget', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
@@ -669,6 +669,13 @@ router.get('/api/reports/payroll-budget', authenticateToken, async (req, res) =>
 router.post('/api/reports/reset', authenticateToken, async (req, res) => {
   try {
     const { report_type, month, year } = req.body;
+    const role = String(req.user?.role || '').toLowerCase();
+    const isEmployeeReport = String(report_type || '').startsWith('employee_');
+
+    if (!isEmployeeReport && !ADMIN_ROLES.includes(role)) {
+      return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+    }
+
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();
     const reportType = report_type || 'dashboard';
 
@@ -1062,7 +1069,7 @@ router.get('/api/reports/employee/check', authenticateToken, async (req, res) =>
 });
 
 // GET Check if report exists for current period
-router.get('/api/reports/check', authenticateToken, async (req, res) => {
+router.get('/api/reports/check', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { report_type, month, year } = req.query;
     const period = month && year ? { month: parseInt(month), year: parseInt(year) } : getCurrentPeriod();

@@ -1,8 +1,15 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+} from 'react';
 import axios from 'axios';
+import { useLocation } from 'react-router-dom';
 import { useSocket } from '../../contexts/SocketContext';
-import { jwtDecode } from 'jwt-decode';
 import {
   AccessTime,
   CalendarToday,
@@ -10,28 +17,25 @@ import {
   ArrowBack,
   ArrowForward,
   Close,
-  Circle,
+  Refresh,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { Stack, Divider } from '@mui/material';
+import { Stack, Divider, Grid } from '@mui/material';
 import {
   Alert,
-  Avatar,
   Box,
   Button,
   Card,
   Checkbox,
   Chip,
-  Container,
   Dialog,
   DialogContent,
-  DialogTitle,
   Fade,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputAdornment,
-  InputLabel,
   MenuItem,
   Paper,
   Select,
@@ -44,10 +48,14 @@ import {
   TableRow,
   TextField,
   Tooltip,
+  List,
+  ListItemButton,
   Typography,
-  CircularProgress as MCircularProgress,
+  Avatar,
+  CircularProgress,
 } from '@mui/material';
-import { LinearProgress } from '@mui/material';
+import { Male as MaleIcon, Female as FemaleIcon } from '@mui/icons-material';
+import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 import earistLogo from '../../assets/earistLogo.png';
 import hrisLogo from '../../assets/hrisLogo.png';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -55,17 +63,402 @@ import { alpha } from '@mui/material/styles';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import usePageAccess from '../../hooks/usePageAccess';
+import {
+  buildAuditPeriodLabel,
+  employeeDisplayName,
+  logDtrOverallSearch,
+  logAttendanceModuleAction,
+  ATTENDANCE_AUDIT_MODULES,
+} from '../../utils/moduleEmployeeSearchAudit';
 import AccessDenied from '../AccessDenied';
+import {
+  AttendanceFilterHeader,
+  AttendanceFilterSectionLabel,
+  AttendanceFilterDateControls,
+  AttendanceFilterToggleRow,
+  applyQuickDateRange,
+  filterPanelScrollSx,
+  filterSidebarCardSx,
+  attendanceMainPanelHeightSx,
+  ATTENDANCE_COMPACT_PAGE_SX,
+  MONTHS_SHORT,
+  AttendanceEmployeeSearchSection,
+  useAttendanceCompactPage,
+} from './attendanceFilterLayout';
+import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
+import LoadingOverlay from '../LoadingOverlay';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import {
+  fetchDailyLateUndertime,
+  fetchDailyLateUndertimeBatch,
+  formatLateUndertimeDisplay,
+  resolveDtrLateUndertimeDisplay,
+  isDtrDateScheduledByOfficialTime,
+  isDtrHalfDayLateUndertimePending,
+  parseHalfDayDatesSet,
+} from '../../utils/dtrLateUndertimeFromOverall';
+import {
+  buildReviewByDate,
+  parseHalfDayReviewJson,
+  MODULE_TYPES,
+} from '../../utils/halfDayReview';
+import {
+  DTR_WIDTH_IN,
+  DTR_WM_INLINE_STYLE,
+  dtrTimeValueEmpty,
+  isDtrCellWatermarkText,
+  resolveDtrAmPmCellText,
+  formatDtrPdfFileName,
+  formatDtrBulkPdfFileName,
+  openPdfBlobForPrint,
+} from '../../utils/dtrFormatHelpers';
+// ─── Theme tokens ──────────────────────────────────────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+};
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16,
-      )}`
-    : '109, 35, 35';
+const EMPLOYMENT_CATEGORY_OPTIONS = [
+  { value: 0, label: 'JO Graduate', color: '#F57C00' },
+  { value: 1, label: 'JO UnderGrad', color: '#E64A19' },
+  { value: 2, label: 'Regular Non-Teaching', color: '#2E7D32' },
+  { value: 3, label: 'Regular Teaching (30Hrs)', color: '#1565C0' },
+  { value: 4, label: 'Regular Designated (40Hrs)', color: '#7B1FA2' },
+  { value: 5, label: 'Other', color: '#00796B' },
+];
+
+// ─── Official-time helpers (ported from DailyTimeRecord) ──────────────────
+const REGULAR_WEEKDAY_KEYS = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+];
+const REGULAR_DAY_ABBREV = {
+  Monday: 'M',
+  Tuesday: 'T',
+  Wednesday: 'W',
+  Thursday: 'Th',
+  Friday: 'F',
+};
+
+const formatOfficialClock = (timeString, formatTimeFn) => {
+  const s = formatTimeFn(timeString || '');
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+  if (m) {
+    const h = String(parseInt(m[1], 10)).padStart(2, '0');
+    return `${h}:${m[2]} ${m[3].toUpperCase()}`;
+  }
+  return s;
+};
+
+const buildOfficialTwoSegment = (sched, formatTimeFn) => {
+  if (!sched) return '';
+  const tIn = formatOfficialClock(sched.officialTimeIN, formatTimeFn);
+  const brOut = formatOfficialClock(sched.officialBreaktimeOUT, formatTimeFn);
+  const brIn = formatOfficialClock(sched.officialBreaktimeIN, formatTimeFn);
+  const tOut = formatOfficialClock(sched.officialTimeOUT, formatTimeFn);
+  if (tIn && brOut && brIn && tOut)
+    return `${tIn} to ${brOut} : ${brIn} to ${tOut}`;
+  if (tIn && tOut) return `${tIn} to ${tOut}`;
+  return '';
+};
+
+const formatRegularDayRangeLabel = (startDay, endDay) => {
+  const a = REGULAR_DAY_ABBREV[startDay];
+  const b = REGULAR_DAY_ABBREV[endDay];
+  if (!a || !b) return '';
+  if (startDay === endDay) return a;
+  return `${a} - ${b}`;
+};
+
+const buildRegularDaysOfficialLines = (officialTimesMap, formatTimeFn) => {
+  const lines = [];
+  let runStart = -1,
+    runEnd = -1,
+    runSeg = '';
+  const flush = () => {
+    if (runStart < 0) return;
+    const label = formatRegularDayRangeLabel(
+      REGULAR_WEEKDAY_KEYS[runStart],
+      REGULAR_WEEKDAY_KEYS[runEnd],
+    );
+    if (label && runSeg) lines.push(`${label} ${runSeg}`);
+    runStart = -1;
+  };
+  for (let i = 0; i < REGULAR_WEEKDAY_KEYS.length; i++) {
+    const day = REGULAR_WEEKDAY_KEYS[i];
+    const seg = buildOfficialTwoSegment(officialTimesMap[day], formatTimeFn);
+    if (!seg) {
+      flush();
+      continue;
+    }
+    if (runStart < 0) {
+      runStart = i;
+      runEnd = i;
+      runSeg = seg;
+    } else if (seg === runSeg && runEnd === i - 1) {
+      runEnd = i;
+    } else {
+      flush();
+      runStart = i;
+      runEnd = i;
+      runSeg = seg;
+    }
+  }
+  flush();
+  return lines;
+};
+
+// ─── Styled components ────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: '0.68rem',
+        fontWeight: 700,
+        letterSpacing: '0.09em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
+
+const getEmployeeIdentifier = (emp) => {
+  if (!emp || typeof emp !== 'object') return '';
+  const raw =
+    emp.personID ?? emp.PersonID ?? emp.employeeNum ??
+    emp.employeeNumber ?? emp.agencyEmployeeNum ?? '';
+  return String(raw).trim();
+};
+
+const toProfileEmployee = (emp) => {
+  if (!emp) return null;
+  const num = getEmployeeIdentifier(emp);
+  return { ...emp, employeeNumber: num };
+};
+
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  if (!last && !first) {
+    const raw = String(e?.name || e?.fullName || '').trim();
+    if (!raw) {
+      const num = getEmployeeIdentifier(e);
+      return num ? `#${num}` : '';
+    }
+    if (raw.includes(',')) return raw;
+    return raw;
+  }
+  return last
+    ? `${last.toUpperCase()}, ${[first, mid].filter(Boolean).join(' ')}`
+    : [first, mid].filter(Boolean).join(' ');
+};
+
+const getEmployeeInitials = (e) => {
+  const last = e?.lastName?.[0];
+  const first = e?.firstName?.[0];
+  if (last || first) {
+    return `${last || ''}${first || ''}`.toUpperCase() || '?';
+  }
+  const nm = String(e?.name || e?.fullName || '').trim();
+  if (!nm) return '?';
+  const parts = nm.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return nm[0]?.toUpperCase() || '?';
+};
+
+const GenderBadge = ({ gender }) => {
+  if (!gender) return null;
+  const isMale = String(gender).trim().toLowerCase() === 'male';
+  return (
+    <Chip
+      size="small"
+      icon={
+        isMale ? (
+          <MaleIcon style={{ fontSize: 11, color: '#1565C0' }} />
+        ) : (
+          <FemaleIcon style={{ fontSize: 11, color: '#c2185b' }} />
+        )
+      }
+      label={gender}
+      sx={{
+        height: 18,
+        fontSize: '0.6rem',
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        bgcolor: isMale ? 'rgba(21,101,192,0.08)' : 'rgba(194,24,91,0.08)',
+        color: isMale ? '#1565C0' : '#c2185b',
+        border: `1px solid ${isMale ? 'rgba(21,101,192,0.25)' : 'rgba(194,24,91,0.25)'}`,
+        borderRadius: '4px',
+      }}
+    />
+  );
+};
+
+const EmployeeProfileRow = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  avatarSize = 30,
+}) => {
+  if (!employee) return null;
+  const num = getEmployeeIdentifier(employee);
+  const initials = getEmployeeInitials(employee);
+  const name = buildDisplayName(employee);
+  const dc = deptMap[num];
+  const ec = empCatMap[num];
+  const gender = sexMap[num] || employee.sex || employee.gender;
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+      <Avatar
+        sx={{
+          width: avatarSize,
+          height: avatarSize,
+          bgcolor: T.accent,
+          fontSize: avatarSize <= 30 ? '0.65rem' : '0.8rem',
+          fontWeight: 800,
+          borderRadius: avatarSize <= 30 ? '4px' : '8px',
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </Avatar>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          sx={{
+            fontWeight: 700,
+            fontSize: avatarSize <= 30 ? '0.78rem' : '0.84rem',
+            color: T.text,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {name}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', mt: 0.2 }}>
+          <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 600 }}>
+            #{num}
+          </Typography>
+          {gender && <GenderBadge gender={gender} />}
+          {dc && <DeptBadge code={dc} />}
+          {ec && <EmpCatBadge label={ec.label} colorHex={ec.colorHex} />}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const EmployeeProfileCard = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  loading = false,
+}) => {
+  if (!employee) return null;
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.25,
+        px: 1.25,
+        py: 1,
+        borderRadius: 2,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fafafa',
+      }}
+    >
+      <EmployeeProfileRow
+        employee={employee}
+        deptMap={deptMap}
+        empCatMap={empCatMap}
+        sexMap={sexMap}
+        avatarSize={44}
+      />
+      {loading && (
+        <CircularProgress size={14} sx={{ color: T.accent, flexShrink: 0 }} />
+      )}
+    </Box>
+  );
+};
+
+const scrollbarSx = {
+  '&::-webkit-scrollbar': { width: 4 },
+  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+  '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
+};
+
+const selectSx = {
+  borderRadius: '8px',
+  fontSize: '0.82rem',
+  bgcolor: '#fff',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: T.accent,
+    borderWidth: '1.5px',
+  },
 };
 
 const generateHash = (data) => {
@@ -73,64 +466,12 @@ const generateHash = (data) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = (hash << 5) - hash + char;
     hash = hash & hash;
   }
   return Math.abs(hash).toString(16).toUpperCase();
 };
 
-// --- FIXED STYLED COMPONENTS (Removed Transforms to stop movement) ---
-
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-}));
-
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'box-shadow 0.2s ease-in-out, background-color 0.2s',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
-    boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
-    },
-    '&:active': {
-      boxShadow: 'none',
-    },
-  }),
-);
-
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition:
-      'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    },
-    '&.Mui-focused': {
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-  },
-}));
-
-// Shared colgroup matching DailyTimeRecord.jsx exactly
 const DTRColGroup = () => (
   <colgroup>
     <col style={{ width: '8%' }} />
@@ -143,146 +484,340 @@ const DTRColGroup = () => (
   </colgroup>
 );
 
-const DailyTimeRecordFaculty = () => {
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  };
+};
+
+const PAGE_SIZE = 30;
+
+/** YYYY-MM-DD as a Philippines calendar day */
+const toPhCalendarYmd = (value) => {
+  if (value == null || value === '') return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+  }
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const mo = parts.find((p) => p.type === 'month')?.value;
+    const da = parts.find((p) => p.type === 'day')?.value;
+    if (y && mo && da) return `${y}-${mo}-${da}`;
+  } catch {
+    /* ignore */
+  }
+  return s.split('T')[0];
+};
+
+const normRecordYmd = (dateVal) => toPhCalendarYmd(dateVal);
+
+const recordMatchesDay = (record, dayPadded) => {
+  const ymd = normRecordYmd(record?.date);
+  if (!ymd || dayPadded.length !== 2) return false;
+  return ymd.endsWith(`-${dayPadded}`);
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────
+const DailyTimeRecordFaculty = ({
+  pageAccessIdentifier = 'daily-time-record-faculty',
+  accessDeniedMessage = 'You do not have permission to access Daily Time Record.',
+  accessDeniedReturnPath = '/admin-home',
+} = {}) => {
+  const location = useLocation();
   const { socket, connected } = useSocket();
   const { settings } = useSystemSettings();
+
   const [personID, setPersonID] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [records, setRecords] = useState([]);
   const [employeeName, setEmployeeName] = useState('');
   const [officialTimes, setOfficialTimes] = useState({});
-  const dtrRef = React.useRef(null);
+  const [batchOfficialTimesMap, setBatchOfficialTimesMap] = useState({});
+  const [computedLateByEmployee, setComputedLateByEmployee] = useState({});
+  const [halfDayDatesByEmployee, setHalfDayDatesByEmployee] = useState({});
+  const [halfDayReviewByEmployee, setHalfDayReviewByEmployee] = useState({});
+  const [computationModuleTypeByEmployee, setComputationModuleTypeByEmployee] =
+    useState({});
+  const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
+  const dtrRef = useRef(null);
 
   const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
 
-  // Bulk printing states
   const [allUsersDTR, setAllUsersDTR] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
-  // Replace surnameFilter with a free-text search query
   const [searchQuery, setSearchQuery] = useState('');
+  const batchSearchTrimmed = useMemo(() => searchQuery.trim(), [searchQuery]);
   const [loadingAllUsers, setLoadingAllUsers] = useState(false);
-  const bulkDTRRefs = React.useRef({});
+  const bulkDTRRefs = useRef({});
+  const [loadPhase, setLoadPhase] = useState('');
 
-  // ── Anti-tamper state ──────────────────────────────────────────────────────
   const [originalRecords, setOriginalRecords] = useState([]);
   const [recordsHash, setRecordsHash] = useState('');
   const [fetchedAt, setFetchedAt] = useState(null);
   const [integrityStatus, setIntegrityStatus] = useState('none');
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-
-  // ── Anti-tamper refs ───────────────────────────────────────────────────────
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'info',
+  });
   const observerRef = useRef(null);
   const restoreTimerRef = useRef(null);
   const originalRecordsRef = useRef([]);
   const isRestoringRef = useRef(false);
   const formatTimeRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-  // Year / month selector (added like AttendanceDevice)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   const [holidays, setHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
 
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
-
-  // Modal states for carousel preview
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [previewUsers, setPreviewUsers] = useState([]);
-
-  // Hide visible popup preview during printing
   const [printingAll, setPrintingAll] = useState(false);
   const [printingStatus, setPrintingStatus] = useState('');
 
-  // View mode state: 'single' or 'multiple'
   const [viewMode, setViewMode] = useState('single');
-
-  // Record filter: 'all' | 'has' | 'no'
   const [recordFilter, setRecordFilter] = useState('all');
-
-  // DTR Type state: 'regular' | 'honorarium' | 'service-credit' | 'overtime'
   const [dtrType, setDtrType] = useState('regular');
+  const [monthLoading, setMonthLoading] = useState(false);
 
-  // Print tracking states
-  const [printStatusFilter, setPrintStatusFilter] = useState('all'); // 'all' | 'printed' | 'unprinted'
-  const [printStatusMap, setPrintStatusMap] = useState(new Map()); // Map<employeeNumber, printInfo>
+  const [printStatusFilter, setPrintStatusFilter] = useState('all');
+  const [printStatusMap, setPrintStatusMap] = useState(new Map());
 
-  // Modal states for alerts and confirmations
   const [alertModal, setAlertModal] = useState({
     open: false,
     title: '',
     message: '',
   });
   const [confirmModal, setConfirmModal] = useState({ open: false, user: null });
-
-  // Helper functions for modals
-  const showAlert = (title, message) => {
+  const showAlert = (title, message) =>
     setAlertModal({ open: true, title, message });
-  };
-
-  const closeAlert = () => {
+  const closeAlert = () =>
     setAlertModal({ open: false, title: '', message: '' });
-  };
+  const showReprintConfirm = (user) => setConfirmModal({ open: true, user });
+  const closeConfirm = () => setConfirmModal({ open: false, user: null });
 
-  const showReprintConfirm = (user) => {
-    setConfirmModal({ open: true, user });
-  };
-
-  const closeConfirm = () => {
-    setConfirmModal({ open: false, user: null });
-  };
-
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-
-  // Department and Employment Category filters
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [employmentCategoryFilter, setEmploymentCategoryFilter] = useState('');
   const [registrationStatusFilter, setRegistrationStatusFilter] = useState('');
   const [departments, setDepartments] = useState([]);
-  const [employmentCategories, setEmploymentCategories] = useState([]);
   const [approvedLeaves, setApprovedLeaves] = useState([]);
 
-  // Add this state near your other single-user states
   const [singlePrintLoading, setSinglePrintLoading] = useState(false);
   const [singlePrintStatus, setSinglePrintStatus] = useState('');
+  const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
+  const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [sexMap, setSexMap] = useState({});
 
-  // ACCESS: page access control
-  const {
-    hasAccess,
-    loading: accessLoading,
-    error: accessError,
-  } = usePageAccess('daily-time-record-faculty');
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+  const { hasAccess, loading: accessLoading } = usePageAccess(pageAccessIdentifier);
+
+  useEffect(() => {
+    if (accessLoading || hasAccess === false) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+          axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/personalinfo/person_table`, getAuthHeaders()),
+        ]);
+        if (cancelled) return;
+        if (assignRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(assignRes.value.data) ? assignRes.value.data : []).forEach((a) => {
+            if (!a?.employeeNumber) return;
+            map[String(a.employeeNumber)] = a.code || '';
+          });
+          setDepartmentAssignmentsMap(map);
+        }
+        if (empCatRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach((item) => {
+            if (!item.employeeNumber) return;
+            const label =
+              item.parentGroup && item.typeName
+                ? `${item.parentGroup} | ${item.typeName}`
+                : item.categoryLabel || '';
+            if (label) {
+              map[String(item.employeeNumber)] = {
+                label,
+                colorHex: item.colorHex || '#757575',
+              };
+            }
+          });
+          setEmpCatMap(map);
+        }
+        if (personsRes.status === 'fulfilled') {
+          const list = Array.isArray(personsRes.value.data)
+            ? personsRes.value.data
+            : personsRes.value.data?.data || [];
+          const gMap = {};
+          list.forEach((p) => {
+            const num = p.agencyEmployeeNum?.toString() || p.employeeNumber?.toString();
+            if (num && p.sex) gMap[num] = p.sex;
+          });
+          setSexMap(gMap);
+        }
+      } catch (err) {
+        console.error('Error loading employee reference data:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-  };
+  }, [accessLoading, hasAccess]);
 
-  // Employee Number field is empty by default for searching any employee
+  const monthsShort = MONTHS_SHORT;
+  const months = MONTHS_SHORT;
 
-  // Use a single constant width (in) for DTR rendering/capture so all variants match
-  const DTR_WIDTH_IN = '8.7in'; // match main DailyTimeRecord table width
+  const inboundDtrNavState = useMemo(() => {
+    const st = location.state;
+    if (!st || typeof st !== 'object') return null;
+    const { startDate: sd, endDate: ed } = st;
+    if (!sd || !ed) return null;
+    if (st.isBulk && Array.isArray(st.users) && st.users.length > 0) {
+      return { kind: 'bulk', startDate: sd, endDate: ed, users: st.users };
+    }
+    const emp = st.employeeNumber ?? st.personID;
+    if (emp == null || String(emp).trim() === '') return null;
+    return {
+      kind: 'single',
+      employeeNumber: String(emp).trim(),
+      fullName: st.fullName || '',
+      startDate: sd,
+      endDate: ed,
+    };
+  }, [location.state]);
 
-  /**
-   * Formats a user's name to "SURNAME, Firstname M." (clean)
-   * Accepts user objects from both /users and attendance responses.
-   */
+  const dtrNavHydrateSigRef = useRef('');
+
+  useLayoutEffect(() => {
+    if (!inboundDtrNavState) return;
+    const sig = JSON.stringify(inboundDtrNavState);
+    if (dtrNavHydrateSigRef.current === sig) return;
+    dtrNavHydrateSigRef.current = sig;
+    const [sy, sm] = inboundDtrNavState.startDate.split('-').map(Number);
+    if (!Number.isFinite(sy) || !Number.isFinite(sm)) return;
+    if (inboundDtrNavState.kind === 'bulk') {
+      setViewMode('multiple');
+      setSelectedYear(sy);
+      setSelectedMonth(sm - 1);
+      setStartDate(inboundDtrNavState.startDate);
+      setEndDate(inboundDtrNavState.endDate);
+      setHasSearchedSingle(false);
+      const nums = new Set(
+        inboundDtrNavState.users
+          .map((u) => String(u.employeeNumber ?? u.PersonID ?? '').trim())
+          .filter(Boolean),
+      );
+      setSelectedUsers(nums);
+      return;
+    }
+    setViewMode('single');
+    setSelectedYear(sy);
+    setSelectedMonth(sm - 1);
+    setPersonID(inboundDtrNavState.employeeNumber);
+    if (inboundDtrNavState.fullName)
+      setEmployeeName(inboundDtrNavState.fullName);
+    setStartDate(inboundDtrNavState.startDate);
+    setEndDate(inboundDtrNavState.endDate);
+    setHasSearchedSingle(true);
+  }, [inboundDtrNavState]);
+
+  useEffect(() => {
+    const st = location.state;
+    if (st && typeof st === 'object' && st.startDate && st.endDate) {
+      if (st.isBulk && Array.isArray(st.users) && st.users.length > 0) return;
+      const emp = st.employeeNumber ?? st.personID;
+      if (emp != null && String(emp).trim() !== '') return;
+    }
+    const wf = readAttendanceWorkflow();
+    if (wf.employeeNumber && wf.startDate && wf.endDate) return;
+    setPersonID('');
+    setStartDate('');
+    setEndDate('');
+    setSelectedMonth(null);
+    setHasSearchedSingle(false);
+    setRecords([]);
+    setOriginalRecords([]);
+    originalRecordsRef.current = [];
+    setRecordsHash('');
+    setFetchedAt(null);
+    setIntegrityStatus('none');
+    setEmployeeName('');
+    setOfficialTimes({});
+    setApprovedLeaves([]);
+    setMonthLoading(false);
+    setAllUsersDTR([]);
+    setBatchOfficialTimesMap({});
+    setComputedLateByEmployee({});
+    setHalfDayDatesByEmployee({});
+    setSelectedUsers(new Set());
+    setSearchQuery('');
+    setRecordFilter('all');
+    setPrintStatusFilter('all');
+    setDepartmentFilter('');
+    setEmploymentCategoryFilter('');
+    setRegistrationStatusFilter('');
+    setCurrentPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleWorkflowHydrate = useCallback((payload) => {
+    setViewMode('single');
+    setPersonID(payload.employeeNumber);
+    if (payload.fullName) setEmployeeName(payload.fullName);
+    setStartDate(payload.startDate);
+    setEndDate(payload.endDate);
+    if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
+    if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    setHasSearchedSingle(true);
+  }, []);
+
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('dtr', {
+    employeeNumber: personID,
+    fullName: employeeName,
+    startDate,
+    endDate,
+    onHydrate: handleWorkflowHydrate,
+  });
+
+  useAttendanceCompactPage();
+
+  // ─── Format helpers ────────────────────────────────────────────────────
   const formatFullName = (user = {}) => {
     const last = (
       user.lastName ||
@@ -292,31 +827,77 @@ const DailyTimeRecordFaculty = () => {
     ).trim();
     const first = (user.firstName || user.givenName || '').trim();
     const middleRaw = (user.middleName || user.middleInitial || '').trim();
-
     const capitalize = (s) =>
       s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '';
-
-    let middle = '';
-    if (middleRaw) {
-      // Use only initial if middle name is longer
-      const initial = middleRaw.charAt(0).toUpperCase();
-      middle = `${initial}.`;
-    }
-
+    const middle = middleRaw ? `${middleRaw.charAt(0).toUpperCase()}.` : '';
     const lastPart = last ? last.toUpperCase() : '';
     const firstPart = first ? capitalize(first) : '';
-    const full = `${lastPart}${lastPart && firstPart ? ', ' : ''}${firstPart}${
-      middle ? ' ' + middle : ''
-    }`.trim();
-
-    // Fallback to any available fullName or employee displayName
-    if (!full) {
-      return user.fullName || user.displayName || 'Unknown';
-    }
-    return full;
+    return (
+      `${lastPart}${lastPart && firstPart ? ', ' : ''}${firstPart}${middle ? ' ' + middle : ''}`.trim() ||
+      user.fullName ||
+      user.displayName ||
+      'Unknown'
+    );
   };
 
-  // ── DOM restore logic ──────────────────────────────────────────────────────
+  const formatTime = (timeString) => {
+    if (!timeString) return '';
+    const normalized = String(timeString).replace(/\s+/g, ' ').trim();
+    return normalized.replace(/^(\d{1,2}:\d{2}):\d{2}(\s?[AP]M)?$/i, '$1$2');
+  };
+
+  const MONTHS_LONG = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  const MONTHS_UPPER = [
+    'JANUARY',
+    'FEBRUARY',
+    'MARCH',
+    'APRIL',
+    'MAY',
+    'JUNE',
+    'JULY',
+    'AUGUST',
+    'SEPTEMBER',
+    'OCTOBER',
+    'NOVEMBER',
+    'DECEMBER',
+  ];
+  const formatMonth = (dateString) => {
+    if (!dateString) return '';
+    const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
+    return MONTHS_UPPER[m] || '';
+  };
+  const formatStartDate = (dateString) => {
+    if (!dateString) return '';
+    const [, m, d] = dateString.split('T')[0].split('-');
+    return `${MONTHS_LONG[parseInt(m) - 1]} ${parseInt(d)}`;
+  };
+  const formatEndDate = (dateString) => {
+    if (!dateString) return '';
+    const [y, , d] = dateString.split('T')[0].split('-');
+    return `${parseInt(d)}, ${y}`;
+  };
+
+  const formattedStartDate = formatStartDate(startDate);
+  const formattedEndDate = formatEndDate(endDate);
+
+  useEffect(() => {
+    formatTimeRef.current = formatTime;
+  }, []);
+
+  // ─── Anti-tamper DOM restore ───────────────────────────────────────────
   const restoreDOMFromOriginal = useCallback(() => {
     if (!dtrRef.current) return;
     const original = originalRecordsRef.current;
@@ -325,33 +906,33 @@ const DailyTimeRecordFaculty = () => {
     const fmt = formatTimeRef.current || ((s) => s || '');
     const tbodies = dtrRef.current.querySelectorAll('tbody');
     tbodies.forEach((tbody) => {
-      const rows = tbody.querySelectorAll('tr');
-      rows.forEach((row) => {
+      tbody.querySelectorAll('tr').forEach((row) => {
         const dayCell = row.querySelector('td:first-child');
         if (!dayCell) return;
         const dayText = dayCell.textContent.trim();
         if (!/^\d{2}$/.test(dayText)) return;
-        const record = original.find((r) => {
-          const d = (r.date || '').split('T')[0].split('-')[2];
-          return d === dayText;
-        });
+        const record = original.find(
+          (r) => (r.date || '').split('T')[0].split('-')[2] === dayText,
+        );
         const cells = row.querySelectorAll('td');
         if (cells.length < 5) return;
-        const timeValues = [
-          fmt(record?.timeIN     || ''),
-          fmt(record?.breaktimeIN  || ''),
+        [
+          fmt(record?.timeIN || ''),
+          fmt(record?.breaktimeIN || ''),
           fmt(record?.breaktimeOUT || ''),
-          fmt(record?.timeOUT    || ''),
-        ];
-        [1, 2, 3, 4].forEach((cellIdx, spanIdx) => {
-          const span = cells[cellIdx]?.querySelector('span');
-          if (span && span.textContent.trim() !== timeValues[spanIdx]) {
-            span.textContent = timeValues[spanIdx];
-          }
+          fmt(record?.timeOUT || ''),
+        ].forEach((val, idx) => {
+          const span = cells[idx + 1]?.querySelector('span');
+          if (!span) return;
+          const current = span.textContent.trim();
+          if (!val && isDtrCellWatermarkText(current)) return;
+          if (current !== val) span.textContent = val;
         });
       });
     });
-    setTimeout(() => { isRestoringRef.current = false; }, 50);
+    setTimeout(() => {
+      isRestoringRef.current = false;
+    }, 50);
   }, []);
 
   const startObserver = useCallback(() => {
@@ -360,249 +941,338 @@ const DailyTimeRecordFaculty = () => {
     observerRef.current = new MutationObserver((mutations) => {
       if (isRestoringRef.current) return;
       const isTimeTamper = mutations.some((m) => {
-        if (m.type === 'characterData') { const span = m.target.parentElement; return span && span.tagName === 'SPAN'; }
-        if (m.type === 'childList') return m.target.tagName === 'TD' || m.target.tagName === 'SPAN';
+        if (m.type === 'characterData') {
+          const s = m.target.parentElement;
+          return s && s.tagName === 'SPAN';
+        }
+        if (m.type === 'childList')
+          return m.target.tagName === 'TD' || m.target.tagName === 'SPAN';
         return false;
       });
       if (!isTimeTamper) return;
       if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-      restoreTimerRef.current = setTimeout(() => { restoreDOMFromOriginal(); }, 300);
+      restoreTimerRef.current = setTimeout(() => restoreDOMFromOriginal(), 300);
     });
-    observerRef.current.observe(dtrRef.current, { subtree: true, childList: true, characterData: true });
+    observerRef.current.observe(dtrRef.current, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
   }, [restoreDOMFromOriginal]);
 
   const stopObserver = useCallback(() => {
-    if (observerRef.current) { observerRef.current.disconnect(); observerRef.current = null; }
-    if (restoreTimerRef.current) { clearTimeout(restoreTimerRef.current); restoreTimerRef.current = null; }
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (restoreTimerRef.current) {
+      clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
     if (originalRecords.length > 0 && dtrRef.current) {
       const t = setTimeout(() => startObserver(), 100);
-      return () => { clearTimeout(t); stopObserver(); };
-    } else { stopObserver(); }
+      return () => {
+        clearTimeout(t);
+        stopObserver();
+      };
+    } else stopObserver();
   }, [originalRecords, startObserver, stopObserver]);
 
   useEffect(() => () => stopObserver(), [stopObserver]);
 
-  // ── Integrity verification ─────────────────────────────────────────────────
+  // ─── Integrity verification ────────────────────────────────────────────
   const verifyIntegrity = () => {
     if (!fetchedAt || originalRecords.length === 0) {
-      setSnackbar({ open: true, message: 'No DTR data loaded. Please search first.', severity: 'warning' });
+      setSnackbar({
+        open: true,
+        message: 'No DTR data loaded. Please search first.',
+        severity: 'warning',
+      });
       return false;
     }
-    const ageMs = Date.now() - new Date(fetchedAt).getTime();
-    if (ageMs > 30 * 60 * 1000) {
+    if (Date.now() - new Date(fetchedAt).getTime() > 30 * 60 * 1000) {
       setIntegrityStatus('warn');
-      setSnackbar({ open: true, message: 'DTR data is older than 30 minutes. Please search again to get fresh data.', severity: 'warning' });
+      setSnackbar({
+        open: true,
+        message: 'DTR data is older than 30 minutes. Please search again.',
+        severity: 'warning',
+      });
       return false;
     }
-    const currentHash = generateHash(records);
-    if (currentHash !== recordsHash) {
+    if (generateHash(records) !== recordsHash) {
       setIntegrityStatus('warn');
-      setSnackbar({ open: true, message: 'Data integrity check failed. The records may have been modified. Please reload.', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: 'Data integrity check failed. Records may have been modified.',
+        severity: 'error',
+      });
       return false;
     }
     setIntegrityStatus('ok');
     return true;
   };
 
-  /**
-   * Fetches the official working hours for a specific employee
-   */
-  const fetchOfficialTimes = async (employeeID) => {
+  // ─── Secondary data helpers ────────────────────────────────────────────
+  const fetchOfficialTimes = useCallback(
+    async (employeeID, periodStart, periodEnd) => {
+      try {
+        const response = await axios.get(
+          `${API_BASE_URL}/officialtimetable/${employeeID}`,
+          { ...getAuthHeaders(), params: { skipAudit: '1' } },
+        );
+
+        const allRows = response.data || [];
+
+        const filtered =
+          periodStart && periodEnd
+            ? allRows.filter((r) => {
+                const schedStart = r.startDate
+                  ? String(r.startDate).split('T')[0]
+                  : null;
+                const schedEnd = r.endDate
+                  ? String(r.endDate).split('T')[0]
+                  : null;
+                if (!schedStart || !schedEnd) return false;
+                return schedStart <= periodEnd && schedEnd >= periodStart;
+              })
+            : allRows;
+
+        const map = filtered.reduce((acc, r) => {
+          if (
+            !acc[r.day] ||
+            (r.id && acc[r.day]._id && r.id > acc[r.day]._id)
+          ) {
+            acc[r.day] = {
+              _id: r.id,
+              officialTimeIN: r.officialTimeIN,
+              officialTimeOUT: r.officialTimeOUT,
+              officialBreaktimeIN: r.officialBreaktimeIN,
+              officialBreaktimeOUT: r.officialBreaktimeOUT,
+            };
+          }
+          return acc;
+        }, {});
+
+        const cleanMap = Object.fromEntries(
+          Object.entries(map).map(([day, val]) => {
+            const { _id, ...rest } = val;
+            return [day, rest];
+          }),
+        );
+
+        setOfficialTimes(cleanMap);
+      } catch (err) {
+        console.error('Error fetching official times:', err);
+        setOfficialTimes({});
+      }
+    },
+    [],
+  );
+
+  const fetchApprovedLeaves = useCallback(async (empID) => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/officialtimetable/${employeeID}`,
-        getAuthHeaders(),
-      );
-
-      const data = response.data;
-
-      const officialTimesMap = data.reduce((acc, record) => {
-        acc[record.day] = {
-          officialTimeIN: record.officialTimeIN,
-          officialTimeOUT: record.officialTimeOUT,
-          officialBreaktimeIN: record.officialBreaktimeIN,
-          officialBreaktimeOUT: record.officialBreaktimeOUT,
-        };
-        return acc;
-      }, {});
-
-      setOfficialTimes(officialTimesMap);
-    } catch (error) {
-      console.error('Error fetching official times:', error);
-      setOfficialTimes({});
-    }
-  };
-
-  const fetchApprovedLeaves = async (empID) => {
-    try {
-      const response = await axios.get(
+      const r = await axios.get(
         `${API_BASE_URL}/leaveRoute/leave_request`,
         getAuthHeaders(),
       );
-      // Filter only HR Approved (status === 2) for this employee
-      const hrApproved = response.data.filter(
-        (req) =>
-          String(req.status) === '2' &&
-          String(req.employeeNumber) === String(empID),
+      setApprovedLeaves(
+        r.data.filter(
+          (req) =>
+            String(req.status) === '2' &&
+            String(req.employeeNumber) === String(empID),
+        ),
       );
-      setApprovedLeaves(hrApproved);
-    } catch (err) {
-      console.error('Error fetching approved leaves:', err);
+    } catch {
       setApprovedLeaves([]);
     }
-  };
-
-  useEffect(() => {
-    if (personID) {
-      fetchOfficialTimes(personID);
-      fetchApprovedLeaves(personID);
-    }
-  }, [personID]);
-
-  // Fetch departments and employment categories for filters
-  useEffect(() => {
-    const fetchFilters = async () => {
-      try {
-        // Fetch departments
-        const deptResponse = await axios.get(
-          `${API_BASE_URL}/api/department-table`,
-          getAuthHeaders(),
-        );
-        setDepartments(
-          Array.isArray(deptResponse.data) ? deptResponse.data : [],
-        );
-
-        // Fetch employment categories (unique categories from all users)
-        const catResponse = await axios.get(
-          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-          getAuthHeaders(),
-        );
-
-        // Get unique employment category IDs
-        const uniqueCategories = Array.isArray(catResponse.data)
-          ? [...new Set(catResponse.data.map((cat) => cat.employmentCategory))]
-          : [];
-
-        setEmploymentCategories(uniqueCategories);
-      } catch (error) {
-        console.error('Error fetching filter options:', error);
-      }
-    };
-
-    fetchFilters();
   }, []);
 
-  // Fetch holidays and suspensions (for row highlighting)
-  useEffect(() => {
-    const fetchHolidaysAndSuspensions = async () => {
+  // ─── Fetch official times for batch users ──────────────────────────────
+  const fetchBatchOfficialTimes = useCallback(
+    async (employeeNumbers, periodStart, periodEnd) => {
+      if (!employeeNumbers || employeeNumbers.length === 0) return;
       try {
-        const [holidaysRes, suspensionsRes] = await Promise.all([
+        const timesMap = {};
+        const OT_CONCURRENCY = 5;
+        for (let i = 0; i < employeeNumbers.length; i += OT_CONCURRENCY) {
+          const chunk = employeeNumbers.slice(i, i + OT_CONCURRENCY);
+          await Promise.all(
+            chunk.map(async (empID) => {
+              try {
+                const response = await axios.get(
+                  `${API_BASE_URL}/officialtimetable/${empID}`,
+                  { ...getAuthHeaders(), params: { skipAudit: '1' } },
+                );
+                const allRows = response.data || [];
+                const filtered =
+                  periodStart && periodEnd
+                    ? allRows.filter((r) => {
+                        const schedStart = r.startDate
+                          ? String(r.startDate).split('T')[0]
+                          : null;
+                        const schedEnd = r.endDate
+                          ? String(r.endDate).split('T')[0]
+                          : null;
+                        if (!schedStart || !schedEnd) return false;
+                        return (
+                          schedStart <= periodEnd && schedEnd >= periodStart
+                        );
+                      })
+                    : allRows;
+                const map = filtered.reduce((acc, r) => {
+                  if (
+                    !acc[r.day] ||
+                    (r.id && acc[r.day]._id && r.id > acc[r.day]._id)
+                  ) {
+                    acc[r.day] = {
+                      _id: r.id,
+                      officialTimeIN: r.officialTimeIN,
+                      officialTimeOUT: r.officialTimeOUT,
+                      officialBreaktimeIN: r.officialBreaktimeIN,
+                      officialBreaktimeOUT: r.officialBreaktimeOUT,
+                    };
+                  }
+                  return acc;
+                }, {});
+                const cleanMap = Object.fromEntries(
+                  Object.entries(map).map(([day, val]) => {
+                    const { _id, ...rest } = val;
+                    return [day, rest];
+                  }),
+                );
+                timesMap[empID] = cleanMap;
+              } catch (err) {
+                console.error(
+                  `Error fetching official times for employee ${empID}:`,
+                  err,
+                );
+                timesMap[empID] = {};
+              }
+            }),
+          );
+        }
+        setBatchOfficialTimesMap(timesMap);
+      } catch (error) {
+        console.error('Error in fetchBatchOfficialTimes:', error);
+        setBatchOfficialTimesMap({});
+      }
+    },
+    [],
+  );
+
+  const loadComputedLateForEmployee = useCallback(
+    async (employeeNumber) => {
+      if (!employeeNumber || !startDate || !endDate) return;
+      const {
+        byDate,
+        halfDayDates,
+        half_day_review,
+        computation_module_type,
+      } = await fetchDailyLateUndertime(employeeNumber, startDate, endDate);
+      const key = String(employeeNumber);
+      setComputedLateByEmployee((prev) => ({ ...prev, [key]: byDate }));
+      setHalfDayDatesByEmployee((prev) => ({
+        ...prev,
+        [key]: parseHalfDayDatesSet(halfDayDates),
+      }));
+      setHalfDayReviewByEmployee((prev) => ({
+        ...prev,
+        [key]: buildReviewByDate(parseHalfDayReviewJson(half_day_review)),
+      }));
+      setComputationModuleTypeByEmployee((prev) => ({
+        ...prev,
+        [key]: computation_module_type || MODULE_TYPES.NON_TEACHING,
+      }));
+    },
+    [startDate, endDate],
+  );
+
+  const loadComputedLateBatch = useCallback(
+    async (employeeNumbers) => {
+      if (!startDate || !endDate || !employeeNumbers?.length) return;
+      const {
+        byEmployee,
+        halfDayDatesByEmployee: halfByEmp,
+        halfDayReviewByEmployee: reviewByEmp,
+        computationModuleTypeByEmployee: modByEmp,
+      } = await fetchDailyLateUndertimeBatch(
+        employeeNumbers,
+        startDate,
+        endDate,
+      );
+      const halfSets = {};
+      Object.entries(halfByEmp || {}).forEach(([emp, str]) => {
+        halfSets[emp] = parseHalfDayDatesSet(str);
+      });
+      setComputedLateByEmployee((prev) => ({ ...prev, ...byEmployee }));
+      setHalfDayDatesByEmployee((prev) => ({ ...prev, ...halfSets }));
+      setHalfDayReviewByEmployee((prev) => ({ ...prev, ...reviewByEmp }));
+      setComputationModuleTypeByEmployee((prev) => ({ ...prev, ...modByEmp }));
+    },
+    [startDate, endDate],
+  );
+
+  // ─── Static data on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    const fetchAllStaticData = async () => {
+      try {
+        const deptRes = await axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders());
+        setDepartments(Array.isArray(deptRes.data) ? deptRes.data : []);
+        const [hRes, sRes] = await Promise.all([
           axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()),
           axios.get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders()),
         ]);
-        setHolidays(Array.isArray(holidaysRes.data) ? holidaysRes.data : []);
-        setSuspensions(
-          Array.isArray(suspensionsRes.data) ? suspensionsRes.data : [],
-        );
-      } catch (err) {
-        console.error('Error fetching holidays/suspensions:', err);
-        setHolidays([]);
-        setSuspensions([]);
+        setHolidays(Array.isArray(hRes.data) ? hRes.data : []);
+        setSuspensions(Array.isArray(sRes.data) ? sRes.data : []);
+      } catch (e) {
+        console.error('Error fetching static data:', e);
       }
     };
-    fetchHolidaysAndSuspensions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchAllStaticData();
   }, []);
 
-  const fetchRecords = async () => {
+  const filterByDtrType = (data, type) => {
+    if (type === 'regular') return data.filter((r) => r.timeIN || r.timeOUT);
+    if (type === 'service-credit')
+      return data.filter(
+        (r) =>
+          r.specialType === 'SERVICE' && (r.specialTimeIN || r.specialTimeOUT),
+      );
+    if (type === 'honorarium')
+      return data.filter(
+        (r) =>
+          r.specialType === 'HONORARIUM' &&
+          (r.specialTimeIN || r.specialTimeOUT),
+      );
+    if (type === 'overtime')
+      return data.filter(
+        (r) =>
+          r.specialType === 'OVERTIME' && (r.specialTimeIN || r.specialTimeOUT),
+      );
+    return data;
+  };
+
+  // ─── Single user fetch ─────────────────────────────────────────────────
+  const fetchRecords = useCallback(async () => {
+    setMonthLoading(true);
     try {
-      const response = await axios.post(
+      const r = await axios.post(
         `${API_BASE_URL}/attendance/api/view-attendance`,
-        {
-          personID,
-          startDate,
-          endDate,
-        },
+        { personID, startDate, endDate },
         getAuthHeaders(),
       );
-
-      const data = response.data;
-      console.log('📊 Fetched raw data:', data.length, 'records');
-      console.log('🔍 DTR Type:', dtrType);
-      console.log('📝 Sample record:', data[0]);
-
-      // Debug: Check for overtime records
-      const overtimeRecords = data.filter((r) => r.specialType === 'OVERTIME');
-      console.log('🔍 TOTAL OVERTIME RECORDS IN DATA:', overtimeRecords.length);
-      if (overtimeRecords.length > 0) {
-        console.log('🔍 First overtime record:', overtimeRecords[0]);
-      }
-
-      // Filter records based on selected DTR type
-      let filteredRecords = data;
-      if (dtrType === 'regular') {
-        // Show records that have regular times (timeIN or timeOUT)
-        filteredRecords = data.filter(
-          (record) => record.timeIN || record.timeOUT,
-        );
-        console.log(
-          '✅ Regular filter: ',
-          filteredRecords.length,
-          'records with timeIN/timeOUT',
-        );
-      } else if (dtrType === 'service-credit') {
-        // Show only records with SERVICE special times
-        filteredRecords = data.filter(
-          (record) =>
-            record.specialType === 'SERVICE' &&
-            (record.specialTimeIN || record.specialTimeOUT),
-        );
-        console.log(
-          '✅ Service Credit filter:',
-          filteredRecords.length,
-          'records with SERVICE type',
-        );
-      } else if (dtrType === 'honorarium') {
-        // Show only records with HONORARIUM special times
-        filteredRecords = data.filter(
-          (record) =>
-            record.specialType === 'HONORARIUM' &&
-            (record.specialTimeIN || record.specialTimeOUT),
-        );
-        console.log(
-          '✅ Honorarium filter:',
-          filteredRecords.length,
-          'records with HONORARIUM type',
-        );
-      } else if (dtrType === 'overtime') {
-        // Show only records with OVERTIME special times
-        filteredRecords = data.filter(
-          (record) =>
-            record.specialType === 'OVERTIME' &&
-            (record.specialTimeIN || record.specialTimeOUT),
-        );
-        console.log(
-          '✅ Overtime filter:',
-          filteredRecords.length,
-          'records with OVERTIME type',
-        );
-      }
-
-      // Set records based on filtering
-      setRecords(filteredRecords);
-      console.log('💾 Set records state:', filteredRecords.length);
-
-      // ── Integrity capture ──────────────────────────────────────────────────
-      if (filteredRecords.length > 0) {
+      const data = r.data;
+      const filtered = filterByDtrType(data, dtrType);
+      setRecords(filtered);
+      if (filtered.length > 0) {
         stopObserver();
-        const immutable = Object.freeze(JSON.parse(JSON.stringify(filteredRecords)));
+        const immutable = Object.freeze(JSON.parse(JSON.stringify(filtered)));
         setOriginalRecords(immutable);
         originalRecordsRef.current = immutable;
-        const hash = generateHash(filteredRecords);
-        setRecordsHash(hash);
+        setRecordsHash(generateHash(filtered));
         setFetchedAt(new Date().toISOString());
         setIntegrityStatus('ok');
       } else {
@@ -613,119 +1283,119 @@ const DailyTimeRecordFaculty = () => {
         setFetchedAt(null);
         setIntegrityStatus('none');
       }
-
-      // Set employee name if we have any data returned from API
       if (data.length > 0) {
         const { firstName, lastName, middleName } = data[0];
         setEmployeeName(formatFullName({ firstName, lastName, middleName }));
-        await fetchOfficialTimes(personID);
+        fetchOfficialTimes(personID, startDate, endDate);
+        fetchApprovedLeaves(personID).catch(() => {});
       } else {
         setEmployeeName('No records found');
         setOfficialTimes({});
       }
+      if (dtrType === 'regular' && personID && startDate && endDate) {
+        loadComputedLateForEmployee(personID);
+      }
+      return filtered.length;
     } catch (err) {
-      console.error('❌ Error fetching records:', err);
+      console.error('Error fetching records:', err);
+      return null;
+    } finally {
+      setMonthLoading(false);
     }
-  };
+  }, [
+    personID,
+    startDate,
+    endDate,
+    dtrType,
+    stopObserver,
+    fetchOfficialTimes,
+    fetchApprovedLeaves,
+    loadComputedLateForEmployee,
+  ]);
 
-  // Automatically refetch records when personID, date range, DTR type, or view mode changes
   useEffect(() => {
-    if (viewMode === 'single' && personID && startDate && endDate) {
+    if (
+      viewMode === 'single' &&
+      hasSearchedSingle &&
+      personID &&
+      startDate &&
+      endDate
+    )
       fetchRecords();
-    }
-  }, [personID, startDate, endDate, dtrType, viewMode]);
+  }, [
+    dtrType,
+    viewMode,
+    hasSearchedSingle,
+    personID,
+    startDate,
+    endDate,
+    fetchRecords,
+  ]);
 
-  // Automatically refetch all users data when DTR type changes (for multiple view)
   useEffect(() => {
-    if (viewMode === 'multiple' && allUsersDTR.length > 0) {
-      fetchAllUsersDTR();
-    }
+    if (viewMode === 'multiple' && allUsersDTR.length > 0) fetchAllUsersDTR();
   }, [dtrType]);
 
-  // Keep latest fetch functions for Socket.IO handler
   useEffect(() => {
     fetchRecordsRef.current = fetchRecords;
     fetchAllUsersDTRRef.current = fetchAllUsersDTR;
   });
 
-  // Realtime: refresh when attendance data changes
+  // ─── Socket realtime ───────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !connected) return;
-
     let debounceTimer = null;
-
     const handleAttendanceChanged = (payload) => {
+      if (payload?.light) return;
       const action = payload?.action;
-
-      // Special-case: DTR print status changes should NOT trigger heavy DTR re-fetches.
+      if (
+        action === 'leaves-fetched' ||
+        action === 'holidays-fetched' ||
+        action === 'suspensions-fetched' ||
+        action === 'overall-daily-late-updated' ||
+        action === 'overall-daily-late-created'
+      ) {
+        return;
+      }
       if (action === 'dtr-printed') {
-        const printedEmployees = Array.isArray(payload?.employeeNumbers)
+        const printed = Array.isArray(payload?.employeeNumbers)
           ? payload.employeeNumbers
           : [];
-
-        if (
-          viewMode === 'single' &&
-          personID &&
-          printedEmployees.length > 0 &&
-          !printedEmployees.includes(personID)
-        ) {
-          return;
-        }
-
-        if (printedEmployees.length > 0) {
+        if (printed.length > 0) {
           setPrintStatusMap((prev) => {
             const next = new Map(prev);
-            const printedAt =
+            const at =
               typeof payload?.printed_at === 'string'
                 ? payload.printed_at
                 : new Date().toISOString();
-            const printedBy =
-              payload?.printedBy || payload?.printed_by || 'system';
-
-            printedEmployees.forEach((emp) => {
-              next.set(emp, { printed_at: printedAt, printed_by: printedBy });
-            });
+            const by = payload?.printedBy || payload?.printed_by || 'system';
+            printed.forEach((emp) =>
+              next.set(emp, { printed_at: at, printed_by: by }),
+            );
             return next;
           });
         }
         return;
       }
-
-      const changedPersonIDs = Array.isArray(payload?.personIDs)
+      const changedIDs = Array.isArray(payload?.personIDs)
         ? payload.personIDs
         : payload?.personID
           ? [payload.personID]
           : [];
-      const isBulkChange = action === 'bulk-auto-sync';
-
+      const isBulk = action === 'bulk-auto-sync';
       if (viewMode === 'single') {
-        if (changedPersonIDs.length === 0 && !isBulkChange) return;
-
-        if (
-          personID &&
-          changedPersonIDs.length > 0 &&
-          !changedPersonIDs.includes(personID)
-        ) {
+        if (changedIDs.length === 0 && !isBulk) return;
+        if (personID && changedIDs.length > 0 && !changedIDs.includes(personID))
           return;
-        }
-
-        if (personID && startDate && endDate) {
+        if (hasSearchedSingle && personID && startDate && endDate)
           fetchRecordsRef.current?.();
-        }
         return;
       }
-
-      // viewMode === 'multiple'
-      if (!startDate || !endDate) return;
-      if (allUsersDTR.length === 0) return;
-      if (changedPersonIDs.length === 0 && !isBulkChange) return;
-
+      if (!startDate || !endDate || allUsersDTR.length === 0) return;
+      if (changedIDs.length === 0 && !isBulk) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        fetchAllUsersDTRRef.current?.();
-      }, 300);
+      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 1500);
     };
-
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -739,465 +1409,435 @@ const DailyTimeRecordFaculty = () => {
     startDate,
     endDate,
     allUsersDTR.length,
+    hasSearchedSingle,
   ]);
 
-  // Fetch all users and their DTR data - Optimized for large datasets
-  const fetchAllUsersDTR = async () => {
+  // ─── Batch fetch ───────────────────────────────────────────────────────
+  const fetchAllUsersDTR = useCallback(async () => {
     if (!startDate || !endDate) {
       showAlert('Date Required', 'Please select start date and end date first');
       return;
     }
-
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    const { signal } = abortControllerRef.current;
     setLoadingAllUsers(true);
-    setPrintingStatus('Loading Daily Time Records…');
-
+    setLoadPhase('Loading employee list…');
+    setAllUsersDTR([]);
+    setBatchOfficialTimesMap({});
+    setComputedLateByEmployee({});
+    setHalfDayDatesByEmployee({});
+    setSelectedUsers(new Set());
+    setCurrentPage(1);
+    const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
-      const response = await axios.post(
-        `${API_BASE_URL}/attendance/api/view-attendance-all-users`,
-        {
-          startDate,
-          endDate,
-        },
-        getAuthHeaders(),
-      );
+      const empListParams = { startDate, endDate };
 
-      const allRecords = response.data || [];
-
-      console.log(
-        '📊 Fetched attendance records:',
-        allRecords.length,
-        'total records',
-      );
-      console.log('🔍 DTR Type for All Users:', dtrType);
-
-      const overtimeRecords = allRecords.filter(
-        (r) => r.specialType === 'OVERTIME',
-      );
-      console.log(
-        '🔍 TOTAL OVERTIME RECORDS IN ALL USERS DATA:',
-        overtimeRecords.length,
-      );
-      if (overtimeRecords.length > 0) {
-        console.log(
-          '🔍 First overtime record in all users:',
-          overtimeRecords[0],
-        );
-      }
-
-      if (allRecords.length === 0) {
+      const [empRes, deptRes, catRes] = await Promise.all([
+        axios
+          .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
+            params: empListParams,
+            ...cfg(),
+          })
+          .catch((e) => {
+            if (!signal.aborted) console.warn('emp list:', e.message);
+            return { data: [] };
+          }),
+        axios
+          .get(`${API_BASE_URL}/api/department-assignment`, cfg())
+          .catch(() => ({ data: [] })),
+        axios
+          .get(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+            cfg(),
+          )
+          .catch(() => ({ data: [] })),
+      ]);
+      if (signal.aborted) return;
+      const empList = empRes.data || [];
+      if (empList.length === 0) {
         setAllUsersDTR([]);
+        setBatchOfficialTimesMap({});
         setLoadingAllUsers(false);
-        setPrintingStatus('');
+        setLoadPhase('');
         showAlert(
           'No Records Found',
-          'No attendance records found in the database for the selected date range. Records must be saved from the attendance device before viewing DTR.',
+          'No attendance records found for the selected date range.',
         );
         return;
       }
-
-      // Group records by personID/employeeNumber
-      const userRecordsMap = new Map();
-
-      allRecords.forEach((record) => {
-        const employeeNumber = record.personID || record.agencyEmployeeNum;
-        const registrationStatus =
-          record.registrationStatus || 'Not Registered';
-        const displayName =
-          record.firstName && record.lastName
-            ? formatFullName({
-                firstName: record.firstName,
-                lastName: record.lastName,
-                middleName: record.middleName,
-              })
-            : record.devicePersonName || employeeNumber;
-
-        if (!userRecordsMap.has(employeeNumber)) {
-          userRecordsMap.set(employeeNumber, {
-            employeeNumber,
-            firstName: record.firstName || '',
-            lastName: record.lastName || '',
-            middleName: record.middleName || '',
-            fullName: displayName,
-            devicePersonName: record.devicePersonName || '',
-            registrationStatus: registrationStatus,
-            records: [],
-            rawUser: {
-              employeeNumber,
-              firstName: record.firstName,
-              lastName: record.lastName,
-              middleName: record.middleName,
-              department: record.department,
-              departmentCode: record.departmentCode,
-              employmentCategory: undefined,
-              registrationStatus: registrationStatus,
-            },
-          });
-        }
-
-        userRecordsMap.get(employeeNumber).records.push(record);
+      const deptMap = new Map();
+      (deptRes.data || []).forEach((d) => {
+        if (d.employeeNumber && d.code)
+          deptMap.set(String(d.employeeNumber), d.code);
       });
-
-      const allUserData = Array.from(userRecordsMap.values());
-
-      // Fetch employment categories and merge into each user
-      try {
-        setPrintingStatus('Loading employment categories...');
-        const catResponse = await axios.get(
-          `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-          getAuthHeaders(),
-        );
-
-        const catMap = new Map();
-        if (Array.isArray(catResponse.data)) {
-          catResponse.data.forEach((cat) => {
-            catMap.set(String(cat.employeeNumber), cat.employmentCategory);
-          });
-        }
-
-        allUserData.forEach((user) => {
-          const empCat = catMap.get(String(user.employeeNumber));
-          if (empCat !== undefined) {
-            user.rawUser.employmentCategory = empCat;
-            user.employmentCategory = empCat;
-          }
-        });
-
-        console.log(
-          '✅ Employment categories merged for',
-          catMap.size,
-          'employees',
-        );
-      } catch (catErr) {
-        console.error(
-          'Error fetching employment categories for merge:',
-          catErr,
-        );
-      }
-
-      // Apply DTR type filtering per user
-      const allUserDataFiltered = allUserData.map((user) => {
-        let filteredRecords = user.records;
-
-        if (dtrType === 'regular') {
-          filteredRecords = user.records.filter(
-            (record) => record.timeIN || record.timeOUT,
-          );
-        } else if (dtrType === 'service-credit') {
-          filteredRecords = user.records.filter(
-            (record) =>
-              record.specialType === 'SERVICE' &&
-              (record.specialTimeIN || record.specialTimeOUT),
-          );
-        } else if (dtrType === 'honorarium') {
-          filteredRecords = user.records.filter(
-            (record) =>
-              record.specialType === 'HONORARIUM' &&
-              (record.specialTimeIN || record.specialTimeOUT),
-          );
-        } else if (dtrType === 'overtime') {
-          filteredRecords = user.records.filter(
-            (record) =>
-              record.specialType === 'OVERTIME' &&
-              (record.specialTimeIN || record.specialTimeOUT),
-          );
-        }
-
+      const catMap = new Map();
+      (catRes.data || []).forEach((c) => {
+        catMap.set(String(c.employeeNumber), c.employmentCategory);
+      });
+      const skeletonUsers = empList.map((emp) => {
+        const empNum = emp.personID;
+        const deptCode = deptMap.get(String(empNum)) || '';
+        const empCat = catMap.get(String(empNum));
+        const displayName =
+          emp.firstName && emp.lastName
+            ? formatFullName({
+                firstName: emp.firstName,
+                lastName: emp.lastName,
+                middleName: emp.middleName,
+              })
+            : emp.devicePersonName || String(empNum);
         return {
-          ...user,
-          records: filteredRecords,
-          hasRecords: filteredRecords.length > 0,
+          employeeNumber: empNum,
+          firstName: emp.firstName || '',
+          lastName: emp.lastName || '',
+          middleName: emp.middleName || '',
+          fullName: displayName,
+          devicePersonName: emp.devicePersonName || '',
+          registrationStatus: emp.registrationStatus || 'Not Registered',
+          departmentCode: deptCode,
+          employmentCategory: empCat,
+          records: [],
+          hasRecords: false,
+          _loading: true,
+          rawUser: {
+            employeeNumber: empNum,
+            firstName: emp.firstName,
+            lastName: emp.lastName,
+            middleName: emp.middleName,
+            departmentCode: deptCode,
+            employmentCategory: empCat,
+            registrationStatus: emp.registrationStatus || 'Not Registered',
+          },
         };
       });
+      setAllUsersDTR(skeletonUsers);
+      setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
+      const empListIds = empList.map((e) => e.personID);
+      axios
+        .post(
+          `${API_BASE_URL}/attendance/api/dtr-print-status`,
+          {
+            employeeNumbers: empListIds,
+            year: new Date(startDate).getFullYear(),
+            month: new Date(startDate).getMonth() + 1,
+          },
+          cfg(),
+        )
+        .then((psRes) => {
+          if (signal.aborted) return;
+          const newMap = new Map();
+          (psRes.data || []).forEach((s) =>
+            newMap.set(s.employee_number, {
+              printed_at: s.printed_at,
+              printed_by: s.printed_by,
+            }),
+          );
+          setPrintStatusMap(newMap);
+        })
+        .catch((e) => {
+          if (!signal.aborted) console.error('print status:', e);
+        });
 
-      // Sort by last name
-      allUserDataFiltered.sort((a, b) => {
-        const lastNameA = (a.lastName || '').toUpperCase();
-        const lastNameB = (b.lastName || '').toUpperCase();
-        if (!lastNameA && !lastNameB)
-          return a.fullName.localeCompare(b.fullName);
-        return lastNameA.localeCompare(lastNameB);
-      });
-
-      console.log(
-        '✅ Grouped into',
-        allUserDataFiltered.length,
-        'users with attendance records',
+      const totalPages = Math.ceil(empList.length / PAGE_SIZE);
+      const PAGE_FETCH_CONCURRENCY = 3;
+      const pageNumbers = Array.from(
+        { length: totalPages },
+        (_, index) => index + 1,
+      );
+      const pageResults = [];
+      for (let i = 0; i < pageNumbers.length; i += PAGE_FETCH_CONCURRENCY) {
+        if (signal.aborted) break;
+        const chunk = pageNumbers.slice(i, i + PAGE_FETCH_CONCURRENCY);
+        const chunkResults = await Promise.all(
+          chunk.map(async (page) => {
+            if (signal.aborted) return { page, data: [] };
+            setLoadPhase(
+              `Loading attendance page ${page} of ${totalPages}…`,
+            );
+            try {
+              const pageRes = await axios.post(
+                `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
+                { startDate, endDate, page, pageSize: PAGE_SIZE },
+                cfg(),
+              );
+              return { page, data: pageRes.data?.data || [] };
+            } catch (e) {
+              if (!signal.aborted)
+                console.error(`Page ${page} fetch failed:`, e.message);
+              return { page, data: [] };
+            }
+          }),
+        );
+        pageResults.push(...chunkResults);
+      }
+      if (signal.aborted) return;
+      let mergedUsers = skeletonUsers.slice();
+      pageResults
+        .sort((a, b) => a.page - b.page)
+        .forEach(({ data: pageData }) => {
+          const pageMap = new Map();
+          pageData.forEach((record) => {
+            const id = record.personID || record.agencyEmployeeNum;
+            if (!pageMap.has(id)) pageMap.set(id, []);
+            pageMap.get(id).push(record);
+          });
+          mergedUsers = mergedUsers.map((user) => {
+            if (!pageMap.has(user.employeeNumber)) return user;
+            const rows = pageMap.get(user.employeeNumber);
+            const filtered = filterByDtrType(rows, dtrType);
+            return {
+              ...user,
+              records: filtered,
+              hasRecords: filtered.length > 0,
+              _loading: false,
+            };
+          });
+        });
+      setAllUsersDTR(mergedUsers.slice());
+      setAllUsersDTR((prev) =>
+        prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
       );
 
-      setAllUsersDTR(allUserDataFiltered);
-
-      // Fetch print status for all loaded users
-      try {
-        const year = new Date(startDate).getFullYear();
-        const month = new Date(startDate).getMonth() + 1;
-        const employeeNumbers = allUserDataFiltered.map(
-          (user) => user.employeeNumber,
-        );
-
-        if (employeeNumbers.length > 0) {
-          setPrintingStatus('Loading print status...');
-          const printStatusResponse = await axios.post(
-            `${API_BASE_URL}/attendance/api/dtr-print-status`,
-            { employeeNumbers, year, month },
-            getAuthHeaders(),
-          );
-
-          const printStatusData = printStatusResponse.data || [];
-          const newPrintStatusMap = new Map();
-          printStatusData.forEach((status) => {
-            newPrintStatusMap.set(status.employee_number, {
-              printed_at: status.printed_at,
-              printed_by: status.printed_by,
-            });
-          });
-          setPrintStatusMap(newPrintStatusMap);
-        }
-      } catch (error) {
-        console.error('Error fetching print status:', error);
+      // ── Second empNums usage — kept as-is (no conflict now) ──
+      const empNums = mergedUsers.map((u) => u.employeeNumber);
+      fetchBatchOfficialTimes(empNums, startDate, endDate).catch(() => {});
+      if (dtrType === 'regular') {
+        loadComputedLateBatch(empNums).catch(() => {});
       }
-
-      setSelectedUsers(new Set());
-      setCurrentPage(1);
-      setPrintingStatus('');
     } catch (error) {
-      console.error('❌ Error fetching attendance records:', error);
+      if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
+      console.error('fetchAllUsersDTR error:', error);
       showAlert(
         'Fetch Error',
-        error.response?.data?.error ||
-          'Error fetching attendance records. Please ensure records have been saved from the attendance device.',
+        error.response?.data?.error || 'Error fetching attendance records.',
       );
-      setPrintingStatus('');
       setAllUsersDTR([]);
+      setBatchOfficialTimesMap({});
     } finally {
-      setLoadingAllUsers(false);
+      if (!signal?.aborted) {
+        setLoadingAllUsers(false);
+        setLoadPhase('');
+      }
+    }
+  }, [
+    startDate,
+    endDate,
+    dtrType,
+    departmentFilter,
+    fetchBatchOfficialTimes,
+    loadComputedLateBatch,
+  ]);
+
+  useEffect(() => {
+    if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate, viewMode, departmentFilter]);
+
+  // ─── Month click ────────────────────────────────────────────────────────
+  const handleMonthClick = (idx) => {
+    const start = new Date(Date.UTC(selectedYear, idx, 1));
+    const end = new Date(Date.UTC(selectedYear, idx + 1, 0));
+    setStartDate(start.toISOString().substring(0, 10));
+    setEndDate(end.toISOString().substring(0, 10));
+    setSelectedMonth(idx);
+    if (viewMode === 'single') {
+      setHasSearchedSingle(false);
+      setRecords([]);
+      setEmployeeName('');
+      setMonthLoading(false);
     }
   };
 
-  // Selection helpers
-  const handleUserSelect = (employeeNumber) => {
-    if (printStatusMap.has(employeeNumber)) {
+  const handleQuickDateSelect = (value) => {
+    applyQuickDateRange(value, setStartDate, setEndDate, setSelectedMonth);
+    if (viewMode === 'single') {
+      setHasSearchedSingle(false);
+      setRecords([]);
+      setEmployeeName('');
+    }
+  };
+
+  const handleSingleSearch = async () => {
+    if (!personID || !startDate || !endDate) {
+      setHasSearchedSingle(false);
+      setRecords([]);
+      showAlert(
+        'Missing Required Fields',
+        'Please enter an employee number and select a month before searching.',
+      );
       return;
     }
+    setHasSearchedSingle(true);
+    await fetchRecords();
+  };
 
-    setSelectedUsers((prevSelected) => {
-      const newSelected = new Set(prevSelected);
-      if (newSelected.has(employeeNumber)) {
-        newSelected.delete(employeeNumber);
-      } else {
-        newSelected.add(employeeNumber);
-      }
-      return newSelected;
+  // ─── Selection helpers ─────────────────────────────────────────────────
+  const handleUserSelect = (empNum) => {
+    if (printStatusMap.has(empNum)) return;
+    setSelectedUsers((prev) => {
+      const next = new Set(prev);
+      next.has(empNum) ? next.delete(empNum) : next.add(empNum);
+      return next;
     });
   };
 
   const handleSelectAll = (checked) => {
     if (checked) {
-      const filtered = getFilteredUsers();
-      const selectableUsers = filtered.filter(
-        (user) => !printStatusMap.has(user.employeeNumber),
+      const selectable = getFilteredUsers().filter(
+        (u) => !printStatusMap.has(u.employeeNumber),
       );
-      const limitedFiltered = selectableUsers.slice(0, 50);
-      setSelectedUsers(
-        new Set(limitedFiltered.map((user) => user.employeeNumber)),
-      );
-
-      if (selectableUsers.length > 50) {
+      const limited = selectable.slice(0, 50);
+      setSelectedUsers(new Set(limited.map((u) => u.employeeNumber)));
+      if (selectable.length > 50)
         showAlert(
           'Selection Limited',
-          `Only the first 50 users were selected (out of ${selectableUsers.length} selectable users). Bulk printing is limited to 50 users per batch for better performance.`,
+          `Only first 50 selected. Bulk print limit is 50 per batch.`,
         );
-      }
     } else {
       setSelectedUsers(new Set());
     }
   };
 
-  // New filter: free-text search that filters by name or employee number
-  const getFilteredUsers = () => {
+  const getFilteredUsers = useCallback(() => {
     let filtered = allUsersDTR.slice();
-
-    if (recordFilter === 'has') {
-      filtered = filtered.filter((u) => u.records && u.records.length > 0);
-    } else if (recordFilter === 'no') {
-      filtered = filtered.filter((u) => !u.records || u.records.length === 0);
-    }
-
-    if (printStatusFilter === 'printed') {
+    if (recordFilter === 'has')
+      filtered = filtered.filter((u) => u.records?.length > 0 && !u._loading);
+    else if (recordFilter === 'no')
+      filtered = filtered.filter((u) => !u.records?.length && !u._loading);
+    if (printStatusFilter === 'printed')
       filtered = filtered.filter((u) => printStatusMap.has(u.employeeNumber));
-    } else if (printStatusFilter === 'unprinted') {
+    else if (printStatusFilter === 'unprinted')
       filtered = filtered.filter((u) => !printStatusMap.has(u.employeeNumber));
-    }
-
-    if (departmentFilter) {
+    if (departmentFilter)
+      filtered = filtered.filter(
+        (u) =>
+          (u.departmentCode || u.rawUser?.departmentCode || '') ===
+          departmentFilter,
+      );
+    if (employmentCategoryFilter !== '')
       filtered = filtered.filter((u) => {
-        const userDept = u.rawUser?.departmentCode || u.departmentCode || '';
-        return userDept === departmentFilter;
-      });
-    }
-
-    if (employmentCategoryFilter !== '') {
-      filtered = filtered.filter((u) => {
-        const userCategory =
+        const cat =
           u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
-        return (
-          userCategory !== null &&
-          userCategory === parseInt(employmentCategoryFilter)
-        );
+        return cat !== null && cat === parseInt(employmentCategoryFilter);
       });
-    }
-
-    if (registrationStatusFilter) {
-      filtered = filtered.filter((u) => {
-        const status = u.registrationStatus || 'Not Registered';
-        return status === registrationStatusFilter;
-      });
-    }
-
+    if (registrationStatusFilter)
+      filtered = filtered.filter(
+        (u) =>
+          (u.registrationStatus || 'Not Registered') ===
+          registrationStatusFilter,
+      );
     if (dtrType !== 'regular') {
-      filtered = filtered.filter((u) => {
-        if (!u.records || u.records.length === 0) return false;
-
-        const isValidTime = (timeValue) => {
-          if (!timeValue) return false;
-          const trimmed = String(timeValue).trim();
-          if (trimmed === '') return false;
-          if (trimmed === '00:00:00 AM' || trimmed === '00:00:00 PM')
-            return false;
-          if (trimmed === '12:00:00 AM') return false;
-          return true;
-        };
-
-        return u.records.some((record) => {
-          if (dtrType === 'honorarium') {
-            const hasHonorarium =
-              record.specialType === 'HONORARIUM' &&
-              isValidTime(record.specialTimeIN) &&
-              isValidTime(record.specialTimeOUT);
-            return hasHonorarium;
-          } else if (dtrType === 'service-credit') {
-            const hasService =
-              record.specialType === 'SERVICE' &&
-              isValidTime(record.specialTimeIN) &&
-              isValidTime(record.specialTimeOUT);
-            return hasService;
-          } else if (dtrType === 'overtime') {
+      const isValid = (t) => {
+        if (!t) return false;
+        const s = String(t).trim();
+        return (
+          s && s !== '00:00:00 AM' && s !== '00:00:00 PM' && s !== '12:00:00 AM'
+        );
+      };
+      filtered = filtered.filter((u) =>
+        u.records?.some((r) => {
+          if (dtrType === 'honorarium')
             return (
-              record.specialType === 'OVERTIME' &&
-              isValidTime(record.specialTimeIN) &&
-              isValidTime(record.specialTimeOUT)
+              r.specialType === 'HONORARIUM' &&
+              isValid(r.specialTimeIN) &&
+              isValid(r.specialTimeOUT)
             );
-          }
+          if (dtrType === 'service-credit')
+            return (
+              r.specialType === 'SERVICE' &&
+              isValid(r.specialTimeIN) &&
+              isValid(r.specialTimeOUT)
+            );
+          if (dtrType === 'overtime')
+            return (
+              r.specialType === 'OVERTIME' &&
+              isValid(r.specialTimeIN) &&
+              isValid(r.specialTimeOUT)
+            );
           return false;
-        });
+        }),
+      );
+    }
+    if (batchSearchTrimmed) {
+      const q = batchSearchTrimmed.toLowerCase();
+      filtered = filtered.filter((u) => {
+        const full = (
+          u.fullName || `${u.firstName || ''} ${u.lastName || ''}`
+        ).toLowerCase();
+        const emp = String(u.employeeNumber || '').toLowerCase();
+        const device = (u.devicePersonName || '').toLowerCase();
+        return full.includes(q) || emp.includes(q) || device.includes(q);
       });
     }
-
-    if (!searchQuery || searchQuery.trim() === '') return filtered;
-    const q = searchQuery.trim().toLowerCase();
-    return filtered.filter((user) => {
-      const full = (
-        user.fullName || `${user.firstName || ''} ${user.lastName || ''}`
-      ).toLowerCase();
-      const last = (user.lastName || '').toLowerCase();
-      const emp = (user.employeeNumber || '').toLowerCase();
-      return full.includes(q) || last.includes(q) || emp.includes(q);
-    });
-  };
-
-  // Pagination / scroller states for the records table
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
+    return filtered;
+  }, [
+    allUsersDTR,
+    recordFilter,
+    printStatusFilter,
+    printStatusMap,
+    departmentFilter,
+    employmentCategoryFilter,
+    registrationStatusFilter,
+    dtrType,
+    batchSearchTrimmed,
+  ]);
 
   const filteredUsers = getFilteredUsers();
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage));
+  const totalPageCount = Math.max(
+    1,
+    Math.ceil(filteredUsers.length / rowsPerPage),
+  );
   const paginatedUsers = filteredUsers.slice(
     (currentPage - 1) * rowsPerPage,
-    (currentPage - 1) * rowsPerPage + rowsPerPage,
+    currentPage * rowsPerPage,
   );
+  const goToPage = (p) =>
+    setCurrentPage(Math.min(Math.max(1, p), totalPageCount));
 
-  // Helper to get employment category label
-  const getCategoryLabel = (categoryId) => {
-    const labels = {
-      0: 'JO Graduate',
-      1: 'JO UnderGrad',
-      2: 'Regular Non-Teaching',
-      3: 'Regular Teaching (30Hrs)',
-      4: 'Regular Designated (40Hrs)',
-      5: 'Other',
-    };
-    return labels[categoryId] || 'Unknown';
-  };
+  const getCategoryLabel = (id) =>
+    EMPLOYMENT_CATEGORY_OPTIONS.find(
+      (option) => String(option.value) === String(id),
+    )?.label || 'Unknown';
+  const getCategoryColor = (id) =>
+    EMPLOYMENT_CATEGORY_OPTIONS.find(
+      (option) => String(option.value) === String(id),
+    )?.color || '#757575';
 
-  // Get registration status counts
   const getRegistrationStatusCounts = () => {
-    const counts = {
-      Registered: 0,
-      'Not Registered': 0,
-    };
+    const c = { Registered: 0, 'Not Registered': 0 };
     allUsersDTR.forEach((u) => {
-      const status = u.registrationStatus || 'Not Registered';
-      if (counts[status] !== undefined) {
-        counts[status]++;
-      }
+      const s = u.registrationStatus || 'Not Registered';
+      if (c[s] !== undefined) c[s]++;
     });
-    return counts;
+    return c;
   };
-
   const registrationStatusCounts = getRegistrationStatusCounts();
 
-  // Helper to get employment category color (Legend Logic)
-  const getCategoryColor = (catId) => {
-    switch (parseInt(catId)) {
-      case 0:
-        return '#F57C00';
-      case 1:
-        return '#E64A19';
-      case 2:
-        return '#2E7D32';
-      case 3:
-        return '#1565C0';
-      case 4:
-        return '#7B1FA2';
-      case 5:
-        return '#00796B';
-      default:
-        return '#757575';
-    }
-  };
-
-  // helper to change page safely
-  const goToPage = (page) => {
-    const p = Math.min(Math.max(1, page), totalPages);
-    setCurrentPage(p);
-  };
-
-  // Auto-select helper for "first N" behavior
   const handleAutoSelectFirstN = (n) => {
-    const filtered = getFilteredUsers();
-    if (!filtered || filtered.length === 0) {
+    const f = getFilteredUsers();
+    if (!f.length) {
       setSelectedUsers(new Set());
       return;
     }
-    const count = n === 'all' ? Math.min(50, filtered.length) : Number(n) || 0;
-    const toSelect = filtered.slice(0, count).map((u) => u.employeeNumber);
-    setSelectedUsers(new Set(toSelect));
-    const toPreview = filtered.slice(0, count);
-    setPreviewUsers(toPreview);
+    const count = n === 'all' ? Math.min(50, f.length) : Number(n) || 0;
+    setSelectedUsers(new Set(f.slice(0, count).map((u) => u.employeeNumber)));
+    setPreviewUsers(f.slice(0, count));
     setCurrentPreviewIndex(0);
   };
 
-  // Bulk print flow
   const handleBulkPrint = () => {
-    const filtered = getFilteredUsers();
-    const toPrint = filtered.filter((u) => selectedUsers.has(u.employeeNumber));
-    if (toPrint.length === 0) {
+    const toPrint = filteredUsers.filter((u) =>
+      selectedUsers.has(u.employeeNumber),
+    );
+    if (!toPrint.length) {
       showAlert('No Selection', 'Please select at least one user to print');
       return;
     }
     if (toPrint.length > 50) {
       showAlert(
         'Too Many Selected',
-        `You have selected ${toPrint.length} users. Please limit to 50 users per print batch for better performance. You can print in multiple batches.`,
+        `You selected ${toPrint.length} users. Limit is 50 per batch.`,
       );
       return;
     }
@@ -1211,109 +1851,27 @@ const DailyTimeRecordFaculty = () => {
   const handleNext = () =>
     setCurrentPreviewIndex((p) => (p < previewUsers.length - 1 ? p + 1 : 0));
 
-  // Individual print for already-printed records (called after confirmation)
-  const handleIndividualPrintConfirmed = async (user) => {
-    closeConfirm();
-    const wasModalOpen = previewModalOpen;
-
-    try {
-      setPrintingAll(true);
-      setPrintingStatus(
-        `Preparing DTR for ${user.firstName} ${user.lastName}...`,
-      );
-
-      setPreviewUsers([user]);
-      setCurrentPreviewIndex(0);
-      setPreviewModalOpen(true);
-
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      const ref = bulkDTRRefs.current[user.employeeNumber];
-      if (!ref) {
-        throw new Error(
-          'DTR element not found. The record may not be loaded yet. Please try again.',
-        );
-      }
-
-      const orig = ensureCaptureStyles(ref);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      const capturedCanvas = await html2canvas(ref, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
-
-      restoreCaptureStyles(ref, orig);
-
-      if (
-        !capturedCanvas ||
-        capturedCanvas.width === 0 ||
-        capturedCanvas.height === 0
-      ) {
-        throw new Error('Failed to capture DTR. Please try again.');
-      }
-
-      const imgData = capturedCanvas.toDataURL('image/png');
-
-      if (!imgData || imgData === 'data:,') {
-        throw new Error('Failed to generate image data. Please try again.');
-      }
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'in',
-        format: 'a4',
-      });
-
-      const dtrWidth = 8;
-      const dtrHeight = 9.5;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - dtrWidth) / 2;
-      const yOffset = (pageHeight - dtrHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-      pdf.autoPrint();
-
-      const year = new Date(startDate).getFullYear();
-      const month = new Date(startDate).getMonth() + 1;
-
-      await axios.post(
-        `${API_BASE_URL}/attendance/api/mark-dtr-printed`,
-        {
-          employeeNumbers: [user.employeeNumber],
-          year,
-          month,
-          startDate,
-          endDate,
-        },
-        getAuthHeaders(),
-      );
-
-      const newMap = new Map(printStatusMap);
-      newMap.set(user.employeeNumber, {
-        printed_at: new Date().toISOString(),
-        printed_by: 'current_user',
-      });
-      setPrintStatusMap(newMap);
-
-      const blobUrl = pdf.output('bloburl');
-      window.open(blobUrl, '_blank');
-    } catch (error) {
-      console.error('Error printing individual DTR:', error);
-      showAlert('Print Error', `Error printing DTR: ${error.message}`);
-    } finally {
-      setPrintingStatus('');
-      setPrintingAll(false);
-      if (!wasModalOpen) {
-        setPreviewModalOpen(false);
-      }
+  // ─── Capture helpers ────────────────────────────────────────────────────
+  const getSingleDtrPdfUser = useCallback(() => {
+    if (selectedEmployee) {
+      return {
+        firstName: selectedEmployee.firstName,
+        lastName: selectedEmployee.lastName,
+        middleName: selectedEmployee.middleName,
+        fullName: selectedEmployee.fullName,
+      };
     }
-  };
+    if (records[0]) {
+      const r = records[0];
+      return {
+        firstName: r.firstName,
+        lastName: r.lastName,
+        middleName: r.middleName,
+      };
+    }
+    return { fullName: employeeName };
+  }, [selectedEmployee, records, employeeName]);
 
-  // --- Single user print & download ---
   const ensureCaptureStyles = (el) => {
     if (!el) return {};
     const orig = {
@@ -1353,52 +1911,83 @@ const DailyTimeRecordFaculty = () => {
     }
   };
 
+  /** Capture without moving visible on-page DTR — clones off-screen for live view */
+  const captureDtrElement = async (el, scale = 2) => {
+    if (!el) throw new Error('DTR element not found');
+
+    const isOffScreenBulk = el.classList?.contains('bulk-dtr-print');
+    let captureTarget = el;
+    let tempClone = null;
+    let orig = null;
+
+    if (!isOffScreenBulk) {
+      tempClone = el.cloneNode(true);
+      tempClone.style.position = 'fixed';
+      tempClone.style.left = '-9999px';
+      tempClone.style.top = '0';
+      tempClone.style.width = DTR_WIDTH_IN;
+      tempClone.style.visibility = 'visible';
+      tempClone.style.display = 'block';
+      tempClone.style.backgroundColor = '#ffffff';
+      tempClone.style.zIndex = '-1';
+      tempClone.style.opacity = '1';
+      document.body.appendChild(tempClone);
+      captureTarget = tempClone;
+    } else {
+      orig = ensureCaptureStyles(el);
+    }
+
+    try {
+      await new Promise((r) => requestAnimationFrame(r));
+      const canvas = await html2canvas(captureTarget, {
+        scale,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      return canvas;
+    } finally {
+      if (tempClone) tempClone.remove();
+      else restoreCaptureStyles(el, orig);
+    }
+  };
+
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
-
     setSinglePrintLoading(true);
     setSinglePrintStatus('Preparing DTR for printing...');
-
     try {
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'in',
         format: 'a4',
       });
-
-      const orig = ensureCaptureStyles(dtrRef.current);
-
       setSinglePrintStatus('Capturing DTR layout...');
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      const canvas = await html2canvas(dtrRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-
-      restoreCaptureStyles(dtrRef.current, orig);
-
+      await new Promise((r) => setTimeout(r, 50));
+      const canvas = await captureDtrElement(dtrRef.current, 2);
       const imgData = canvas.toDataURL('image/png');
-
-      const dtrWidth = 8;
-      const dtrHeight = 9.5;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - dtrWidth) / 2;
-      const yOffset = (pageHeight - dtrHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-
-      setSinglePrintStatus('Opening print dialog...');
+      const dtrW = 8,
+        dtrH = 9.5,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(
+        imgData,
+        'PNG',
+        (pw - dtrW) / 2,
+        (ph - dtrH) / 2,
+        dtrW,
+        dtrH,
+      );
       pdf.autoPrint();
-      const blobUrl = pdf.output('bloburl');
-      window.open(blobUrl, '_blank');
-    } catch (error) {
-      console.error('Error generating print view:', error);
+      openPdfBlobForPrint(
+        pdf,
+        formatDtrPdfFileName(getSingleDtrPdfUser(), startDate),
+      );
+    } catch (e) {
+      console.error('Error generating print view:', e);
     } finally {
       setSinglePrintLoading(false);
       setSinglePrintStatus('');
@@ -1410,265 +1999,451 @@ const DailyTimeRecordFaculty = () => {
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
     await new Promise((r) => setTimeout(r, 80));
-
     setSinglePrintLoading(true);
     setSinglePrintStatus('Preparing DTR for download...');
-
     try {
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'in',
         format: 'a4',
       });
-
-      const orig = ensureCaptureStyles(dtrRef.current);
-
-      setSinglePrintStatus('Capturing DTR layout...');
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      const canvas = await html2canvas(dtrRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-
-      restoreCaptureStyles(dtrRef.current, orig);
-
+      await new Promise((r) => setTimeout(r, 50));
+      const canvas = await captureDtrElement(dtrRef.current, 2);
       const imgData = canvas.toDataURL('image/png');
-
-      const dtrWidth = 8;
-      const dtrHeight = 10;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - dtrWidth) / 2;
-      const yOffset = (pageHeight - dtrHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-
-      setSinglePrintStatus('Saving PDF...');
-      pdf.save(`DTR-${employeeName}-${formatMonth(startDate)}.pdf`);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
+      const dtrW = 8,
+        dtrH = 10,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(
+        imgData,
+        'PNG',
+        (pw - dtrW) / 2,
+        (ph - dtrH) / 2,
+        dtrW,
+        dtrH,
+      );
+      pdf.save(formatDtrPdfFileName(getSingleDtrPdfUser(), startDate));
+    } catch (e) {
+      console.error('Error generating PDF:', e);
     } finally {
       setSinglePrintLoading(false);
       setSinglePrintStatus('');
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const options = { year: 'numeric', month: 'long', day: 'numeric' };
-    return date.toLocaleDateString(undefined, options);
-  };
+  const handleIndividualPrintConfirmed = async (user) => {
+    closeConfirm();
 
-  const formatMonth = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const options = { month: 'long' };
-    return date.toLocaleDateString(undefined, options).toUpperCase();
-  };
-
-  const formatTime = (timeString) => {
-    if (!timeString) return '';
-    return timeString.replace(/\s+/g, ' ').trim();
-  };
-
-  // ── Update formatTimeRef when formatTime changes ────────────────────────────
-  useEffect(() => {
-    formatTimeRef.current = formatTime;
-  }, [formatTime]);
-
-  const months = [
-    'JAN',
-    'FEB',
-    'MAR',
-    'APR',
-    'MAY',
-    'JUN',
-    'JUL',
-    'AUG',
-    'SEP',
-    'OCT',
-    'NOV',
-    'DEC',
-  ];
-
-  const handleMonthClick = (monthIndex) => {
-    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
-    setStartDate(start.toISOString().substring(0, 10));
-    setEndDate(end.toISOString().substring(0, 10));
-    setSelectedMonth(monthIndex);
-  };
-
-  const formatStartDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const options = { month: 'long', day: 'numeric' };
-    return date.toLocaleDateString('en-US', options);
-  };
-
-  const formatEndDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const year = date.getFullYear();
-    return `${day}, ${year}`;
-  };
-
-  const formattedStartDate = formatStartDate(startDate);
-  const formattedEndDate = formatEndDate(endDate);
-
-  // Helper function to check if a date falls within a date range
-  const isDateInRange = (date, startDate, endDate) => {
-    if (!date) return false;
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-
-    const start = startDate ? new Date(startDate) : null;
-    const end = endDate ? new Date(endDate) : null;
-
-    if (start) start.setHours(0, 0, 0, 0);
-    if (end) end.setHours(0, 0, 0, 0);
-
-    if (start && end) {
-      return checkDate >= start && checkDate <= end;
-    } else if (start) {
-      return checkDate >= start;
-    } else if (end) {
-      return checkDate <= end;
+    try {
+      setPrintingAll(true);
+      setPrintingStatus(
+        `Preparing DTR for ${user.firstName} ${user.lastName}...`,
+      );
+      setPreviewUsers([user]);
+      setCurrentPreviewIndex(0);
+      setPreviewModalOpen(false);
+      await new Promise((r) => setTimeout(r, 300));
+      const ref = bulkDTRRefs.current[user.employeeNumber];
+      if (!ref) throw new Error('DTR element not found. Please try again.');
+      setPrintingStatus('Capturing DTR layout...');
+      const canvas = await captureDtrElement(ref, 2);
+      if (!canvas || canvas.width === 0)
+        throw new Error('Failed to capture DTR.');
+      const imgData = canvas.toDataURL('image/png');
+      if (!imgData || imgData === 'data:,')
+        throw new Error('Failed to generate image.');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
+      });
+      const dtrW = 8,
+        dtrH = 9.5,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      pdf.addImage(
+        imgData,
+        'PNG',
+        (pw - dtrW) / 2,
+        (ph - dtrH) / 2,
+        dtrW,
+        dtrH,
+      );
+      pdf.autoPrint();
+      const year = new Date(startDate).getFullYear();
+      const month = new Date(startDate).getMonth() + 1;
+      await axios.post(
+        `${API_BASE_URL}/attendance/api/mark-dtr-printed`,
+        {
+          employeeNumbers: [user.employeeNumber],
+          year,
+          month,
+          startDate,
+          endDate,
+        },
+        getAuthHeaders(),
+      );
+      const newMap = new Map(printStatusMap);
+      newMap.set(user.employeeNumber, {
+        printed_at: new Date().toISOString(),
+        printed_by: 'current_user',
+      });
+      setPrintStatusMap(newMap);
+      openPdfBlobForPrint(pdf, formatDtrPdfFileName(user, startDate));
+    } catch (error) {
+      console.error('Error printing individual DTR:', error);
+      showAlert('Print Error', `Error printing DTR: ${error.message}`);
+    } finally {
+      setPrintingStatus('');
+      setPrintingAll(false);
     }
-    return false;
   };
 
+  const handlePrintAllSelected = async () => {
+    if (!previewUsers.length) {
+      showAlert('No Selection', 'No DTRs to print.');
+      return;
+    }
+
+    try {
+      setPrintingAll(true);
+      setPrintingStatus('Preparing DTRs for printing...');
+      setPreviewModalOpen(false);
+      await new Promise((r) => requestAnimationFrame(r));
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
+      });
+      const dtrW = 8,
+        dtrH = 9.5,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      const captureScale =
+        previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+      let successCount = 0;
+      for (let i = 0; i < previewUsers.length; i++) {
+        const user = previewUsers[i];
+        const ref = bulkDTRRefs.current[user.employeeNumber];
+        if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
+          setPrintingStatus(
+            `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
+          );
+        }
+        if (!ref) continue;
+        try {
+          const canvas = await captureDtrElement(ref, captureScale);
+          if (!canvas || canvas.width === 0) continue;
+          const imgData = canvas.toDataURL('image/png');
+          if (!imgData || imgData === 'data:,') continue;
+          if (successCount > 0) pdf.addPage();
+          pdf.addImage(
+            imgData,
+            'PNG',
+            (pw - dtrW) / 2,
+            (ph - dtrH) / 2,
+            dtrW,
+            dtrH,
+          );
+          successCount++;
+        } catch (e) {
+          console.error(`Error capturing ${user.employeeNumber}:`, e);
+        }
+        if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+      }
+      if (successCount === 0)
+        throw new Error('No DTRs were successfully captured.');
+      const bulkPdfName =
+        previewUsers.length === 1
+          ? formatDtrPdfFileName(previewUsers[0], startDate)
+          : formatDtrBulkPdfFileName(startDate);
+      pdf.autoPrint();
+      openPdfBlobForPrint(pdf, bulkPdfName);
+      try {
+        const year = new Date(startDate).getFullYear();
+        const month = new Date(startDate).getMonth() + 1;
+        const empNums = previewUsers.map((u) => u.employeeNumber);
+        await axios.post(
+          `${API_BASE_URL}/attendance/api/mark-dtr-printed`,
+          { employeeNumbers: empNums, year, month, startDate, endDate },
+          getAuthHeaders(),
+        );
+        const newMap = new Map(printStatusMap);
+        empNums.forEach((n) =>
+          newMap.set(n, {
+            printed_at: new Date().toISOString(),
+            printed_by: 'current_user',
+          }),
+        );
+        setPrintStatusMap(newMap);
+        setSelectedUsers(new Set());
+      } catch (e) {
+        console.error('Error marking DTRs printed:', e);
+      }
+    } catch (error) {
+      console.error('Error printing DTRs:', error);
+      showAlert('Print Error', `Error: ${error.message || 'Unknown error'}`);
+    } finally {
+      setPrintingStatus('');
+      setPrintingAll(false);
+    }
+  };
+
+  const handleDownloadAllSelected = async () => {
+    if (!previewUsers.length) {
+      showAlert('No Selection', 'No DTRs to download.');
+      return;
+    }
+
+    try {
+      setPrintingAll(true);
+      setPrintingStatus('Preparing DTRs for download...');
+      setPreviewModalOpen(false);
+      await new Promise((r) => requestAnimationFrame(r));
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'in',
+        format: 'a4',
+      });
+      const dtrW = 8,
+        dtrH = 10,
+        pw = pdf.internal.pageSize.getWidth(),
+        ph = pdf.internal.pageSize.getHeight();
+      const captureScale =
+        previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+      let successCount = 0;
+      for (let i = 0; i < previewUsers.length; i++) {
+        const user = previewUsers[i];
+        const ref = bulkDTRRefs.current[user.employeeNumber];
+        if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
+          setPrintingStatus(
+            `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
+          );
+        }
+        if (!ref) continue;
+        try {
+          const canvas = await captureDtrElement(ref, captureScale);
+          if (!canvas || canvas.width === 0) continue;
+          const imgData = canvas.toDataURL('image/png');
+          if (!imgData || imgData === 'data:,') continue;
+          if (successCount > 0) pdf.addPage();
+          pdf.addImage(
+            imgData,
+            'PNG',
+            (pw - dtrW) / 2,
+            (ph - dtrH) / 2,
+            dtrW,
+            dtrH,
+          );
+          successCount++;
+        } catch (e) {
+          console.error(`Error capturing ${user.employeeNumber}:`, e);
+        }
+        if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+      }
+      if (successCount === 0)
+        throw new Error('No DTRs were successfully captured.');
+      const bulkPdfName =
+        previewUsers.length === 1
+          ? formatDtrPdfFileName(previewUsers[0], startDate)
+          : formatDtrBulkPdfFileName(startDate);
+      pdf.save(bulkPdfName);
+    } catch (error) {
+      showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
+    } finally {
+      setPrintingStatus('');
+      setPrintingAll(false);
+    }
+  };
+
+  // ─── Date indicator helpers ────────────────────────────────────────────
   const isApprovedLeaveDate = (dateString) => {
-    if (!dateString || approvedLeaves.length === 0) return false;
-    const checkDate = dateString.split('T')[0];
+    if (!dateString || !approvedLeaves.length) return false;
+    const check = toPhCalendarYmd(dateString);
+    if (!check) return false;
     return approvedLeaves.some((req) => {
       const dates = Array.isArray(req.leave_date)
         ? req.leave_date
         : String(req.leave_date)
             .split(',')
             .map((d) => d.trim());
-      return dates.some((d) => d.split('T')[0] === checkDate);
+      return dates.some((d) => toPhCalendarYmd(d) === check);
     });
+  };
+
+  const isDateInRange = (date, s, e) => {
+    if (!date) return false;
+    const d = toPhCalendarYmd(date);
+    if (!d) return false;
+    const st = s != null && s !== '' ? toPhCalendarYmd(s) : null;
+    const en = e != null && e !== '' ? toPhCalendarYmd(e) : null;
+    if (st && en) return d >= st && d <= en;
+    if (st) return d >= st;
+    if (en) return d <= en;
+    return false;
   };
 
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
-    const date = String(dateString).split('T')[0];
-
-    if (isApprovedLeaveDate(date)) {
+    const date = toPhCalendarYmd(dateString);
+    if (!date) return null;
+    if (isApprovedLeaveDate(date))
       return {
         type: 'leave',
         label: 'ON LEAVE',
-        bgColor: 'rgba(46, 125, 50, 0.2)',
-        textColor: '#000000',
+        bgColor: 'rgba(46,125,50,0.2)',
+        textColor: '#000',
         borderColor: '#2e7d32',
       };
-    }
-
-    const suspension = suspensions.find((s) => {
-      const start = s.date_start || s.date;
-      const end = s.date_end || s.date;
-      return isDateInRange(date, start, end);
-    });
-
-    if (suspension) {
+    const susp = suspensions.find((s) =>
+      isDateInRange(date, s.date_start || s.date, s.date_end || s.date),
+    );
+    if (susp)
       return {
         type: 'suspension',
         label: 'SUSPENSION',
-        bgColor: 'rgba(211, 47, 47, 0.2)',
-        textColor: '#000000',
+        bgColor: 'rgba(211,47,47,0.2)',
+        textColor: '#000',
         borderColor: '#d32f2f',
       };
-    }
-
-    const holiday = holidays.find((h) => {
-      const start = h.date_start || h.date;
-      const end = h.date_end || h.date;
-      return isDateInRange(date, start, end);
-    });
-
-    if (holiday) {
+    const hol = holidays.find((h) =>
+      isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
+    );
+    if (hol)
       return {
         type: 'holiday',
         label: 'HOLIDAY',
-        bgColor: 'rgba(237, 108, 2, 0.25)',
-        textColor: '#000000',
+        bgColor: 'rgba(237,108,2,0.25)',
+        textColor: '#000',
         borderColor: '#ed6c02',
       };
-    }
-
     return null;
   };
 
-  // Helper to highlight matched text in user names
   const highlightMatch = (text, q) => {
-    if (!q || !text) return text;
+    const needle = String(q || '').trim();
+    if (!needle || !text) return text;
     const lower = text.toLowerCase();
-    const qLower = q.toLowerCase();
-    const idx = lower.indexOf(qLower);
+    const idx = lower.indexOf(needle.toLowerCase());
     if (idx === -1) return text;
-    const before = text.slice(0, idx);
-    const match = text.slice(idx, idx + q.length);
-    const after = text.slice(idx + q.length);
     return (
       <span>
-        {before}
+        {text.slice(0, idx)}
         <span
           style={{
             backgroundColor: '#ffeb3b',
             color: '#000',
-            padding: '0 3px',
+            padding: '0 2px',
             borderRadius: 2,
+            fontWeight: 700,
           }}
         >
-          {match}
+          {text.slice(idx, idx + needle.length)}
         </span>
-        {after}
+        {text.slice(idx + needle.length)}
       </span>
     );
   };
 
-  // ACCESSING UI states (loading / denied)
-  if (accessLoading) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <MCircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
-
-  if (hasAccess === false) {
+  // ─── Access guards ─────────────────────────────────────────────────────
+  if (!accessLoading && hasAccess === false) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Daily Time Record. Contact your administrator to request access."
-        returnPath="/admin-home"
+        message={accessDeniedMessage}
+        returnPath={accessDeniedReturnPath}
         returnButtonText="Return to Home"
       />
     );
   }
 
-  // Helper: visible modal DTR (keeps current layout)...
-  const renderDTRForModal = (user) => {
-    const dataFontSize = '10px';
-    const rowHeight = '16px';
+  const loadingOverlayOpen =
+    accessLoading ||
+    employeeSearchLoading ||
+    (viewMode === 'single' && monthLoading) ||
+    (viewMode === 'multiple' && loadingAllUsers) ||
+    printingAll ||
+    singlePrintLoading;
 
-    const renderHeader = (type = dtrType) => (
+  const loadingOverlayMessage = (() => {
+    if (accessLoading) return 'Checking access…';
+    if (singlePrintLoading) return singlePrintStatus || 'Preparing DTR…';
+    if (printingAll) return printingStatus || 'Preparing DTRs…';
+    if (viewMode === 'single' && monthLoading)
+      return selectedMonth !== null
+        ? `Loading DTR — ${monthsShort[selectedMonth]}…`
+        : 'Loading DTR — Fetching records…';
+    if (viewMode === 'multiple' && loadingAllUsers)
+      return loadPhase ? `Batch load — ${loadPhase}` : 'Batch load — Loading…';
+    if (employeeSearchLoading) return 'Searching employees…';
+    return 'Processing…';
+  })();
+
+  // ─── DTR table renderers ───────────────────────────────────────────────
+  const getTimeFields = (record, type) => {
+    if (!record)
+      return { timeIN: '', breaktimeIN: '', breaktimeOUT: '', timeOUT: '' };
+    switch (type) {
+      case 'honorarium':
+      case 'service-credit':
+      case 'overtime':
+        return {
+          timeIN: record.specialTimeIN || '',
+          breaktimeIN: '',
+          breaktimeOUT: '',
+          timeOUT: record.specialTimeOUT || '',
+        };
+      default:
+        return {
+          timeIN: record.timeIN || '',
+          breaktimeIN: record.breaktimeIN || '',
+          breaktimeOUT: record.breaktimeOUT || '',
+          timeOUT: record.timeOUT || '',
+        };
+    }
+  };
+
+  const getRenderedTimeData = (record, type) => {
+    if (!record) return { hours: '', minutes: '' };
+    if (type === 'regular') {
+      return {
+        hours:
+          record.hours != null && record.hours !== ''
+            ? String(record.hours)
+            : '',
+        minutes:
+          record.minutes != null && record.minutes !== ''
+            ? String(record.minutes)
+            : '',
+      };
+    }
+    const mins = Number(record.minutes) || 0;
+    return {
+      hours: mins >= 60 ? String(Math.floor(mins / 60)) : '',
+      minutes: mins % 60 > 0 ? String(mins % 60) : '',
+    };
+  };
+
+  // ─── DTR header renderer — accepts officialTimesForUser ───────────────
+  const renderDTRHeader = (
+    nameDisplay,
+    type = dtrType,
+    officialTimesForUser = {},
+  ) => {
+    const fs = '10px';
+
+    const regularDaysLines = showOfficialTimeOnDtr
+      ? buildRegularDaysOfficialLines(officialTimesForUser, formatTime)
+      : [];
+    const saturdayOfficialText = showOfficialTimeOnDtr
+      ? buildOfficialTwoSegment(officialTimesForUser.Saturday, formatTime)
+      : '';
+    const regularBlockMinH =
+      showOfficialTimeOnDtr && regularDaysLines.length > 0
+        ? 14 + Math.max(0, regularDaysLines.length - 1) * 16
+        : 14;
+
+    return (
       <thead style={{ textAlign: 'center' }}>
         <tr>
           <td
@@ -1683,7 +2458,7 @@ const DailyTimeRecordFaculty = () => {
               style={{
                 fontWeight: 'bold',
                 fontSize: '11px',
-                fontFamily: 'Arial, "Times New Roman", serif',
+                fontFamily: 'Arial,"Times New Roman",serif',
                 color: 'black',
                 marginBottom: '2px',
               }}
@@ -1704,10 +2479,7 @@ const DailyTimeRecordFaculty = () => {
                 alt="Logo"
                 width="50"
                 height="50"
-                style={{
-                  position: 'absolute',
-                  left: '10px',
-                }}
+                style={{ position: 'absolute', left: '10px' }}
               />
               <p
                 style={{
@@ -1715,11 +2487,11 @@ const DailyTimeRecordFaculty = () => {
                   fontSize: '11.5px',
                   fontWeight: 'bold',
                   textAlign: 'center',
-                  fontFamily: 'Arial, "Times New Roman", serif',
+                  fontFamily: 'Arial,"Times New Roman",serif',
                   lineHeight: '1.2',
                 }}
               >
-                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &
+                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &amp;
                 TECHNOLOGY
               </p>
             </div>
@@ -1735,7 +2507,7 @@ const DailyTimeRecordFaculty = () => {
                 fontSize: '11px',
                 fontWeight: 'bold',
                 margin: '0',
-                fontFamily: 'Arial, serif',
+                fontFamily: 'Arial,serif',
               }}
             >
               Nagtahan, Sampaloc Manila
@@ -1749,7 +2521,7 @@ const DailyTimeRecordFaculty = () => {
                 fontSize: '8px',
                 fontWeight: 'bold',
                 margin: '0',
-                fontFamily: 'Arial, serif',
+                fontFamily: 'Arial,serif',
               }}
             >
               Civil Service Form No. 48
@@ -1769,7 +2541,7 @@ const DailyTimeRecordFaculty = () => {
               <div style={{ textAlign: 'center' }}>
                 <h4
                   style={{
-                    fontFamily: 'Times New Roman, serif',
+                    fontFamily: 'Times New Roman,serif',
                     margin: '2px 0',
                     fontWeight: 'bold',
                     fontSize: '16px',
@@ -1779,7 +2551,7 @@ const DailyTimeRecordFaculty = () => {
                 </h4>
                 <div
                   style={{
-                    fontFamily: 'Times New Roman, serif',
+                    fontFamily: 'Times New Roman,serif',
                     fontSize: '16px',
                     marginTop: '-2px',
                     fontWeight: 'bold',
@@ -1791,7 +2563,7 @@ const DailyTimeRecordFaculty = () => {
             ) : (
               <h4
                 style={{
-                  fontFamily: 'Times New Roman, serif',
+                  fontFamily: 'Times New Roman,serif',
                   textAlign: 'center',
                   margin: '2px 0',
                   fontWeight: 'bold',
@@ -1821,7 +2593,7 @@ const DailyTimeRecordFaculty = () => {
             <div
               style={{
                 margin: '0 auto',
-                fontFamily: 'Arial, serif',
+                fontFamily: 'Arial,serif',
                 width: '100%',
                 maxWidth: '400px',
                 position: 'relative',
@@ -1846,7 +2618,7 @@ const DailyTimeRecordFaculty = () => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {user.fullName}
+                {nameDisplay}
               </div>
               <div
                 style={{
@@ -1867,7 +2639,6 @@ const DailyTimeRecordFaculty = () => {
             </div>
           </td>
         </tr>
-
         <tr>
           <td
             colSpan="7"
@@ -1878,42 +2649,35 @@ const DailyTimeRecordFaculty = () => {
                 display: 'flex',
                 alignItems: 'flex-end',
                 paddingLeft: '5px',
-                fontFamily: 'Times New Roman, serif',
+                fontFamily: 'Times New Roman,serif',
                 fontSize: '10px',
               }}
             >
               <span style={{ marginRight: '6px' }}>Covered Dates:</span>
-              <div style={{ minWidth: '220px', flexGrow: 1 }}>
-                <div
-                  style={{
-                    fontWeight: 'bold',
-                    textAlign: 'left',
-                    fontSize: '10px',
-                    fontFamily: 'Times New Roman, serif',
-                  }}
-                >
-                  {formattedStartDate} - {formattedEndDate}
-                </div>
+              <div
+                style={{
+                  fontWeight: 'bold',
+                  textAlign: 'left',
+                  fontSize: '10px',
+                  fontFamily: 'Times New Roman,serif',
+                }}
+              >
+                {formattedStartDate} - {formattedEndDate}
               </div>
             </div>
           </td>
         </tr>
-
         <tr>
           <td
             colSpan="7"
-            style={{
-              padding: '2px 5px',
-              lineHeight: '1.2',
-              textAlign: 'left',
-            }}
+            style={{ padding: '2px 5px', lineHeight: '1.2', textAlign: 'left' }}
           >
             <p
               style={{
                 fontSize: '11px',
                 margin: '0',
                 paddingLeft: '5px',
-                fontFamily: 'Times New Roman, serif',
+                fontFamily: 'Times New Roman,serif',
               }}
             >
               For the month of: <b>{startDate ? formatMonth(startDate) : ''}</b>
@@ -1927,14 +2691,20 @@ const DailyTimeRecordFaculty = () => {
               padding: '8px 5px 2px 5px',
               textAlign: 'left',
               fontSize: '10px',
-              fontFamily: 'Arial, serif',
+              fontFamily: 'Arial,serif',
               lineHeight: '1.2',
             }}
           >
             Official hours for arrival (regular day) and departure
           </td>
         </tr>
+        {Array.from({ length: 6 }, (_, i) => (
+          <tr key={`e1-${i}`}>
+            <td colSpan="7"></td>
+          </tr>
+        ))}
 
+        {/* Regular Days row — dynamic when showOfficialTimeOnDtr is on */}
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
@@ -1942,13 +2712,16 @@ const DailyTimeRecordFaculty = () => {
                 display: 'flex',
                 alignItems: 'flex-end',
                 paddingLeft: '5%',
-                height: '14px',
-                marginBottom: '0px',
-                fontFamily: 'Arial, serif',
+                minHeight: regularBlockMinH,
+                fontFamily: 'Arial,serif',
                 fontSize: '10px',
               }}
             >
-              <span style={{ marginRight: '5px' }}>Regular Days:</span>
+              <span
+                style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}
+              >
+                Regular Days:
+              </span>
               <span
                 style={{
                   display: 'inline-block',
@@ -1956,18 +2729,32 @@ const DailyTimeRecordFaculty = () => {
                   flexGrow: 1,
                   minWidth: '300px',
                   marginBottom: '2px',
+                  paddingLeft: '4px',
+                  paddingBottom: '1px',
+                  fontSize: regularDaysLines.length > 0 ? '9px' : '10px',
+                  lineHeight: 1.35,
+                  textAlign: 'left',
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
                 }}
-              ></span>
+              >
+                {regularDaysLines.map((line, idx) => (
+                  <React.Fragment key={idx}>
+                    {idx > 0 ? <br /> : null}
+                    {line}
+                  </React.Fragment>
+                ))}
+              </span>
             </div>
           </td>
         </tr>
-
         {Array.from({ length: 2 }, (_, i) => (
-          <tr key={`empty2-${i}`}>
+          <tr key={`e2-${i}`}>
             <td colSpan="7"></td>
           </tr>
         ))}
 
+        {/* Saturdays row — dynamic when showOfficialTimeOnDtr is on */}
         <tr>
           <td colSpan="7" style={{ padding: '2px 5px' }}>
             <div
@@ -1975,13 +2762,17 @@ const DailyTimeRecordFaculty = () => {
                 display: 'flex',
                 alignItems: 'flex-end',
                 paddingLeft: '5%',
-                height: '20px',
-                fontFamily: 'Arial, serif',
+                minHeight:
+                  showOfficialTimeOnDtr && saturdayOfficialText ? 26 : 20,
+                fontFamily: 'Arial,serif',
                 fontSize: '10px',
-                whiteSpace: 'nowrap',
               }}
             >
-              <span style={{ marginRight: '5px' }}>Saturdays:</span>
+              <span
+                style={{ marginRight: '5px', flexShrink: 0, lineHeight: 1.2 }}
+              >
+                Saturdays:
+              </span>
               <span
                 style={{
                   display: 'inline-block',
@@ -1989,24 +2780,32 @@ const DailyTimeRecordFaculty = () => {
                   flexGrow: 1,
                   minWidth: '318px',
                   marginBottom: '2px',
+                  paddingLeft: '4px',
+                  paddingBottom: '1px',
+                  fontSize: saturdayOfficialText ? '9px' : '10px',
+                  lineHeight: 1.25,
+                  textAlign: 'left',
+                  whiteSpace: 'nowrap',
                 }}
-              ></span>
+              >
+                {saturdayOfficialText}
+              </span>
             </div>
           </td>
         </tr>
-
         {Array.from({ length: 2 }, (_, i) => (
-          <tr key={`empty3-${i}`}>
+          <tr key={`e3-${i}`}>
             <td colSpan="7"></td>
           </tr>
         ))}
+
         <tr>
           <th
             rowSpan="2"
             style={{
               border: '1px solid black',
-              fontFamily: 'Arial, serif',
-              fontSize: dataFontSize,
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
             }}
           >
             DAY
@@ -2015,8 +2814,8 @@ const DailyTimeRecordFaculty = () => {
             colSpan="2"
             style={{
               border: '1px solid black',
-              fontFamily: 'Arial, serif',
-              fontSize: dataFontSize,
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
             }}
           >
             A.M.
@@ -2025,8 +2824,8 @@ const DailyTimeRecordFaculty = () => {
             colSpan="2"
             style={{
               border: '1px solid black',
-              fontFamily: 'Arial, serif',
-              fontSize: dataFontSize,
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
             }}
           >
             P.M.
@@ -2034,8 +2833,8 @@ const DailyTimeRecordFaculty = () => {
           <th
             style={{
               border: '1px solid black',
-              fontFamily: 'Arial, serif',
-              fontSize: dataFontSize,
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
             }}
           >
             Late
@@ -2043,4367 +2842,2850 @@ const DailyTimeRecordFaculty = () => {
           <th
             style={{
               border: '1px solid black',
-              fontFamily: 'Arial, serif',
-              fontSize: dataFontSize,
+              fontFamily: 'Arial,serif',
+              fontSize: fs,
             }}
           >
             Undertime
           </th>
         </tr>
         <tr style={{ textAlign: 'center' }}>
-          <td
-            style={{
-              border: '1px solid black',
-              fontSize: '9px',
-              fontFamily: 'Arial, serif',
-            }}
-          >
-            Arrival
-          </td>
-          <td
-            style={{
-              border: '1px solid black',
-              fontSize: '9px',
-              fontFamily: 'Arial, serif',
-              width: 'fit-content',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Departure
-          </td>
-          <td
-            style={{
-              border: '1px solid black',
-              fontSize: '9px',
-              fontFamily: 'Arial, serif',
-              width: 'fit-content',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Arrival
-          </td>
-          <td
-            style={{
-              border: '1px solid black',
-              fontSize: '9px',
-              fontFamily: 'Arial, serif',
-              width: 'fit-content',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Departure
-          </td>
-          <td
-            style={{
-              border: '1px solid black',
-              fontSize: '9px',
-              fontFamily: 'Arial, serif',
-            }}
-          >
-            Min
-          </td>
-          <td
-            style={{
-              border: '1px solid black',
-              fontSize: '9px',
-              fontFamily: 'Arial, serif',
-            }}
-          >
-            Min
-          </td>
+          {['Arrival', 'Departure', 'Arrival', 'Departure', 'Min', 'Min'].map(
+            (lbl, i) => (
+              <td
+                key={i}
+                style={{
+                  border: '1px solid black',
+                  fontSize: '9px',
+                  fontFamily: 'Arial,serif',
+                }}
+              >
+                {lbl}
+              </td>
+            ),
+          )}
         </tr>
       </thead>
     );
-
-    const cellStyle = {
-      border: '1px solid black',
-      textAlign: 'center',
-      padding: '0 1px',
-      fontFamily: 'Arial, serif',
-      fontSize: '10px',
-      height: rowHeight,
-      whiteSpace: 'nowrap',
-    };
-
-    const getRenderedTimeData = (record, type) => {
-      if (!record) return { hours: '', minutes: '' };
-      if (type === 'regular') {
-        return { hours: '', minutes: record.minutes || '' };
-      }
-      const minutes = record.minutes || 0;
-      const hours = Math.floor(minutes / 60);
-      const remainingMinutes = minutes % 60;
-      return {
-        hours: hours > 0 ? String(hours) : '',
-        minutes: remainingMinutes > 0 ? String(remainingMinutes) : '',
-      };
-    };
-
-    const getTimeFields = (record, type) => {
-      if (!record)
-        return {
-          timeIN: '',
-          timeOUT: '',
-        };
-
-      switch (type) {
-        case 'honorarium':
-        case 'service-credit':
-        case 'overtime':
-          return {
-            timeIN: record.specialTimeIN || '',
-            timeOUT: record.specialTimeOUT || '',
-          };
-        default:
-          return {
-            timeIN: record.timeIN || '',
-            breaktimeIN: record.breaktimeIN || '',
-            breaktimeOUT: record.breaktimeOUT || '',
-            timeOUT: record.timeOUT || '',
-          };
-      }
-    };
-
-    return (
-      <div className="table-container">
-        <div className="table-wrapper" style={{ position: 'relative' }}>
-          {/* Watermark */}
-          <img
-            src={hrisLogo}
-            alt="Watermark"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              opacity: 0.07,
-              width: '80%',
-              maxWidth: '600px',
-              pointerEvents: 'none',
-              userSelect: 'none',
-              zIndex: 0,
-            }}
-          />
-          <div
-            style={{
-              display: 'flex',
-              gap: '2%',
-              width: '8.7in',
-              minWidth: '8.5in',
-              margin: '0 auto',
-              backgroundColor: 'white',
-              position: 'relative',
-              zIndex: 1,
-            }}
-            className="table-side-by-side"
-          >
-            {/* ================= TABLE 1 ================= */}
-            <table
-              style={{
-                position: 'relative',
-                border: '1px solid black',
-                borderCollapse: 'collapse',
-                width: '49%',
-                tableLayout: 'fixed',
-              }}
-              className="print-visble"
-            >
-              <DTRColGroup />
-              {renderHeader()}
-              <tbody>
-                {Array.from({ length: 31 }, (_, i) => {
-                  const day = (i + 1).toString().padStart(2, '0');
-                  const record = user.records.find((r) =>
-                    r.date.endsWith(`-${day}`),
-                  );
-
-                  let fullDate = null;
-                  if (record?.date) {
-                    fullDate = record.date;
-                  } else if (startDate) {
-                    const [year, month] = startDate.split('-');
-                    fullDate = `${year}-${month}-${day}`;
-                  } else if (selectedMonth !== null) {
-                    const monthNum = String(selectedMonth + 1).padStart(2, '0');
-                    fullDate = `${selectedYear}-${monthNum}-${day}`;
-                  }
-
-                  const indicator = getDateIndicator(fullDate);
-                  const timeFields = getTimeFields(record, dtrType);
-                  const renderedTime = getRenderedTimeData(record, dtrType);
-
-                  return (
-                    <tr key={i}>
-                      <td
-                        style={{
-                          ...cellStyle,
-                          backgroundColor: indicator
-                            ? indicator.bgColor
-                            : 'transparent',
-                          position: 'relative',
-                        }}
-                      >
-                        <div style={{ fontWeight: 'bold', fontSize: '10px' }}>
-                          {day}
-                        </div>
-                        {indicator && (
-                          <div
-                            style={{
-                              fontSize: '6px',
-                              fontWeight: 'bold',
-                              color: indicator.textColor,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              opacity: 0.8,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {indicator.label}
-                          </div>
-                        )}
-                      </td>
-
-                      {dtrType === 'regular' ? (
-                        <>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{formatTime(timeFields.timeIN)}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{formatTime(timeFields.breaktimeIN)}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{formatTime(timeFields.breaktimeOUT)}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{formatTime(timeFields.timeOUT)}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{record?.minutes || ''}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{record?.minutes || ''}</span>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{formatTime(timeFields.timeIN)}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span></span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span></span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span>{formatTime(timeFields.timeOUT)}</span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span></span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                            }}
-                          >
-                            <span></span>
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-                <tr>
-                  <td colSpan="7" style={{ padding: '10px 5px' }}>
-                    <hr
-                      style={{ borderTop: '2px solid black', width: '100%' }}
-                    />
-                    <p
-                      style={{
-                        textAlign: 'justify',
-                        fontSize: '9px',
-                        lineHeight: '1.4',
-                        fontFamily: 'Times New Roman, serif',
-                        margin: '5px 0',
-                      }}
-                    >
-                      I CERTIFY on my honor that the above is a true and correct
-                      report
-                      <br />
-                      of the hours of work performed, record of which was made
-                      daily at
-                      <br />
-                      the time of arrival and at the time of departure from
-                      office.
-                    </p>
-                    <div
-                      style={{
-                        width: '50%',
-                        marginLeft: 'auto',
-                        textAlign: 'center',
-                        marginTop: '40px',
-                      }}
-                    >
-                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-                      <p
-                        style={{
-                          fontSize: '9px',
-                          fontFamily: 'Arial, serif',
-                          margin: '5px 0 0 0',
-                        }}
-                      >
-                        Signature
-                      </p>
-                    </div>
-                    <div style={{ width: '100%', marginTop: '15px' }}>
-                      <hr
-                        style={{
-                          borderTop: '1px solid black',
-                          width: '100%',
-                          margin: 0,
-                        }}
-                      />
-                      <hr
-                        style={{
-                          borderTop: '1.5px solid black',
-                          width: '100%',
-                          margin: '2px 0 0 0',
-                        }}
-                      />
-                      <p
-                        style={{
-                          paddingLeft: '30px',
-                          fontSize: '9px',
-                          fontFamily: 'Arial, serif',
-                          margin: '5px 0 0 0',
-                        }}
-                      >
-                        Verified as to prescribed office hours.
-                      </p>
-                    </div>
-                    <div
-                      style={{
-                        width: '80%',
-                        marginLeft: 'auto',
-                        marginTop: '15px',
-                        textAlign: 'center',
-                      }}
-                    >
-                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-                      <p
-                        style={{
-                          fontSize: '9px',
-                          fontFamily: 'Times New Roman, serif',
-                          margin: '2px 0 0 0',
-                        }}
-                      >
-                        In-Charge
-                      </p>
-                      <p
-                        style={{
-                          fontSize: '9px',
-                          fontFamily: 'Arial, serif',
-                          margin: '0',
-                        }}
-                      >
-                        (Signature Over Printed Name)
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* ================= TABLE 2 ================= */}
-            <table
-              style={{
-                position: 'relative',
-                border: '1px solid black',
-                borderCollapse: 'collapse',
-                width: '49%',
-                tableLayout: 'fixed',
-              }}
-              className="print-visble"
-            >
-              <DTRColGroup />
-              {renderHeader()}
-              <tbody>
-                {Array.from({ length: 31 }, (_, i) => {
-                  const day = (i + 1).toString().padStart(2, '0');
-                  const record = user.records.find((r) =>
-                    r.date.endsWith(`-${day}`),
-                  );
-
-                  let fullDate = null;
-                  if (record?.date) {
-                    fullDate = record.date;
-                  } else if (startDate) {
-                    const [year, month] = startDate.split('-');
-                    fullDate = `${year}-${month}-${day}`;
-                  } else if (selectedMonth !== null) {
-                    const monthNum = String(selectedMonth + 1).padStart(2, '0');
-                    fullDate = `${selectedYear}-${monthNum}-${day}`;
-                  }
-
-                  const indicator = getDateIndicator(fullDate);
-                  const timeFields = getTimeFields(record, dtrType);
-                  const renderedTime = getRenderedTimeData(record, dtrType);
-
-                  return (
-                    <tr key={i}>
-                      <td
-                        style={{
-                          ...cellStyle,
-                          backgroundColor: indicator
-                            ? indicator.bgColor
-                            : 'transparent',
-                        }}
-                      >
-                        {day}
-                      </td>
-                      {dtrType === 'regular' ? (
-                        <>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: '50%',
-                                    left: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    fontSize: '7px',
-                                    fontWeight: 'bold',
-                                    color: indicator.textColor,
-                                    whiteSpace: 'nowrap',
-                                    pointerEvents: 'none',
-                                    zIndex: 1,
-                                    opacity: 0.5,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: 'relative', zIndex: 2 }}>
-                              {formatTime(timeFields.timeIN)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: 'relative', zIndex: 1 }}>
-                              {formatTime(timeFields.breaktimeIN)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: 'relative', zIndex: 1 }}>
-                              {formatTime(timeFields.breaktimeOUT)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: '50%',
-                                    left: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    fontSize: '7px',
-                                    fontWeight: 'bold',
-                                    color: indicator.textColor,
-                                    whiteSpace: 'nowrap',
-                                    pointerEvents: 'none',
-                                    zIndex: 1,
-                                    opacity: 0.5,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: 'relative', zIndex: 2 }}>
-                              {formatTime(timeFields.timeOUT)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: 'relative', zIndex: 1 }}>
-                              {record?.minutes || ''}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '7px',
-                                    fontWeight: 'bold',
-                                    color: indicator.textColor,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 1,
-                                    pointerEvents: 'none',
-                                    opacity: 0.9,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span style={{ position: 'relative', zIndex: 2 }}>
-                              {record?.minutes || ''}
-                            </span>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: 'relative', zIndex: 1 }}>
-                              {formatTime(timeFields.timeIN)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span
-                              style={{ position: 'relative', zIndex: 1 }}
-                            ></span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span
-                              style={{ position: 'relative', zIndex: 1 }}
-                            ></span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span style={{ position: 'relative', zIndex: 1 }}>
-                              {formatTime(timeFields.timeOUT)}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  backgroundColor: indicator.bgColor,
-                                  zIndex: 0,
-                                  opacity: 0.3,
-                                }}
-                              />
-                            )}
-                            <span
-                              style={{ position: 'relative', zIndex: 1 }}
-                            ></span>
-                          </td>
-                          <td
-                            style={{
-                              ...cellStyle,
-                              backgroundColor: indicator
-                                ? indicator.bgColor
-                                : 'transparent',
-                              position: 'relative',
-                            }}
-                          >
-                            {indicator && (
-                              <>
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 0,
-                                    opacity: 0.3,
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '7px',
-                                    fontWeight: 'bold',
-                                    color: indicator.textColor,
-                                    backgroundColor: indicator.bgColor,
-                                    zIndex: 1,
-                                    pointerEvents: 'none',
-                                    opacity: 0.9,
-                                  }}
-                                >
-                                  {indicator.label}
-                                </div>
-                              </>
-                            )}
-                            <span
-                              style={{ position: 'relative', zIndex: 2 }}
-                            ></span>
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-                <tr>
-                  <td colSpan="7" style={{ padding: '10px 5px' }}>
-                    <hr
-                      style={{ borderTop: '2px solid black', width: '100%' }}
-                    />
-                    <p
-                      style={{
-                        textAlign: 'justify',
-                        fontSize: '9px',
-                        lineHeight: '1.4',
-                        fontFamily: 'Times New Roman, serif',
-                        margin: '5px 0',
-                      }}
-                    >
-                      I CERTIFY on my honor that the above is a true and correct
-                      report
-                      <br />
-                      of the hours of work performed, record of which was made
-                      daily at
-                      <br />
-                      the time of arrival and at the time of departure from
-                      office.
-                    </p>
-                    <div
-                      style={{
-                        width: '50%',
-                        marginLeft: 'auto',
-                        textAlign: 'center',
-                        marginTop: '40px',
-                      }}
-                    >
-                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-                      <p
-                        style={{
-                          fontSize: '9px',
-                          fontFamily: 'Arial, serif',
-                          margin: '5px 0 0 0',
-                        }}
-                      >
-                        Signature
-                      </p>
-                    </div>
-                    <div style={{ width: '100%', marginTop: '15px' }}>
-                      <hr
-                        style={{
-                          borderTop: '1px solid black',
-                          width: '100%',
-                          margin: 0,
-                        }}
-                      />
-                      <hr
-                        style={{
-                          borderTop: '1.5px solid black',
-                          width: '100%',
-                          margin: '2px 0 0 0',
-                        }}
-                      />
-                      <p
-                        style={{
-                          paddingLeft: '30px',
-                          fontSize: '9px',
-                          fontFamily: 'Arial, serif',
-                          margin: '5px 0 0 0',
-                        }}
-                      >
-                        Verified as to prescribed office hours.
-                      </p>
-                    </div>
-                    <div
-                      style={{
-                        width: '80%',
-                        marginLeft: 'auto',
-                        marginTop: '15px',
-                        textAlign: 'center',
-                      }}
-                    >
-                      <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-                      <p
-                        style={{
-                          fontSize: '9px',
-                          fontFamily: 'Times New Roman, serif',
-                          margin: '2px 0 0 0',
-                        }}
-                      >
-                        In-Charge
-                      </p>
-                      <p
-                        style={{
-                          fontSize: '9px',
-                          fontFamily: 'Arial, serif',
-                          margin: '0',
-                        }}
-                      >
-                        (Signature Over Printed Name)
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
   };
 
-  // Hidden print-ready DTR (off-screen) for bulk printing
-  const renderUserDTRTable = (user) => {
-    return (
-      <div
-        ref={(el) => {
-          if (el) bulkDTRRefs.current[user.employeeNumber] = el;
-        }}
-        style={{
-          position: 'absolute',
-          left: '-9999px',
-          top: '0',
-          visibility: 'hidden',
-          width: DTR_WIDTH_IN,
-          color: 'black',
-        }}
-        className="bulk-dtr-print"
-      >
-        {renderDTRForModal(user)}
-      </div>
-    );
-  };
-
-  // Simple handler for printing selected DTRs
-  const handlePrintAllSelected = async () => {
-    if (previewUsers.length === 0) {
-      showAlert('No Selection', 'No DTRs to print. Please select users first.');
-      return;
-    }
-
-    try {
-      setPrintingAll(true);
-      setPrintingStatus('Preparing DTRs for printing...');
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'in',
-        format: 'a4',
-      });
-
-      const dtrWidth = 8;
-      const dtrHeight = 9.5;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - dtrWidth) / 2;
-      const yOffset = (pageHeight - dtrHeight) / 2;
-
-      let successCount = 0;
-
-      for (let i = 0; i < previewUsers.length; i++) {
-        const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
-
-        setPrintingStatus(
-          `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
-        );
-
-        if (!ref) {
-          console.warn(`No ref found for ${user.employeeNumber}`);
-          continue;
-        }
-
-        try {
-          const orig = ensureCaptureStyles(ref);
-          await new Promise((resolve) => setTimeout(resolve, 50));
-
-          const canvas = await html2canvas(ref, {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-          });
-
-          restoreCaptureStyles(ref, orig);
-
-          if (!canvas || canvas.width === 0 || canvas.height === 0) {
-            console.error(`Invalid canvas for ${user.employeeNumber}:`, {
-              width: canvas?.width,
-              height: canvas?.height,
-            });
-            continue;
-          }
-
-          const imgData = canvas.toDataURL('image/png');
-
-          if (!imgData || imgData === 'data:,') {
-            console.error(`Invalid image data for ${user.employeeNumber}`);
-            continue;
-          }
-
-          if (successCount > 0) {
-            pdf.addPage();
-          }
-
-          pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-          successCount++;
-
-          console.log(
-            `Successfully captured DTR for ${user.fullName} (${successCount}/${previewUsers.length})`,
-          );
-        } catch (error) {
-          console.error(
-            `Error capturing DTR for ${user.employeeNumber}:`,
-            error,
-          );
-          try {
-            restoreCaptureStyles(ref, {});
-          } catch (e) {
-            // Ignore
-          }
-        }
-      }
-
-      console.log(
-        `Total captured: ${successCount} out of ${previewUsers.length}`,
-      );
-
-      if (successCount === 0) {
-        throw new Error(
-          'No DTRs were successfully captured. Please try again or contact support.',
-        );
-      }
-
-      setPrintingStatus('Opening print preview...');
-      pdf.autoPrint();
-      const blobUrl = pdf.output('bloburl');
-      window.open(blobUrl, '_blank');
-
-      try {
-        const year = new Date(startDate).getFullYear();
-        const month = new Date(startDate).getMonth() + 1;
-        const employeeNumbers = previewUsers.map((user) => user.employeeNumber);
-
-        await axios.post(
-          `${API_BASE_URL}/attendance/api/mark-dtr-printed`,
-          { employeeNumbers, year, month, startDate, endDate },
-          getAuthHeaders(),
-        );
-
-        const newMap = new Map(printStatusMap);
-        employeeNumbers.forEach((empNum) => {
-          newMap.set(empNum, {
-            printed_at: new Date().toISOString(),
-            printed_by: 'current_user',
-          });
-        });
-        setPrintStatusMap(newMap);
-        setSelectedUsers(new Set());
-      } catch (error) {
-        console.error('Error marking DTRs as printed:', error);
-      }
-    } catch (error) {
-      console.error('Error printing DTRs:', error);
-      showAlert(
-        'Print Error',
-        `Error printing DTRs: ${error.message || 'Unknown error'}`,
-      );
-    } finally {
-      setPrintingStatus('');
-      setPrintingAll(false);
-      setPreviewModalOpen(false);
-    }
-  };
-
-  // Simple handler for downloading selected DTRs as PDF
-  const handleDownloadAllSelected = async () => {
-    if (previewUsers.length === 0) {
-      showAlert(
-        'No Selection',
-        'No DTRs to download. Please select users first.',
-      );
-      return;
-    }
-
-    try {
-      setPrintingAll(true);
-      setPrintingStatus('Preparing DTRs for download...');
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'in',
-        format: 'a4',
-      });
-
-      const dtrWidth = 8;
-      const dtrHeight = 10;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const xOffset = (pageWidth - dtrWidth) / 2;
-      const yOffset = (pageHeight - dtrHeight) / 2;
-
-      let successCount = 0;
-
-      for (let i = 0; i < previewUsers.length; i++) {
-        const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
-
-        setPrintingStatus(
-          `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
-        );
-
-        if (!ref) {
-          console.warn(`No ref found for ${user.employeeNumber}`);
-          continue;
-        }
-
-        try {
-          const orig = ensureCaptureStyles(ref);
-          await new Promise((resolve) => setTimeout(resolve, 50));
-
-          const canvas = await html2canvas(ref, {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-          });
-
-          restoreCaptureStyles(ref, orig);
-
-          if (!canvas || canvas.width === 0 || canvas.height === 0) {
-            console.error(`Invalid canvas for ${user.employeeNumber}:`, {
-              width: canvas?.width,
-              height: canvas?.height,
-            });
-            continue;
-          }
-
-          const imgData = canvas.toDataURL('image/png');
-
-          if (!imgData || imgData === 'data:,') {
-            console.error(`Invalid image data for ${user.employeeNumber}`);
-            continue;
-          }
-
-          if (successCount > 0) {
-            pdf.addPage();
-          }
-
-          pdf.addImage(imgData, 'PNG', xOffset, yOffset, dtrWidth, dtrHeight);
-          successCount++;
-
-          console.log(
-            `Successfully captured DTR for ${user.fullName} (${successCount}/${previewUsers.length})`,
-          );
-        } catch (error) {
-          console.error(
-            `Error capturing DTR for ${user.employeeNumber}:`,
-            error,
-          );
-          try {
-            restoreCaptureStyles(ref, {});
-          } catch (e) {
-            // Ignore
-          }
-        }
-      }
-
-      console.log(
-        `Total captured: ${successCount} out of ${previewUsers.length}`,
-      );
-
-      if (successCount === 0) {
-        throw new Error(
-          'No DTRs were successfully captured. Please try again or contact support.',
-        );
-      }
-
-      setPrintingStatus('Saving PDF...');
-      const fileName = `DTR-AllUsers-${formatMonth(startDate)}.pdf`;
-      pdf.save(fileName);
-    } catch (error) {
-      console.error('Error downloading DTRs:', error);
-      showAlert(
-        'Download Error',
-        `Error downloading DTRs: ${error.message || 'Unknown error'}`,
-      );
-    } finally {
-      setPrintingStatus('');
-      setPrintingAll(false);
-      setPreviewModalOpen(false);
-    }
-  };
-
-  return (
-    <Container maxWidth="xl" sx={{ py: 4, mt: -5 }}>
-      {/* Fixed Status Overlay at Top of Screen - Shows during printing/downloading/loading */}
-      {(printingAll || loadingAllUsers || singlePrintLoading) && (
-        <Dialog
-          open={
-            printingAll ||
-            loadingAllUsers ||
-            singlePrintLoading ||
-            !!printingStatus ||
-            !!singlePrintStatus
-          }
-          maxWidth="xs"
-          fullWidth
-          PaperProps={{
-            sx: {
-              borderRadius: 4,
-              backgroundColor: '#ffffff',
-              boxShadow: '0 10px 50px rgba(0,0,0,0.12)',
-              overflow: 'hidden',
-            },
+  const renderDTRFooter = () => (
+    <tr>
+      <td colSpan="7" style={{ padding: '10px 5px' }}>
+        <hr style={{ borderTop: '2px solid black', width: '100%' }} />
+        <p
+          style={{
+            textAlign: 'justify',
+            fontSize: '9px',
+            lineHeight: '1.4',
+            fontFamily: 'Times New Roman,serif',
+            margin: '5px 0',
           }}
         >
-          <Box
-            sx={{
-              p: 4,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              textAlign: 'center',
-              gap: 2,
+          I CERTIFY on my honor that the above is a true and correct report
+          <br />
+          of the hours of work performed, record of which was made daily at
+          <br />
+          the time of arrival and at the time of departure from office.
+        </p>
+        <div
+          style={{
+            width: '50%',
+            marginLeft: 'auto',
+            textAlign: 'center',
+            marginTop: '40px',
+          }}
+        >
+          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
+          <p
+            style={{
+              fontSize: '9px',
+              fontFamily: 'Arial,serif',
+              margin: '5px 0 0 0',
             }}
           >
-            <MCircularProgress
-              size={52}
-              thickness={4}
-              sx={{ color: accentColor }}
-            />
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 700, color: '#111', lineHeight: 1.3 }}
-            >
-              {loadingAllUsers
-                ? 'Loading DTR Records'
-                : singlePrintLoading
-                  ? singlePrintStatus || 'Preparing DTR...'
-                  : printingStatus || 'Preparing DTRs...'}
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{ color: '#777', maxWidth: 280, lineHeight: 1.6 }}
-            >
-              {loadingAllUsers
-                ? 'Fetching attendance data for all employees. This may take a moment.'
-                : singlePrintLoading
-                  ? 'Your DTR is being captured and compiled. Please wait.'
-                  : 'DTRs are being captured and compiled into a PDF. A new tab will open when ready.'}
-            </Typography>
-            <Box sx={{ width: '100%', mt: 1 }}>
-              <LinearProgress
-                sx={{
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: alpha(accentColor, 0.12),
-                  '& .MuiLinearProgress-bar': {
-                    borderRadius: 3,
-                    backgroundColor: accentColor,
-                  },
+            Signature
+          </p>
+        </div>
+        <div style={{ width: '100%', marginTop: '15px' }}>
+          <hr
+            style={{ borderTop: '1px solid black', width: '100%', margin: 0 }}
+          />
+          <hr
+            style={{
+              borderTop: '1.5px solid black',
+              width: '100%',
+              margin: '2px 0 0 0',
+            }}
+          />
+          <p
+            style={{
+              paddingLeft: '30px',
+              fontSize: '9px',
+              fontFamily: 'Arial,serif',
+              margin: '5px 0 0 0',
+            }}
+          >
+            Verified as to prescribed office hours.
+          </p>
+        </div>
+        <div
+          style={{
+            width: '80%',
+            marginLeft: 'auto',
+            marginTop: '15px',
+            textAlign: 'center',
+          }}
+        >
+          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
+          <p
+            style={{
+              fontSize: '9px',
+              fontFamily: 'Times New Roman,serif',
+              margin: '2px 0 0 0',
+            }}
+          >
+            In-Charge
+          </p>
+          <p
+            style={{ fontSize: '9px', fontFamily: 'Arial,serif', margin: '0' }}
+          >
+            (Signature Over Printed Name)
+          </p>
+        </div>
+      </td>
+    </tr>
+  );
+
+  const cellStyle = {
+    border: '1px solid black',
+    textAlign: 'center',
+    padding: '0 1px',
+    fontFamily: 'Arial,serif',
+    fontSize: '10px',
+    height: '16px',
+    whiteSpace: 'nowrap',
+  };
+
+  const daysInSelectedMonth = (() => {
+    if (selectedMonth == null || !Number.isFinite(selectedYear)) return 31;
+    return new Date(selectedYear, selectedMonth + 1, 0).getDate();
+  })();
+
+  const dtrRawEmpty = dtrTimeValueEmpty;
+
+  const renderDtrAmPmWatermarkCell = (
+    rawVal,
+    displayText,
+    rowTint,
+    indicator,
+    colKey,
+  ) => {
+    const { text, isWatermark } = resolveDtrAmPmCellText(
+      rawVal,
+      displayText,
+      indicator,
+    );
+    return (
+      <td
+        key={colKey}
+        style={{
+          ...cellStyle,
+          backgroundColor: rowTint,
+          verticalAlign: 'middle',
+          WebkitPrintColorAdjust: 'exact',
+          printColorAdjust: 'exact',
+        }}
+      >
+        <span style={isWatermark ? DTR_WM_INLINE_STYLE : undefined}>{text}</span>
+      </td>
+    );
+  };
+
+  const renderDTRRows = (
+    sourceRecords,
+    type,
+    employeeNumber = null,
+    officialTimesForUser = {},
+  ) =>
+    Array.from({ length: daysInSelectedMonth }, (_, i) => {
+      const day = (i + 1).toString().padStart(2, '0');
+      const record = sourceRecords.find((r) => recordMatchesDay(r, day));
+      let fullDate = null;
+      if (record?.date) fullDate = normRecordYmd(record.date);
+      else if (startDate) {
+        const [y, m] = startDate.split('-');
+        fullDate = `${y}-${m}-${day}`;
+      } else if (selectedMonth !== null) {
+        fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
+      }
+      const indicator = getDateIndicator(fullDate);
+      const tf = getTimeFields(record, type);
+      const rt = getRenderedTimeData(record, type);
+      const rowTint = indicator
+        ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)')
+        : 'transparent';
+      const empKey =
+        employeeNumber != null
+          ? String(employeeNumber)
+          : String(personID || '');
+      const computed =
+        empKey && fullDate
+          ? computedLateByEmployee[empKey]?.[fullDate] || null
+          : null;
+      const halfDaySet = empKey
+        ? halfDayDatesByEmployee[empKey] || new Set()
+        : new Set();
+      const isExcludedDay =
+        indicator?.type === 'holiday' ||
+        indicator?.type === 'suspension' ||
+        indicator?.type === 'leave';
+      const hasIncompletePunch = Boolean(
+        record &&
+        ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
+          (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
+      );
+      const isNotScheduledDay = !isDtrDateScheduledByOfficialTime({
+        record,
+        officialTimesByDay: officialTimesForUser,
+        fullDate,
+      });
+      const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
+        record,
+        fullDate,
+        reviewByDate: halfDayReviewByEmployee[empKey] || {},
+        moduleType:
+          computationModuleTypeByEmployee[empKey] ||
+          MODULE_TYPES.NON_TEACHING,
+      });
+      const { lateDisplay, undertimeDisplay } =
+        type !== 'regular'
+          ? { lateDisplay: '', undertimeDisplay: '' }
+          : resolveDtrLateUndertimeDisplay({
+              computed,
+              record: {
+                ...record,
+                hours: record?.hours || rt.hours,
+                minutes: record?.minutes || rt.minutes,
+              },
+              isExcludedDay,
+              hasIncompletePunch,
+              isNotScheduledDay,
+              isPendingHalfDay,
+            });
+      return (
+        <tr key={i}>
+          <td
+            style={{
+              ...cellStyle,
+              backgroundColor: rowTint,
+              position: 'relative',
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
+            }}
+          >
+            <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+          </td>
+          {type === 'regular' ? (
+            <>
+              {renderDtrAmPmWatermarkCell(
+                tf.timeIN,
+                formatTime(tf.timeIN || ''),
+                rowTint,
+                indicator,
+                `r-${i}-0`,
+              )}
+              {renderDtrAmPmWatermarkCell(
+                tf.breaktimeIN,
+                formatTime(tf.breaktimeIN || ''),
+                rowTint,
+                indicator,
+                `r-${i}-1`,
+              )}
+              {renderDtrAmPmWatermarkCell(
+                tf.breaktimeOUT,
+                formatTime(tf.breaktimeOUT || ''),
+                rowTint,
+                indicator,
+                `r-${i}-2`,
+              )}
+              {renderDtrAmPmWatermarkCell(
+                tf.timeOUT,
+                formatTime(tf.timeOUT || ''),
+                rowTint,
+                indicator,
+                `r-${i}-3`,
+              )}
+              <td
+                style={{
+                  ...cellStyle,
+                  backgroundColor: rowTint,
+                  WebkitPrintColorAdjust: 'exact',
+                  printColorAdjust: 'exact',
                 }}
-              />
-            </Box>
-          </Box>
-        </Dialog>
-      )}
+              >
+                <span>{lateDisplay}</span>
+              </td>
+              <td
+                style={{
+                  ...cellStyle,
+                  backgroundColor: rowTint,
+                  WebkitPrintColorAdjust: 'exact',
+                  printColorAdjust: 'exact',
+                }}
+              >
+                <span>{undertimeDisplay}</span>
+              </td>
+            </>
+          ) : (
+            <>
+              {renderDtrAmPmWatermarkCell(
+                tf.timeIN,
+                formatTime(tf.timeIN || ''),
+                rowTint,
+                indicator,
+                `o-${i}-0`,
+              )}
+              {renderDtrAmPmWatermarkCell(
+                null,
+                '',
+                rowTint,
+                indicator,
+                `o-${i}-1`,
+              )}
+              {renderDtrAmPmWatermarkCell(
+                null,
+                '',
+                rowTint,
+                indicator,
+                `o-${i}-2`,
+              )}
+              {renderDtrAmPmWatermarkCell(
+                tf.timeOUT,
+                formatTime(tf.timeOUT || ''),
+                rowTint,
+                indicator,
+                `o-${i}-3`,
+              )}
+              <td
+                style={{
+                  ...cellStyle,
+                  backgroundColor: rowTint,
+                  WebkitPrintColorAdjust: 'exact',
+                  printColorAdjust: 'exact',
+                }}
+              >
+                <span></span>
+              </td>
+              <td
+                style={{
+                  ...cellStyle,
+                  backgroundColor: rowTint,
+                  WebkitPrintColorAdjust: 'exact',
+                  printColorAdjust: 'exact',
+                }}
+              >
+                <span></span>
+              </td>
+            </>
+          )}
+        </tr>
+      );
+    });
 
-      <style>
-        {`
-          html { overflow-y: scroll; }
-          .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;max-width:none!important;}
-          .dtr-time-cell{white-space:nowrap!important;word-break:keep-all!important;}
-          table{table-layout:auto!important;}
-          @page{size:A4;margin:0;}
-          @media print{
-            .no-print{display:none!important;}
-            .header,.top-banner,.page-banner,header,footer,.MuiDrawer-root,.MuiAppBar-root{display:none!important;}
-            html,body{width:21cm;height:29.7cm;margin:0;padding:0;background:white;}
-            .MuiContainer-root{max-width:100%!important;width:21cm!important;margin:0 auto!important;padding:0!important;display:flex!important;justify-content:center!important;align-items:center!important;background:white!important;}
-            .MuiPaper-root,.MuiBox-root,.MuiCard-root{background:transparent!important;box-shadow:none!important;margin:0!important;}
-            .table-container{width:100%!important;height:auto!important;margin:0 auto!important;padding:0!important;display:block!important;background:transparent!important;}
-            .table-wrapper{width:100%!important;height:auto!important;margin:0!important;padding:0!important;display:flex!important;justify-content:center!important;align-items:flex-start!important;box-sizing:border-box!important;}
-            .table-side-by-side{display:flex!important;flex-direction:row!important;gap:1.5%!important;width:100%!important;height:auto!important;}
-            .table-side-by-side table{width:47%!important;border:1px solid black!important;border-collapse:collapse!important;background:white!important;}
-            table td,table th{background:white!important;font-family:Arial,"Times New Roman",serif!important;position:relative!important;}
-            table thead div,table thead p,table thead h4{font-family:Arial,"Times New Roman",serif!important;}
-            table td div{position:relative!important;}
-            table{page-break-inside:avoid!important;table-layout:fixed!important;}
-            .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;white-space:nowrap!important;word-break:keep-all!important;}
-            table tbody tr:last-child td{padding-bottom:20px!important;}
-            .bulk-dtr-print{display:none!important;}
-          }
-        `}
-      </style>
+  const renderDTRTablePair = (
+    sourceRecords,
+    nameDisplay,
+    officialTimesForUser = {},
+    employeeNumber = null,
+  ) => (
+    <div
+      style={{
+        display: 'flex',
+        gap: '2%',
+        width: '8.7in',
+        minWidth: '8.5in',
+        margin: '0 auto',
+        backgroundColor: 'white',
+        position: 'relative',
+        zIndex: 1,
+      }}
+      className="table-side-by-side"
+    >
+      {[0, 1].map((tIdx) => (
+        <table
+          key={tIdx}
+          style={{
+            position: 'relative',
+            border: '1px solid black',
+            borderCollapse: 'collapse',
+            width: '49%',
+            tableLayout: 'fixed',
+          }}
+          className="print-visible"
+        >
+          <DTRColGroup />
+          {renderDTRHeader(nameDisplay, dtrType, officialTimesForUser)}
+          <tbody>
+            {renderDTRRows(
+              sourceRecords,
+              dtrType,
+              employeeNumber,
+              officialTimesForUser,
+            )}
+            {renderDTRFooter()}
+          </tbody>
+        </table>
+      ))}
+    </div>
+  );
 
-      <Box sx={{ px: { xs: 2, sm: 4, md: 6 } }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }} className="no-print">
-            <GlassCard
+  const renderDTRForModal = (user) => (
+    <div className="table-container">
+      <div className="table-wrapper" style={{ position: 'relative' }}>
+        <img
+          src={hrisLogo}
+          alt="Watermark"
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%,-50%)',
+            opacity: 0.07,
+            width: '80%',
+            maxWidth: '600px',
+            pointerEvents: 'none',
+            userSelect: 'none',
+            zIndex: 0,
+          }}
+        />
+        {renderDTRTablePair(
+          user.records,
+          user.fullName,
+          String(user.employeeNumber) === String(personID)
+            ? officialTimes
+            : batchOfficialTimesMap[user.employeeNumber] || {},
+          user.employeeNumber,
+        )}
+      </div>
+    </div>
+  );
+
+  const renderUserDTRTable = (user) => (
+    <div
+      key={user.employeeNumber}
+      ref={(el) => {
+        if (el) bulkDTRRefs.current[user.employeeNumber] = el;
+      }}
+      style={{
+        position: 'absolute',
+        left: '-9999px',
+        top: '0',
+        opacity: 0,
+        width: DTR_WIDTH_IN,
+        color: 'black',
+      }}
+      className="bulk-dtr-print"
+    >
+      {renderDTRForModal(user)}
+    </div>
+  );
+
+  // ─── Left panel ────────────────────────────────────────────────────────
+  const displayEmployee = useMemo(() => {
+    if (selectedEmployee) return toProfileEmployee(selectedEmployee);
+    const id = String(personID || '').trim();
+    if (!id) return null;
+    if (employeeName) {
+      return { employeeNumber: id, name: employeeName, fullName: employeeName };
+    }
+    return { employeeNumber: id, name: '' };
+  }, [selectedEmployee, personID, employeeName]);
+
+  const renderLeftPanelContent = () => (
+    <Box sx={filterPanelScrollSx}>
+      <AttendanceFilterSectionLabel icon={AccessTime}>View Mode</AttendanceFilterSectionLabel>
+      <AttendanceFilterToggleRow
+        options={[
+          { val: 'single', label: 'Individual DTR' },
+          { val: 'multiple', label: 'Batch Printing' },
+        ]}
+        value={viewMode}
+        onChange={setViewMode}
+      />
+
+      <AttendanceFilterSectionLabel icon={PrintIcon}>DTR Type</AttendanceFilterSectionLabel>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: '3px',
+          mb: 1.25,
+        }}
+      >
+        {[
+          { val: 'regular', label: 'Regular' },
+          { val: 'honorarium', label: 'Honorarium' },
+          { val: 'service-credit', label: 'Service Credit' },
+          { val: 'overtime', label: 'Overtime' },
+        ].map(({ val, label }) => {
+          const isActive = dtrType === val;
+          return (
+            <Box
+              key={val}
+              onClick={() => setDtrType(val)}
               sx={{
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                px: 1,
+                py: 0.45,
+                borderRadius: '6px',
+                cursor: 'pointer',
+                border: `1px solid ${isActive ? T.accent : 'transparent'}`,
+                bgcolor: isActive ? T.accent : 'transparent',
+                transition: 'all 0.14s ease',
+                minHeight: 26,
+                '&:hover': isActive
+                  ? {}
+                  : {
+                      bgcolor: T.accentFaint,
+                      border: `1px solid ${T.accentBorder}`,
+                    },
               }}
             >
-              <Box
+              <Typography
                 sx={{
-                  p: 10,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: 'relative',
+                  fontSize: '0.68rem',
+                  fontWeight: isActive ? 700 : 500,
+                  color: isActive ? '#fff' : T.text,
+                  lineHeight: 1,
+                  whiteSpace: 'nowrap',
                   overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
+              >
+                {label}
+              </Typography>
+              {isActive && (
+                <Box
+                  sx={{
+                    width: 3,
+                    height: 3,
+                    borderRadius: '50%',
+                    bgcolor: 'rgba(255,255,255,0.7)',
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+
+      {viewMode === 'single' && (
+        <Box sx={{ mb: 1.25 }}>
+          <AttendanceEmployeeSearchSection selected={Boolean(displayEmployee)}>
+            <AttendanceEmployeeSearchField
+              searchApi="users"
+              value={personID}
+              selectedEmployee={selectedEmployee}
+              onLoadingChange={setEmployeeSearchLoading}
+              onSelectEmployee={(emp, num) => {
+                if (emp) {
+                  setSelectedEmployee(emp);
+                  setPersonID(num || '');
+                  return;
+                }
+                setPersonID(num || '');
+                if (!num) {
+                  setSelectedEmployee(null);
+                  setHasSearchedSingle(false);
+                  setRecords([]);
+                  setEmployeeName('');
+                }
+              }}
+              onClear={() => {
+                setPersonID('');
+                setSelectedEmployee(null);
+                setHasSearchedSingle(false);
+                setRecords([]);
+                setEmployeeName('');
+              }}
+              deptMap={departmentAssignmentsMap}
+              empCatMap={empCatMap}
+              sexMap={sexMap}
+            />
+          </AttendanceEmployeeSearchSection>
+          {displayEmployee && (
+            <Box sx={{ mb: 0.75 }}>
+              <EmployeeProfileCard
+                employee={displayEmployee}
+                deptMap={departmentAssignmentsMap}
+                empCatMap={empCatMap}
+                sexMap={sexMap}
+                loading={employeeSearchLoading || monthLoading}
+              />
+            </Box>
+          )}
+        </Box>
+      )}
+
+      <AttendanceFilterDateControls
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value));
+          setSelectedMonth(null);
+          setHasSearchedSingle(false);
+          setRecords([]);
+          setEmployeeName('');
+          setSnackbar({
+            open: true,
+            message: 'Year changed — select month and click Search to load records.',
+            severity: 'info',
+          });
+        }}
+        yearOptions={yearOptions}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+        onMonthClear={() => {
+          setSelectedMonth(null);
+          setHasSearchedSingle(false);
+          setRecords([]);
+          setEmployeeName('');
+          setStartDate('');
+          setEndDate('');
+          setAllUsersDTR([]);
+          setBatchOfficialTimesMap({});
+        }}
+        onQuickDate={handleQuickDateSelect}
+        months={monthsShort}
+      />
+
+      {/* ── Show official time checkbox ── */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          mt: 2,
+          mb: 0.5,
+          px: 1,
+          py: 0.75,
+          borderRadius: '8px',
+          border: `1px solid ${showOfficialTimeOnDtr ? T.accent : T.accentBorder}`,
+          bgcolor: showOfficialTimeOnDtr
+            ? alpha(T.accent, 0.06)
+            : 'transparent',
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+          '&:hover': {
+            bgcolor: alpha(T.accent, 0.05),
+            border: `1px solid ${T.accent}`,
+          },
+        }}
+        onClick={() => setShowOfficialTimeOnDtr((v) => !v)}
+        className="no-print"
+      >
+        <Checkbox
+          size="small"
+          checked={showOfficialTimeOnDtr}
+          onChange={(e) => {
+            e.stopPropagation();
+            setShowOfficialTimeOnDtr(e.target.checked);
+          }}
+          sx={{
+            p: 0,
+            color: alpha(T.accent, 0.5),
+            '&.Mui-checked': { color: T.accent },
+          }}
+        />
+        <Typography
+          sx={{
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            color: showOfficialTimeOnDtr ? T.accent : T.text,
+            lineHeight: 1.3,
+            userSelect: 'none',
+          }}
+        >
+          Show official time on DTR
+        </Typography>
+      </Box>
+
+      {viewMode === 'multiple' && (
+        <Box
+          sx={{
+            mt: 2,
+            mb: 2.5,
+            p: 1.5,
+            borderRadius: 2,
+            bgcolor: T.accentFaint,
+            border: `1px solid ${T.accentBorder}`,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: alpha(T.accent, 0.6),
+              mb: 0.5,
+            }}
+          >
+            Batch Summary
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: '0.9rem',
+              fontWeight: 800,
+              color: T.text,
+              lineHeight: 1.3,
+            }}
+          >
+            {loadingAllUsers
+              ? '—'
+              : `${filteredUsers.length} ${filteredUsers.length === 1 ? 'employee' : 'employees'} found`}
+          </Typography>
+          {!loadingAllUsers && (
+            <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
+              Use the filters on the right to narrow the batch before printing.
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {/* Individual-only: employee number field */}
+      {viewMode === 'single' && (
+        <Box sx={{ mt: 2.5 }}>
+          <AccentButton
+            variant="contained"
+            fullWidth
+            onClick={() => {
+              try {
+                logDtrOverallSearch({
+                  targetEmployeeNumber: String(personID).trim() || '#all-users',
+                  targetUsername:
+                    selectedEmployee?.username || String(personID).trim(),
+                  periodStart: startDate,
+                  periodEnd: endDate,
+                  monthLabel: buildAuditPeriodLabel({
+                    selectedMonth,
+                    monthNames: monthsShort,
+                    selectedYear,
+                    startDate,
+                    endDate,
+                  }),
+                  recordsCount: null,
+                });
+              } catch (e) {
+                console.error('Audit log failed', e);
+              }
+              handleSingleSearch();
+            }}
+            startIcon={<SearchOutlined sx={{ fontSize: '16px !important' }} />}
+            sx={{
+              bgcolor: T.accent,
+              color: '#fff',
+              boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+              '&:hover': { bgcolor: T.accentDark },
+            }}
+          >
+            Search
+          </AccentButton>
+        </Box>
+      )}
+    </Box>
+  );
+
+  // ─── Render ────────────────────────────────────────────────────────────
+  return (
+    <>
+      <LoadingOverlay
+        open={loadingOverlayOpen}
+        message={loadingOverlayMessage}
+        showDelayMs={printingAll || singlePrintLoading ? 0 : 150}
+      />
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%', fontWeight: 600 }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+      {!accessLoading && (
+        <Fade in timeout={500}>
+          <Box>
+            <style>{`
+              html, body { overflow: hidden; }
+              @page { size: A4; margin: 0; }
+              @media print {
+                .no-print { display: none !important; }
+                .header,.top-banner,header,footer,.MuiDrawer-root,.MuiAppBar-root { display: none !important; }
+                html,body { width: 21cm; height: 29.7cm; margin: 0; padding: 0; background: white; }
+                .MuiContainer-root { max-width: 100% !important; width: 21cm !important; margin: 0 auto !important; padding: 0 !important; background: white !important; }
+                .table-container { width: 100% !important; display: block !important; background: transparent !important; }
+                .table-wrapper { display: flex !important; justify-content: center !important; }
+                .table-side-by-side { display: flex !important; flex-direction: row !important; gap: 1.5% !important; width: 100% !important; }
+                .table-side-by-side table { width: 47% !important; border: 1px solid black !important; border-collapse: collapse !important; background: white !important; }
+                table { page-break-inside: avoid !important; table-layout: fixed !important; }
+                table td, table th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                .bulk-dtr-print { display: none !important; }
+              }
+            `}</style>
+
+            <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+              {/* ── Page Header ── */}
+              <SectionCard
+                className="no-print"
+                sx={{ mb: 2, overflow: 'hidden' }}
               >
                 <Box
                   sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
+                    px: 4,
+                    py: 3,
+                    background:
+                      'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    position: 'relative',
+                    overflow: 'hidden',
                   }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
                 >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15),
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                      }}
-                    >
-                      <AccessTime
-                        sx={{ color: textPrimaryColor, fontSize: 32 }}
-                      />
-                    </Avatar>
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: -50,
+                      right: -50,
+                      width: 200,
+                      height: 200,
+                      borderRadius: '50%',
+                      background:
+                        'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      bottom: -30,
+                      left: '30%',
+                      width: 150,
+                      height: 150,
+                      borderRadius: '50%',
+                      background:
+                        'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+                    }}
+                  />
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 3,
+                      position: 'relative',
+                      zIndex: 1,
+                    }}
+                  >
+                    <AccessTime sx={{ fontSize: 32, color: T.accent }} />
                     <Box>
                       <Typography
-                        variant="h4"
-                        component="h1"
                         sx={{
-                          fontWeight: 700,
-                          mb: 0.25,
+                          fontSize: '1.25rem',
+                          fontWeight: 900,
+                          color: T.accent,
                           lineHeight: 1.2,
-                          color: textPrimaryColor,
+                          mb: 0.3,
                         }}
                       >
                         Daily Time Record
                       </Typography>
                       <Typography
-                        variant="body1"
                         sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: textPrimaryColor,
+                          fontSize: '0.82rem',
+                          color: T.accentMid,
+                          fontWeight: 700,
+                          opacity: 0.9,
                         }}
                       >
-                        Filter your DTR records by date
+                        Administrative Panel • View and print employee DTR
+                        records
                       </Typography>
                     </Box>
                   </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Tooltip title="Refresh Data">
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      position: 'relative',
+                      zIndex: 1,
+                    }}
+                  >
+                    <AttendanceWorkflowNav
+                      inline
+                      prevStep={prevStep}
+                      nextStep={nextStep}
+                      onPrevious={goPrevious}
+                      onNext={goNext}
+                    />
+                    {viewMode === 'multiple' && allUsersDTR.length > 0 && (
+                      <Box
+                        sx={{
+                          px: 2.5,
+                          py: 0.75,
+                          borderRadius: 6,
+                          bgcolor: alpha(T.accent, 0.1),
+                          border: `1px solid ${alpha(T.accent, 0.2)}`,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: '0.8rem',
+                            color: T.accent,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {allUsersDTR.length} employees
+                        </Typography>
+                      </Box>
+                    )}
+                    {viewMode === 'single' && records.length > 0 && (
+                      <Box
+                        sx={{
+                          px: 2.5,
+                          py: 0.75,
+                          borderRadius: 6,
+                          bgcolor: alpha(T.accent, 0.1),
+                          border: `1px solid ${alpha(T.accent, 0.2)}`,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: '0.8rem',
+                            color: T.accent,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {records.length} records
+                        </Typography>
+                      </Box>
+                    )}
+                    <Tooltip title="Refresh Page">
                       <IconButton
                         onClick={() => window.location.reload()}
                         sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                          color: textPrimaryColor,
-                          width: 48,
-                          height: 48,
+                          bgcolor: alpha(T.accent, 0.08),
+                          color: T.accent,
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: alpha(T.accent, 0.15) },
                         }}
                       >
-                        <AccessTime sx={{ fontSize: 24 }} />
+                        <Refresh sx={{ fontSize: 18 }} />
                       </IconButton>
                     </Tooltip>
                   </Box>
                 </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
+              </SectionCard>
 
-        {/* Search Section */}
-        <Fade in timeout={700}>
-          <GlassCard
-            className="no-print"
-            sx={{
-              mb: 4,
-              background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-              boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-              border: `1px solid ${alpha(accentColor, 0.1)}`,
-              '&:hover': {
-                boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-              },
-            }}
-          >
-            <Box
-              sx={{
-                p: 4,
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                color: textPrimaryColor,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <CalendarToday sx={{ fontSize: '1.8rem', mr: 2 }} />
-                <Box>
-                  <Typography variant="h7" sx={{ opacity: 0.9 }}>
-                    Select date range to view records
-                  </Typography>
-                </Box>
-              </Box>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  backgroundColor: alpha(accentColor, 0.12),
-                  borderRadius: '50px',
-                  padding: '4px',
-                  gap: 0,
-                }}
-              >
-                <ProfessionalButton
-                  variant="text"
-                  onClick={() => setViewMode('single')}
-                  sx={{
-                    borderRadius: '50px',
-                    px: 2.5,
-                    py: 0.75,
-                    fontWeight: 600,
-                    fontSize: '0.85rem',
-                    backgroundColor:
-                      viewMode === 'single' ? accentColor : 'transparent',
-                    color:
-                      viewMode === 'single'
-                        ? textSecondaryColor
-                        : textPrimaryColor,
-                    boxShadow:
-                      viewMode === 'single'
-                        ? `0 2px 8px ${alpha(accentColor, 0.4)}`
-                        : 'none',
-                    transition: 'all 0.25s ease',
-                    '&:hover': {
-                      backgroundColor:
-                        viewMode === 'single'
-                          ? accentColor
-                          : alpha(accentColor, 0.08),
-                      boxShadow:
-                        viewMode === 'single'
-                          ? `0 2px 8px ${alpha(accentColor, 0.4)}`
-                          : 'none',
-                    },
-                    minWidth: '130px',
-                    textTransform: 'none',
-                  }}
-                >
-                  Individual DTR
-                </ProfessionalButton>
-                <ProfessionalButton
-                  variant="text"
-                  onClick={() => setViewMode('multiple')}
-                  sx={{
-                    borderRadius: '50px',
-                    px: 2.5,
-                    py: 0.75,
-                    fontWeight: 600,
-                    fontSize: '0.85rem',
-                    backgroundColor:
-                      viewMode === 'multiple' ? accentColor : 'transparent',
-                    color:
-                      viewMode === 'multiple'
-                        ? textSecondaryColor
-                        : textPrimaryColor,
-                    boxShadow:
-                      viewMode === 'multiple'
-                        ? `0 2px 8px ${alpha(accentColor, 0.4)}`
-                        : 'none',
-                    transition: 'all 0.25s ease',
-                    '&:hover': {
-                      backgroundColor:
-                        viewMode === 'multiple'
-                          ? accentColor
-                          : alpha(accentColor, 0.08),
-                      boxShadow:
-                        viewMode === 'multiple'
-                          ? `0 2px 8px ${alpha(accentColor, 0.4)}`
-                          : 'none',
-                    },
-                    minWidth: '130px',
-                    textTransform: 'none',
-                  }}
-                >
-                  Batch Printing
-                </ProfessionalButton>
-              </Box>
-            </Box>
+              {/* ── Two-column layout ── */}
+              <Grid container spacing={2}>
+                {/* LEFT: Sidebar */}
+                <Grid item xs={12} lg={3} className="no-print">
+                  <SectionCard sx={filterSidebarCardSx}>
+                    <AttendanceFilterHeader />
+                    {renderLeftPanelContent()}
+                  </SectionCard>
+                </Grid>
 
-            <Box sx={{ p: 4 }}>
-              {/* Month Buttons + Year Selector */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 1,
-                  mb: 3,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <FormControl sx={{ minWidth: 140 }}>
-                  <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                  <Select
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(e.target.value)}
-                    label="Year"
+                {/* RIGHT: Content */}
+                <Grid item xs={12} lg={9}>
+                  <SectionCard
                     sx={{
-                      backgroundColor: 'white',
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        borderColor: accentColor,
-                      },
-                      borderRadius: 2,
-                      fontWeight: 600,
+                      ...attendanceMainPanelHeightSx,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      position: 'relative',
                     }}
                   >
-                    {yearOptions.map((y) => (
-                      <MenuItem key={y} value={y}>
-                        {y}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                {months.map((month, index) => {
-                  const isSelected = selectedMonth === index;
-                  return (
-                    <ProfessionalButton
-                      key={month}
-                      variant={isSelected ? 'contained' : 'outlined'}
-                      size="medium"
-                      onClick={() => handleMonthClick(index)}
-                      sx={{
-                        borderColor: isSelected ? accentColor : accentColor,
-                        backgroundColor: isSelected
-                          ? accentColor
-                          : 'transparent',
-                        color: isSelected
-                          ? textSecondaryColor
-                          : textPrimaryColor,
-                        py: 1.5,
-                        fontWeight: 600,
-                        '&:hover': {
-                          backgroundColor: isSelected
-                            ? accentDark
-                            : alpha(accentColor, 0.1),
-                          borderWidth: 2,
-                        },
-                        transition: 'all 0.3s ease',
-                        boxShadow: isSelected
-                          ? `0 4px 12px ${alpha(accentColor, 0.3)}`
-                          : 'none',
-                      }}
-                    >
-                      {month}
-                    </ProfessionalButton>
-                  );
-                })}
-              </Box>
-
-              {/* DTR Type Selector */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  mb: 3,
-                  alignItems: 'center',
-                }}
-              >
-                <Typography
-                  variant="body1"
-                  sx={{ fontWeight: 600, color: textPrimaryColor }}
-                >
-                  Select DTR Type
-                </Typography>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    gap: 1,
-                    flexWrap: 'wrap',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <ProfessionalButton
-                    variant={dtrType === 'regular' ? 'contained' : 'outlined'}
-                    onClick={() => setDtrType('regular')}
-                    sx={{
-                      backgroundColor:
-                        dtrType === 'regular' ? accentColor : 'transparent',
-                      color:
-                        dtrType === 'regular'
-                          ? textSecondaryColor
-                          : textPrimaryColor,
-                      borderColor: accentColor,
-                      '&:hover': {
-                        backgroundColor:
-                          dtrType === 'regular'
-                            ? hoverColor
-                            : alpha(accentColor, 0.1),
-                        borderColor: accentColor,
-                      },
-                      py: 1,
-                      px: 2.5,
-                    }}
-                  >
-                    Regular
-                  </ProfessionalButton>
-                  <ProfessionalButton
-                    variant={
-                      dtrType === 'honorarium' ? 'contained' : 'outlined'
-                    }
-                    onClick={() => setDtrType('honorarium')}
-                    sx={{
-                      backgroundColor:
-                        dtrType === 'honorarium' ? accentColor : 'transparent',
-                      color:
-                        dtrType === 'honorarium'
-                          ? textSecondaryColor
-                          : textPrimaryColor,
-                      borderColor: accentColor,
-                      '&:hover': {
-                        backgroundColor:
-                          dtrType === 'honorarium'
-                            ? hoverColor
-                            : alpha(accentColor, 0.1),
-                        borderColor: accentColor,
-                      },
-                      py: 1,
-                      px: 2.5,
-                    }}
-                  >
-                    Honorarium
-                  </ProfessionalButton>
-                  <ProfessionalButton
-                    variant={
-                      dtrType === 'service-credit' ? 'contained' : 'outlined'
-                    }
-                    onClick={() => setDtrType('service-credit')}
-                    sx={{
-                      backgroundColor:
-                        dtrType === 'service-credit'
-                          ? accentColor
-                          : 'transparent',
-                      color:
-                        dtrType === 'service-credit'
-                          ? textSecondaryColor
-                          : textPrimaryColor,
-                      borderColor: accentColor,
-                      '&:hover': {
-                        backgroundColor:
-                          dtrType === 'service-credit'
-                            ? hoverColor
-                            : alpha(accentColor, 0.1),
-                        borderColor: accentColor,
-                      },
-                      py: 1,
-                      px: 2.5,
-                    }}
-                  >
-                    Service Credit
-                  </ProfessionalButton>
-                  <ProfessionalButton
-                    variant={dtrType === 'overtime' ? 'contained' : 'outlined'}
-                    onClick={() => setDtrType('overtime')}
-                    sx={{
-                      backgroundColor:
-                        dtrType === 'overtime' ? accentColor : 'transparent',
-                      color:
-                        dtrType === 'overtime'
-                          ? textSecondaryColor
-                          : textPrimaryColor,
-                      borderColor: accentColor,
-                      '&:hover': {
-                        backgroundColor:
-                          dtrType === 'overtime'
-                            ? hoverColor
-                            : alpha(accentColor, 0.1),
-                        borderColor: accentColor,
-                      },
-                      py: 1,
-                      px: 2.5,
-                    }}
-                  >
-                    Overtime
-                  </ProfessionalButton>
-                </Box>
-              </Box>
-
-              {/* Show Employee Number, Date fields, and Search button only in Single User mode */}
-              {viewMode === 'single' && (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    gap: 2,
-                    alignItems: 'flex-end',
-                    flexWrap: 'wrap',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Box sx={{ minWidth: 225 }}>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
-                    >
-                      Employee Number
-                    </Typography>
-                    <ModernTextField
-                      value={personID}
-                      onChange={(e) => setPersonID(e.target.value)}
-                      variant="outlined"
-                      fullWidth
-                    />
-                  </Box>
-                  <Box sx={{ minWidth: 225 }}>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
-                    >
-                      Start Date
-                    </Typography>
-                    <ModernTextField
-                      label="Start Date"
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      variant="outlined"
-                      InputLabelProps={{ shrink: true }}
-                      fullWidth
-                    />
-                  </Box>
-                  <Box sx={{ minWidth: 225 }}>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
-                    >
-                      End Date
-                    </Typography>
-                    <ModernTextField
-                      label="End Date"
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      variant="outlined"
-                      InputLabelProps={{ shrink: true }}
-                      fullWidth
-                    />
-                  </Box>
-                  <ProfessionalButton
-                    variant="contained"
-                    onClick={fetchRecords}
-                    startIcon={<SearchOutlined />}
-                    sx={{
-                      backgroundColor: accentColor,
-                      color: textSecondaryColor,
-                      '&:hover': { backgroundColor: hoverColor },
-                      py: 1.5,
-                      px: 3,
-                    }}
-                  >
-                    Search
-                  </ProfessionalButton>
-                </Box>
-              )}
-            </Box>
-          </GlassCard>
-        </Fade>
-
-        {/* All Users DTR List Section - Show when viewMode is 'multiple' */}
-        {viewMode === 'multiple' && (
-          <Fade in timeout={1000}>
-            <GlassCard
-              className="no-print"
-              sx={{
-                mb: 4,
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
-              }}
-            >
-              {/* Header: title + Load button only */}
-              <Box
-                sx={{
-                  p: 4,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                }}
-              >
-                <Typography
-                  variant="h6"
-                  sx={{ fontWeight: 700, color: textPrimaryColor }}
-                >
-                  All Users DTR List
-                </Typography>
-                <ProfessionalButton
-                  variant="contained"
-                  onClick={fetchAllUsersDTR}
-                  disabled={loadingAllUsers || !startDate || !endDate}
-                  startIcon={
-                    loadingAllUsers ? (
-                      <MCircularProgress size={20} />
-                    ) : (
-                      <AccessTime />
-                    )
-                  }
-                  sx={{
-                    backgroundColor: accentColor,
-                    color: textSecondaryColor,
-                    '&:hover': { backgroundColor: hoverColor },
-                    '&:disabled': {
-                      backgroundColor: alpha(accentColor, 0.5),
-                      color: alpha(textSecondaryColor, 0.5),
-                    },
-                  }}
-                >
-                  {loadingAllUsers ? 'Loading...' : 'Load All Users DTR'}
-                </ProfessionalButton>
-              </Box>
-
-              <Box sx={{ p: 4 }}>
-                {allUsersDTR.length > 0 ? (
-                  <>
-                    {/* Print Status chips + Period badge */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: 2,
-                        mb: 3,
-                      }}
-                    >
-                      <Box>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontWeight: 600,
-                            mb: 1,
-                            color: textPrimaryColor,
-                            fontSize: '0.9rem',
-                          }}
-                        >
-                          Print Status:
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          {['all', 'printed', 'unprinted'].map((val) => (
-                            <Chip
-                              key={val}
-                              label={val.charAt(0).toUpperCase() + val.slice(1)}
-                              onClick={() => setPrintStatusFilter(val)}
-                              color={
-                                printStatusFilter === val
-                                  ? 'primary'
-                                  : 'default'
-                              }
-                              sx={{
-                                fontWeight:
-                                  printStatusFilter === val ? 700 : 400,
-                                cursor: 'pointer',
-                              }}
-                            />
-                          ))}
-                        </Box>
-                      </Box>
-                      {startDate && (
+                    {/* ── INDIVIDUAL DTR VIEW ── */}
+                    {viewMode === 'single' && (
+                      <>
                         <Box
                           sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 1,
-                            backgroundColor: '#000000',
-                            color: '#ffffff',
-                            borderRadius: 2,
-                            px: 2,
-                            py: 0.75,
-                            fontWeight: 700,
-                            fontSize: '0.95rem',
-                            letterSpacing: '0.02em',
-                            userSelect: 'none',
+                            px: 3.5,
+                            py: 2,
+                            borderBottom: `1px solid ${T.divider}`,
+                            bgcolor: T.accentFaint,
+                            flexShrink: 0,
                           }}
+                          className="no-print"
                         >
-                          <CalendarToday
-                            sx={{ fontSize: 16, color: '#ffffff' }}
-                          />
-                          {formatMonth(startDate)}{' '}
-                          {new Date(startDate).getFullYear()}
-                        </Box>
-                      )}
-                    </Box>
-
-                    {/* Search & Filters — two rows */}
-                    <Box sx={{ mb: 3 }}>
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          fontWeight: 600,
-                          mb: 1.5,
-                          color: textPrimaryColor,
-                          fontSize: '0.9rem',
-                        }}
-                      >
-                        Search & Filters:
-                      </Typography>
-                      {/* Row 1 */}
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          gap: 2,
-                          flexWrap: 'wrap',
-                          mb: 2,
-                        }}
-                      >
-                        <TextField
-                          label="Search users"
-                          value={searchQuery}
-                          onChange={(e) => {
-                            setSearchQuery(e.target.value);
-                            setCurrentPage(1);
-                          }}
-                          InputProps={{
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <SearchOutlined />
-                              </InputAdornment>
-                            ),
-                          }}
-                          sx={{
-                            minWidth: 260,
-                            flex: 1,
-                            backgroundColor: 'white',
-                          }}
-                        />
-                        <FormControl
-                          sx={{ minWidth: 150, backgroundColor: 'white' }}
-                        >
-                          <InputLabel>Records</InputLabel>
-                          <Select
-                            value={recordFilter}
-                            label="Records"
-                            onChange={(e) => {
-                              setRecordFilter(e.target.value);
-                              setCurrentPage(1);
-                            }}
-                          >
-                            <MenuItem value="all">All</MenuItem>
-                            <MenuItem value="has">Has Records</MenuItem>
-                            <MenuItem value="no">No Records</MenuItem>
-                          </Select>
-                        </FormControl>
-                        <FormControl
-                          sx={{ minWidth: 170, backgroundColor: 'white' }}
-                        >
-                          <InputLabel>Department</InputLabel>
-                          <Select
-                            value={departmentFilter}
-                            label="Department"
-                            onChange={(e) => {
-                              setDepartmentFilter(e.target.value);
-                              setCurrentPage(1);
-                            }}
-                          >
-                            <MenuItem value="">All Departments</MenuItem>
-                            {departments.map((dept) => (
-                              <MenuItem key={dept.code} value={dept.code}>
-                                {dept.code}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </Box>
-                      {/* Row 2 */}
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          gap: 2,
-                          flexWrap: 'wrap',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <FormControl
-                          sx={{ minWidth: 190, backgroundColor: 'white' }}
-                        >
-                          <InputLabel>Employment Category</InputLabel>
-                          <Select
-                            value={employmentCategoryFilter}
-                            label="Employment Category"
-                            onChange={(e) => {
-                              setEmploymentCategoryFilter(e.target.value);
-                              setCurrentPage(1);
-                            }}
-                          >
-                            <MenuItem value="">All Categories</MenuItem>
-                            {employmentCategories.map((catId) => (
-                              <MenuItem key={catId} value={catId}>
-                                {getCategoryLabel(catId)}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                        <FormControl
-                          sx={{ minWidth: 210, backgroundColor: 'white' }}
-                        >
-                          <InputLabel>Registration Status</InputLabel>
-                          <Select
-                            value={registrationStatusFilter}
-                            label="Registration Status"
-                            onChange={(e) => {
-                              setRegistrationStatusFilter(e.target.value);
-                              setCurrentPage(1);
-                            }}
-                          >
-                            <MenuItem value="">All Status</MenuItem>
-                            <MenuItem value="Registered">
-                              🟢 Registered –{' '}
-                              {registrationStatusCounts['Registered']}
-                            </MenuItem>
-                            <MenuItem value="Not Registered">
-                              🟠 Not Registered –{' '}
-                              {registrationStatusCounts['Not Registered']}
-                            </MenuItem>
-                          </Select>
-                        </FormControl>
-                        <FormControl
-                          sx={{ minWidth: 120, backgroundColor: 'white' }}
-                        >
-                          <InputLabel>Rows</InputLabel>
-                          <Select
-                            value={rowsPerPage}
-                            label="Rows"
-                            onChange={(e) => {
-                              setRowsPerPage(Number(e.target.value));
-                              setCurrentPage(1);
-                            }}
-                          >
-                            <MenuItem value={10}>10</MenuItem>
-                            <MenuItem value={20}>20</MenuItem>
-                            <MenuItem value={50}>50</MenuItem>
-                            <MenuItem value={100}>100</MenuItem>
-                          </Select>
-                        </FormControl>
-                        {/* Pagination pinned right */}
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                            ml: 'auto',
-                          }}
-                        >
-                          <ProfessionalButton
-                            variant="outlined"
-                            onClick={() => goToPage(1)}
-                            disabled={currentPage === 1}
-                            size="small"
-                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
-                          >
-                            First
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="outlined"
-                            onClick={() => goToPage(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            size="small"
-                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
-                          >
-                            Prev
-                          </ProfessionalButton>
-                          <Typography
+                          <Box
                             sx={{
-                              minWidth: 48,
-                              textAlign: 'center',
-                              fontSize: '0.85rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
                             }}
                           >
-                            {currentPage} / {totalPages}
-                          </Typography>
-                          <ProfessionalButton
-                            variant="outlined"
-                            onClick={() => goToPage(currentPage + 1)}
-                            disabled={currentPage === totalPages}
-                            size="small"
-                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
-                          >
-                            Next
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="outlined"
-                            onClick={() => goToPage(totalPages)}
-                            disabled={currentPage === totalPages}
-                            size="small"
-                            sx={{ py: 1, px: 2, minWidth: 'auto' }}
-                          >
-                            Last
-                          </ProfessionalButton>
-                        </Box>
-                      </Box>
-                    </Box>
-
-                    {/* Table */}
-                    <Box
-                      sx={{
-                        maxHeight: 360,
-                        overflow: 'auto',
-                        borderRadius: 1,
-                        width: '100%',
-                      }}
-                    >
-                      <Table
-                        stickyHeader
-                        sx={{ tableLayout: 'fixed', width: '100%' }}
-                      >
-                        <TableHead>
-                          <TableRow>
-                            <TableCell padding="checkbox">
-                              <Checkbox
-                                checked={(() => {
-                                  const filtered = getFilteredUsers();
-                                  const selectableCount = filtered.filter(
-                                    (u) =>
-                                      !printStatusMap.has(u.employeeNumber),
-                                  ).length;
-                                  return (
-                                    selectedUsers.size === selectableCount &&
-                                    selectableCount > 0
-                                  );
-                                })()}
-                                indeterminate={(() => {
-                                  const filtered = getFilteredUsers();
-                                  const selectableCount = filtered.filter(
-                                    (u) =>
-                                      !printStatusMap.has(u.employeeNumber),
-                                  ).length;
-                                  return (
-                                    selectedUsers.size > 0 &&
-                                    selectedUsers.size < selectableCount
-                                  );
-                                })()}
-                                onChange={(e) =>
-                                  handleSelectAll(e.target.checked)
-                                }
-                                sx={{
-                                  color: '#ffffff',
-                                  '&.Mui-checked': { color: '#ffffff' },
-                                  '&.MuiCheckbox-indeterminate': {
-                                    color: '#ffffff',
-                                  },
-                                }}
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.5,
+                              }}
+                            >
+                              <AccessTime
+                                sx={{ fontSize: 15, color: T.accent }}
                               />
-                            </TableCell>
-                            <TableCell sx={{ minWidth: 120, color: '#ffffff' }}>
-                              Employee Number
-                            </TableCell>
-                            <TableCell
-                              sx={{
-                                minWidth: 200,
-                                maxWidth: 250,
-                                color: '#ffffff',
-                              }}
-                            >
-                              Full Name
-                            </TableCell>
-                            <TableCell
-                              sx={{
-                                minWidth: 120,
-                                maxWidth: 180,
-                                color: '#ffffff',
-                              }}
-                            >
-                              Department
-                            </TableCell>
-                            <TableCell sx={{ minWidth: 180, color: '#ffffff' }}>
-                              Employment Category
-                            </TableCell>
-                            <TableCell sx={{ minWidth: 180, color: '#ffffff' }}>
-                              Registration Status
-                            </TableCell>
-                            <TableCell sx={{ minWidth: 120, color: '#ffffff' }}>
-                              Print Status
-                            </TableCell>
-                            <TableCell sx={{ minWidth: 80, color: '#ffffff' }}>
-                              Actions
-                            </TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {paginatedUsers.map((user) => (
-                            <TableRow key={user.employeeNumber}>
-                              <TableCell padding="checkbox">
-                                <Checkbox
-                                  checked={selectedUsers.has(
-                                    user.employeeNumber,
-                                  )}
-                                  onChange={() =>
-                                    handleUserSelect(user.employeeNumber)
-                                  }
-                                  disabled={printStatusMap.has(
-                                    user.employeeNumber,
-                                  )}
-                                />
-                              </TableCell>
-                              <TableCell>{user.employeeNumber}</TableCell>
-                              <TableCell
-                                sx={{
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {searchQuery
-                                  ? highlightMatch(
-                                      user.fullName || '',
-                                      searchQuery,
-                                    )
-                                  : user.fullName}
-                              </TableCell>
-                              <TableCell
-                                sx={{
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {user.rawUser?.departmentCode ||
-                                  user.departmentCode ||
-                                  'N/A'}
-                              </TableCell>
-                              <TableCell>
-                                <Chip
-                                  label={getCategoryLabel(
-                                    user.rawUser?.employmentCategory ??
-                                      user.employmentCategory ??
-                                      null,
-                                  )}
-                                  size="small"
-                                  sx={{
-                                    backgroundColor: alpha(
-                                      getCategoryColor(
-                                        user.rawUser?.employmentCategory ??
-                                          user.employmentCategory ??
-                                          null,
-                                      ),
-                                      0.1,
-                                    ),
-                                    color: getCategoryColor(
-                                      user.rawUser?.employmentCategory ??
-                                        user.employmentCategory ??
-                                        null,
-                                    ),
-                                    border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory ?? null)}`,
-                                    fontWeight: '600',
-                                    fontSize: '0.75rem',
-                                  }}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <Chip
-                                  label={
-                                    user.registrationStatus === 'Registered'
-                                      ? '🟢 Registered'
-                                      : '🟠 Not Registered'
-                                  }
-                                  size="small"
-                                  color={
-                                    user.registrationStatus === 'Registered'
-                                      ? 'success'
-                                      : 'warning'
-                                  }
-                                  sx={{
-                                    fontWeight: '600',
-                                    fontSize: '0.75rem',
-                                  }}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                {printStatusMap.has(user.employeeNumber) ? (
-                                  <Chip
-                                    label="Printed"
-                                    size="small"
-                                    color="success"
-                                    sx={{ fontSize: '0.75rem' }}
-                                  />
-                                ) : (
-                                  <Chip
-                                    label="Not Printed"
-                                    size="small"
-                                    color="default"
-                                    sx={{ fontSize: '0.75rem' }}
-                                  />
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => showReprintConfirm(user)}
-                                  sx={{ color: accentColor }}
-                                  title={
-                                    printStatusMap.has(user.employeeNumber)
-                                      ? 'Re-print this DTR'
-                                      : 'Print this DTR'
-                                  }
-                                >
-                                  <PrintIcon fontSize="small" />
-                                </IconButton>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-
-                      {paginatedUsers.length === 0 && (
-                        <Box
-                          sx={{
-                            textAlign: 'center',
-                            py: 8,
-                            color: textPrimaryColor,
-                          }}
-                        >
-                          <Typography variant="h6" sx={{ mb: 2 }}>
-                            No Attendance Records Found
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.7 }}>
-                            {allUsersDTR.length === 0
-                              ? 'No attendance records exist for the selected date range.'
-                              : 'No users match the current filters.'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Box>
-
-                    {/* Action bar: Bulk print + Print-first selector + footer info */}
-                    <Box
-                      sx={{
-                        mt: 0,
-                        px: 2,
-                        py: 1.5,
-                        backgroundColor: alpha(accentColor, 0.05),
-                        borderTop: `2px solid ${alpha(accentColor, 0.2)}`,
-                        borderRadius: '0 0 8px 8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        flexWrap: 'wrap',
-                        gap: 2,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 2,
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        {/* Print-first quick selector */}
-                        <FormControl
-                          sx={{ minWidth: 150, backgroundColor: 'white' }}
-                        >
-                          <Select
-                            value={''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val === 'none') return;
-                              if (val === 'all') handleAutoSelectFirstN('all');
-                              else handleAutoSelectFirstN(Number(val));
-                            }}
-                            displayEmpty
-                            renderValue={() => 'Quick select…'}
-                            size="small"
-                          >
-                            <MenuItem value="none">
-                              <em>Choose</em>
-                            </MenuItem>
-                            <MenuItem value={10}>First 10</MenuItem>
-                            <MenuItem value={20}>First 20</MenuItem>
-                            <MenuItem value={50}>First 50 (Max)</MenuItem>
-                          </Select>
-                        </FormControl>
-
-                        <ProfessionalButton
-                          variant="contained"
-                          onClick={handleBulkPrint}
-                          disabled={selectedUsers.size === 0}
-                          startIcon={<PrintIcon />}
-                          sx={{
-                            backgroundColor:
-                              selectedUsers.size > 0
-                                ? accentColor
-                                : alpha(accentColor, 0.4),
-                            color: textSecondaryColor,
-                            '&:hover': { backgroundColor: hoverColor },
-                          }}
-                        >
-                          Bulk Print ({selectedUsers.size})
-                        </ProfessionalButton>
-                      </Box>
-
-                      {/* Footer info + Legend FAB */}
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', gap: 2 }}
-                      >
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 0.25,
-                          }}
-                        >
-                          <Typography
-                            variant="body2"
-                            sx={{ color: textPrimaryColor, fontSize: '0.8rem' }}
-                          >
-                            Showing{' '}
-                            {Math.min(
-                              filteredUsers.length,
-                              (currentPage - 1) * rowsPerPage + 1,
-                            )}
-                            –
-                            {Math.min(
-                              filteredUsers.length,
-                              currentPage * rowsPerPage,
-                            )}{' '}
-                            of {filteredUsers.length} users
-                          </Typography>
-                        </Box>
-
-                        <Tooltip
-                          title={
-                            <Box sx={{ p: 0.5 }}>
                               <Typography
-                                variant="caption"
                                 sx={{
+                                  fontSize: '0.88rem',
                                   fontWeight: 700,
-                                  display: 'block',
-                                  mb: 0.5,
+                                  color: T.text,
                                 }}
                               >
-                                Employment Category Legend
+                                DTR Preview
                               </Typography>
-                              {[0, 1, 2, 3, 4, 5].map((id) => (
+                              {selectedMonth !== null && employeeName && (
                                 <Box
-                                  key={id}
                                   sx={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: 0.5,
-                                    mb: 0.25,
+                                    gap: 0.75,
                                   }}
                                 >
-                                  <Circle
+                                  <Box
                                     sx={{
-                                      fontSize: 8,
-                                      color: getCategoryColor(id),
+                                      width: 4,
+                                      height: 4,
+                                      borderRadius: '50%',
+                                      bgcolor: T.faint,
                                     }}
                                   />
-                                  <Typography variant="caption">
-                                    {getCategoryLabel(id)}
-                                  </Typography>
-                                </Box>
-                              ))}
-                            </Box>
-                          }
-                          placement="top-end"
-                          arrow
-                        >
-                          <IconButton
-                            sx={{
-                              width: 36,
-                              height: 36,
-                              borderRadius: '50%',
-                              backgroundColor: accentColor,
-                              color: '#ffffff',
-                              fontWeight: 700,
-                              fontSize: '1rem',
-                              flexShrink: 0,
-                              '&:hover': {
-                                backgroundColor: hoverColor,
-                                transform: 'scale(1.1)',
-                              },
-                              transition: 'all 0.2s ease',
-                            }}
-                          >
-                            <Typography
-                              sx={{
-                                fontWeight: 700,
-                                fontSize: '0.9rem',
-                                color: '#fff',
-                                lineHeight: 1,
-                              }}
-                            >
-                              ?
-                            </Typography>
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  </>
-                ) : (
-                  <Box
-                    sx={{
-                      textAlign: 'center',
-                      py: 4,
-                      color: textPrimaryColor,
-                      opacity: 0.7,
-                    }}
-                  >
-                    <Typography variant="body1">
-                      Click "Load All Users DTR" to fetch all users' DTR data
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            </GlassCard>
-          </Fade>
-        )}
-
-        {/* Records Table - Two Tables Side by Side - Show when viewMode is 'single' */}
-        {viewMode === 'single' && (
-          <Fade in timeout={900}>
-            <Paper
-              elevation={4}
-              sx={{
-                borderRadius: 2,
-                overflowX: 'auto',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                border: '1px solid rgba(109, 35, 35, 0.1)',
-                mb: 4,
-                width: '100%',
-              }}
-            >
-              <Box sx={{ p: 5, minWidth: 'fit-content' }}>
-                <div className="table-container" ref={dtrRef}>
-                  <div
-                    className="table-wrapper"
-                    style={{ position: 'relative' }}
-                  >
-                    {/* Watermark */}
-                    <img
-                      src={hrisLogo}
-                      alt="Watermark"
-                      style={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        opacity: 0.07,
-                        width: '80%',
-                        maxWidth: '600px',
-                        pointerEvents: 'none',
-                        userSelect: 'none',
-                        zIndex: 0,
-                      }}
-                    />
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '2%',
-                        width: '8.7in',
-                        minWidth: '8.5in',
-                        margin: '0 auto',
-                        backgroundColor: 'white',
-                        position: 'relative',
-                        zIndex: 1,
-                      }}
-                      className="table-side-by-side"
-                    >
-                      {(() => {
-                        const dataFontSize = '10px';
-                        const rowHeight = '16px';
-
-                        const getRenderedTimeData = (record, type) => {
-                          if (!record) return { hours: '', minutes: '' };
-                          if (type === 'regular') {
-                            return { hours: '', minutes: record.minutes || '' };
-                          }
-                          const minutes = record.minutes || 0;
-                          const hours = Math.floor(minutes / 60);
-                          const remainingMinutes = minutes % 60;
-                          return {
-                            hours: hours > 0 ? String(hours) : '',
-                            minutes:
-                              remainingMinutes > 0
-                                ? String(remainingMinutes)
-                                : '',
-                          };
-                        };
-
-                        const getTimeFields = (record, type) => {
-                          if (!record)
-                            return {
-                              timeIN: '',
-                              breaktimeIN: '',
-                              breaktimeOUT: '',
-                              timeOUT: '',
-                            };
-
-                          switch (type) {
-                            case 'honorarium':
-                            case 'service-credit':
-                            case 'overtime':
-                              return {
-                                timeIN: record.specialTimeIN || '',
-                                breaktimeIN: '',
-                                breaktimeOUT: '',
-                                timeOUT: record.specialTimeOUT || '',
-                              };
-                            default:
-                              return {
-                                timeIN: record.timeIN || '',
-                                breaktimeIN: record.breaktimeIN || '',
-                                breaktimeOUT: record.breaktimeOUT || '',
-                                timeOUT: record.timeOUT || '',
-                              };
-                          }
-                        };
-
-                        const renderHeader = () => (
-                          <thead style={{ textAlign: 'center' }}>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  position: 'relative',
-                                  padding: '25px 10px 0px 10px',
-                                  textAlign: 'center',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    fontWeight: 'bold',
-                                    fontSize: '11px',
-                                    fontFamily:
-                                      'Arial, "Times New Roman", serif',
-                                    color: 'black',
-                                    marginBottom: '2px',
-                                  }}
-                                >
-                                  Republic of the Philippines
-                                </div>
-                                <div
-                                  style={{
-                                    position: 'relative',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    marginTop: '3px',
-                                  }}
-                                >
-                                  <img
-                                    src={earistLogo}
-                                    alt="Logo"
-                                    width="50"
-                                    height="50"
-                                    style={{
-                                      position: 'absolute',
-                                      left: '10px',
-                                    }}
-                                  />
-                                  <p
-                                    style={{
-                                      margin: '0',
-                                      fontSize: '11.5px',
-                                      fontWeight: 'bold',
-                                      textAlign: 'center',
-                                      fontFamily:
-                                        'Arial, "Times New Roman", serif',
-                                      lineHeight: '1.2',
-                                    }}
-                                  >
-                                    EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE
-                                    OF SCIENCE & TECHNOLOGY
-                                  </p>
-                                </div>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  textAlign: 'center',
-                                  padding: '0px 5px 2px 5px',
-                                }}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: '11px',
-                                    fontWeight: 'bold',
-                                    margin: '0',
-                                    fontFamily: 'Arial, serif',
-                                  }}
-                                >
-                                  Nagtahan, Sampaloc Manila
-                                </p>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  textAlign: 'center',
-                                  padding: '2px 5px',
-                                }}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: '8px',
-                                    fontWeight: 'bold',
-                                    margin: '0',
-                                    fontFamily: 'Arial, serif',
-                                  }}
-                                >
-                                  Civil Service Form No. 48
-                                </p>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  textAlign: 'center',
-                                  padding: '2px 5px',
-                                  lineHeight: '1.2',
-                                }}
-                              >
-                                {dtrType === 'service-credit' ? (
-                                  <div style={{ textAlign: 'center' }}>
-                                    <h4
-                                      style={{
-                                        fontFamily: 'Times New Roman, serif',
-                                        margin: '2px 0',
-                                        fontWeight: 'bold',
-                                        fontSize: '16px',
-                                      }}
-                                    >
-                                      DAILY TIME RECORD
-                                    </h4>
-                                    <div
-                                      style={{
-                                        fontFamily: 'Times New Roman, serif',
-                                        fontSize: '16px',
-                                        marginTop: '-2px',
-                                        fontWeight: 'bold',
-                                      }}
-                                    >
-                                      SERVICE CREDITS
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <h4
-                                    style={{
-                                      fontFamily: 'Times New Roman, serif',
-                                      textAlign: 'center',
-                                      margin: '2px 0',
-                                      fontWeight: 'bold',
-                                      fontSize: '16px',
-                                    }}
-                                  >
-                                    {dtrType === 'honorarium'
-                                      ? 'DAILY TIME RECORD - HONORARIUM'
-                                      : dtrType === 'overtime'
-                                        ? 'DAILY TIME RECORD - OVERTIME'
-                                        : 'DAILY TIME RECORD'}
-                                  </h4>
-                                )}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  paddingTop: '10px',
-                                  paddingBottom: '5px',
-                                  lineHeight: '1.1',
-                                  verticalAlign: 'top',
-                                  textAlign: 'center',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    margin: '0 auto',
-                                    fontFamily: 'Arial, serif',
-                                    width: '100%',
-                                    maxWidth: '400px',
-                                    position: 'relative',
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      borderBottom: '2px solid black',
-                                      width: '100%',
-                                      margin: '2px 0 3px 0',
-                                    }}
-                                  />
-                                  <div
-                                    style={{
-                                      fontSize: '12px',
-                                      fontWeight: 'bold',
-                                      textTransform: 'uppercase',
-                                      whiteSpace: 'nowrap',
-                                      textAlign: 'center',
-                                      fontFamily: 'Times New Roman',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.78rem',
+                                      color: T.muted,
+                                      fontWeight: 500,
                                     }}
                                   >
                                     {employeeName}
-                                  </div>
-                                  <div
-                                    style={{
-                                      borderBottom: '2px solid black',
-                                      width: '100%',
-                                      margin: '2px 0 3px 0',
-                                    }}
-                                  />
-                                  <div
-                                    style={{
-                                      fontSize: '9px',
-                                      textAlign: 'center',
-                                      fontFamily: 'Times New Roman',
+                                  </Typography>
+                                  <Box
+                                    sx={{
+                                      fontSize: '0.65rem',
+                                      fontWeight: 700,
+                                      color: T.accent,
+                                      bgcolor: alpha(T.accent, 0.08),
+                                      border: `1px solid ${T.accentBorder}`,
+                                      borderRadius: '5px',
+                                      px: '6px',
+                                      py: '2px',
                                     }}
                                   >
-                                    NAME
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  padding: '2px 5px',
-                                  lineHeight: '1.1',
-                                  textAlign: 'left',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-end',
-                                    paddingLeft: '5px',
-                                    fontFamily: 'Times New Roman, serif',
-                                    fontSize: '10px',
-                                  }}
-                                >
-                                  <span style={{ marginRight: '6px' }}>
-                                    Covered Dates:
-                                  </span>
-                                  <div
-                                    style={{ minWidth: '220px', flexGrow: 1 }}
-                                  >
-                                    <div
-                                      style={{
-                                        fontWeight: 'bold',
-                                        textAlign: 'left',
-                                        fontSize: '10px',
-                                        fontFamily: 'Times New Roman, serif',
+                                    {monthsShort[selectedMonth]}
+                                  </Box>
+                                </Box>
+                              )}
+                            </Box>
+                            {selectedMonth !== null && records.length > 0 && (
+                              <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Tooltip
+                                  placement="top"
+                                  title={
+                                    <Box
+                                      sx={{
+                                        p: 0.5,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 1,
                                       }}
                                     >
-                                      {formattedStartDate} - {formattedEndDate}
+                                      <Typography
+                                        variant="caption"
+                                        sx={{
+                                          fontWeight: 700,
+                                          fontSize: '11px',
+                                          letterSpacing: '0.05em',
+                                        }}
+                                      >
+                                        LEGEND
+                                      </Typography>
+                                      {[
+                                        {
+                                          label: 'Holiday',
+                                          bg: 'rgba(237,108,2,0.25)',
+                                          border: '#ed6c02',
+                                        },
+                                        {
+                                          label: 'Suspension',
+                                          bg: 'rgba(211,47,47,0.2)',
+                                          border: '#d32f2f',
+                                        },
+                                        {
+                                          label: 'On Leave',
+                                          bg: 'rgba(46,125,50,0.2)',
+                                          border: '#2e7d32',
+                                        },
+                                      ].map(({ label, bg, border }) => (
+                                        <Box
+                                          key={label}
+                                          sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 1,
+                                          }}
+                                        >
+                                          <Box
+                                            sx={{
+                                              width: 28,
+                                              height: 16,
+                                              backgroundColor: bg,
+                                              border: `1.5px solid ${border}`,
+                                              borderRadius: '3px',
+                                              flexShrink: 0,
+                                            }}
+                                          />
+                                          <Typography
+                                            variant="caption"
+                                            sx={{
+                                              fontSize: '11px',
+                                              fontWeight: 500,
+                                            }}
+                                          >
+                                            {label}
+                                          </Typography>
+                                        </Box>
+                                      ))}
+                                    </Box>
+                                  }
+                                  arrow
+                                  componentsProps={{
+                                    tooltip: {
+                                      sx: {
+                                        bgcolor: 'white',
+                                        color: '#333',
+                                        boxShadow:
+                                          '0 4px 20px rgba(0,0,0,0.15)',
+                                        border: '1px solid #e0e0e0',
+                                        borderRadius: '10px',
+                                        p: 1.5,
+                                      },
+                                    },
+                                    arrow: { sx: { color: 'white' } },
+                                  }}
+                                >
+                                  <IconButton
+                                    size="small"
+                                    sx={{
+                                      bgcolor: alpha(T.accent, 0.08),
+                                      border: `1px solid ${T.accentBorder}`,
+                                      color: T.accent,
+                                      fontSize: '13px',
+                                      fontWeight: 700,
+                                      width: 32,
+                                      height: 32,
+                                      '&:hover': {
+                                        bgcolor: alpha(T.accent, 0.15),
+                                      },
+                                    }}
+                                  >
+                                    ?
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Print DTR" placement="top">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => {
+                                      try {
+                                        logAttendanceModuleAction({
+                                          module:
+                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
+                                          auditButton: 'Print',
+                                          targetEmployeeNumber:
+                                            String(personID) || '#all-users',
+                                          targetEmployeeName:
+                                            employeeName || null,
+                                          targetUsername:
+                                            selectedEmployee?.username || null,
+                                          periodStart: startDate,
+                                          periodEnd: endDate,
+                                          monthLabel: buildAuditPeriodLabel({
+                                            selectedMonth,
+                                            monthNames: monthsShort,
+                                            selectedYear,
+                                            startDate,
+                                            endDate,
+                                          }),
+                                          auditEvent: 'dtr_overall_print',
+                                        });
+                                      } catch (e) {
+                                        console.error('Audit log failed', e);
+                                      }
+                                      printPage();
+                                    }}
+                                    sx={{
+                                      bgcolor: alpha(T.accent, 0.08),
+                                      border: `1px solid ${T.accentBorder}`,
+                                      color: T.accent,
+                                      width: 32,
+                                      height: 32,
+                                      '&:hover': {
+                                        bgcolor: alpha(T.accent, 0.15),
+                                      },
+                                    }}
+                                  >
+                                    <PrintIcon sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                </Tooltip>
+                                <AccentButton
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={
+                                    <PictureAsPdfIcon
+                                      sx={{ fontSize: '13px !important' }}
+                                    />
+                                  }
+                                  onClick={() => {
+                                    try {
+                                      logAttendanceModuleAction({
+                                        module:
+                                          ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
+                                        auditButton: 'Download PDF',
+                                        targetEmployeeNumber:
+                                          String(personID) || '#all-users',
+                                        targetEmployeeName:
+                                          employeeName || null,
+                                        targetUsername:
+                                          selectedEmployee?.username || null,
+                                        periodStart: startDate,
+                                        periodEnd: endDate,
+                                        monthLabel: buildAuditPeriodLabel({
+                                          selectedMonth,
+                                          monthNames: monthsShort,
+                                          selectedYear,
+                                          startDate,
+                                          endDate,
+                                        }),
+                                        auditEvent: 'dtr_overall_download',
+                                      });
+                                    } catch (e) {
+                                      console.error('Audit log failed', e);
+                                    }
+                                    downloadPDF();
+                                  }}
+                                  sx={{
+                                    fontSize: '0.78rem',
+                                    bgcolor: T.accent,
+                                    color: '#fff',
+                                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                    '&:hover': { bgcolor: T.accentDark },
+                                  }}
+                                >
+                                  Download PDF
+                                </AccentButton>
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+
+                        <Box
+                          sx={{
+                            flexGrow: 1,
+                            overflowY: 'auto',
+                            position: 'relative',
+                            ...scrollbarSx,
+                          }}
+                        >
+                          {selectedMonth === null ||
+                          !personID ||
+                          !hasSearchedSingle ? (
+                            <Box sx={{ py: 10, textAlign: 'center' }}>
+                              <Box
+                                sx={{
+                                  width: 72,
+                                  height: 72,
+                                  borderRadius: '50%',
+                                  bgcolor: T.accentFaint,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  mx: 'auto',
+                                  mb: 2,
+                                }}
+                              >
+                                <CalendarToday
+                                  sx={{
+                                    fontSize: 32,
+                                    color: alpha(T.accent, 0.3),
+                                  }}
+                                />
+                              </Box>
+                              <Typography
+                                sx={{
+                                  fontSize: '0.9rem',
+                                  fontWeight: 600,
+                                  color: T.muted,
+                                  mb: 0.5,
+                                }}
+                              >
+                                Select a DTR Period
+                              </Typography>
+                              <Typography
+                                sx={{ fontSize: '0.78rem', color: T.faint }}
+                              >
+                                {!personID
+                                  ? 'Enter an employee number and select a month from the left panel.'
+                                  : !hasSearchedSingle
+                                    ? 'Click Search to load records for the selected month.'
+                                    : 'Choose a month from the left panel to view the DTR.'}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Fade in timeout={250}>
+                              <Box
+                                sx={{
+                                  bgcolor: '#f4f0f0',
+                                  p: 2.5,
+                                  display: 'flex',
+                                  justifyContent: 'center',
+                                  position: 'relative',
+                                }}
+                              >
+                                <Paper
+                                  elevation={2}
+                                  sx={{
+                                    p: 2,
+                                    borderRadius: '8px',
+                                    bgcolor: '#fff',
+                                    position: 'relative',
+                                    boxSizing: 'border-box',
+                                    overflowX: 'auto',
+                                    width: '100%',
+                                    opacity: singlePrintLoading ? 0 : 1,
+                                    pointerEvents: singlePrintLoading
+                                      ? 'none'
+                                      : 'auto',
+                                  }}
+                                >
+                                  <Box sx={{ overflowX: 'auto' }}>
+                                    <div
+                                      className="table-container"
+                                      ref={dtrRef}
+                                    >
+                                      <div
+                                        className="table-wrapper"
+                                        style={{ position: 'relative' }}
+                                      >
+                                        <img
+                                          src={hrisLogo}
+                                          alt="Watermark"
+                                          style={{
+                                            position: 'absolute',
+                                            top: '50%',
+                                            left: '50%',
+                                            transform: 'translate(-50%,-50%)',
+                                            opacity: 0.07,
+                                            width: '80%',
+                                            maxWidth: '600px',
+                                            pointerEvents: 'none',
+                                            userSelect: 'none',
+                                            zIndex: 0,
+                                          }}
+                                        />
+                                        {renderDTRTablePair(
+                                          records,
+                                          employeeName,
+                                          officialTimes,
+                                          personID,
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  padding: '2px 5px',
-                                  lineHeight: '1.2',
-                                  textAlign: 'left',
-                                }}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: '11px',
-                                    margin: '0',
-                                    paddingLeft: '5px',
-                                    fontFamily: 'Times New Roman, serif',
-                                  }}
-                                >
-                                  For the month of:{' '}
-                                  <b>
-                                    {startDate ? formatMonth(startDate) : ''}
-                                  </b>
-                                </p>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="7"
-                                style={{
-                                  padding: '8px 5px 2px 5px',
-                                  textAlign: 'left',
-                                  fontSize: '10px',
-                                  fontFamily: 'Arial, serif',
-                                  lineHeight: '1.2',
-                                }}
-                              >
-                                Official hours for arrival (regular day) and
-                                departure
-                              </td>
-                            </tr>
-                            {Array.from({ length: 6 }, (_, i) => (
-                              <tr key={`empty1-${i}`}>
-                                <td colSpan="7"></td>
-                              </tr>
-                            ))}
-                            <tr>
-                              <td colSpan="7" style={{ padding: '2px 5px' }}>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-end',
-                                    paddingLeft: '5%',
-                                    height: '12px',
-                                    marginBottom: '0px',
-                                    fontFamily: 'Arial, serif',
-                                    fontSize: '10px',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
-                                  <span style={{ marginRight: '5px' }}>
-                                    Regular Days:
-                                  </span>
-                                  <span
-                                    style={{
-                                      display: 'inline-block',
-                                      borderBottom: '1.5px solid black',
-                                      flexGrow: 1,
-                                      minWidth: '310px',
-                                      marginBottom: '2px',
-                                    }}
-                                  ></span>
-                                </div>
-                              </td>
-                            </tr>
-                            {Array.from({ length: 2 }, (_, i) => (
-                              <tr key={`empty2-${i}`}>
-                                <td colSpan="7"></td>
-                              </tr>
-                            ))}
-                            <tr>
-                              <td colSpan="7" style={{ padding: '2px 5px' }}>
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-end',
-                                    paddingLeft: '5%',
-                                    height: '20px',
-                                    fontFamily: 'Arial, serif',
-                                    fontSize: '10px',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
-                                  <span style={{ marginRight: '5px' }}>
-                                    Saturdays:
-                                  </span>
-                                  <span
-                                    style={{
-                                      display: 'inline-block',
-                                      borderBottom: '1.5px solid black',
-                                      flexGrow: 1,
-                                      minWidth: '318px',
-                                      marginBottom: '2px',
-                                    }}
-                                  ></span>
-                                </div>
-                              </td>
-                            </tr>
-                            {Array.from({ length: 2 }, (_, i) => (
-                              <tr key={`empty3-${i}`}>
-                                <td colSpan="7"></td>
-                              </tr>
-                            ))}
-                            <tr>
-                              <th
-                                rowSpan="2"
-                                style={{
-                                  border: '1px solid black',
-                                  fontFamily: 'Arial, serif',
-                                  fontSize: dataFontSize,
-                                }}
-                              >
-                                DAY
-                              </th>
-                              <th
-                                colSpan="2"
-                                style={{
-                                  border: '1px solid black',
-                                  fontFamily: 'Arial, serif',
-                                  fontSize: dataFontSize,
-                                }}
-                              >
-                                A.M.
-                              </th>
-                              <th
-                                colSpan="2"
-                                style={{
-                                  border: '1px solid black',
-                                  fontFamily: 'Arial, serif',
-                                  fontSize: dataFontSize,
-                                }}
-                              >
-                                P.M.
-                              </th>
-                              <th
-                                style={{
-                                  border: '1px solid black',
-                                  fontFamily: 'Arial, serif',
-                                  fontSize: dataFontSize,
-                                }}
-                              >
-                                Late
-                              </th>
-                              <th
-                                style={{
-                                  border: '1px solid black',
-                                  fontFamily: 'Arial, serif',
-                                  fontSize: dataFontSize,
-                                }}
-                              >
-                                Undertime
-                              </th>
-                            </tr>
-                            <tr style={{ textAlign: 'center' }}>
-                              <td
-                                style={{
-                                  border: '1px solid black',
-                                  fontSize: '9px',
-                                  fontFamily: 'Arial, serif',
-                                }}
-                              >
-                                Arrival
-                              </td>
-                              <td
-                                style={{
-                                  border: '1px solid black',
-                                  fontSize: '9px',
-                                  fontFamily: 'Arial, serif',
-                                }}
-                              >
-                                Departure
-                              </td>
-                              <td
-                                style={{
-                                  border: '1px solid black',
-                                  fontSize: '9px',
-                                  fontFamily: 'Arial, serif',
-                                }}
-                              >
-                                Arrival
-                              </td>
-                              <td
-                                style={{
-                                  border: '1px solid black',
-                                  fontSize: '9px',
-                                  fontFamily: 'Arial, serif',
-                                }}
-                              >
-                                Departure
-                              </td>
-                              <td
-                                style={{
-                                  border: '1px solid black',
-                                  fontSize: '9px',
-                                  fontFamily: 'Arial, serif',
-                                }}
-                              >
-                                Min
-                              </td>
-                              <td
-                                style={{
-                                  border: '1px solid black',
-                                  fontSize: '9px',
-                                  fontFamily: 'Arial, serif',
-                                }}
-                              >
-                                Min
-                              </td>
-                            </tr>
-                          </thead>
-                        );
+                                  </Box>
+                                </Paper>
+                              </Box>
+                            </Fade>
+                          )}
+                        </Box>
 
-                        const cellStyle = {
-                          border: '1px solid black',
-                          textAlign: 'center',
-                          padding: '0 2px',
-                          fontFamily: 'Arial, serif',
-                          fontSize: dataFontSize,
-                          height: rowHeight,
-                          whiteSpace: 'nowrap',
-                        };
+                        {selectedMonth !== null && records.length > 0 && (
+                          <Box
+                            className="no-print"
+                            sx={{
+                              px: 3.5,
+                              py: 1.25,
+                              borderTop: `1px solid ${T.divider}`,
+                              bgcolor: T.accentFaint,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1,
+                              flexShrink: 0,
+                            }}
+                          >
+                            <PictureAsPdfIcon
+                              sx={{
+                                fontSize: 13,
+                                color: alpha(T.accent, 0.45),
+                              }}
+                            />
+                            <Typography
+                              sx={{ fontSize: '0.7rem', color: T.faint }}
+                            >
+                              Download generates a PDF of the DTR for{' '}
+                              {employeeName} — {monthsShort[selectedMonth]}{' '}
+                              {selectedYear}
+                            </Typography>
+                          </Box>
+                        )}
+                      </>
+                    )}
 
-                        return (
+                    {/* ── BATCH PRINTING VIEW ── */}
+                    {viewMode === 'multiple' && (
+                      <>
+                        <Box
+                          sx={{
+                            px: 3.5,
+                            py: 2,
+                            borderBottom: `1px solid ${T.divider}`,
+                            bgcolor: T.accentFaint,
+                            flexShrink: 0,
+                          }}
+                          className="no-print"
+                        >
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: 1,
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.5,
+                              }}
+                            >
+                              <PrintIcon
+                                sx={{ fontSize: 15, color: T.accent }}
+                              />
+                              <Typography
+                                sx={{
+                                  fontSize: '0.88rem',
+                                  fontWeight: 700,
+                                  color: T.text,
+                                }}
+                              >
+                                Batch Printing
+                              </Typography>
+                              {allUsersDTR.length > 0 && (
+                                <Box
+                                  sx={{
+                                    px: 1.5,
+                                    py: 0.3,
+                                    borderRadius: 6,
+                                    bgcolor: alpha(T.accent, 0.08),
+                                    border: `1px solid ${T.accentBorder}`,
+                                  }}
+                                >
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.7rem',
+                                      color: T.accent,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {filteredUsers.length} users
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Tooltip
+                                title="Reload all users DTR"
+                                placement="top"
+                              >
+                                <IconButton
+                                  size="small"
+                                  onClick={fetchAllUsersDTR}
+                                  disabled={
+                                    loadingAllUsers || !startDate || !endDate
+                                  }
+                                  sx={{
+                                    bgcolor: alpha(T.accent, 0.08),
+                                    border: `1px solid ${T.accentBorder}`,
+                                    color: T.accent,
+                                    width: 32,
+                                    height: 32,
+                                    '&:hover': {
+                                      bgcolor: alpha(T.accent, 0.15),
+                                    },
+                                    '&:disabled': { opacity: 0.4 },
+                                  }}
+                                >
+                                  <Refresh sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                              {selectedUsers.size > 0 && (
+                                <AccentButton
+                                  variant="contained"
+                                  size="small"
+                                  startIcon={
+                                    <PrintIcon
+                                      sx={{ fontSize: '13px !important' }}
+                                    />
+                                  }
+                                  onClick={handleBulkPrint}
+                                  sx={{
+                                    fontSize: '0.78rem',
+                                    bgcolor: T.accent,
+                                    color: '#fff',
+                                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                    '&:hover': { bgcolor: T.accentDark },
+                                  }}
+                                >
+                                  Bulk Print ({selectedUsers.size})
+                                </AccentButton>
+                              )}
+                            </Box>
+                          </Box>
+                        </Box>
+
+                        {allUsersDTR.length > 0 ? (
                           <>
-                            {/* ================= TABLE 1 ================= */}
-                            <table
-                              style={{
-                                position: 'relative',
-                                border: '1px solid black',
-                                borderCollapse: 'collapse',
-                                width: '49%',
-                                tableLayout: 'fixed',
+                            {/* Filters bar */}
+                            <Box
+                              sx={{
+                                px: 3,
+                                py: 1.5,
+                                borderBottom: `1px solid ${T.divider}`,
+                                bgcolor: alpha(T.accent, 0.02),
+                                flexShrink: 0,
                               }}
-                              className="print-visble"
                             >
-                              <DTRColGroup />
-                              {renderHeader()}
-                              <tbody>
-                                {Array.from({ length: 31 }, (_, i) => {
-                                  const day = (i + 1)
-                                    .toString()
-                                    .padStart(2, '0');
-                                  const record = records.find((r) =>
-                                    r.date.endsWith(`-${day}`),
-                                  );
-
-                                  let fullDate = null;
-                                  if (record?.date) {
-                                    fullDate = record.date;
-                                  } else if (startDate) {
-                                    const [year, month] = startDate.split('-');
-                                    fullDate = `${year}-${month}-${day}`;
-                                  } else if (selectedMonth !== null) {
-                                    const monthNum = String(
-                                      selectedMonth + 1,
-                                    ).padStart(2, '0');
-                                    fullDate = `${selectedYear}-${monthNum}-${day}`;
-                                  }
-
-                                  const indicator = getDateIndicator(fullDate);
-                                  const timeFields = getTimeFields(
-                                    record,
-                                    dtrType,
-                                  );
-                                  const renderedTime = getRenderedTimeData(
-                                    record,
-                                    dtrType,
-                                  );
-
-                                  return (
-                                    <tr key={i}>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {day}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                          position: 'relative',
-                                        }}
-                                      >
-                                        {indicator && (
-                                          <div
-                                            style={{
-                                              position: 'absolute',
-                                              top: '50%',
-                                              left: '50%',
-                                              transform:
-                                                'translate(-50%, -50%)',
-                                              fontSize: '7px',
-                                              fontWeight: 'bold',
-                                              color: 'rgba(0, 0, 0, 0.25)',
-                                              whiteSpace: 'nowrap',
-                                              pointerEvents: 'none',
-                                              zIndex: 0,
-                                            }}
-                                          >
-                                            {indicator.label}
-                                          </div>
-                                        )}
-                                        <span
-                                          style={{
-                                            position: 'relative',
-                                            zIndex: 1,
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  gap: 1,
+                                  flexWrap: 'wrap',
+                                  mb: 1,
+                                }}
+                              >
+                                <FieldInput
+                                  size="small"
+                                  placeholder="Search by name or employee number…"
+                                  value={searchQuery}
+                                  onChange={(e) => {
+                                    setSearchQuery(e.target.value);
+                                    setCurrentPage(1);
+                                  }}
+                                  sx={{ flex: 1, minWidth: 200 }}
+                                  InputProps={{
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <SearchOutlined
+                                          sx={{ fontSize: 16, color: T.muted }}
+                                        />
+                                      </InputAdornment>
+                                    ),
+                                    endAdornment: searchQuery ? (
+                                      <InputAdornment position="end">
+                                        <IconButton
+                                          size="small"
+                                          onClick={() => {
+                                            setSearchQuery('');
+                                            setCurrentPage(1);
                                           }}
+                                          sx={{ p: 0.25 }}
                                         >
-                                          {formatTime(timeFields.timeIN)}
-                                        </span>
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {formatTime(timeFields.breaktimeIN)}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {formatTime(timeFields.breaktimeOUT)}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                          position: 'relative',
-                                        }}
-                                      >
-                                        {indicator && (
-                                          <div
-                                            style={{
-                                              position: 'absolute',
-                                              top: '50%',
-                                              left: '50%',
-                                              transform:
-                                                'translate(-50%, -50%)',
-                                              fontSize: '7px',
-                                              fontWeight: 'bold',
-                                              color: 'rgba(0, 0, 0, 0.25)',
-                                              whiteSpace: 'nowrap',
-                                              pointerEvents: 'none',
-                                              zIndex: 0,
+                                          <Close
+                                            sx={{
+                                              fontSize: 16,
+                                              color: T.faint,
                                             }}
-                                          >
-                                            {indicator.label}
-                                          </div>
-                                        )}
-                                        <span
-                                          style={{
-                                            position: 'relative',
-                                            zIndex: 1,
-                                          }}
-                                        >
-                                          {formatTime(timeFields.timeOUT)}
-                                        </span>
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {renderedTime.minutes}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {renderedTime.minutes}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                                <tr>
-                                  <td
-                                    colSpan="7"
-                                    style={{ padding: '10px 5px' }}
+                                          />
+                                        </IconButton>
+                                      </InputAdornment>
+                                    ) : null,
+                                  }}
+                                />
+                                <FormControl
+                                  size="small"
+                                  sx={{ minWidth: 130 }}
+                                >
+                                  <Select
+                                    value={recordFilter}
+                                    onChange={(e) => {
+                                      setRecordFilter(e.target.value);
+                                      setCurrentPage(1);
+                                    }}
+                                    sx={selectSx}
+                                    displayEmpty
                                   >
-                                    <hr
-                                      style={{
-                                        borderTop: '2px solid black',
-                                        width: '100%',
-                                      }}
-                                    />
-                                    <p
-                                      style={{
-                                        textAlign: 'justify',
-                                        fontSize: '9px',
-                                        lineHeight: '1.4',
-                                        fontFamily: 'Times New Roman, serif',
-                                        margin: '5px 0',
-                                      }}
+                                    <MenuItem
+                                      value="all"
+                                      sx={{ fontSize: '0.82rem' }}
                                     >
-                                      I CERTIFY on my honor that the above is a
-                                      true and correct report
-                                      <br />
-                                      of the hours of work performed, record of
-                                      which was made daily at
-                                      <br />
-                                      the time of arrival and at the time of
-                                      departure from office.
-                                    </p>
-                                    <div
-                                      style={{
-                                        width: '50%',
-                                        marginLeft: 'auto',
-                                        textAlign: 'center',
-                                        marginTop: '40px',
-                                      }}
+                                      All Records
+                                    </MenuItem>
+                                    <MenuItem
+                                      value="has"
+                                      sx={{ fontSize: '0.82rem' }}
                                     >
-                                      <hr
-                                        style={{
-                                          borderTop: '2px solid black',
-                                          margin: 0,
+                                      Has Records
+                                    </MenuItem>
+                                    <MenuItem
+                                      value="no"
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      No Records
+                                    </MenuItem>
+                                  </Select>
+                                </FormControl>
+                                <FormControl
+                                  size="small"
+                                  sx={{ minWidth: 140 }}
+                                >
+                                  <Select
+                                    value={departmentFilter}
+                                    onChange={(e) => {
+                                      setDepartmentFilter(e.target.value);
+                                      setCurrentPage(1);
+                                    }}
+                                    sx={selectSx}
+                                    displayEmpty
+                                    renderValue={(v) => v || 'All Depts'}
+                                  >
+                                    <MenuItem
+                                      value=""
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      All Departments
+                                    </MenuItem>
+                                    {departments.map((d) => (
+                                      <MenuItem
+                                        key={d.code}
+                                        value={d.code}
+                                        sx={{ fontSize: '0.82rem' }}
+                                      >
+                                        {d.code}
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                                <FormControl
+                                  size="small"
+                                  sx={{ minWidth: 160 }}
+                                >
+                                  <Select
+                                    value={employmentCategoryFilter}
+                                    onChange={(e) => {
+                                      setEmploymentCategoryFilter(
+                                        e.target.value,
+                                      );
+                                      setCurrentPage(1);
+                                    }}
+                                    sx={selectSx}
+                                    displayEmpty
+                                    renderValue={(v) =>
+                                      v !== ''
+                                        ? getCategoryLabel(v)
+                                        : 'All Categories'
+                                    }
+                                  >
+                                    <MenuItem
+                                      value=""
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      All Categories
+                                    </MenuItem>
+                                    {EMPLOYMENT_CATEGORY_OPTIONS.map(
+                                      (option) => (
+                                        <MenuItem
+                                          key={option.value}
+                                          value={option.value}
+                                          sx={{ fontSize: '0.82rem' }}
+                                        >
+                                          {option.label}
+                                        </MenuItem>
+                                      ),
+                                    )}
+                                  </Select>
+                                </FormControl>
+                              </Box>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  gap: 1,
+                                  flexWrap: 'wrap',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', gap: 0.75 }}>
+                                  {['all', 'printed', 'unprinted'].map(
+                                    (val) => (
+                                      <Box
+                                        key={val}
+                                        onClick={() => {
+                                          setPrintStatusFilter(val);
+                                          setCurrentPage(1);
                                         }}
-                                      />
-                                      <p
-                                        style={{
-                                          fontSize: '9px',
-                                          fontFamily: 'Arial, serif',
-                                          margin: '5px 0 0 0',
+                                        sx={{
+                                          px: 1.5,
+                                          py: 0.4,
+                                          borderRadius: '20px',
+                                          cursor: 'pointer',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 600,
+                                          bgcolor:
+                                            printStatusFilter === val
+                                              ? T.accent
+                                              : alpha(T.accent, 0.07),
+                                          color:
+                                            printStatusFilter === val
+                                              ? '#fff'
+                                              : T.accent,
+                                          border: `1px solid ${printStatusFilter === val ? T.accent : T.accentBorder}`,
+                                          transition: 'all 0.15s',
                                         }}
                                       >
-                                        Signature
-                                      </p>
-                                    </div>
-                                    <div
-                                      style={{
-                                        width: '100%',
-                                        marginTop: '15px',
+                                        {val.charAt(0).toUpperCase() +
+                                          val.slice(1)}
+                                      </Box>
+                                    ),
+                                  )}
+                                </Box>
+                                <FormControl
+                                  size="small"
+                                  sx={{ minWidth: 160 }}
+                                >
+                                  <Select
+                                    value={registrationStatusFilter}
+                                    onChange={(e) => {
+                                      setRegistrationStatusFilter(
+                                        e.target.value,
+                                      );
+                                      setCurrentPage(1);
+                                    }}
+                                    sx={selectSx}
+                                    displayEmpty
+                                    renderValue={(v) => v || 'All Status'}
+                                  >
+                                    <MenuItem
+                                      value=""
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      All Status
+                                    </MenuItem>
+                                    <MenuItem
+                                      value="Registered"
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      🟢 Registered (
+                                      {registrationStatusCounts['Registered']})
+                                    </MenuItem>
+                                    <MenuItem
+                                      value="Not Registered"
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      🟠 Not Registered (
+                                      {
+                                        registrationStatusCounts[
+                                          'Not Registered'
+                                        ]
+                                      }
+                                      )
+                                    </MenuItem>
+                                  </Select>
+                                </FormControl>
+                                <FormControl size="small" sx={{ minWidth: 80 }}>
+                                  <Select
+                                    value={rowsPerPage}
+                                    onChange={(e) => {
+                                      setRowsPerPage(Number(e.target.value));
+                                      setCurrentPage(1);
+                                    }}
+                                    sx={selectSx}
+                                  >
+                                    {[10, 20, 50, 100].map((n) => (
+                                      <MenuItem
+                                        key={n}
+                                        value={n}
+                                        sx={{ fontSize: '0.82rem' }}
+                                      >
+                                        {n} rows
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.75,
+                                    ml: 'auto',
+                                  }}
+                                >
+                                  {[
+                                    {
+                                      label: '«',
+                                      fn: () => goToPage(1),
+                                      dis: currentPage === 1,
+                                    },
+                                    {
+                                      label: '‹',
+                                      fn: () => goToPage(currentPage - 1),
+                                      dis: currentPage === 1,
+                                    },
+                                  ].map(({ label, fn, dis }) => (
+                                    <IconButton
+                                      key={label}
+                                      size="small"
+                                      onClick={fn}
+                                      disabled={dis}
+                                      sx={{
+                                        width: 28,
+                                        height: 28,
+                                        color: T.accent,
+                                        border: `1px solid ${T.accentBorder}`,
+                                        borderRadius: '6px',
+                                        '&:disabled': { opacity: 0.35 },
                                       }}
                                     >
-                                      <hr
-                                        style={{
-                                          borderTop: '1px solid black',
-                                          width: '100%',
-                                          margin: 0,
-                                        }}
-                                      />
-                                      <hr
-                                        style={{
-                                          borderTop: '1.5px solid black',
-                                          width: '100%',
-                                          margin: '2px 0 0 0',
-                                        }}
-                                      />
-                                      <p
-                                        style={{
-                                          paddingLeft: '30px',
-                                          fontSize: '9px',
-                                          fontFamily: 'Arial, serif',
-                                          margin: '5px 0 0 0',
+                                      <Typography
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          lineHeight: 1,
                                         }}
                                       >
-                                        Verified as to prescribed office hours.
-                                      </p>
-                                    </div>
-                                    <div
-                                      style={{
-                                        width: '80%',
-                                        marginLeft: 'auto',
-                                        marginTop: '15px',
-                                        textAlign: 'center',
+                                        {label}
+                                      </Typography>
+                                    </IconButton>
+                                  ))}
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      color: T.muted,
+                                      minWidth: 60,
+                                      textAlign: 'center',
+                                    }}
+                                  >
+                                    {currentPage} / {totalPageCount}
+                                  </Typography>
+                                  {[
+                                    {
+                                      label: '›',
+                                      fn: () => goToPage(currentPage + 1),
+                                      dis: currentPage === totalPageCount,
+                                    },
+                                    {
+                                      label: '»',
+                                      fn: () => goToPage(totalPageCount),
+                                      dis: currentPage === totalPageCount,
+                                    },
+                                  ].map(({ label, fn, dis }) => (
+                                    <IconButton
+                                      key={label}
+                                      size="small"
+                                      onClick={fn}
+                                      disabled={dis}
+                                      sx={{
+                                        width: 28,
+                                        height: 28,
+                                        color: T.accent,
+                                        border: `1px solid ${T.accentBorder}`,
+                                        borderRadius: '6px',
+                                        '&:disabled': { opacity: 0.35 },
                                       }}
                                     >
-                                      <hr
-                                        style={{
-                                          borderTop: '2px solid black',
-                                          margin: 0,
-                                        }}
-                                      />
-                                      <p
-                                        style={{
-                                          fontSize: '9px',
-                                          fontFamily: 'Times New Roman, serif',
-                                          margin: '2px 0 0 0',
+                                      <Typography
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          lineHeight: 1,
                                         }}
                                       >
-                                        In-Charge
-                                      </p>
-                                      <p
-                                        style={{
-                                          fontSize: '9px',
-                                          fontFamily: 'Arial, serif',
-                                          margin: '0',
-                                        }}
-                                      >
-                                        (Signature Over Printed Name)
-                                      </p>
-                                    </div>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
+                                        {label}
+                                      </Typography>
+                                    </IconButton>
+                                  ))}
+                                </Box>
+                              </Box>
+                            </Box>
 
-                            {/* ================= TABLE 2 ================= */}
-                            <table
-                              style={{
-                                position: 'relative',
-                                border: '1px solid black',
-                                borderCollapse: 'collapse',
-                                width: '49%',
-                                tableLayout: 'fixed',
+                            {/* Table */}
+                            <Box
+                              sx={{
+                                flexGrow: 1,
+                                overflowY: 'auto',
+                                overflowX: 'auto',
+                                ...scrollbarSx,
                               }}
-                              className="print-visble"
                             >
-                              <DTRColGroup />
-                              {renderHeader()}
-                              <tbody>
-                                {Array.from({ length: 31 }, (_, i) => {
-                                  const day = (i + 1)
-                                    .toString()
-                                    .padStart(2, '0');
-                                  const record = records.find((r) =>
-                                    r.date.endsWith(`-${day}`),
-                                  );
-
-                                  let fullDate = null;
-                                  if (record?.date) {
-                                    fullDate = record.date;
-                                  } else if (startDate) {
-                                    const [year, month] = startDate.split('-');
-                                    fullDate = `${year}-${month}-${day}`;
-                                  } else if (selectedMonth !== null) {
-                                    const monthNum = String(
-                                      selectedMonth + 1,
-                                    ).padStart(2, '0');
-                                    fullDate = `${selectedYear}-${monthNum}-${day}`;
-                                  }
-
-                                  const indicator = getDateIndicator(fullDate);
-                                  const timeFields = getTimeFields(
-                                    record,
-                                    dtrType,
-                                  );
-                                  const renderedTime = getRenderedTimeData(
-                                    record,
-                                    dtrType,
-                                  );
-
-                                  return (
-                                    <tr key={i}>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {day}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                          position: 'relative',
-                                        }}
-                                      >
-                                        {indicator && (
-                                          <div
-                                            style={{
-                                              position: 'absolute',
-                                              top: '50%',
-                                              left: '50%',
-                                              transform:
-                                                'translate(-50%, -50%)',
-                                              fontSize: '7px',
-                                              fontWeight: 'bold',
-                                              color: 'rgba(0, 0, 0, 0.25)',
-                                              whiteSpace: 'nowrap',
-                                              pointerEvents: 'none',
-                                              zIndex: 0,
-                                            }}
-                                          >
-                                            {indicator.label}
-                                          </div>
-                                        )}
-                                        <span
-                                          style={{
-                                            position: 'relative',
-                                            zIndex: 1,
-                                          }}
-                                        >
-                                          {formatTime(timeFields.timeIN)}
-                                        </span>
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {formatTime(timeFields.breaktimeIN)}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {formatTime(timeFields.breaktimeOUT)}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                          position: 'relative',
-                                        }}
-                                      >
-                                        {indicator && (
-                                          <div
-                                            style={{
-                                              position: 'absolute',
-                                              top: '50%',
-                                              left: '50%',
-                                              transform:
-                                                'translate(-50%, -50%)',
-                                              fontSize: '7px',
-                                              fontWeight: 'bold',
-                                              color: 'rgba(0, 0, 0, 0.25)',
-                                              whiteSpace: 'nowrap',
-                                              pointerEvents: 'none',
-                                              zIndex: 0,
-                                            }}
-                                          >
-                                            {indicator.label}
-                                          </div>
-                                        )}
-                                        <span
-                                          style={{
-                                            position: 'relative',
-                                            zIndex: 1,
-                                          }}
-                                        >
-                                          {formatTime(timeFields.timeOUT)}
-                                        </span>
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {renderedTime.minutes}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...cellStyle,
-                                          backgroundColor: indicator
-                                            ? indicator.bgColor
-                                            : 'transparent',
-                                        }}
-                                      >
-                                        {renderedTime.minutes}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                                <tr>
-                                  <td
-                                    colSpan="7"
-                                    style={{ padding: '10px 5px' }}
+                              <Table
+                                stickyHeader
+                                sx={{
+                                  tableLayout: 'fixed',
+                                  width: '100%',
+                                  minWidth: 800,
+                                }}
+                              >
+                                <TableHead>
+                                  <TableRow
+                                    sx={{
+                                      '& .MuiTableCell-head': {
+                                        bgcolor: T.accent,
+                                        color: '#fff',
+                                        fontWeight: 700,
+                                        fontSize: '0.75rem',
+                                        py: 1.25,
+                                      },
+                                    }}
                                   >
-                                    <hr
-                                      style={{
-                                        borderTop: '2px solid black',
-                                        width: '100%',
-                                      }}
+                                    <TableCell
+                                      padding="checkbox"
+                                      sx={{ width: 48 }}
+                                    >
+                                      <Checkbox
+                                        checked={(() => {
+                                          const sel = filteredUsers.filter(
+                                            (u) =>
+                                              !printStatusMap.has(
+                                                u.employeeNumber,
+                                              ),
+                                          );
+                                          return (
+                                            sel.length > 0 &&
+                                            selectedUsers.size === sel.length
+                                          );
+                                        })()}
+                                        indeterminate={(() => {
+                                          const sel = filteredUsers.filter(
+                                            (u) =>
+                                              !printStatusMap.has(
+                                                u.employeeNumber,
+                                              ),
+                                          ).length;
+                                          return (
+                                            selectedUsers.size > 0 &&
+                                            selectedUsers.size < sel
+                                          );
+                                        })()}
+                                        onChange={(e) =>
+                                          handleSelectAll(e.target.checked)
+                                        }
+                                        sx={{
+                                          color: '#fff',
+                                          '&.Mui-checked': { color: '#fff' },
+                                          '&.MuiCheckbox-indeterminate': {
+                                            color: '#fff',
+                                          },
+                                        }}
+                                      />
+                                    </TableCell>
+                                    {[
+                                      'Emp. No.',
+                                      'Full Name',
+                                      'Department',
+                                      'Category',
+                                      'Registration',
+                                      'Print Status',
+                                      'Action',
+                                    ].map((h) => (
+                                      <TableCell
+                                        key={h}
+                                        sx={{
+                                          minWidth:
+                                            h === 'Full Name' ? 200 : 80,
+                                        }}
+                                      >
+                                        {h}
+                                      </TableCell>
+                                    ))}
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {paginatedUsers.map((user, idx) => {
+                                    const isPrinted = printStatusMap.has(
+                                      user.employeeNumber,
+                                    );
+                                    const isSelected = selectedUsers.has(
+                                      user.employeeNumber,
+                                    );
+                                    const isLoading = user._loading;
+                                    const deptCode =
+                                      user.departmentCode ||
+                                      user.rawUser?.departmentCode ||
+                                      'N/A';
+                                    return (
+                                      <TableRow
+                                        key={user.employeeNumber}
+                                        sx={{
+                                          bgcolor: isSelected
+                                            ? alpha(T.accent, 0.06)
+                                            : idx % 2 === 0
+                                              ? T.rowEven
+                                              : T.rowOdd,
+                                          '&:hover': { bgcolor: T.rowHover },
+                                          transition: 'background 0.1s',
+                                        }}
+                                      >
+                                        <TableCell padding="checkbox">
+                                          <Checkbox
+                                            checked={isSelected}
+                                            onChange={() =>
+                                              handleUserSelect(
+                                                user.employeeNumber,
+                                              )
+                                            }
+                                            disabled={isPrinted || isLoading}
+                                            sx={{
+                                              '&.Mui-checked': {
+                                                color: T.accent,
+                                              },
+                                            }}
+                                          />
+                                        </TableCell>
+                                        <TableCell
+                                          sx={{
+                                            fontSize: '0.78rem',
+                                            color: T.muted,
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          {isLoading
+                                            ? '—'
+                                            : `#${user.employeeNumber}`}
+                                        </TableCell>
+                                        <TableCell
+                                          sx={{
+                                            fontSize: '0.82rem',
+                                            fontWeight: 600,
+                                            color: T.text,
+                                            maxWidth: 220,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                          }}
+                                        >
+                                          {isLoading
+                                            ? '—'
+                                            : batchSearchTrimmed
+                                              ? highlightMatch(
+                                                  user.fullName || '',
+                                                  batchSearchTrimmed,
+                                                )
+                                              : user.fullName}
+                                        </TableCell>
+                                        <TableCell>
+                                          {isLoading ? (
+                                            '—'
+                                          ) : deptCode !== 'N/A' ? (
+                                            <Box
+                                              sx={{
+                                                px: 1.2,
+                                                py: 0.3,
+                                                borderRadius: 1,
+                                                bgcolor: alpha(T.accent, 0.07),
+                                                border: `1px solid ${T.accentBorder}`,
+                                                display: 'inline-block',
+                                              }}
+                                            >
+                                              <Typography
+                                                sx={{
+                                                  fontSize: '0.72rem',
+                                                  fontWeight: 700,
+                                                  color: T.accent,
+                                                }}
+                                              >
+                                                {deptCode}
+                                              </Typography>
+                                            </Box>
+                                          ) : (
+                                            <Typography
+                                              sx={{
+                                                fontSize: '0.72rem',
+                                                color: T.faint,
+                                                fontStyle: 'italic',
+                                              }}
+                                            >
+                                              N/A
+                                            </Typography>
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {isLoading ? (
+                                            '—'
+                                          ) : (
+                                            <Chip
+                                              label={getCategoryLabel(
+                                                user.rawUser
+                                                  ?.employmentCategory ??
+                                                  user.employmentCategory ??
+                                                  null,
+                                              )}
+                                              size="small"
+                                              sx={{
+                                                bgcolor: alpha(
+                                                  getCategoryColor(
+                                                    user.rawUser
+                                                      ?.employmentCategory ??
+                                                      user.employmentCategory,
+                                                  ),
+                                                  0.1,
+                                                ),
+                                                color: getCategoryColor(
+                                                  user.rawUser
+                                                    ?.employmentCategory ??
+                                                    user.employmentCategory,
+                                                ),
+                                                border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory)}`,
+                                                fontWeight: 600,
+                                                fontSize: '0.68rem',
+                                                height: 20,
+                                              }}
+                                            />
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {isLoading ? (
+                                            '—'
+                                          ) : (
+                                            <Chip
+                                              label={
+                                                user.registrationStatus ===
+                                                'Registered'
+                                                  ? '🟢 Registered'
+                                                  : '🟠 Not Registered'
+                                              }
+                                              size="small"
+                                              color={
+                                                user.registrationStatus ===
+                                                'Registered'
+                                                  ? 'success'
+                                                  : 'warning'
+                                              }
+                                              sx={{
+                                                fontWeight: 600,
+                                                fontSize: '0.68rem',
+                                                height: 20,
+                                              }}
+                                            />
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {isLoading ? (
+                                            '—'
+                                          ) : isPrinted ? (
+                                            <Chip
+                                              label="Printed"
+                                              size="small"
+                                              color="success"
+                                              sx={{
+                                                fontSize: '0.68rem',
+                                                height: 20,
+                                                fontWeight: 600,
+                                              }}
+                                            />
+                                          ) : (
+                                            <Chip
+                                              label="Unprinted"
+                                              size="small"
+                                              sx={{
+                                                fontSize: '0.68rem',
+                                                height: 20,
+                                                bgcolor: alpha('#757575', 0.1),
+                                                color: '#757575',
+                                                border: '1px solid #bdbdbd',
+                                              }}
+                                            />
+                                          )}
+                                        </TableCell>
+                                        <TableCell>
+                                          {isLoading ? (
+                                            '—'
+                                          ) : (
+                                            <Tooltip
+                                              title={
+                                                isPrinted
+                                                  ? 'Re-print DTR'
+                                                  : 'Print DTR'
+                                              }
+                                            >
+                                              <IconButton
+                                                size="small"
+                                                onClick={() =>
+                                                  showReprintConfirm(user)
+                                                }
+                                                sx={{
+                                                  color: T.accent,
+                                                  bgcolor: T.accentFaint,
+                                                  '&:hover': {
+                                                    bgcolor: T.accentHover,
+                                                  },
+                                                  borderRadius: '6px',
+                                                  width: 28,
+                                                  height: 28,
+                                                }}
+                                              >
+                                                <PrintIcon
+                                                  sx={{ fontSize: 14 }}
+                                                />
+                                              </IconButton>
+                                            </Tooltip>
+                                          )}
+                                        </TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </TableBody>
+                              </Table>
+                              {paginatedUsers.length === 0 && (
+                                <Box sx={{ py: 8, textAlign: 'center' }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.9rem',
+                                      fontWeight: 600,
+                                      color: T.muted,
+                                      mb: 0.5,
+                                    }}
+                                  >
+                                    {allUsersDTR.length === 0
+                                      ? 'No attendance records'
+                                      : 'No users match your filters'}
+                                  </Typography>
+                                  <Typography
+                                    sx={{ fontSize: '0.78rem', color: T.faint }}
+                                  >
+                                    {allUsersDTR.length === 0
+                                      ? 'Select a month to auto-load records.'
+                                      : 'Try adjusting the search or filters.'}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+
+                            {/* Action bar footer */}
+                            <Box
+                              className="no-print"
+                              sx={{
+                                px: 3,
+                                py: 1.25,
+                                borderTop: `1px solid ${T.divider}`,
+                                bgcolor: T.accentFaint,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: 1.5,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1.5,
+                                  flexWrap: 'wrap',
+                                }}
+                              >
+                                <FormControl
+                                  size="small"
+                                  sx={{ minWidth: 130, bgcolor: '#fff' }}
+                                >
+                                  <Select
+                                    value=""
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v === 'none') return;
+                                      v === 'all'
+                                        ? handleAutoSelectFirstN('all')
+                                        : handleAutoSelectFirstN(Number(v));
+                                    }}
+                                    displayEmpty
+                                    renderValue={() => 'Quick select…'}
+                                    sx={selectSx}
+                                  >
+                                    <MenuItem value="none">
+                                      <em>Choose</em>
+                                    </MenuItem>
+                                    <MenuItem value={10}>First 10</MenuItem>
+                                    <MenuItem value={20}>First 20</MenuItem>
+                                    <MenuItem value={50}>
+                                      First 50 (max)
+                                    </MenuItem>
+                                  </Select>
+                                </FormControl>
+                                <AccentButton
+                                  variant="contained"
+                                  onClick={handleBulkPrint}
+                                  disabled={selectedUsers.size === 0}
+                                  startIcon={
+                                    <PrintIcon
+                                      sx={{ fontSize: '16px !important' }}
                                     />
-                                    <p
-                                      style={{
-                                        textAlign: 'justify',
-                                        fontSize: '10px',
-                                        lineHeight: '1.4',
-                                        fontFamily: 'Times New Roman, serif',
-                                        margin: '5px 0',
-                                      }}
-                                    >
-                                      I CERTIFY on my honor that the above is a
-                                      true and correct report
-                                      <br />
-                                      of the hours of work performed, record of
-                                      which was made daily at
-                                      <br />
-                                      the time of arrival and at the time of
-                                      departure from office.
-                                    </p>
-                                    <div
-                                      style={{
-                                        width: '50%',
-                                        marginLeft: 'auto',
-                                        textAlign: 'center',
-                                        marginTop: '40px',
-                                      }}
-                                    >
-                                      <hr
-                                        style={{
-                                          borderTop: '2px solid black',
-                                          margin: 0,
-                                        }}
-                                      />
-                                      <p
-                                        style={{
-                                          fontSize: '9px',
-                                          fontFamily: 'Arial, serif',
-                                          margin: '5px 0 0 0',
-                                        }}
-                                      >
-                                        Signature
-                                      </p>
-                                    </div>
-                                    <div
-                                      style={{
-                                        width: '100%',
-                                        marginTop: '15px',
-                                      }}
-                                    >
-                                      <hr
-                                        style={{
-                                          borderTop: '1px solid black',
-                                          width: '100%',
-                                          margin: 0,
-                                        }}
-                                      />
-                                      <hr
-                                        style={{
-                                          borderTop: '1.5px solid black',
-                                          width: '100%',
-                                          margin: '2px 0 0 0',
-                                        }}
-                                      />
-                                      <p
-                                        style={{
-                                          paddingLeft: '30px',
-                                          fontSize: '9px',
-                                          fontFamily: 'Arial, serif',
-                                          margin: '5px 0 0 0',
-                                        }}
-                                      >
-                                        Verified as to prescribed office hours.
-                                      </p>
-                                    </div>
-                                    <div
-                                      style={{
-                                        width: '80%',
-                                        marginLeft: 'auto',
-                                        marginTop: '15px',
-                                        textAlign: 'center',
-                                      }}
-                                    >
-                                      <hr
-                                        style={{
-                                          borderTop: '2px solid black',
-                                          margin: 0,
-                                        }}
-                                      />
-                                      <p
-                                        style={{
-                                          fontSize: '9px',
-                                          fontFamily: 'Times New Roman, serif',
-                                          margin: '2px 0 0 0',
-                                        }}
-                                      >
-                                        In-Charge
-                                      </p>
-                                      <p
-                                        style={{
-                                          fontSize: '9px',
-                                          fontFamily: 'Arial, serif',
-                                          margin: '0',
-                                        }}
-                                      >
-                                        (Signature Over Printed Name)
-                                      </p>
-                                    </div>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
+                                  }
+                                  sx={{
+                                    bgcolor:
+                                      selectedUsers.size > 0
+                                        ? T.accent
+                                        : alpha(T.accent, 0.35),
+                                    color: '#fff',
+                                    boxShadow:
+                                      selectedUsers.size > 0
+                                        ? `0 2px 10px ${alpha(T.accent, 0.32)}`
+                                        : 'none',
+                                    '&:hover': { bgcolor: T.accentDark },
+                                  }}
+                                >
+                                  Bulk Print ({selectedUsers.size})
+                                </AccentButton>
+                              </Box>
+                              <Typography
+                                sx={{ fontSize: '0.75rem', color: T.muted }}
+                              >
+                                {filteredUsers.length > 0
+                                  ? `Showing ${Math.min(filteredUsers.length, (currentPage - 1) * rowsPerPage + 1)}–${Math.min(filteredUsers.length, currentPage * rowsPerPage)} of ${filteredUsers.length}`
+                                  : '0 users'}
+                              </Typography>
+                            </Box>
                           </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              </Box>
-            </Paper>
-          </Fade>
-        )}
+                        ) : (
+                          <Box
+                            sx={{
+                              flexGrow: 1,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: 72,
+                                height: 72,
+                                borderRadius: '50%',
+                                bgcolor: T.accentFaint,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                mx: 'auto',
+                                mb: 2,
+                              }}
+                            >
+                              <PrintIcon
+                                sx={{
+                                  fontSize: 32,
+                                  color: alpha(T.accent, 0.3),
+                                }}
+                              />
+                            </Box>
+                            <Typography
+                              sx={{
+                                fontSize: '0.9rem',
+                                fontWeight: 600,
+                                color: T.muted,
+                                mb: 0.5,
+                              }}
+                            >
+                              {loadingAllUsers
+                                ? '—'
+                                : !startDate || !endDate
+                                  ? 'Select a month first'
+                                  : 'No records loaded'}
+                            </Typography>
+                            <Typography
+                              sx={{ fontSize: '0.78rem', color: T.faint }}
+                            >
+                              {!startDate || !endDate
+                                ? 'Pick a year and month from the left panel — data loads automatically.'
+                                : 'Click the reload button in the toolbar to fetch records.'}
+                            </Typography>
+                          </Box>
+                        )}
+                      </>
+                    )}
 
-        {/* FAB buttons for single user - Show when viewMode is 'single' */}
-        {viewMode === 'single' && (
-          <Box className="no-print" sx={{ position: 'fixed', bottom: 60, right: 24, display: 'flex', flexDirection: 'row', gap: 1.5, zIndex: 1300, alignItems: 'center' }}>
-            <Tooltip placement="top" title={
-              <Box sx={{ p: 0.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.05em' }}>LEGEND</Typography>
-                {[{ label: 'Holiday', bg: 'rgba(237,108,2,0.25)', border: '#ed6c02' }, { label: 'Suspension', bg: 'rgba(211,47,47,0.2)', border: '#d32f2f' }, { label: 'On Leave', bg: 'rgba(46,125,50,0.2)', border: '#2e7d32' }].map(({ label, bg, border }) => (
-                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box sx={{ width: 28, height: 16, backgroundColor: bg, border: `1.5px solid ${border}`, borderRadius: '3px', flexShrink: 0 }} />
-                    <Typography variant="caption" sx={{ fontSize: '11px', fontWeight: 500 }}>{label}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            } arrow componentsProps={{ tooltip: { sx: { bgcolor: 'white', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', border: '1px solid #e0e0e0', borderRadius: '10px', p: 1.5 } }, arrow: { sx: { color: 'white' } } }}>
-              <IconButton sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', fontSize: '18px', fontWeight: 700, '&:hover': { backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}>?</IconButton>
-            </Tooltip>
-            <Tooltip title="Print DTR" placement="top">
-              <IconButton onClick={printPage} sx={{ backgroundColor: '#ffffff', color: '#6D2323', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PrintIcon /></IconButton>
-            </Tooltip>
-            <Tooltip title="Download PDF" placement="top">
-              <IconButton onClick={downloadPDF} sx={{ backgroundColor: '#ffffff', color: '#A31D1D', width: 52, height: 52, border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', transition: 'all 0.2s ease', '&:hover':{ backgroundColor: '#f5f5f5', transform: 'translateY(-2px)' } }}><PictureAsPdfIcon /></IconButton>
-            </Tooltip>
-          </Box>
-        )}
-
-        {/* Bulk Print Preview Modal */}
-        <Dialog
-          open={previewModalOpen}
-          onClose={() => setPreviewModalOpen(false)}
-          maxWidth="lg"
-          fullWidth
-          sx={{
-            '& .MuiDialog-container': { overflow: 'hidden' },
-            '& .MuiDialog-paper': { margin: 2 },
-          }}
-          PaperProps={{
-            sx: {
-              borderRadius: 4,
-              overflow: 'hidden',
-              visibility: printingAll ? 'hidden' : 'visible',
-              pointerEvents: printingAll ? 'none' : 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              maxHeight: '90vh',
-            },
-          }}
-        >
-          {/* Header */}
-          <Box
-            sx={{
-              px: 3,
-              py: 2,
-              background: `linear-gradient(135deg, ${accentColor} 0%, ${accentDark} 100%)`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexShrink: 0,
-            }}
-          >
-            <Box>
-              <Typography
-                variant="subtitle1"
-                sx={{ fontWeight: 700, color: '#fff', lineHeight: 1.2 }}
-              >
-                DTR Preview
-              </Typography>
-              {previewUsers[currentPreviewIndex] && (
-                <Typography
-                  variant="caption"
-                  sx={{ color: 'rgba(255,255,255,0.75)' }}
-                >
-                  {previewUsers[currentPreviewIndex].fullName}
-                  {startDate &&
-                    ` · ${formatMonth(startDate)} ${new Date(startDate).getFullYear()}`}
-                </Typography>
-              )}
+                    {/* Off-screen bulk DTR nodes */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        left: '-9999px',
+                        top: 0,
+                        width: 0,
+                        height: 0,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {previewUsers.map((user) => renderUserDTRTable(user))}
+                    </Box>
+                  </SectionCard>
+                </Grid>
+              </Grid>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              {previewUsers.length > 1 && !printingAll && (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    backgroundColor: 'rgba(255,255,255,0.15)',
-                    borderRadius: '20px',
-                    px: 1.5,
-                    py: 0.5,
-                  }}
-                >
-                  <IconButton
-                    size="small"
-                    onClick={handlePrevious}
-                    sx={{
-                      color: '#fff',
-                      p: 0.25,
-                      '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-                    }}
-                  >
-                    <ArrowBack sx={{ fontSize: 18 }} />
-                  </IconButton>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: '#fff',
-                      fontWeight: 600,
-                      minWidth: 48,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {currentPreviewIndex + 1} of {previewUsers.length}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={handleNext}
-                    sx={{
-                      color: '#fff',
-                      p: 0.25,
-                      '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-                    }}
-                  >
-                    <ArrowForward sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Box>
-              )}
-              <IconButton
-                onClick={() => setPreviewModalOpen(false)}
-                size="small"
-                sx={{
-                  backgroundColor: 'rgba(255,255,255,0.15)',
-                  color: '#fff',
-                  width: 30,
-                  height: 30,
-                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.25)' },
-                }}
-              >
-                <Close sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Box>
-          </Box>
 
-          {/* Body */}
-          <DialogContent
-            sx={{
-              p: 0,
-              flex: 1,
-              overflow: 'hidden',
-              backgroundColor: '#f0f0f0',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {!printingAll && (
-              <Box
-                sx={{
-                  flex: 1,
-                  overflowY: 'auto',
-                  overflowX: 'hidden',
-                  p: 2,
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'flex-start',
-                }}
-              >
-                {previewUsers[currentPreviewIndex] && (
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      backgroundColor: 'white',
-                      borderRadius: 2,
-                      width: 'fit-content',
-                      maxWidth: '100%',
-                      border: '1px solid #e0e0e0',
-                      '& .table-container': {
-                        width: '100%',
-                        overflow: 'visible',
-                      },
-                      '& .table-wrapper': {
-                        position: 'relative',
-                        width: '100%',
-                        display: 'flex',
-                        justifyContent: 'center',
-                      },
-                    }}
-                  >
-                    {renderDTRForModal(previewUsers[currentPreviewIndex])}
-                  </Paper>
-                )}
-              </Box>
-            )}
-
-            {/* Hidden off-screen DTR refs for html2canvas */}
-            <Box
-              sx={{
-                position: 'absolute',
-                left: '-9999px',
-                top: 0,
-                width: 0,
-                height: 0,
-                overflow: 'hidden',
-              }}
-            >
-              {previewUsers.map((user) => renderUserDTRTable(user))}
-            </Box>
-          </DialogContent>
-
-          {/* Footer Action Bar */}
-          <Box
-            sx={{
-              px: 3,
-              py: 1.5,
-              backgroundColor: '#fff',
-              borderTop: `2px solid ${alpha(accentColor, 0.15)}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexShrink: 0,
-              flexWrap: 'wrap',
-              gap: 2,
-            }}
-          >
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-              <ProfessionalButton
-                variant="contained"
-                onClick={handlePrintAllSelected}
-                startIcon={<PrintIcon />}
-                sx={{
-                  backgroundColor: accentColor,
-                  color: '#fff',
-                  borderRadius: '50px',
-                  px: 3,
-                  py: 1,
-                  '&:hover': { backgroundColor: hoverColor },
-                }}
-              >
-                Print All
-                <Box
-                  component="span"
-                  sx={{
-                    ml: 1,
-                    backgroundColor: 'rgba(255,255,255,0.25)',
-                    borderRadius: '20px',
-                    px: 1,
-                    py: 0.25,
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  {previewUsers.length}
-                </Box>
-              </ProfessionalButton>
-              <ProfessionalButton
-                variant="outlined"
-                onClick={handleDownloadAllSelected}
-                startIcon={<PrintIcon />}
-                sx={{
-                  borderColor: accentColor,
-                  color: accentColor,
-                  borderRadius: '50px',
-                  borderWidth: 2,
-                  px: 3,
-                  py: 1,
-                  '&:hover': {
-                    borderColor: hoverColor,
-                    backgroundColor: alpha(accentColor, 0.05),
-                    borderWidth: 2,
-                  },
-                }}
-              >
-                Download PDF
-                <Box
-                  component="span"
-                  sx={{
-                    ml: 1,
-                    backgroundColor: alpha(accentColor, 0.1),
-                    borderRadius: '20px',
-                    px: 1,
-                    py: 0.25,
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: accentColor,
-                  }}
-                >
-                  {previewUsers.length}
-                </Box>
-              </ProfessionalButton>
-            </Box>
-            <ProfessionalButton
-              variant="text"
-              onClick={() => setPreviewModalOpen(false)}
-              sx={{
-                color: 'text.secondary',
-                borderRadius: '50px',
-                px: 3,
-                '&:hover': { backgroundColor: alpha('#000', 0.05) },
-              }}
-            >
-              Close
-            </ProfessionalButton>
-          </Box>
-        </Dialog>
-
-        {/* Alert Modal */}
-        <Dialog
-          open={alertModal.open}
-          onClose={closeAlert}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle
-            sx={{
-              backgroundColor: primaryColor,
-              color: textPrimaryColor,
-              fontWeight: 700,
-            }}
-          >
-            {alertModal.title}
-          </DialogTitle>
-          <DialogContent sx={{ mt: 2 }}>
-            <Typography variant="body1">{alertModal.message}</Typography>
-          </DialogContent>
-          <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
-            <ProfessionalButton
-              variant="contained"
-              onClick={closeAlert}
-              sx={{
-                backgroundColor: accentColor,
-                color: textSecondaryColor,
-                '&:hover': { backgroundColor: hoverColor },
-              }}
-            >
-              OK
-            </ProfessionalButton>
-          </Box>
-        </Dialog>
-
-        {/* Re-print Confirmation Modal */}
-        <Dialog
-          open={confirmModal.open}
-          onClose={closeConfirm}
-          maxWidth="sm"
-          fullWidth
-          sx={{
-            '& .MuiDialog-scrollPaper': { alignItems: 'center' },
-            '& .MuiDialog-container': { overflow: 'hidden' },
-          }}
-          PaperProps={{
-            sx: {
-              borderRadius: 3,
-              boxShadow: '0px 10px 30px rgba(0,0,0,0.1)',
-              overflow: 'hidden',
-              margin: 2,
-            },
-          }}
-        >
-          <DialogContent
-            sx={{
-              textAlign: 'center',
-              py: 4,
-              px: 3,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              overflowX: 'hidden',
-              overflowY: 'hidden',
-            }}
-          >
-            <Box
-              sx={{
-                mb: 2,
-                color: accentColor,
-                backgroundColor: alpha(accentColor, 0.05),
-                p: 2,
-                borderRadius: '12px',
-              }}
-            >
-              <PrintIcon sx={{ fontSize: 40 }} />
-            </Box>
-            <Typography
-              variant="h6"
-              sx={{ fontWeight: 700, mb: 0.5, color: textPrimaryColor }}
-            >
-              {printStatusMap.has(confirmModal.user?.employeeNumber)
-                ? 'Re-print DTR?'
-                : 'Confirm Print Job'}
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{ color: 'text.secondary', mb: 3, maxWidth: '85%' }}
-            >
-              {printStatusMap.has(confirmModal.user?.employeeNumber)
-                ? 'This record was printed previously. Would you like to generate a new copy?'
-                : 'Please verify the details below before printing.'}
-            </Typography>
-            {confirmModal.user && (
-              <Box
-                sx={{
-                  width: '100%',
-                  border: '1px dashed',
-                  borderColor: 'divider',
-                  backgroundColor: 'background.paper',
-                  borderRadius: 2,
-                  p: 2.5,
-                  mb: 3,
+            {/* ── Bulk Print Preview Modal ── */}
+            <Dialog
+              open={previewModalOpen}
+              onClose={() => setPreviewModalOpen(false)}
+              maxWidth="lg"
+              fullWidth
+              PaperProps={{
+                sx: {
+                  borderRadius: 3,
+                  overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 1.5,
+                  maxHeight: '90vh',
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3,
+                  py: 2,
+                  background: T.headerGrad,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexShrink: 0,
+                }}
+              >
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: '0.95rem',
+                      fontWeight: 700,
+                      color: '#fff',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    DTR Preview
+                  </Typography>
+                  {previewUsers[currentPreviewIndex] && (
+                    <Typography
+                      sx={{
+                        fontSize: '0.72rem',
+                        color: 'rgba(255,255,255,0.75)',
+                      }}
+                    >
+                      {previewUsers[currentPreviewIndex].fullName}
+                      {startDate &&
+                        ` · ${formatMonth(startDate)} ${new Date(startDate).getFullYear()}`}
+                    </Typography>
+                  )}
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  {previewUsers.length > 1 && !printingAll && (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        bgcolor: 'rgba(255,255,255,0.15)',
+                        borderRadius: '20px',
+                        px: 1.5,
+                        py: 0.5,
+                      }}
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={handlePrevious}
+                        sx={{ color: '#fff', p: 0.25 }}
+                      >
+                        <ArrowBack sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      <Typography
+                        sx={{
+                          color: '#fff',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          minWidth: 48,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {currentPreviewIndex + 1} of {previewUsers.length}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={handleNext}
+                        sx={{ color: '#fff', p: 0.25 }}
+                      >
+                        <ArrowForward sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Box>
+                  )}
+                  <IconButton
+                    onClick={() => setPreviewModalOpen(false)}
+                    size="small"
+                    sx={{
+                      bgcolor: 'rgba(255,255,255,0.15)',
+                      color: '#fff',
+                      width: 28,
+                      height: 28,
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+                    }}
+                  >
+                    <Close sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Box>
+              </Box>
+              <DialogContent
+                sx={{
+                  p: 0,
+                  flex: 1,
+                  overflow: 'hidden',
+                  bgcolor: '#f0f0f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {!printingAll && (
+                  <Box
+                    sx={{
+                      flex: 1,
+                      overflowY: 'auto',
+                      overflowX: 'hidden',
+                      p: 2,
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'flex-start',
+                      ...scrollbarSx,
+                    }}
+                  >
+                    {previewUsers[currentPreviewIndex] && (
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 2,
+                          bgcolor: 'white',
+                          borderRadius: 2,
+                          width: 'fit-content',
+                          maxWidth: '100%',
+                          border: `1px solid ${T.accentBorder}`,
+                        }}
+                      >
+                        {renderDTRForModal(previewUsers[currentPreviewIndex])}
+                      </Paper>
+                    )}
+                  </Box>
+                )}
+              </DialogContent>
+              <Box
+                sx={{
+                  px: 3,
+                  py: 1.5,
+                  bgcolor: '#fff',
+                  borderTop: `1px solid ${T.divider}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexShrink: 0,
+                  flexWrap: 'wrap',
+                  gap: 2,
+                }}
+              >
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                  <AccentButton
+                    variant="contained"
+                    onClick={handlePrintAllSelected}
+                    startIcon={
+                      <PrintIcon sx={{ fontSize: '16px !important' }} />
+                    }
+                    sx={{
+                      bgcolor: T.accent,
+                      color: '#fff',
+                      boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                      '&:hover': { bgcolor: T.accentDark },
+                    }}
+                  >
+                    Print All
+                    <Box
+                      component="span"
+                      sx={{
+                        ml: 1,
+                        bgcolor: 'rgba(255,255,255,0.25)',
+                        borderRadius: '20px',
+                        px: 1,
+                        py: 0.2,
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {previewUsers.length}
+                    </Box>
+                  </AccentButton>
+                  <AccentButton
+                    variant="outlined"
+                    onClick={handleDownloadAllSelected}
+                    startIcon={
+                      <PictureAsPdfIcon sx={{ fontSize: '16px !important' }} />
+                    }
+                    sx={{
+                      borderColor: T.accentBorder,
+                      color: T.accent,
+                      '&:hover': {
+                        bgcolor: T.accentFaint,
+                        borderColor: T.accent,
+                      },
+                    }}
+                  >
+                    Download PDF
+                    <Box
+                      component="span"
+                      sx={{
+                        ml: 1,
+                        bgcolor: T.accentFaint,
+                        borderRadius: '20px',
+                        px: 1,
+                        py: 0.2,
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        color: T.accent,
+                      }}
+                    >
+                      {previewUsers.length}
+                    </Box>
+                  </AccentButton>
+                </Box>
+                <AccentButton
+                  variant="text"
+                  onClick={() => setPreviewModalOpen(false)}
+                  sx={{
+                    color: T.muted,
+                    '&:hover': {
+                      bgcolor: alpha('#000', 0.04),
+                      transform: 'none',
+                    },
+                    '&:active': { transform: 'none' },
+                  }}
+                >
+                  Close
+                </AccentButton>
+              </Box>
+            </Dialog>
+
+            {/* ── Alert Modal ── */}
+            <Dialog
+              open={alertModal.open}
+              onClose={closeAlert}
+              maxWidth="xs"
+              fullWidth
+              PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+            >
+              <Box
+                sx={{
+                  px: 3,
+                  py: 2,
+                  background: T.headerGrad,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <Typography
+                  sx={{ fontWeight: 700, color: '#fff', fontSize: '0.92rem' }}
+                >
+                  {alertModal.title}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={closeAlert}
+                  sx={{
+                    color: 'rgba(255,255,255,0.75)',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+                  }}
+                >
+                  <Close sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+              <Box sx={{ p: 3 }}>
+                <Typography
+                  sx={{ fontSize: '0.85rem', color: T.text, lineHeight: 1.6 }}
+                >
+                  {alertModal.message}
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  px: 3,
+                  pb: 2.5,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <AccentButton
+                  variant="contained"
+                  onClick={closeAlert}
+                  sx={{
+                    bgcolor: T.accent,
+                    color: '#fff',
+                    boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                    '&:hover': { bgcolor: T.accentDark },
+                  }}
+                >
+                  OK
+                </AccentButton>
+              </Box>
+            </Dialog>
+
+            {/* ── Re-print Confirmation Modal ── */}
+            <Dialog
+              open={confirmModal.open}
+              onClose={closeConfirm}
+              maxWidth="xs"
+              fullWidth
+              PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+            >
+              <DialogContent
+                sx={{
+                  textAlign: 'center',
+                  py: 4,
+                  px: 3,
+                  display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
                 }}
               >
-                <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                  {confirmModal.user.fullName ||
-                    `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
-                </Typography>
                 <Box
                   sx={{
-                    width: '40px',
-                    height: '3px',
-                    backgroundColor: accentColor,
-                    borderRadius: '2px',
+                    mb: 2,
+                    color: T.accent,
+                    bgcolor: T.accentFaint,
+                    p: 2,
+                    borderRadius: '12px',
                   }}
-                />
-                <Stack
-                  direction="row"
-                  spacing={2}
-                  divider={<Divider orientation="vertical" flexItem />}
                 >
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    {confirmModal.user.employeeNumber}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                    {formatMonth(startDate)}
-                  </Typography>
-                </Stack>
-              </Box>
-            )}
-            <Box
-              sx={{
-                display: 'flex',
-                gap: 2,
-                width: '100%',
-                justifyContent: 'center',
-              }}
-            >
-              <ProfessionalButton
-                variant="outlined"
-                onClick={closeConfirm}
-                sx={{
-                  borderRadius: '50px',
-                  px: 3,
-                  borderColor: 'divider',
-                  color: 'text.primary',
-                  borderWidth: 2,
-                  '&:hover': {
-                    borderColor: accentColor,
-                    backgroundColor: 'transparent',
-                    color: accentColor,
-                  },
-                }}
-              >
-                Cancel
-              </ProfessionalButton>
-              <ProfessionalButton
-                variant="contained"
-                onClick={() =>
-                  confirmModal.user &&
-                  handleIndividualPrintConfirmed(confirmModal.user)
-                }
-                startIcon={<PrintIcon />}
-                sx={{
-                  borderRadius: '50px',
-                  px: 4,
-                  py: 1,
-                  backgroundColor: accentColor,
-                  boxShadow: `0 4px 14px 0 ${alpha(accentColor, 0.39)}`,
-                  color: textSecondaryColor,
-                  '&:hover': {
-                    backgroundColor: hoverColor,
-                    transform: 'translateY(-1px)',
-                  },
-                }}
-              >
-                Print
-              </ProfessionalButton>
-            </Box>
-          </DialogContent>
-        </Dialog>
-      </Box>
-
-      {/* ── Integrity Status Snackbar ────────────────────────────────────────── */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={5000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-          severity={snackbar.severity}
-          sx={{ width: '100%' }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-    </Container>
+                  <PrintIcon sx={{ fontSize: 36 }} />
+                </Box>
+                <Typography
+                  sx={{
+                    fontSize: '1rem',
+                    fontWeight: 700,
+                    mb: 0.5,
+                    color: T.text,
+                  }}
+                >
+                  {printStatusMap.has(confirmModal.user?.employeeNumber)
+                    ? 'Re-print DTR?'
+                    : 'Confirm Print Job'}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.82rem',
+                    color: T.muted,
+                    mb: 3,
+                    maxWidth: '85%',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {printStatusMap.has(confirmModal.user?.employeeNumber)
+                    ? 'This record was printed previously. Generate a new copy?'
+                    : 'Verify the details below before printing.'}
+                </Typography>
+                {confirmModal.user && (
+                  <Box
+                    sx={{
+                      width: '100%',
+                      border: `1.5px dashed ${T.accentBorder}`,
+                      bgcolor: T.accentFaint,
+                      borderRadius: 2,
+                      p: 2.5,
+                      mb: 3,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.88rem',
+                        fontWeight: 700,
+                        color: T.text,
+                        mb: 1,
+                      }}
+                    >
+                      {confirmModal.user.fullName ||
+                        `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
+                    </Typography>
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 3,
+                        bgcolor: T.accent,
+                        borderRadius: 2,
+                        mx: 'auto',
+                        mb: 1,
+                      }}
+                    />
+                    <Box
+                      sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}
+                    >
+                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                        #{confirmModal.user.employeeNumber}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>
+                        |
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                        {formatMonth(startDate)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+                <Box
+                  sx={{ display: 'flex', gap: 1.5, justifyContent: 'center' }}
+                >
+                  <AccentButton
+                    variant="outlined"
+                    onClick={closeConfirm}
+                    sx={{
+                      borderColor: T.accentBorder,
+                      color: T.muted,
+                      '&:hover': {
+                        borderColor: T.accent,
+                        color: T.accent,
+                        bgcolor: T.accentFaint,
+                      },
+                    }}
+                  >
+                    Cancel
+                  </AccentButton>
+                  <AccentButton
+                    variant="contained"
+                    onClick={() =>
+                      confirmModal.user &&
+                      handleIndividualPrintConfirmed(confirmModal.user)
+                    }
+                    startIcon={
+                      <PrintIcon sx={{ fontSize: '16px !important' }} />
+                    }
+                    sx={{
+                      bgcolor: T.accent,
+                      color: '#fff',
+                      boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
+                      '&:hover': { bgcolor: T.accentDark },
+                    }}
+                  >
+                    Print
+                  </AccentButton>
+                </Box>
+              </DialogContent>
+            </Dialog>
+          </Box>
+        </Fade>
+      )}
+    </>
   );
 };
 

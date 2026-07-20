@@ -80,6 +80,9 @@ import { getUserInfo } from '../utils/auth';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import { useSocket } from '../contexts/SocketContext';
+import {
+  buildDashboardAuditSentence,
+} from '../utils/dashboardAuditFormat';
 
 // Get auth headers function
 const getAuthHeaders = () => {
@@ -144,6 +147,146 @@ const useSystemSettings = () => {
 const SESSION_DURATION_DEFAULT = 10 * 60 * 1000; // 10 minutes (admin / superadmin)
 const SESSION_DURATION_TECHNICAL = 30 * 60 * 1000; // 30 minutes (technical)
 
+/** Home dashboard chart APIs — not real module visits; hide from audit trail. */
+const DASHBOARD_BACKGROUND_VIEW_TABLES = new Set([
+  'dashboard_stats',
+  'attendance_overview',
+  'department_distribution',
+  'leave_stats',
+  'recent_activities',
+  'payroll_summary',
+  'monthly_attendance',
+  'employee_growth',
+  'employee_stats',
+]);
+
+const shouldShowAuditLogEntry = (log) => {
+  const table = String(log?.table_name || '').toLowerCase();
+  if (table === 'leave_transaction') return false;
+  const action = String(log?.action || '').toLowerCase();
+  if (action === 'view' && DASHBOARD_BACKGROUND_VIEW_TABLES.has(table)) {
+    return false;
+  }
+  // Autocomplete typing against users API — not a real module action
+  if (table === 'users' && action.includes('search')) {
+    return false;
+  }
+  // Calendar data fetches (holidays / leaves / suspensions) — not user actions
+  if (
+    (table === 'holidays' || table === 'suspensions' || table === 'leaves') &&
+    action === 'view'
+  ) {
+    return false;
+  }
+  // Legacy attendance module fetch without button details
+  if (
+    table.includes('attendance module') &&
+    action.includes('viewed attendance records')
+  ) {
+    return false;
+  }
+  // Background overall row lookup (Non-Teaching / DTR persist) — not Summary search
+  if (
+    (table === 'attendance summary' || table.includes('attendance_summary')) &&
+    action.includes('search overall attendance record')
+  ) {
+    const details = log?.details_json;
+    if (!details) return false;
+    try {
+      const parsed =
+        typeof details === 'object' ? details : JSON.parse(details);
+      if (!parsed?.button) return false;
+    } catch {
+      return false;
+    }
+  }
+  // Legacy per-day device auto-save rows (replaced by one audit per fetch)
+  if (
+    table === 'attendance device' &&
+    (action.includes('auto-saved') || action.includes('auto-updated'))
+  ) {
+    const details = log?.details_json;
+    if (!details) return false;
+    try {
+      const parsed =
+        typeof details === 'object' ? details : JSON.parse(details);
+      if (!parsed?.button) return false;
+    } catch {
+      return false;
+    }
+  }
+  // Legacy Official Time API audits (replaced by button audits from Official Time UI)
+  if (table.includes('official time') || table.includes('official_time')) {
+    const details = log?.details_json;
+    let parsed = null;
+    if (details) {
+      try {
+        parsed = typeof details === 'object' ? details : JSON.parse(details);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed?.button) {
+      if (
+        action === 'view' ||
+        action.includes('add official') ||
+        action.includes('edit official')
+      ) {
+        return false;
+      }
+    }
+  }
+  // Incidental official-time GET while typing in DTR / other modules (not Official Time UI)
+  if (
+    (table.includes('official time') || table.includes('official_time')) &&
+    action === 'view'
+  ) {
+    const details = log?.details_json;
+    let parsed = null;
+    if (details) {
+      try {
+        parsed = typeof details === 'object' ? details : JSON.parse(details);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (parsed?.source === 'view-db') return false;
+    const targetEmp = String(
+      parsed?.employeeID ||
+        log?.targetEmployeeNumber ||
+        '',
+    ).trim();
+    if (targetEmp.length > 0 && targetEmp.length < 6) return false;
+  }
+  // Legacy Attendance State search (replaced by Fetch Records button audit)
+  if (table.includes('attendance state') && action.includes('searched attendance record state')) {
+    const details = log?.details_json;
+    let parsed = null;
+    if (details) {
+      try {
+        parsed = typeof details === 'object' ? details : JSON.parse(details);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed?.button) return false;
+  }
+  // Legacy per-row Attendance Modification saves (replaced by one save audit)
+  if (table.includes('attendance modification')) {
+    const details = log?.details_json;
+    let parsed = null;
+    if (details) {
+      try {
+        parsed = typeof details === 'object' ? details : JSON.parse(details);
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed?.button) return false;
+  }
+  return true;
+};
+
 const AuditLogs = () => {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
@@ -167,6 +310,7 @@ const AuditLogs = () => {
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
   const [auditPage, setAuditPage] = useState(1);
   const [expandedOfficialDetails, setExpandedOfficialDetails] = useState({});
+  const [resolvedEmployeeNames, setResolvedEmployeeNames] = useState({});
   const LOGS_PER_PAGE = 10;
   const logScrollRef = useRef(null);
 
@@ -189,6 +333,13 @@ const AuditLogs = () => {
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('audit-logs');
+
+  const canBypassPageAccess =
+    userRole === 'superadmin' || userRole === 'technical';
+  const canAdminAccessByPage =
+    (userRole === 'administrator' || userRole === 'admin') &&
+    hasAccess === true;
+  const canAccessAuditModule = canBypassPageAccess || canAdminAccessByPage;
   // ACCESSING END
 
   // Memoized styled components
@@ -408,6 +559,7 @@ const AuditLogs = () => {
     if (!socket || !isAuthenticated) return;
 
     const handleNewAuditLog = (newLog) => {
+      if (!shouldShowAuditLogEntry(newLog)) return;
       setAuditLogs((prev) => {
         if (prev.some((l) => l.id === newLog.id)) return prev;
         return [newLog, ...prev];
@@ -430,7 +582,10 @@ const AuditLogs = () => {
       );
 
       if (response.data && Array.isArray(response.data)) {
-        setAuditLogs(response.data);
+        // Avoid "double" entries: transaction_table messages are mirrored into audit_log
+        // under `leave_transaction`. Those are already visible in the Transaction Logs UIs,
+        // so we hide them in the Audit Logs page to keep one audit entry per action.
+        setAuditLogs(response.data.filter(shouldShowAuditLogEntry));
       } else {
         setAuditLogs([]);
       }
@@ -449,6 +604,93 @@ const AuditLogs = () => {
     }
   }, [isAuthenticated]);
 
+  const parseAuditDetailsSafe = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw !== 'string') return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const getActorEmployeeNumber = (log) => {
+    const details = parseAuditDetailsSafe(log?.details_json);
+    return details?.actor_employeeNumber || log?.employeeNumber || null;
+  };
+
+  const getTargetEmployeeNumber = (log) => {
+    const details = parseAuditDetailsSafe(log?.details_json);
+    const payload = details?.payload || {};
+    return (
+      details?.target_employeeNumber ||
+      payload?.employeeNumber ||
+      payload?.employee_number ||
+      log?.targetEmployeeNumber ||
+      null
+    );
+  };
+
+  const getResolvedEmployeeName = (employeeNumber) => {
+    if (!employeeNumber) return '';
+    const key = String(employeeNumber);
+    return resolvedEmployeeNames[key] || '';
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || !Array.isArray(auditLogs) || auditLogs.length === 0) {
+      return;
+    }
+
+    const employeeIds = new Set();
+    auditLogs.forEach((log) => {
+      const actorEmpNum = getActorEmployeeNumber(log);
+      const targetEmpNum = getTargetEmployeeNumber(log);
+      if (actorEmpNum) employeeIds.add(String(actorEmpNum));
+      if (targetEmpNum) employeeIds.add(String(targetEmpNum));
+    });
+
+    const unresolved = [...employeeIds].filter(
+      (id) => !resolvedEmployeeNames[id],
+    );
+    if (!unresolved.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const fetchedNames = {};
+      await Promise.all(
+        unresolved.map(async (empNum) => {
+          try {
+            const res = await axios.get(
+              `${API_BASE_URL}/personalinfo/person_table/${empNum}`,
+              getAuthHeaders(),
+            );
+            const firstName = res.data?.firstName || '';
+            const middleName = res.data?.middleName || '';
+            const lastName = res.data?.lastName || '';
+            const middleInitial = middleName ? `${middleName.charAt(0)}.` : '';
+            const formatted = `${lastName}, ${firstName} ${middleInitial}`
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (formatted) fetchedNames[empNum] = formatted;
+          } catch (e) {
+            // keep empty on failed lookup
+          }
+        }),
+      );
+
+      if (!cancelled && Object.keys(fetchedNames).length) {
+        setResolvedEmployeeNames((prev) => ({ ...prev, ...fetchedNames }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auditLogs, isAuthenticated]);
+
   useEffect(() => {
     setAuditPage(1);
     if (logScrollRef.current) {
@@ -463,6 +705,7 @@ const AuditLogs = () => {
     if (
       userRole &&
       userRole !== 'administrator' &&
+      userRole !== 'admin' &&
       userRole !== 'superadmin' &&
       userRole !== 'technical'
     ) {
@@ -472,11 +715,21 @@ const AuditLogs = () => {
     }
 
     if (employeeFilter) {
-      filtered = filtered.filter((log) =>
-        log.employeeNumber
-          ?.toLowerCase()
-          .includes(employeeFilter.toLowerCase()),
-      );
+      const q = employeeFilter.toLowerCase().trim();
+      if (q) {
+        filtered = filtered.filter((log) => {
+          const actorCol = String(log.employeeNumber || '').toLowerCase();
+          const targetCol = String(log.targetEmployeeNumber || '').toLowerCase();
+          if (actorCol.includes(q) || targetCol.includes(q)) return true;
+          const actorResolved = String(
+            getActorEmployeeNumber(log) || '',
+          ).toLowerCase();
+          const targetResolved = String(
+            getTargetEmployeeNumber(log) || '',
+          ).toLowerCase();
+          return actorResolved.includes(q) || targetResolved.includes(q);
+        });
+      }
     }
 
     if (actionFilter) {
@@ -582,6 +835,7 @@ const AuditLogs = () => {
     const a = action.toUpperCase();
     if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
       return '#ef4444';
+    if (a.includes('REJECT')) return '#b91c1c';
     if (['RESTORE', 'REVERS'].some((k) => a.includes(k))) return '#ec4899';
     if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k))) return '#f97316';
     if (a.includes('ASSIGN')) return '#6366f1';
@@ -601,6 +855,8 @@ const AuditLogs = () => {
     const a = action.toUpperCase();
     if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
       return <DeleteIcon sx={{ fontSize: 16 }} />;
+    if (a.includes('REJECT'))
+      return <CancelIcon sx={{ fontSize: 16 }} />;
     if (['RESTORE', 'REVERS'].some((k) => a.includes(k)))
       return <RefreshIcon sx={{ fontSize: 16 }} />;
     if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k)))
@@ -696,6 +952,10 @@ const AuditLogs = () => {
     UPDATE: ['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'],
     VIEW: ['VIEW', 'OPEN', 'READ'],
     CREATE: ['ADD', 'INSERT', 'CREATE', 'REGISTER'],
+    // Earnings audit actions (leave / SC / CTO) use full phrases like "approved service credit earnings"
+    APPROVED: ['APPROVE'],
+    APPLIED: ['APPLIED'],
+    REJECTED: ['REJECT'],
   };
 
   // Normalize first the action before putting on map
@@ -733,23 +993,642 @@ const AuditLogs = () => {
   // Format module name
   const formatModuleName = (tableName) => {
     if (!tableName) return '';
-    return tableName.toUpperCase().replace(/[\s\-]+/g, '_');
+    const t = String(tableName).toLowerCase();
+    if (t === 'earnings_sc') return 'Earnings — Service credits';
+    if (t === 'earnings_leave') return 'Earnings — Leave';
+    if (t === 'earnings_cto') return 'Earnings — CTO';
+    if (t === 'service_credit') return 'Service credits (ledger)';
+    return String(tableName).toUpperCase().replace(/[\s\-]+/g, '_');
+  };
+
+  const toSimpleName = (name) => {
+    const raw = String(name || '').trim();
+    if (!raw) return '';
+    if (raw.includes(',')) {
+      const [last, rest] = raw.split(',');
+      const firstToken = (rest || '').trim().split(/\s+/).filter(Boolean)[0] || '';
+      const lastToken = (last || '').trim();
+      return `${firstToken} ${lastToken}`.trim();
+    }
+    return raw;
+  };
+
+  const getLeaveTypeLabel = (code) => {
+    const c = String(code || '').trim().toUpperCase();
+    if (!c) return '';
+    const map = {
+      VL: 'Vacation Leave',
+      SL: 'Sick Leave',
+      SPL: 'Special Privilege Leave',
+      ML: 'Maternity Leave',
+      PL: 'Paternity Leave',
+      FL: 'Force Leave',
+    };
+    return map[c] || c;
+  };
+
+  const parseEarningsTxMessage = (message) => {
+    const raw = String(message || '').trim();
+    if (!raw) return null;
+    const lifecycleRx =
+      /^(.*?)\s+(created|approved|rejected|deleted)\s+(leave earnings|service credit earnings|CTO earnings)(?:\s+\(([-\d.]+)\s*hrs\))?(?:\s+\[([^\]]+)\])?(?:\s+for\s+(\d{4}-\d{2}))?\s+for\s+(.*?)$/i;
+    const deductionRx =
+      /^(.*?)\s+(applied)\s+(tardiness leave deduction|service credit balance deduction|CTO balance deduction)(?:\s+\(([-\d.]+)\s*hrs\))?(?:\s+\[([^\]]+)\])?(?:\s+for\s+(\d{4}-\d{2}))?\s+for\s+(.*?)(?:\.\s*Balance updated:.*)?$/i;
+    const m = raw.match(lifecycleRx) || raw.match(deductionRx);
+    if (!m) return null;
+    return {
+      actorRaw: m[1]?.trim() || '',
+      action: (m[2] || '').toLowerCase(),
+      earningType: (m[3] || '').toLowerCase(),
+      hours: m[4] != null ? Number(m[4]) : null,
+      leaveCode: m[5] ? String(m[5]).toUpperCase() : '',
+      period: m[6] || '',
+      targetRaw: m[7]?.trim() || '',
+    };
+  };
+
+  const getEarningsDisplayMeta = (log) => {
+    const details = parseAuditDetailsSafe(log?.details_json) || {};
+    const payload = details?.payload || {};
+    const txFromDetails =
+      typeof details.transaction_message === 'string'
+        ? details.transaction_message.trim()
+        : '';
+    const txParsed = parseEarningsTxMessage(
+      txFromDetails || log?.action || log?.message || '',
+    );
+
+    const actorEmp = getActorEmployeeNumber(log) || 'unknown';
+    const targetEmp = getTargetEmployeeNumber(log) || 'unknown';
+    const actorResolved = getResolvedEmployeeName(actorEmp);
+    const targetResolved = getResolvedEmployeeName(targetEmp);
+
+    const actorNameFromTx = txParsed?.actorRaw
+      ? txParsed.actorRaw.replace(/\(\s*\d+\s*\)\s*$/i, '').trim()
+      : '';
+    const targetNameFromTx = txParsed?.targetRaw
+      ? txParsed.targetRaw.replace(/\(\s*\d+\s*\)\s*$/i, '').trim()
+      : '';
+
+    const actorName = toSimpleName(actorResolved || actorNameFromTx);
+    const targetName = toSimpleName(targetResolved || targetNameFromTx);
+
+    const actionRaw = String(log?.action || '').toLowerCase();
+    const action =
+      txParsed?.action ||
+      (/\btardiness leave deduction\b/i.test(actionRaw)
+        ? 'applied'
+        : actionRaw.split(' ')[0]) ||
+      'updated';
+    const earningTypeRaw =
+      txParsed?.earningType ||
+      (/\btardiness leave deduction\b/i.test(actionRaw)
+        ? 'tardiness leave deduction'
+        : /\bservice credit balance deduction\b/i.test(actionRaw)
+          ? 'service credit balance deduction'
+          : /\bcto balance deduction\b/i.test(actionRaw)
+            ? 'CTO balance deduction'
+            : String(log?.table_name || '').toLowerCase().startsWith('earnings_')
+              ? `${String(log.table_name).replace(/^earnings_/i, '')} earnings`
+              : 'earnings');
+    const earningType = earningTypeRaw.toLowerCase();
+
+    const leaveCode = (
+      txParsed?.leaveCode ||
+      payload?.leave_code ||
+      ''
+    )
+      .toString()
+      .toUpperCase();
+
+    const periodRaw =
+      txParsed?.period ||
+      (payload?.period_year && payload?.period_month
+        ? `${payload.period_year}-${String(payload.period_month).padStart(2, '0')}`
+        : '');
+
+    const hoursRaw =
+      txParsed?.hours ??
+      payload?.earned_hours ??
+      payload?.earnedHrs ??
+      null;
+    const hours = Number(hoursRaw);
+
+    return {
+      action,
+      earningType,
+      leaveCode,
+      period: periodRaw,
+      hours: Number.isFinite(hours) ? hours : null,
+      actorName,
+      targetName,
+      actorEmp,
+      targetEmp,
+    };
+  };
+
+  const buildActionBadgeLabel = (log) => {
+    const table = String(log?.table_name || '').toLowerCase();
+    if (table === 'service_credit') {
+      const act = String(log?.action || '').trim().toLowerCase();
+      if (act === 'assigned') return 'ASSIGNED SERVICE CREDIT';
+      if (act === 'updated') return 'UPDATED SERVICE CREDIT';
+      if (act === 'deleted') return 'DELETED SERVICE CREDIT';
+      if (act.includes('applied action')) return 'APPLIED SERVICE CREDIT';
+      return `${String(log?.action || 'ACTIVITY').toUpperCase()} SERVICE CREDIT`;
+    }
+    if (table === 'cto_credit') {
+      const act = String(log?.action || '').trim().toLowerCase();
+      if (act === 'assigned') return 'ASSIGNED CTO';
+      if (act === 'updated') return 'UPDATED CTO';
+      if (act === 'deleted') return 'DELETED CTO';
+      return `${String(log?.action || 'ACTIVITY').toUpperCase()} CTO`;
+    }
+    const isEarningsLike =
+      table.startsWith('earnings_') ||
+      (table === 'leave_transaction' &&
+        /(?:leave|service credit|cto)\s+earnings/i.test(
+          String(log?.action || log?.message || ''),
+        ));
+    if (!isEarningsLike) return log.action?.toUpperCase() || 'UNKNOWN';
+
+    const actionRaw = String(log?.action || '').toLowerCase();
+    if (/\btardiness leave deduction\b/i.test(actionRaw)) {
+      const meta = getEarningsDisplayMeta(log);
+      const codePart = meta.leaveCode ? ` [${meta.leaveCode}]` : '';
+      return `APPLIED TARDINESS LEAVE DEDUCTION${codePart}`;
+    }
+    if (/\bservice credit balance deduction\b/i.test(actionRaw)) {
+      return 'APPLIED SERVICE CREDIT BALANCE DEDUCTION';
+    }
+    if (/\bcto balance deduction\b/i.test(actionRaw)) {
+      return 'APPLIED CTO BALANCE DEDUCTION';
+    }
+
+    const meta = getEarningsDisplayMeta(log);
+    const typeUpper = meta.earningType
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+    const codePart = meta.leaveCode ? ` (${meta.leaveCode})` : '';
+    return `${meta.action.toUpperCase()} ${typeUpper.toUpperCase()}${codePart}`;
   };
 
   // Build a clean readable sentence for each audit log entry
   const buildLogDescription = (log) => {
-    const actor = log.employeeNumber
-      ? `Employee #${log.employeeNumber}`
+    const detailsAny = parseAuditDetailsSafe(log?.details_json) || {};
+    const txMsgGlobal =
+      typeof detailsAny.transaction_message === 'string' &&
+      detailsAny.transaction_message.trim();
+    if (txMsgGlobal) return txMsgGlobal;
+
+    const tableNameLower = String(log?.table_name || '').toLowerCase();
+    if (detailsAny.module_type === 'dashboard') {
+      return buildDashboardAuditSentence(log);
+    }
+
+    const isEarningsModule = tableNameLower.startsWith('earnings_');
+    const isEarningsTransaction =
+      tableNameLower === 'leave_transaction' &&
+      /(?:leave|service credit|cto)\s+earnings/i.test(
+        String(log?.action || log?.message || ''),
+      );
+
+    if (isEarningsModule || isEarningsTransaction) {
+      const meta = getEarningsDisplayMeta(log);
+      const hoursText =
+        meta.hours !== null ? ` total of ${meta.hours} hours ` : ' ';
+      const periodText = meta.period ? ` for ${meta.period}` : '';
+
+      if (meta.earningType.includes('tardiness leave deduction')) {
+        const leaveLabel = meta.leaveCode ? getLeaveTypeLabel(meta.leaveCode) : '';
+        const codePart = meta.leaveCode ? ` [${meta.leaveCode}]` : '';
+        const hrsPart =
+          meta.hours !== null ? ` (${meta.hours} hrs)` : '';
+        return `${meta.actorName || `Employee #${meta.actorEmp}`} (${meta.actorEmp}) applied tardiness leave deduction${hrsPart}${codePart}${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`} (${meta.targetEmp}).`;
+      }
+
+      if (meta.earningType.includes('leave earnings') && meta.leaveCode) {
+        const leaveLabel = getLeaveTypeLabel(meta.leaveCode);
+        return `${meta.actorName || `Employee #${meta.actorEmp}`} ${meta.action} an earning${hoursText}for ${leaveLabel} (${meta.leaveCode})${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`}.`;
+      }
+
+      const typeLabel = meta.earningType
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      return `${meta.actorName || `Employee #${meta.actorEmp}`} ${meta.action} ${typeLabel}${hoursText}${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`}.`;
+    }
+
+    // Leave balance adjustments (show before/after balance)
+    const tableLower = String(log?.table_name || '').toLowerCase();
+    const actionLower = String(log?.action || '').toLowerCase();
+    if (tableLower === 'leave_assignment' && actionLower.includes('auto-adjust leave balance')) {
+      const actorEmpNum = getActorEmployeeNumber(log);
+      const targetEmpNum = getTargetEmployeeNumber(log);
+      const actorName = getResolvedEmployeeName(actorEmpNum);
+      const targetName = getResolvedEmployeeName(targetEmpNum);
+
+      const details = parseAuditDetailsSafe(log?.details_json) || {};
+      const beforeRem = Number(details?.before?.remaining_hours);
+      const afterRem = Number(details?.after?.remaining_hours);
+      const beforeUsed = Number(details?.before?.used_hours);
+      const afterUsed = Number(details?.after?.used_hours);
+      const leaveCode = String(details?.leave_code || '').toUpperCase();
+
+      const fmt = (n) => (Number.isFinite(n) ? n.toFixed(3) : '—');
+      const fmtDays = (n) =>
+        Number.isFinite(n) ? (n / 8).toFixed(3) : '—';
+
+      const who = actorEmpNum
+        ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
+        : 'Unknown user';
+      const target = targetEmpNum
+        ? `${targetName ? `${targetName} ` : ''}employee #${targetEmpNum}`
+        : 'employee';
+
+      const remLine = `Remaining${leaveCode ? ` [${leaveCode}]` : ''}: ${fmt(beforeRem)} → ${fmt(afterRem)} hrs (${fmtDays(beforeRem)} → ${fmtDays(afterRem)} day(s))`;
+      const usedLine = `Used: ${fmt(beforeUsed)} → ${fmt(afterUsed)} hrs`;
+
+      return `${who} adjusted ${target}'s leave balance. ${remLine}. ${usedLine}.`;
+    }
+
+    if (
+      tableLower === 'leave_transaction' &&
+      /hr leave (bulk )?approval (deduction|reversal)/i.test(actionLower)
+    ) {
+      const details = parseAuditDetailsSafe(log?.details_json) || {};
+      if (typeof details.transaction_message === 'string' && details.transaction_message.trim()) {
+        return details.transaction_message.trim();
+      }
+      const beforeH = Number(details.available_hours_before);
+      const afterH = Number(details.available_hours_after);
+      const chargeTo = String(details.charge_to || '').toUpperCase();
+      const hrs = Number(details.deducted_hours ?? details.restored_hours);
+      const fmt = (n) => (Number.isFinite(n) ? n.toFixed(3) : '—');
+      if (Number.isFinite(beforeH) && Number.isFinite(afterH)) {
+        return `${log.action}. ${chargeTo ? `[${chargeTo}] ` : ''}Balance: ${fmt(beforeH)} → ${fmt(afterH)} hrs${Number.isFinite(hrs) ? ` (${fmt(hrs)} hrs)` : ''}.`;
+      }
+    }
+
+    if (isEarningsModule) {
+      // fallback kept for safety; branch above handles earnings
+      return 'Earnings activity logged.';
+    }
+
+    const detailsWithButton = parseAuditDetailsSafe(log?.details_json) || {};
+    if (detailsWithButton.button) {
+      const actorEmpNum =
+        detailsWithButton.actor_employeeNumber || getActorEmployeeNumber(log);
+      const targetEmpNum =
+        detailsWithButton.target_employeeNumber || getTargetEmployeeNumber(log);
+      const actorName = getResolvedEmployeeName(actorEmpNum);
+      const isOfficialTimeModuleAudit =
+        detailsWithButton.audit_event === 'official_time_search' ||
+        detailsWithButton.audit_event === 'official_time_add' ||
+        detailsWithButton.audit_event === 'official_time_edit' ||
+        (String(log.table_name || '').toLowerCase().includes('official time') &&
+          /searched employee|added schedule|edited schedule/i.test(
+            String(detailsWithButton.button || ''),
+          ));
+
+      if (isOfficialTimeModuleAudit) {
+        const moduleLabel = log.table_name
+          ? formatModuleName(log.table_name)
+          : 'OFFICIAL_TIME';
+        const actor = actorEmpNum
+          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
+          : 'Unknown user';
+        const targetUser = String(
+          detailsWithButton.target_username ||
+            detailsWithButton.target_name ||
+            '',
+        ).trim();
+        const target = targetEmpNum
+          ? targetUser
+            ? `${targetUser} (#${targetEmpNum})`
+            : `(#${targetEmpNum})`
+          : targetUser || '—';
+        const parts = [];
+        if (detailsWithButton.changes_summary) {
+          parts.push(
+            detailsWithButton.audit_event === 'official_time_search'
+              ? detailsWithButton.changes_summary
+              : `Period: ${detailsWithButton.changes_summary}`,
+          );
+        } else if (Number.isFinite(Number(detailsWithButton.records_count))) {
+          parts.push(`${detailsWithButton.records_count} schedule(s)`);
+        }
+        if (detailsWithButton.month_label) {
+          parts.push(`Year: ${detailsWithButton.month_label}`);
+        }
+        const verb =
+          detailsWithButton.audit_event === 'official_time_add'
+            ? 'added official time for'
+            : detailsWithButton.audit_event === 'official_time_edit'
+              ? 'edited official time for'
+              : 'searched official time for';
+        return `${actor} ${verb} ${target} in ${moduleLabel}${parts.length ? ` · ${parts.join(' · ')}` : ''}`;
+      }
+
+      const isDtrOverallAudit =
+        detailsWithButton.audit_event === 'dtr_overall_search' ||
+        (String(log.table_name || '')
+          .toLowerCase()
+          .includes('daily time record (overall)') &&
+          String(detailsWithButton.button || '').toLowerCase() === 'search');
+
+      if (isDtrOverallAudit) {
+        const moduleLabel = log.table_name
+          ? formatModuleName(log.table_name)
+          : 'DAILY_TIME_RECORD_(OVERALL)';
+        const actor = actorEmpNum
+          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
+          : 'Unknown user';
+        const targetUser = String(
+          detailsWithButton.target_username ||
+            detailsWithButton.target_name ||
+            '',
+        ).trim();
+        const target = targetEmpNum
+          ? targetUser
+            ? `${targetUser} (#${targetEmpNum})`
+            : `(#${targetEmpNum})`
+          : targetUser || '—';
+        const coverage =
+          detailsWithButton.period_start && detailsWithButton.period_end
+            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
+            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
+        const parts = [];
+        if (coverage) parts.push(`Coverage: ${coverage}`);
+        if (detailsWithButton.month_label) {
+          parts.push(`Month: ${detailsWithButton.month_label}`);
+        }
+        const count = Number(detailsWithButton.records_count);
+        if (Number.isFinite(count)) parts.push(`${count} record(s)`);
+        return `${actor} searched DTR in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
+      }
+
+      const isStateAudit =
+        detailsWithButton.audit_event === 'state_view' ||
+        (String(log.table_name || '').toLowerCase().includes('attendance state') &&
+          /fetched records/i.test(String(detailsWithButton.button || '')));
+
+      if (isStateAudit) {
+        const moduleLabel = log.table_name
+          ? formatModuleName(log.table_name)
+          : 'ATTENDANCE_STATE';
+        const actor = actorEmpNum
+          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
+          : 'Unknown user';
+        const targetUser = String(
+          detailsWithButton.target_username ||
+            detailsWithButton.target_name ||
+            '',
+        ).trim();
+        const target = targetEmpNum
+          ? targetUser
+            ? `${targetUser} (#${targetEmpNum})`
+            : `(#${targetEmpNum})`
+          : targetUser || '—';
+        const coverage =
+          detailsWithButton.period_start && detailsWithButton.period_end
+            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
+            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
+        const parts = [];
+        if (coverage) parts.push(`Coverage: ${coverage}`);
+        if (detailsWithButton.month_label) {
+          parts.push(`Month: ${detailsWithButton.month_label}`);
+        }
+        const count = Number(detailsWithButton.records_count);
+        if (Number.isFinite(count)) parts.push(`${count} record(s)`);
+        return `${actor} fetched attendance state in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
+      }
+
+      const isModificationAudit =
+        detailsWithButton.audit_event === 'modification_view' ||
+        detailsWithButton.audit_event === 'modification_save' ||
+        (String(log.table_name || '')
+          .toLowerCase()
+          .includes('attendance modification') &&
+          (detailsWithButton.audit_event === 'modification_view' ||
+            detailsWithButton.audit_event === 'modification_save' ||
+            /loaded|saved changes/i.test(String(detailsWithButton.button || ''))));
+
+      if (isModificationAudit) {
+        const moduleLabel = log.table_name
+          ? formatModuleName(log.table_name)
+          : 'ATTENDANCE_MODIFICATION';
+        const actor = actorEmpNum
+          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
+          : 'Unknown user';
+        const targetUser = String(
+          detailsWithButton.target_username ||
+            detailsWithButton.target_name ||
+            '',
+        ).trim();
+        const target = targetEmpNum
+          ? targetUser
+            ? `${targetUser} (#${targetEmpNum})`
+            : `(#${targetEmpNum})`
+          : targetUser || '—';
+        const coverage =
+          detailsWithButton.period_start && detailsWithButton.period_end
+            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
+            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
+        const monthPart = detailsWithButton.month_label
+          ? `Month: ${detailsWithButton.month_label}`
+          : null;
+        const parts = [];
+        if (coverage) parts.push(`Coverage: ${coverage}`);
+        if (monthPart) parts.push(monthPart);
+
+        if (detailsWithButton.audit_event === 'modification_save') {
+          const rows = Number(detailsWithButton.rows_changed);
+          if (Number.isFinite(rows) && rows > 0) {
+            parts.push(`${rows} day(s) changed`);
+          }
+          if (detailsWithButton.changes_summary) {
+            parts.push(`Changes: ${detailsWithButton.changes_summary}`);
+          }
+          if (detailsWithButton.save_remarks) {
+            parts.push(`Reason: ${detailsWithButton.save_remarks}`);
+          }
+          return `${actor} saved attendance changes in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
+        }
+
+        const count = Number(detailsWithButton.records_count);
+        const countPart = Number.isFinite(count)
+          ? `${count} record(s)`
+          : null;
+        if (countPart) parts.push(countPart);
+        const viewLabel =
+          detailsWithButton.view_type === 'full_month'
+            ? 'full month'
+            : 'records';
+        return `${actor} loaded ${viewLabel} in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
+      }
+
+      const isHalfDayAudit =
+        detailsWithButton.audit_event === 'half_day_review' ||
+        detailsWithButton.half_day_date ||
+        /half\s*day/i.test(String(detailsWithButton.button || ''));
+
+      if (isHalfDayAudit) {
+        const formatAuditTimestamp = (iso) => {
+          if (!iso) return '';
+          const d = new Date(iso);
+          if (Number.isNaN(d.getTime())) return '';
+          const pad = (n) => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        };
+
+        const halfDayComputationLabels = {
+          NON_TEACHING: 'Non-Teaching',
+          DESIGNATED_40HRS: 'Faculty Designated',
+          FACULTY_30HRS: 'Faculty 30hrs',
+        };
+
+        const statusRaw = String(
+          detailsWithButton.half_day_status ||
+            (String(detailsWithButton.button || '').toLowerCase().includes('reject')
+              ? 'rejected'
+              : 'approved'),
+        ).toLowerCase();
+        const verb = statusRaw === 'rejected' ? 'rejected' : 'approved';
+        const statusLabel =
+          statusRaw === 'rejected'
+            ? 'Rejected'
+            : statusRaw === 'approved'
+              ? 'Approved'
+              : statusRaw
+                ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1)
+                : '—';
+
+        const moduleLabel = log.table_name
+          ? formatModuleName(log.table_name)
+          : 'ATTENDANCE_MODULE';
+
+        const actor = actorEmpNum
+          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
+          : 'Unknown user';
+
+        const targetUser = String(
+          detailsWithButton.target_username ||
+            detailsWithButton.target_name ||
+            '',
+        ).trim();
+        const target = targetEmpNum
+          ? targetUser
+            ? `${targetUser} (#${targetEmpNum})`
+            : `(#${targetEmpNum})`
+          : targetUser || '—';
+
+        const coverage =
+          detailsWithButton.period_start && detailsWithButton.period_end
+            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
+            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
+
+        const computation =
+          halfDayComputationLabels[detailsWithButton.computation_module_type] ||
+          detailsWithButton.computation_module_type ||
+          '—';
+
+        const detailParts = [];
+        if (coverage) detailParts.push(`Coverage: ${coverage}`);
+        if (detailsWithButton.half_day_date) {
+          detailParts.push(`Half-Day Date: ${detailsWithButton.half_day_date}`);
+        }
+        detailParts.push(`Status: ${statusLabel}`);
+        detailParts.push(`Computation: ${computation}`);
+        if (detailsWithButton.rendered_total) {
+          detailParts.push(`Rendered: ${detailsWithButton.rendered_total}`);
+        }
+        const deductionSrc = String(
+          detailsWithButton.deduction_source || '',
+        ).toLowerCase();
+        if (deductionSrc === 'earnings') {
+          detailParts.push('Deduction: Earnings (excluded from Total Tardiness)');
+        } else if (deductionSrc === 'attendance') {
+          detailParts.push('Deduction: Attendance (Late Total)');
+        }
+        if (detailsWithButton.tardiness_total) {
+          detailParts.push(`Tardiness: ${detailsWithButton.tardiness_total}`);
+        }
+        const whenText = formatAuditTimestamp(
+          detailsWithButton.when || log.timestamp,
+        );
+        if (whenText) detailParts.push(`Timestamp: ${whenText}`);
+
+        return `${actor} ${verb} Half Day in ${moduleLabel} for ${target} · ${detailParts.join(' · ')}`;
+      }
+
+      const button =
+        detailsWithButton.button || log.action || 'Unknown action';
+      const targetName =
+        detailsWithButton.target_name || getResolvedEmployeeName(targetEmpNum);
+      const month =
+        detailsWithButton.month_label ||
+        (detailsWithButton.period_start && detailsWithButton.period_end
+          ? `${detailsWithButton.period_start} – ${detailsWithButton.period_end}`
+          : log.record_id || '');
+      const searchQ = detailsWithButton.search_query
+        ? ` · query "${detailsWithButton.search_query}"`
+        : '';
+      const syncParts = [];
+      if (Number.isFinite(Number(detailsWithButton.records_loaded))) {
+        syncParts.push(`${detailsWithButton.records_loaded} loaded`);
+      }
+      if (Number(detailsWithButton.device_saved) > 0) {
+        syncParts.push(`${detailsWithButton.device_saved} saved`);
+      }
+      if (Number(detailsWithButton.device_updated) > 0) {
+        syncParts.push(`${detailsWithButton.device_updated} updated`);
+      }
+      if (Number.isFinite(Number(detailsWithButton.days_calculated))) {
+        syncParts.push(`${detailsWithButton.days_calculated} days calculated`);
+      }
+      if (detailsWithButton.total_late) {
+        syncParts.push(`late ${detailsWithButton.total_late}`);
+      }
+      const syncText = syncParts.length
+        ? ` · ${syncParts.join(', ')}`
+        : '';
+      const moduleLabel = log.table_name
+        ? formatModuleName(log.table_name)
+        : 'module';
+      const whenRaw = detailsWithButton.when || log.timestamp;
+      const whenTs = whenRaw ? new Date(whenRaw) : null;
+      const whenText =
+        whenTs && !isNaN(whenTs.getTime())
+          ? whenTs.toLocaleString()
+          : '';
+
+      const actor = actorEmpNum
+        ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
+        : 'Unknown user';
+      const target = targetEmpNum
+        ? `${targetName ? `${targetName} ` : ''}(#${targetEmpNum})`
+        : detailsWithButton.target_name || '—';
+
+      return `${actor} clicked "${button}" in ${moduleLabel} for ${target}${month ? ` · ${month}` : ''}${searchQ}${syncText}${whenText ? ` · ${whenText}` : ''}.`;
+    }
+
+    const actorEmpNum = getActorEmployeeNumber(log);
+    const targetEmpNum = getTargetEmployeeNumber(log);
+    const actorName = getResolvedEmployeeName(actorEmpNum);
+    const targetName = getResolvedEmployeeName(targetEmpNum);
+    const actor = actorEmpNum
+      ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
       : 'Unknown user';
     const action = log.action?.toLowerCase() || 'performed an action';
     const module = log.table_name
       ? formatModuleName(log.table_name)
       : 'the system';
-    const recordHint = log.record_id ? ` (Record #${log.record_id})` : '';
-    const targetHint = log.targetEmployeeNumber
-      ? ` on employee #${log.targetEmployeeNumber}`
+    const targetHint = targetEmpNum
+      ? ` on ${targetName ? `${targetName} ` : ''}employee #${targetEmpNum}`
       : '';
-    return `${actor} performed ${action} on ${module}${recordHint}${targetHint}.`;
+    return `${actor} performed ${action} on ${module}${targetHint}.`;
   };
 
   const isOfficialTimeModule = (tableName) => {
@@ -827,7 +1706,7 @@ const AuditLogs = () => {
   const bottomSpacerHeight = 0;
 
   // ACCESSING 2
-  if (accessLoading) {
+  if (accessLoading || userRole === null) {
     // Shimmer keyframe injected once via a <style> tag
     const shimmerCSS = `
       @keyframes auditShimmer {
@@ -1098,11 +1977,11 @@ const AuditLogs = () => {
       </Box>
     );
   }
-  if (!accessLoading && hasAccess !== true) {
+  if (userRole && !accessLoading && !canAccessAuditModule) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access PhilHealth Table. Contact your administrator to request access."
+        message="Only superadmin and technical roles can open this page by default. Administrator access requires explicit page access permission."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
@@ -1330,8 +2209,8 @@ const AuditLogs = () => {
 
   const isAdmin =
     userRole === 'administrator' ||
-    userRole === 'superadmin' ||
-    userRole === 'technical';
+    userRole === 'admin' ||
+    canBypassPageAccess;
   const pageTitle = isAdmin ? 'Audit Trail (All Users)' : 'My Activity Log';
 
   return (
@@ -1945,6 +2824,12 @@ const AuditLogs = () => {
                           ? `${ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
                           : null;
 
+                      const actorEmpNum = getActorEmployeeNumber(log);
+                      const targetEmpNum = getTargetEmployeeNumber(log);
+                      const actorName =
+                        log.actorName || getResolvedEmployeeName(actorEmpNum);
+                      const targetName =
+                        log.targetName || getResolvedEmployeeName(targetEmpNum);
                       const description = buildLogDescription(log);
 
                       return (
@@ -1998,7 +2883,7 @@ const AuditLogs = () => {
                                   lineHeight: 1,
                                 }}
                               >
-                                {log.action?.toUpperCase() || 'UNKNOWN'}
+                                {buildActionBadgeLabel(log)}
                               </Typography>
                             </Box>
                             {timeLabel && (
@@ -2031,7 +2916,7 @@ const AuditLogs = () => {
                               flexWrap: 'wrap',
                             }}
                           >
-                            {log.employeeNumber && (
+                            {actorEmpNum && (
                               <Box
                                 sx={{
                                   display: 'flex',
@@ -2066,7 +2951,7 @@ const AuditLogs = () => {
                                   >
                                     PERFORMED BY
                                   </Typography>
-                                  {log.actorName && (
+                                  {actorName && (
                                     <Typography
                                       sx={{
                                         fontSize: '0.82rem',
@@ -2076,7 +2961,7 @@ const AuditLogs = () => {
                                         lineHeight: 1.2,
                                       }}
                                     >
-                                      {log.actorName}
+                                      {actorName}
                                     </Typography>
                                   )}
                                   <Typography
@@ -2084,16 +2969,16 @@ const AuditLogs = () => {
                                       fontSize: '0.68rem',
                                       color: '#888',
                                       lineHeight: 1,
-                                      mt: log.actorName ? 0.2 : 0,
+                                      mt: actorName ? 0.2 : 0,
                                     }}
                                   >
-                                    #{log.employeeNumber}
+                                    #{actorEmpNum}
                                   </Typography>
                                 </Box>
                               </Box>
                             )}
 
-                            {log.targetEmployeeNumber && (
+                            {targetEmpNum && (
                               <Box
                                 sx={{
                                   display: 'flex',
@@ -2123,7 +3008,7 @@ const AuditLogs = () => {
                                   >
                                     EMPLOYEE
                                   </Typography>
-                                  {log.targetName && (
+                                  {targetName && (
                                     <Typography
                                       sx={{
                                         fontSize: '0.82rem',
@@ -2132,7 +3017,7 @@ const AuditLogs = () => {
                                         lineHeight: 1.2,
                                       }}
                                     >
-                                      {log.targetName}
+                                      {targetName}
                                     </Typography>
                                   )}
                                   <Typography
@@ -2140,10 +3025,10 @@ const AuditLogs = () => {
                                       fontSize: '0.68rem',
                                       color: '#888',
                                       lineHeight: 1,
-                                      mt: log.targetName ? 0.2 : 0,
+                                      mt: targetName ? 0.2 : 0,
                                     }}
                                   >
-                                    #{log.targetEmployeeNumber}
+                                    #{targetEmpNum}
                                   </Typography>
                                 </Box>
                               </Box>

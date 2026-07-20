@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, requireSuperAdmin, requireSelfOrAdmin } = require('../middleware/auth');
 const transporter = require('../config/email');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
@@ -51,7 +51,7 @@ router.get('/email-domain-restriction', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update email domain restriction setting
-router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
+router.put('/email-domain-restriction', authenticateToken, requireSuperAdmin, async (req, res) => {
   const { value } = req.body;
 
   if (typeof value !== 'boolean') {
@@ -99,7 +99,7 @@ router.put('/email-domain-restriction', authenticateToken, async (req, res) => {
 // --- NEW: Send Registration Emails Setting ---
 
 // PUT: Update send registration emails setting (DEBUG VERSION)
-router.put('/send-registration-emails', authenticateToken, async (req, res) => {
+router.put('/send-registration-emails', authenticateToken, requireAdmin, async (req, res) => {
   const { value } = req.body;
 
   console.log('--- DEBUG: Received Request ---');
@@ -164,7 +164,7 @@ router.put('/send-registration-emails', authenticateToken, async (req, res) => {
 });
 
 // POST: Broadcast Login Info ONLY to users with Default Password (Last Name)
-router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
+router.post('/broadcast-login-info', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     // Fetch all users. We need their password hash and last name to compare.
     const query = `
@@ -308,7 +308,7 @@ router.post('/broadcast-login-info', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update send registration emails setting
-router.put('/send-registration-emails', authenticateToken, async (req, res) => {
+router.put('/send-registration-emails', authenticateToken, requireAdmin, async (req, res) => {
   const { value } = req.body;
 
   if (typeof value !== 'boolean') {
@@ -569,7 +569,7 @@ router.post('/register', async (req, res) => {
                     }
 
                     // Grant default page access for staff role
-                   const grantDefaultAccessQuery = `
+                    const grantDefaultAccessQuery = `
   SELECT id FROM pages WHERE FIND_IN_SET('staff', REPLACE(page_group, ' ', ''))
 `;
                     db.query(
@@ -599,8 +599,7 @@ router.post('/register', async (req, res) => {
                       },
                     );
 
-                    // ✅ SEND EMAIL WITH CREDENTIALS (NULL-safe label)
-                    const categoryLabel = getCategoryLabel(empCatValue);
+                    // ✅ SEND EMAIL WITH CREDENTIALS
 
                     try {
                       await transporter.sendMail({
@@ -632,71 +631,67 @@ router.post('/register', async (req, res) => {
                             .credential-value { font-size: 15px; color: #2c3e50; font-weight: 500; }
                             .credential-value.highlight { background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700; }
                             .credential-value.empnum { font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700; }
+                            .note-box { background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px; }
+                            .note-box p { font-size: 13px; color: #555555; margin: 0; line-height: 1.6; }
+                            .note-box strong { color: #6d2323; }
+                            .action-section { text-align: center; margin: 30px 0 25px; }
+                            .action-button { display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25); }
+                            .support-text { font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee; }
+                            .email-footer { background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center; }
+                            .footer-text { font-size: 12px; color: #f5e6e6; margin: 5px 0; }
+                            @media only screen and (max-width: 600px) { .email-wrapper { padding: 20px 10px; } .email-body { padding: 25px 20px; } .email-header h1 { font-size: 22px; } .credentials-box { padding: 20px; } }
                           </style>
                           </head>
-                          <body>
-                            <div class="email-wrapper">
-                              <div class="email-container">
-                                <div class="email-header">
-                                  <h1>Welcome to EARIST HRIS</h1>
+                          <body style="margin: 0; padding: 0; background-color: #f4f4f4; color: #333333; line-height: 1.6;">
+                            <div class="email-wrapper" style="width: 100%; background-color: #f4f4f4; padding: 30px 15px;">
+                              <div class="email-container" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                                <div class="email-header" style="background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 30px; text-align: center;">
+                                  <h1 style="color: #ffffff; font-size: 24px; font-weight: 600; margin: 0;">Welcome to EARIST HRIS</h1>
                                 </div>
-                                <div class="email-body">
-                                  <p class="greeting">Hello <strong>${fullName}</strong>,</p>
-                                  <p class="intro-text">
+                                <div class="email-body" style="padding: 35px 30px;">
+                                  <p class="greeting" style="font-size: 15px; color: #333333; margin-bottom: 15px;">Hello <strong style="color: #6d2323;">${fullName}</strong>,</p>
+                                  <p class="intro-text" style="font-size: 14px; color: #555555; margin-bottom: 25px; line-height: 1.7;">
                                     Your account has been created. Below are your login credentials.
                                   </p>
 
-                                  <div class="credentials-box">
-                                    <div class="credential-row">
-                                      <div class="credential-label">Employee Number</div>
-                                      <div class="credential-value empnum">${employeeNumber}</div>
+                                  <div class="credentials-box" style="background: #fafafa; border: 2px solid #f5e6e6; border-radius: 6px; padding: 25px; margin: 25px 0;">
+                                    <div class="credential-row" style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee;">
+                                      <div class="credential-label" style="font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px;">Employee Number</div>
+                                      <div class="credential-value empnum" style="font-family: 'Courier New', Courier, monospace; font-size: 16px; color: #6d2323; font-weight: 700;">${employeeNumber}</div>
                                     </div>
-                                    <div class="credential-row">
-                                      <div class="credential-label">Password</div>
-                                      <div class="credential-value highlight">${password}</div>
+                                    <div class="credential-row" style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eeeeee;">
+                                      <div class="credential-label" style="font-size: 12px; color: #6d2323; font-weight: 600; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 0.5px;">Password</div>
+                                      <div class="credential-value highlight" style="background: #fff8e1; padding: 10px 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; font-size: 16px; letter-spacing: 1px; color: #856404; border: 2px solid #ffc107; display: inline-block; margin-top: 5px; font-weight: 700;">${password}</div>
+                                      <div style="font-size: 12px; color: #6b7280; margin-top: 8px; line-height: 1.5;">
+                                        
+                                      </div>
                                     </div>
                                   </div>
-<<<<<<< HEAD
-                                </div>
-                                <div class="credential-row">
-                                  <div class="credential-label">Employment Type</div>
-                                  <div class="credential-value">${categoryLabel}</div>
-=======
 
-                                  <p class="intro-text">
-                                    Please change your password after logging in.
+                                  <div class="note-box" style="background: #fff8e1; border-left: 4px solid #6d2323; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
+                                    <p style="font-size: 13px; color: #555555; margin: 0; line-height: 1.6;">
+                                      <strong>Important:</strong> Change your password after signing in.
+                                      Never share your login details with anyone.
+                                    </p>
+                                  </div>
+
+                                  <div class="action-section" style="text-align: center; margin: 30px 0 25px;">
+                                    <a href="${process.env.FRONTEND_URL || 'http://localhost:5137'}" class="action-button" style="display: inline-block; background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); color: #ffffff !important; padding: 14px 40px; text-decoration: none; border-radius: 5px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 12px rgba(109, 35, 35, 0.25);">
+                                      LOGIN NOW
+                                    </a>
+                                  </div>
+
+                                  <p class="support-text" style="font-size: 13px; color: #777777; text-align: center; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eeeeee;">
+                                    Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
                                   </p>
->>>>>>> 3dc75ae7938388e2db808a80a23cefa6412b2fa8
+                                </div>
+
+                                <div class="email-footer" style="background: linear-gradient(135deg, #6d2323 0%, #8a4747 100%); padding: 25px; text-align: center;">
+                                  <p class="footer-text" style="font-size: 12px; color: #f5e6e6; margin: 5px 0;">Human Resources Information System</p>
+                                  <p class="footer-text" style="font-size: 12px; color: #f5e6e6; margin: 5px 0;">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
                                 </div>
                               </div>
-                              <!-- Security Note -->
-                              <div class="note-box">
-                                <p>
-                                  <strong>Important:</strong> Change your password after signing in. 
-                                  Never share your login details with anyone.
-                                </p>
-                              </div>
-                              <!-- Login Button -->
-                              <div class="action-section">
-                                <a href="${
-                                  process.env.API_BASE_URL ||
-                                  'http://localhost:5137'
-                                }" class="action-button">
-                                  LOGIN NOW
-                                </a>
-                              </div>
-                              <!-- Support -->
-                              <p class="support-text">
-                                Need help? Contact HR Department during office hours or send a message to earisthrmstesting@gmail.com
-                              </p>
                             </div>
-                            <!-- Footer -->
-                            <div class="email-footer">
-                              <p class="footer-text">Human Resources Information System</p>
-                              <p class="footer-text">© ${new Date().getFullYear()} Eulogio "Amang" Rodriguez Institute of Science and Technology. All rights reserved.</p>
-                            </div>
-                          </div>
-                        </div>
                       </body>
                       </html>
                     `,
@@ -727,7 +722,7 @@ router.post('/register', async (req, res) => {
 });
 
 // BULK REGISTER WITH EMAIL (Updated logic with email domain validation and EMAIL SENDING TOGGLE)
-router.post('/excel-register', async (req, res) => {
+router.post('/excel-register', authenticateToken, requireAdmin, async (req, res) => {
   const { users } = req.body;
 
   if (!Array.isArray(users) || users.length === 0) {
@@ -1002,7 +997,7 @@ router.post('/excel-register', async (req, res) => {
 
                         handleEmploymentCategoryTable(() => {
                           // Grant default page access for staff role
-          const grantDefaultAccessQuery = `
+                          const grantDefaultAccessQuery = `
   SELECT id FROM pages WHERE FIND_IN_SET('staff', REPLACE(page_group, ' ', ''))
 `;
 
@@ -1101,7 +1096,7 @@ router.post('/excel-register', async (req, res) => {
 });
 
 // GET ALL REGISTERED USERS WITH PAGE ACCESS AND DEPARTMENT
-router.get('/users', authenticateToken, async (req, res) => {
+router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const query = `
       SELECT 
@@ -1187,7 +1182,7 @@ router.get('/users', authenticateToken, async (req, res) => {
 
 // GET: Search users for password reset (with filtering)
 // NOTE: This route must come BEFORE /users/:employeeNumber to avoid route conflicts
-router.get('/users/search', authenticateToken, (req, res) => {
+router.get('/users/search', authenticateToken, requireAdmin, (req, res) => {
   const { q } = req.query; // Search query parameter
 
   try {
@@ -1235,13 +1230,6 @@ router.get('/users/search', authenticateToken, (req, res) => {
         return res.status(500).json({ error: 'Failed to search users' });
       }
 
-      // Log audit
-      try {
-        logAudit(req.user, 'Search', 'users', null, null);
-      } catch (e) {
-        console.error('Audit log error:', e);
-      }
-
       res.status(200).json(results);
     });
   } catch (err) {
@@ -1250,8 +1238,55 @@ router.get('/users/search', authenticateToken, (req, res) => {
   }
 });
 
+// POST: Module-scoped employee search audit (on select, not autocomplete typing)
+router.post(
+  '/users/module-employee-search-audit',
+  authenticateToken,
+  (req, res) => {
+    const {
+      module,
+      action = 'Select employee',
+      targetEmployeeNumber,
+      targetName,
+      searchQuery,
+      periodLabel,
+    } = req.body || {};
+
+    if (!module || !targetEmployeeNumber) {
+      return res
+        .status(400)
+        .json({ error: 'module and targetEmployeeNumber are required' });
+    }
+
+    try {
+      const details = {
+        button: action,
+        actor_employeeNumber: req.user?.employeeNumber ?? null,
+        target_employeeNumber: String(targetEmployeeNumber),
+        target_name: targetName || null,
+        search_query: searchQuery || null,
+        month_label: periodLabel || null,
+        when: new Date().toISOString(),
+      };
+
+      logAudit(
+        req.user,
+        action,
+        String(module),
+        searchQuery || null,
+        String(targetEmployeeNumber),
+        details,
+      );
+    } catch (e) {
+      console.error('Module employee search audit error:', e);
+    }
+
+    res.json({ ok: true });
+  },
+);
+
 // GET SINGLE USER WITH PAGE ACCESS
-router.get('/users/:employeeNumber', authenticateToken, async (req, res) => {
+router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), async (req, res) => {
   const { employeeNumber } = req.params;
 
   try {
@@ -1322,7 +1357,7 @@ router.get('/users/:employeeNumber', authenticateToken, async (req, res) => {
 });
 
 // PUT: Update user role
-router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
+router.put('/users/:employeeNumber/role', authenticateToken, requireSuperAdmin, (req, res) => {
   const { employeeNumber } = req.params;
   const { role } = req.body;
 
@@ -1426,7 +1461,7 @@ router.put('/users/:employeeNumber/role', authenticateToken, (req, res) => {
 });
 
 // POST: Reset password to surname and send email notification
-router.post('/users/reset-password', authenticateToken, async (req, res) => {
+router.post('/users/reset-password', authenticateToken, requireAdmin, async (req, res) => {
   const { employeeNumber } = req.body;
 
   if (!employeeNumber) {
@@ -1626,6 +1661,7 @@ router.post('/users/reset-password', authenticateToken, async (req, res) => {
 router.put(
   '/users/:employeeNumber/employee-number',
   authenticateToken,
+  requireSuperAdmin,
   (req, res) => {
     const { employeeNumber } = req.params;
     const { newEmployeeNumber } = req.body;
@@ -1810,7 +1846,7 @@ router.put(
 );
 
 // PUT: Update user email (admin)
-router.put('/users/:employeeNumber/email', authenticateToken, (req, res) => {
+router.put('/users/:employeeNumber/email', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber } = req.params;
   const { email } = req.body;
 
@@ -1855,7 +1891,7 @@ router.put('/users/:employeeNumber/email', authenticateToken, (req, res) => {
 });
 
 // DELETE: Delete user
-router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
+router.delete('/users/:employeeNumber', authenticateToken, requireSuperAdmin, (req, res) => {
   const { employeeNumber } = req.params;
 
   if (!employeeNumber) {
@@ -1993,6 +2029,7 @@ router.delete('/users/:employeeNumber', authenticateToken, (req, res) => {
 router.post(
   '/users/grant-default-access',
   authenticateToken,
+  requireSuperAdmin,
   async (req, res) => {
     try {
       // Get all staff users
@@ -2012,7 +2049,7 @@ router.post(
         }
 
         // Get default pages for staff
-const getDefaultPagesQuery = `
+        const getDefaultPagesQuery = `
   SELECT id FROM pages 
   WHERE page_url IN ('home', 'admin-home', 'attendance-user-state', 'daily-time-record', 'payslip', 'pds1', 'pds2', 'pds3', 'pds4', 'settings') 
   OR component_identifier IN ('HomeEmployee', 'HomeAdmin', 'AttendanceUserState', 'DailyTimeRecord', 'Payslip', 'PDS1', 'PDS2', 'PDS3', 'PDS4', 'Settings', 'attendance-user-state', 'daily-time-record', 'daily-time-record-honorarium', 'daily-time-record-service-credits', 'daily-time-record-overtime')
@@ -2084,6 +2121,7 @@ const getDefaultPagesQuery = `
 router.post(
   '/users/grant-default-access-administrator',
   authenticateToken,
+  requireSuperAdmin,
   async (req, res) => {
     try {
       // Get all administrator users
@@ -2180,70 +2218,89 @@ router.post(
   },
 );
 
-
 //UNIFIED GRANT END POINTS
-router.post('/users/grant-role-access/:role', authenticateToken, async (req, res) => {
-  const { role } = req.params;
+router.post(
+  '/users/grant-role-access/:role',
+  authenticateToken,
+  requireSuperAdmin,
+  async (req, res) => {
+    const { role } = req.params;
 
-  const validRoles = ['staff', 'administrator', 'superadmin'];
-  if (!validRoles.includes(role)) {
-    return res.status(400).json({ error: 'Invalid role' });
-  }
+    const validRoles = ['staff', 'administrator', 'superadmin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
 
-  try {
-    db.query('SELECT employeeNumber FROM users WHERE role = ?', [role], (err, users) => {
-      if (err) return res.status(500).json({ error: 'Failed to fetch users' });
-
-      if (users.length === 0) {
-        return res.status(200).json({ message: `No ${role} users found`, usersProcessed: 0, pagesGranted: 0 });
-      }
-
-      // Read directly from pages table using page_group — driven by Page Management
+    try {
       db.query(
-        `SELECT id FROM pages WHERE FIND_IN_SET(?, REPLACE(page_group, ' ', ''))`,
+        'SELECT employeeNumber FROM users WHERE role = ?',
         [role],
-        (pagesErr, pages) => {
-          if (pagesErr) return res.status(500).json({ error: 'Failed to fetch pages' });
+        (err, users) => {
+          if (err)
+            return res.status(500).json({ error: 'Failed to fetch users' });
 
-          if (pages.length === 0) {
-            return res.status(404).json({
-              error: `No pages configured for role "${role}". Go to Page Management and set the Access Groups on each page.`
-            });
+          if (users.length === 0) {
+            return res
+              .status(200)
+              .json({
+                message: `No ${role} users found`,
+                usersProcessed: 0,
+                pagesGranted: 0,
+              });
           }
 
-          let processed = 0;
-          let failed = 0;
-          const total = users.length * pages.length;
+          // Read directly from pages table using page_group — driven by Page Management
+          db.query(
+            `SELECT id FROM pages WHERE FIND_IN_SET(?, REPLACE(page_group, ' ', ''))`,
+            [role],
+            (pagesErr, pages) => {
+              if (pagesErr)
+                return res.status(500).json({ error: 'Failed to fetch pages' });
 
-          users.forEach((user) => {
-            pages.forEach((page) => {
-              db.query(
-                `INSERT INTO page_access (employeeNumber, page_id, page_privilege)
+              if (pages.length === 0) {
+                return res.status(404).json({
+                  error: `No pages configured for role "${role}". Go to Page Management and set the Access Groups on each page.`,
+                });
+              }
+
+              let processed = 0;
+              let failed = 0;
+              const total = users.length * pages.length;
+
+              users.forEach((user) => {
+                pages.forEach((page) => {
+                  db.query(
+                    `INSERT INTO page_access (employeeNumber, page_id, page_privilege)
                  VALUES (?, ?, '1')
                  ON DUPLICATE KEY UPDATE page_privilege = '1'`,
-                [user.employeeNumber, page.id],
-                (err) => {
-                  if (err) { failed++; } else { processed++; }
-                  if (processed + failed === total) {
-                    res.status(200).json({
-                      message: `Access granted for ${role}`,
-                      usersProcessed: users.length,
-                      pagesGranted: pages.length,
-                      success: processed,
-                      failed,
-                    });
-                  }
-                }
-              );
-            });
-          });
-        }
+                    [user.employeeNumber, page.id],
+                    (err) => {
+                      if (err) {
+                        failed++;
+                      } else {
+                        processed++;
+                      }
+                      if (processed + failed === total) {
+                        res.status(200).json({
+                          message: `Access granted for ${role}`,
+                          usersProcessed: users.length,
+                          pagesGranted: pages.length,
+                          success: processed,
+                          failed,
+                        });
+                      }
+                    },
+                  );
+                });
+              });
+            },
+          );
+        },
       );
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  },
+);
 
 module.exports = router;

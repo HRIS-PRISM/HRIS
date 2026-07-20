@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import io from 'socket.io-client';
 import API_BASE_URL from '../apiConfig';
 
@@ -15,6 +15,11 @@ export function SocketProvider({ children }) {
   const [error, setError] = useState(null);
 
   const initializeSocket = useCallback(() => {
+    const publicPaths = ['/', '/register', '/forgot-password', '/reset-password'];
+    if (publicPaths.includes(window.location.pathname)) {
+      return null;
+    }
+
     const token = localStorage.getItem('token');
     
     if (!token) {
@@ -100,12 +105,15 @@ export function SocketProvider({ children }) {
     return () => clearInterval(pingInterval);
   }, [socket, connected]);
 
-  const value = {
-    socket,
-    connected,
-    error,
-    reconnect: initializeSocket,
-  };
+  const value = useMemo(
+    () => ({
+      socket,
+      connected,
+      error,
+      reconnect: initializeSocket,
+    }),
+    [socket, connected, error, initializeSocket],
+  );
 
   return (
     <SocketContext.Provider value={value}>

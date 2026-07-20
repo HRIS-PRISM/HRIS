@@ -14,7 +14,7 @@ function initializeSocket(server) {
     'http://192.168.50.36:5137',
     'http://192.168.50.45:5137',
     'http://136.239.248.42:5137',
-    'http://192.168.50.97:5137',
+    'http://192.168.50.55:5137',
   ];
 
   function isOriginAllowed(origin) {
@@ -53,7 +53,7 @@ function initializeSocket(server) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
       socket.userId = decoded.employeeNumber;
       socket.userRole = decoded.role;
       socket.username = decoded.username;

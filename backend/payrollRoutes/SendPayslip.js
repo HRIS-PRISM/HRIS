@@ -5,13 +5,13 @@ const nodemailer = require('nodemailer');
 const multer = require('multer');
 require('dotenv').config();
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin } = require('../middleware/auth');
 
 // Configure multer for handling file uploads
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ✅ GET all users
-router.get('/users', authenticateToken, (req, res) => {
+router.get('/users', authenticateToken, requireAdmin, (req, res) => {
   const sql = 'SELECT username AS name, email, employeeNumber FROM users';
   db.query(sql, (err, results) => {
     if (err) return res.status(500).json({ error: err });
@@ -33,6 +33,7 @@ router.get('/test', (req, res) => {
 router.post(
   '/send-payslip',
   authenticateToken,
+  requireAdmin,
   upload.single('pdf'),
   async (req, res) => {
     try {
@@ -126,6 +127,7 @@ router.post(
 router.post(
   '/send-bulk',
   authenticateToken,
+  requireAdmin,
   upload.array('pdfs'),
   async (req, res) => {
     try {

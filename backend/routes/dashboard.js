@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 
 // GET Dashboard Statistics
 router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
@@ -59,9 +59,6 @@ router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       ]);
     stats.recentAnnouncements = announcements[0].total;
 
-    // Log audit
-    logAudit(req.user, 'View', 'dashboard_stats', null, null);
-
     res.json(stats);
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
@@ -75,32 +72,49 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const { days = 7 } = req.query; // Default to 7 days
-      const data = [];
+      const dayCount = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = new Date();
+      start.setDate(start.getDate() - (dayCount - 1));
+      start.setHours(0, 0, 0, 0);
 
-      for (let i = parseInt(days) - 1; i >= 0; i--) {
+      const rangeStartMs = start.getTime();
+      const rangeEndMs = end.getTime();
+
+      const [rows] = await db.promise().query(
+        `SELECT DATE(FROM_UNIXTIME(AttendanceDateTime/1000)) AS punchDate,
+                COUNT(DISTINCT PersonID) AS count
+         FROM attendancerecordinfo
+         WHERE AttendanceState = 1
+           AND AttendanceDateTime BETWEEN ? AND ?
+         GROUP BY punchDate`,
+        [rangeStartMs, rangeEndMs],
+      );
+
+      const countByDate = new Map(
+        (rows || []).map((r) => {
+          const d =
+            r.punchDate instanceof Date
+              ? r.punchDate.toISOString().slice(0, 10)
+              : String(r.punchDate).slice(0, 10);
+          return [d, Number(r.count) || 0];
+        }),
+      );
+
+      const data = [];
+      for (let i = dayCount - 1; i >= 0; i--) {
         const date = new Date();
+        date.setHours(12, 0, 0, 0);
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-
-        const dayStart = new Date(dateStr).getTime();
-        const dayEnd = dayStart + 24 * 60 * 60 * 1000;
-
-        const [result] = await db
-          .promise()
-          .query(
-            'SELECT COUNT(DISTINCT PersonID) as count FROM attendancerecordinfo WHERE AttendanceState = 1 AND AttendanceDateTime BETWEEN ? AND ?',
-            [dayStart, dayEnd]
-          );
-
         data.push({
           date: dateStr,
           day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-          present: result[0].count,
+          present: countByDate.get(dateStr) || 0,
         });
       }
 
-      logAudit(req.user, 'View', 'attendance_overview', null, null);
       res.json(data);
     } catch (error) {
       console.error('Error fetching attendance overview:', error);
@@ -126,7 +140,6 @@ router.get(
       ORDER BY employeeCount DESC
     `);
 
-      logAudit(req.user, 'View', 'department_distribution', null, null);
       res.json(results);
     } catch (error) {
       console.error('Error fetching department distribution:', error);
@@ -168,7 +181,6 @@ router.get('/api/dashboard/leave-stats', authenticateToken, async (req, res) => 
         (rejected[0]?.count || 0),
     };
 
-    logAudit(req.user, 'View', 'leave_stats', null, null);
     res.json(stats);
   } catch (error) {
     console.error('Error fetching leave stats:', error);
@@ -200,7 +212,6 @@ router.get(
         [parseInt(limit)]
       );
 
-      logAudit(req.user, 'View', 'recent_activities', null, null);
       res.json(activities);
     } catch (error) {
       console.error('Error fetching recent activities:', error);
@@ -241,7 +252,6 @@ router.get(
         latestPeriod: latestPayroll[0] || null,
       };
 
-      logAudit(req.user, 'View', 'payroll_summary', null, null);
       res.json(summary);
     } catch (error) {
       console.error('Error fetching payroll summary:', error);
@@ -287,7 +297,6 @@ router.get(
         });
       }
 
-      logAudit(req.user, 'View', 'monthly_attendance', null, null);
       res.json(data);
     } catch (error) {
       console.error('Error fetching monthly attendance:', error);
@@ -327,7 +336,6 @@ router.get(
         });
       }
 
-      logAudit(req.user, 'View', 'employee_growth', null, null);
       res.json(data);
     } catch (error) {
       console.error('Error fetching employee growth:', error);
@@ -390,7 +398,6 @@ router.get(
         );
       stats.lastPayroll = lastPayroll[0] || null;
 
-      logAudit(req.user, 'View', 'employee_stats', null, employeeNumber);
       res.json(stats);
     } catch (error) {
       console.error('Error fetching employee stats:', error);

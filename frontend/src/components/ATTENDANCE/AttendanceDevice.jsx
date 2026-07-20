@@ -1,395 +1,777 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useSocket } from '../../contexts/SocketContext';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 import {
   Box,
-  TextField,
-  Button,
   Typography,
+  Alert,
+  Collapse,
+  CircularProgress,
+  Fade,
+  FormControl,
+  Select,
+  MenuItem,
+  Snackbar,
+  alpha,
+  styled,
+  Card,
+  Button,
+  Fab,
+  Zoom,
+  Checkbox,
+  IconButton,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
-  Card,
-  CardContent,
-  Grid,
-  InputAdornment,
-  Divider,
-  Avatar,
-  IconButton,
-  Fade,
-  Alert,
-  alpha,
-  Chip,
-  styled,
-  Backdrop,
-  CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Checkbox,
-  Snackbar,
-  Dialog,
-  LinearProgress,
-  Container,
-  Paper,
   Tooltip,
+  TextField,
+  Paper,
+  List,
+  ListItemButton,
+  InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Avatar,
+  Chip,
 } from '@mui/material';
 import {
   Search,
   Person,
   CalendarToday,
-  Today,
+  AccessTime,
+  CheckCircle,
+  Cancel,
+  Info,
+  Refresh,
   ArrowBackIos,
   Clear,
-  Send,
-  Refresh,
-  Info,
-  Assignment,
+  KeyboardArrowUp,
   FilterList,
+  NewReleases,
+  Send,
   People,
-  CheckCircle,
+  Assignment,
   ArrowBack,
   ArrowForward,
   SearchOutlined,
+  ExpandMore,
+  ExpandLess,
+  Close,
+  Male as MaleIcon,
+  Female as FemaleIcon,
+  Lock,
+  Sync,
+  Restore,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
+import { Grid } from '@mui/material';
+import { useNavigate, useLocation } from 'react-router-dom';
+import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
+import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
-import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
+import AccessDenied from '../AccessDenied';
+import {
+  AttendanceFilterDateControls,
+  MONTHS_SHORT,
+  AttendanceEmployeeSearchSection,
+  ATTENDANCE_COMPACT_PAGE_SX,
+  attendanceMainPanelHeightSx,
+  useAttendanceCompactPage,
+} from './attendanceFilterLayout';
+import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-    : '109, 35, 35';
+
+// ─── Theme tokens ──────────────────────────────────────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
 };
 
-// ─────────────────────────────────────────────
-// WIREFRAME  — same shimmer pattern as DailyTimeRecord
-// ─────────────────────────────────────────────
-const SHIMMER_CSS = `
-@keyframes varShimmer {
-  0%   { background-position: -900px 0; }
-  100% { background-position:  900px 0; }
+// ─── Shimmer keyframes ─────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
 }
-@keyframes varPulse {
+@keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.55; }
 }`;
 
-const S = ({ w = '100%', h = 14, r = 6, sx = {}, accent = '#6d2323' }) => (
-  <Box sx={{
-    width: w, height: h, borderRadius: r, flexShrink: 0,
-    background: `linear-gradient(90deg,
-      ${alpha(accent, 0.07)} 25%,
-      ${alpha(accent, 0.18)} 50%,
-      ${alpha(accent, 0.07)} 75%)`,
-    backgroundSize: '900px 100%',
-    animation: 'varShimmer 1.6s infinite linear',
-    ...sx,
-  }} />
+// ─── Shimmer bone ──────────────────────────────────────────────────────────
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        'linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'shimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
 );
 
-const Placeholder = ({ w, h, r = 4, color = 'rgba(109,35,35,0.08)', sx = {} }) => (
-  <Box sx={{ width: w, height: h, borderRadius: r, bgcolor: color, flexShrink: 0, ...sx }} />
-);
-
-const ViewAttendanceWireframe = ({
-  accentColor    = '#6d2323',
-  primaryColor   = '#FEF9E1',
-  secondaryColor = '#FFF8E7',
-}) => {
-  const ac   = accentColor;
-  const grad = `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
-
-  return (
-    <>
-      <style>{SHIMMER_CSS}</style>
-      <Box sx={{ py: { xs: 2, md: 4 }, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '53%', transform: 'translateX(-51%)', px: { xs: 2, sm: 3, md: 6 } }}>
-
-          {/* 1. Hero header */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'varPulse 2.2s ease-in-out infinite',
-          }}>
-            <Box sx={{ p: 5, background: grad, position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(ac,0.1)} 0%,${alpha(ac,0)} 70%)` }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Placeholder w={64} h={64} r="50%" color={alpha(ac, 0.13)} />
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <S w={260} h={26} r={6} accent={ac} />
-                    <S w={320} h={13} r={4} accent={ac} />
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <S w={145} h={26} r={13} accent={ac} />
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <S w={105} h={40} r={12} accent={ac} />
-                    <S w={95}  h={40} r={12} accent={ac} />
-                  </Box>
-                </Box>
-              </Box>
+// ─── Wireframe skeleton ────────────────────────────────────────────────────
+const ViewAttendanceWireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box
+      sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        mb: { xs: 1, md: 2 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* Header */}
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'blink 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            px: 4,
+            py: 3,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5 }}>
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+              }}
+            />
+            <Box>
+              <Bone w={280} h={18} sx={{ mb: 1 }} />
+              <Bone w={380} h={11} />
             </Box>
           </Box>
-
-          {/* 2. Controls card */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'varPulse 2.2s ease-in-out 0.08s infinite',
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}>
-            <Box sx={{ p: 4, background: grad, display: 'flex', alignItems: 'center', gap: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-              <Placeholder w={28} h={28} r="50%" color={alpha(ac, 0.2)} />
-              <S w={270} h={13} r={4} accent={ac} />
-            </Box>
-            <Box sx={{ p: 4 }}>
-              {/* 3-field input row */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                {[110, 70, 70].map((lw, fi) => (
-                  <Box key={fi} sx={{ flex: 1, minWidth: 160, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <S w={lw} h={12} r={3} accent={ac} />
-                    <Box sx={{ height: 56, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                      <S w={fi === 0 ? '40%' : '60%'} h={13} r={4} accent={ac} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box
+              sx={{
+                width: 136,
+                height: 28,
+                borderRadius: 10,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+              }}
+            />
+            <Box
+              sx={{
+                width: 110,
+                height: 28,
+                borderRadius: 10,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+              }}
+            />
+            <Box
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+              }}
+            />
+          </Box>
+        </Box>
+      </Box>
+      {/* Two-column */}
+      <Grid container spacing={2}>
+        {[3, 9].map((lg, idx) => (
+          <Grid item xs={12} lg={lg} key={idx}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                animation: `blink 2s ease-in-out ${idx * 0.1}s infinite`,
+                height: 'calc(100vh - 280px)',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3,
+                  py: 1.5,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    bgcolor: 'rgba(109,35,35,0.12)',
+                  }}
+                />
+                <Bone w={lg === 3 ? 140 : 220} h={12} />
+              </Box>
+              {lg === 3 ? (
+                <Box
+                  sx={{
+                    p: 3,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2.5,
+                  }}
+                >
+                  {[100, 160, 120, 140].map((w, i) => (
+                    <Box key={i}>
+                      <Bone w={w} h={10} sx={{ mb: 1 }} />
+                      <Box
+                        sx={{
+                          height: 38,
+                          borderRadius: 2,
+                          border: `1px solid ${T.accentBorder}`,
+                          bgcolor: '#fafafa',
+                        }}
+                      />
                     </Box>
-                  </Box>
-                ))}
-              </Box>
-
-              {/* Divider */}
-              <Box sx={{ height: 1, bgcolor: alpha(ac, 0.1), my: 3 }} />
-
-              {/* Section label */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
-                <Placeholder w={20} h={20} r="50%" color={alpha(ac, 0.15)} />
-                <S w={210} h={14} r={4} accent={ac} />
-              </Box>
-
-              {/* Dept filter */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Box sx={{ width: 320, height: 52, borderRadius: '4px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 2 }}>
-                  <S w="55%" h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 180, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.20)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5 }}>
-                  <Placeholder w={18} h={18} r="50%" color={alpha(ac, 0.12)} />
-                  <S w={110} h={11} r={3} accent={ac} />
-                </Box>
-              </Box>
-
-              {/* Quick buttons */}
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
-                {[80, 100, 108, 108, 114].map((w, i) => (
-                  <Box key={i} sx={{ width: w, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.20)}`, bgcolor: 'transparent', animation: `varPulse 2.2s ease-in-out ${i * 0.07}s infinite` }} />
-                ))}
-              </Box>
-
-              {/* Month picker */}
-              <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(ac, 0.20)}`, bgcolor: alpha(primaryColor, 0.30) }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <S w={185} h={14} r={4} accent={ac} />
-                    <S w={270} h={11} r={3} accent={ac} />
-                  </Box>
-                  <Box sx={{ width: 140, height: 40, borderRadius: '8px', border: `1px solid ${alpha(ac, 0.25)}`, bgcolor: 'white', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                    <S w="50%" h={12} r={3} accent={ac} />
-                    <Placeholder w={18} h={18} r={3} color={alpha(ac, 0.15)} sx={{ ml: 'auto' }} />
-                  </Box>
-                </Box>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <S key={i} w={64} h={44} r={10} accent={ac} sx={{ animation: `varShimmer 1.6s infinite linear ${i * 0.05}s` }} />
                   ))}
-                </Box>
-              </Box>
-
-              {/* Clear button */}
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
-                <Box sx={{ width: 150, height: 48, borderRadius: '12px', border: '1px solid rgba(211,47,47,0.30)', bgcolor: 'transparent' }} />
-              </Box>
-            </Box>
-          </Box>
-
-          {/* 3. All Users table card */}
-          <Box sx={{
-            mb: 4, borderRadius: '20px', overflow: 'hidden',
-            border: `1px solid ${alpha(ac, 0.1)}`,
-            boxShadow: `0 8px 40px ${alpha(ac, 0.08)}`,
-            animation: 'varPulse 2.2s ease-in-out 0.15s infinite',
-            bgcolor: `rgba(${hexToRgb(primaryColor)},0.95)`,
-          }}>
-            <Box sx={{ p: 4, background: grad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Placeholder w={48} h={48} r="50%" color={alpha(ac, 0.15)} />
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <S w={210} h={16} r={4} accent={ac} />
-                  <S w={130} h={11} r={3} accent={ac} />
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1.5 }}>
-                <S w={140} h={44} r={12} accent={ac} />
-                <S w={140} h={44} r={12} accent="#4caf50" sx={{ background: 'linear-gradient(90deg,rgba(76,175,80,0.15) 25%,rgba(76,175,80,0.30) 50%,rgba(76,175,80,0.15) 75%)', backgroundSize: '900px 100%' }} />
-              </Box>
-            </Box>
-
-            <Box sx={{ p: 4 }}>
-              {/* Toolbar */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Box sx={{ width: 300, height: 52, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 1.5, gap: 1 }}>
-                  <Placeholder w={18} h={18} r="50%" color={alpha(ac, 0.12)} />
-                  <S w="55%" h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 160, height: 52, borderRadius: '4px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                  <S w="58%" h={11} r={3} accent={ac} />
-                </Box>
-                <Box sx={{ width: 118, height: 48, borderRadius: '12px', border: `1px solid ${alpha(ac, 0.22)}`, bgcolor: 'transparent' }} />
-              </Box>
-
-              {/* Table */}
-              <Box sx={{ borderRadius: '16px', overflow: 'hidden', border: `1px solid ${alpha(ac, 0.08)}`, boxShadow: `0 4px 24px ${alpha(ac, 0.06)}` }}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '52px 1.1fr 1fr 2fr 1fr 1.1fr 1fr', gap: 2, px: 3, py: 2, bgcolor: alpha(primaryColor, 0.7), borderBottom: `2px solid ${alpha(ac, 0.08)}`, alignItems: 'center' }}>
-                  <Placeholder w={20} h={20} r={4} color={alpha(ac, 0.10)} />
-                  {[88, 75, 75, 100, 78, 68].map((w, i) => <S key={i} w={w} h={10} r={3} accent={ac} />)}
-                </Box>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Box key={i} sx={{
-                    display: 'grid', gridTemplateColumns: '52px 1.1fr 1fr 2fr 1fr 1.1fr 1fr',
-                    gap: 2, px: 3, py: 2.25, alignItems: 'center',
-                    borderBottom: i < 7 ? '1px solid rgba(0,0,0,0.05)' : 'none',
-                    bgcolor: i % 2 === 0 ? '#fff' : alpha(primaryColor, 0.3),
-                    animation: `varPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-                  }}>
-                    <Placeholder w={20} h={20} r={4} color={alpha(ac, 0.10)} />
-                    <S w={60} h={11} r={3} accent={ac} />
-                    <Box sx={{ width: 66, height: 24, borderRadius: '12px', bgcolor: alpha(ac, 0.09), border: `1px solid ${alpha(ac, 0.14)}` }} />
-                    <Box><S w={140} h={12} r={3} accent={ac} sx={{ mb: 0.4 }} /><S w={72} h={9} r={2} accent={ac} /></Box>
-                    <S w={28} h={11} r={3} accent={ac} />
-                    <Box sx={{ width: 82, height: 24, borderRadius: '12px', bgcolor: 'rgba(76,175,80,0.12)', border: '1px solid rgba(76,175,80,0.22)' }} />
-                    <Box sx={{ width: 84, height: 32, borderRadius: '12px', bgcolor: 'rgba(76,175,80,0.18)' }} />
-                  </Box>
-                ))}
-              </Box>
-
-              {/* Pagination */}
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2.5, flexWrap: 'wrap', gap: 2 }}>
-                <S w={210} h={11} r={3} accent={ac} />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Box sx={{ width: 140, height: 44, borderRadius: '4px', border: `1px solid ${alpha(ac, 0.18)}`, bgcolor: '#fff', display: 'flex', alignItems: 'center', px: 1.5 }}>
-                    <S w="50%" h={11} r={3} accent={ac} />
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Placeholder w={36} h={36} r="50%" color={alpha(ac, 0.10)} />
-                    <S w={38} h={11} r={3} accent={ac} />
-                    <Placeholder w={36} h={36} r="50%" color={alpha(ac, 0.10)} />
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <Box
+                        key={i}
+                        sx={{
+                          width: 52,
+                          height: 34,
+                          borderRadius: '6px',
+                          bgcolor: T.accentFaint,
+                        }}
+                      />
+                    ))}
                   </Box>
                 </Box>
-              </Box>
+              ) : (
+                <Box
+                  sx={{
+                    p: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      px: 3,
+                      py: 1.8,
+                      borderBottom: `1px solid ${T.divider}`,
+                      bgcolor: T.accentFaint,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box
+                        sx={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: '50%',
+                          bgcolor: 'rgba(109,35,35,0.12)',
+                        }}
+                      />
+                      <Bone w={160} h={11} />
+                    </Box>
+                    <Box
+                      sx={{
+                        width: 120,
+                        height: 30,
+                        borderRadius: 1.5,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
+                  </Box>
+
+                  <Box
+                    sx={{
+                      px: 2.5,
+                      py: 1.1,
+                      borderBottom: `1px solid ${T.divider}`,
+                      bgcolor: T.accent,
+                      display: 'grid',
+                      gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                      gap: 1,
+                    }}
+                  >
+                    {Array.from({ length: 10 }).map((_, i) => (
+                      <Box
+                        key={i}
+                        sx={{
+                          height: 9,
+                          borderRadius: 4,
+                          bgcolor: 'rgba(255,255,255,0.36)',
+                        }}
+                      />
+                    ))}
+                  </Box>
+
+                  <Box sx={{ px: 2.5, py: 1.2, display: 'flex', flexDirection: 'column', gap: 0.8 }}>
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <Box
+                        key={i}
+                        sx={{
+                          display: 'grid',
+                          gridTemplateColumns: '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                          gap: 1,
+                          py: 0.45,
+                        }}
+                      >
+                        {Array.from({ length: 10 }).map((__, j) => (
+                          <Bone key={j} h={10} />
+                        ))}
+                      </Box>
+                    ))}
+                  </Box>
+
+                  <Box
+                    sx={{
+                      px: 3,
+                      py: 1.2,
+                      borderTop: `1px solid ${T.divider}`,
+                      bgcolor: T.accentFaint,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                    }}
+                  >
+                    <Bone w={180} h={10} />
+                    <Bone w={140} h={10} />
+                    <Bone w={200} h={10} />
+                  </Box>
+                </Box>
+              )}
             </Box>
-          </Box>
-
-      </Box>
-
-      {/* FAB placeholders */}
-      <Box sx={{ position: 'fixed', bottom: 60, right: 24, display: 'flex', gap: 1.5, zIndex: 1300, animation: 'varPulse 2.2s ease-in-out 0.3s infinite' }}>
-        {[0, 1].map((i) => (
-          <Placeholder key={i} w={52} h={52} r="50%" color="rgba(255,255,255,0.9)" sx={{ border: '1px solid #e0e0e0', boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }} />
+          </Grid>
         ))}
-      </Box>
-    </>
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─── Styled components ─────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: '#fff',
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.8rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+// Compact label for the left panel
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
+    <Icon sx={{ fontSize: 10, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: '0.62rem',
+        fontWeight: 700,
+        letterSpacing: '0.09em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
+
+const scrollbarSx = {
+  '&::-webkit-scrollbar': { width: 4 },
+  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+  '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
+};
+
+const selectSx = {
+  borderRadius: '8px',
+  fontSize: '0.82rem',
+  bgcolor: '#fff',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: T.accent,
+    borderWidth: '1.5px',
+  },
+};
+
+// Compact select sx for sidebar
+const compactSelectSx = {
+  ...selectSx,
+  fontSize: '0.76rem',
+  '& .MuiSelect-select': { py: '5px !important', fontSize: '0.76rem' },
+};
+
+// ─── Row action button ─────────────────────────────────────────────────────
+const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    style={{
+      background: 'transparent',
+      border: `1px solid ${color}40`,
+      borderRadius: '6px',
+      padding: '4px 10px',
+      cursor: disabled ? 'default' : 'pointer',
+      color,
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      fontSize: '0.72rem',
+      fontWeight: 700,
+      fontFamily: 'inherit',
+      transition: 'background-color 0.15s, border-color 0.15s',
+      whiteSpace: 'nowrap',
+      opacity: disabled ? 0.5 : 1,
+    }}
+    onMouseEnter={(e) => {
+      if (!disabled) {
+        e.currentTarget.style.backgroundColor = hoverBg;
+        e.currentTarget.style.borderColor = color;
+      }
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.backgroundColor = 'transparent';
+      e.currentTarget.style.borderColor = `${color}40`;
+    }}
+  >
+    {icon}
+    {label}
+  </button>
+);
+
+// ─── Missing time IN/OUT badge ───────────────────────────────────────────
+const NO_TIME_IN_LABEL = 'No TimeIN';
+const NO_TIME_OUT_LABEL = 'No TimeOUT';
+
+const MissingTimeBadge = ({ label }) => (
+  <Box
+    sx={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 0.5,
+      px: 1.25,
+      py: 0.3,
+      borderRadius: '12px',
+      bgcolor: 'rgba(244,67,54,0.10)',
+      border: '1px solid rgba(244,67,54,0.28)',
+    }}
+  >
+    <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
+    <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#f44336', lineHeight: 1.2 }}>
+      {label}
+    </Typography>
+  </Box>
+);
+
+// ─── Time cell renderer ────────────────────────────────────────────────────
+const TimeCell = ({ time, isUncategorized, missingLabel }) => {
+  const formatted = formatTime(time);
+  if (formatted)
+    return (
+      <Typography sx={{ fontSize: '0.78rem', color: '#1a1a1a' }}>
+        {formatted}
+      </Typography>
+    );
+  if (isUncategorized) return <MissingTimeBadge label={missingLabel} />;
+  return (
+    <Typography sx={{ fontSize: '0.75rem', color: '#a0a0a0' }}>—</Typography>
   );
 };
 
-// ─────────────────────────────────────────────
-// STYLED COMPONENTS  (matches DailyTimeRecord)
-// ─────────────────────────────────────────────
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-}));
-
-const ProfessionalButton = styled(Button)(({ variant }) => ({
-  borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'box-shadow 0.2s ease-in-out, background-color 0.2s',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254,249,225,0.25)' : 'none',
-  '&:hover': { boxShadow: variant === 'contained' ? '0 6px 20px rgba(254,249,225,0.35)' : 'none' },
-  '&:active': { boxShadow: 'none' },
-}));
-
-const ModernTextField = styled(TextField)(() => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    '&:hover': { backgroundColor: 'rgba(255,255,255,0.95)' },
-    '&.Mui-focused': { boxShadow: '0 4px 20px rgba(254,249,225,0.25)', backgroundColor: 'rgba(255,255,255,1)' },
-  },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
-
-const PremiumTableContainer = styled(TableContainer)(() => ({
-  borderRadius: 16,
-  overflowX: 'auto',
-  boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-  border: '1px solid rgba(109,35,35,0.08)',
-}));
-
-const PremiumTableCell = styled(TableCell)(({ isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader ? '2px solid rgba(254,249,225,0.5)' : '1px solid rgba(109,35,35,0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-}));
-
-// ─────────────────────────────────────────────
-// UTILITY FUNCTIONS
-// ─────────────────────────────────────────────
+// ─── Utility functions ─────────────────────────────────────────────────────
 const formatTime = (time) => {
-  if (!time) return 'N/A';
+  if (!time) return null;
   if (time.includes('AM') || time.includes('PM')) {
     const [hour, minute, second] = time.split(/[: ]/);
-    return `${hour.padStart(2,'0')}:${minute}:${second} ${time.slice(-2)}`;
+    return `${hour.padStart(2, '0')}:${minute}:${second} ${time.slice(-2)}`;
   }
   const [hour, minute, second] = time.split(':');
   const hour24 = parseInt(hour, 10);
   const hour12 = hour24 % 12 || 12;
-  return `${String(hour12).padStart(2,'0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
+  return `${String(hour12).padStart(2, '0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
 };
 
 const getDayOfWeek = (dateString) =>
   new Date(dateString).toLocaleDateString('en-US', { weekday: 'long' });
 
+const formatModifiedAt = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const isManuallyLocked = (record) => Number(record?.manually_modified) === 1;
+
+const makeRecordKey = (personID, date) => `${personID}::${date}`;
+
+const parseRecordKey = (key) => {
+  const sep = String(key).indexOf('::');
+  if (sep === -1) return { personID: key, date: '' };
+  return { personID: key.slice(0, sep), date: key.slice(sep + 2) };
+};
+
+/** Grid columns: checkbox + data columns */
+const RECORDS_GRID_COLS =
+  '32px 0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr';
+
+const formatModifierLabel = (modifiedBy, modifiedByName) => {
+  const num = String(modifiedBy || '').trim();
+  const name = String(modifiedByName || '').trim();
+  if (name && num) return `By ${name} (#${num})`;
+  if (name) return `By ${name}`;
+  if (num) return `By #${num}`;
+  return null;
+};
+
+const LockStatusChip = ({ modifiedBy, modifiedByName, modifiedAt }) => {
+  const [open, setOpen] = useState(false);
+  const modifierLabel = formatModifierLabel(modifiedBy, modifiedByName);
+
+  return (
+    <Box sx={{ mt: 0.35, width: 'fit-content', maxWidth: '100%' }}>
+      <Box
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 0.35,
+          px: 0.65,
+          py: 0.2,
+          borderRadius: open ? '6px 6px 0 0' : '6px',
+          bgcolor: 'rgba(33,150,243,0.10)',
+          border: '1px solid rgba(33,150,243,0.22)',
+          cursor: 'pointer',
+          width: 'fit-content',
+          userSelect: 'none',
+          '&:hover': { bgcolor: 'rgba(33,150,243,0.14)' },
+        }}
+      >
+        <Lock sx={{ fontSize: 10, color: '#1976d2' }} />
+        <Typography
+          sx={{
+            fontSize: '0.58rem',
+            fontWeight: 700,
+            color: '#1976d2',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Locked
+        </Typography>
+        {open ? (
+          <ExpandLess sx={{ fontSize: 13, color: '#1976d2' }} />
+        ) : (
+          <ExpandMore sx={{ fontSize: 13, color: '#1976d2' }} />
+        )}
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box
+          sx={{
+            px: 0.75,
+            py: 0.55,
+            borderRadius: '0 0 6px 6px',
+            border: '1px solid rgba(33,150,243,0.22)',
+            borderTop: 'none',
+            bgcolor: 'rgba(33,150,243,0.06)',
+            maxWidth: 200,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.58rem',
+              fontWeight: 700,
+              color: '#1565c0',
+              lineHeight: 1.35,
+              mb: 0.35,
+            }}
+          >
+            Admin modified · Sync paused
+          </Typography>
+          {modifierLabel && (
+            <Typography sx={{ fontSize: '0.55rem', color: '#1976d2', lineHeight: 1.35 }}>
+              {modifierLabel}
+            </Typography>
+          )}
+          {modifiedAt && (
+            <Typography sx={{ fontSize: '0.55rem', color: '#1565c0', lineHeight: 1.35 }}>
+              {formatModifiedAt(modifiedAt)}
+            </Typography>
+          )}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+};
+
+const RestoredStatusChip = () => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Box sx={{ mt: 0.35, width: 'fit-content', maxWidth: '100%' }}>
+      <Box
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 0.35,
+          px: 0.65,
+          py: 0.2,
+          borderRadius: open ? '6px 6px 0 0' : '6px',
+          bgcolor: 'rgba(76,175,80,0.10)',
+          border: '1px solid rgba(76,175,80,0.22)',
+          cursor: 'pointer',
+          width: 'fit-content',
+          userSelect: 'none',
+          '&:hover': { bgcolor: 'rgba(76,175,80,0.14)' },
+        }}
+      >
+        <Restore sx={{ fontSize: 10, color: '#2e7d32' }} />
+        <Typography
+          sx={{
+            fontSize: '0.58rem',
+            fontWeight: 700,
+            color: '#2e7d32',
+            lineHeight: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Restored
+        </Typography>
+        {open ? (
+          <ExpandLess sx={{ fontSize: 13, color: '#2e7d32' }} />
+        ) : (
+          <ExpandMore sx={{ fontSize: 13, color: '#2e7d32' }} />
+        )}
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box
+          sx={{
+            px: 0.75,
+            py: 0.55,
+            borderRadius: '0 0 6px 6px',
+            border: '1px solid rgba(76,175,80,0.22)',
+            borderTop: 'none',
+            bgcolor: 'rgba(76,175,80,0.06)',
+            maxWidth: 160,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.58rem',
+              fontWeight: 700,
+              color: '#2e7d32',
+              lineHeight: 1.35,
+            }}
+          >
+            Returned data from the device
+          </Typography>
+          <Typography sx={{ fontSize: '0.55rem', color: '#388e3c', lineHeight: 1.35, mt: 0.25 }}>
+            Device data restored. Admin remarks cleared.
+          </Typography>
+        </Box>
+      </Collapse>
+    </Box>
+  );
+};
+
 const formatFullName = (fullName) => {
   if (!fullName) return '';
   const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
   if (!cleaned) return '';
-  const parts    = cleaned.split(' ');
-  const suffixes = new Set(['JR','JR.','SR','SR.','II','III','IV','V']);
+  const parts = cleaned.split(' ');
+  const suffixes = new Set(['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']);
   let suffix = '';
-  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
+  if (suffixes.has(parts[parts.length - 1]?.toUpperCase()))
+    suffix = parts.pop();
   if (parts.length === 1) return suffix ? `${parts[0]} ${suffix}` : parts[0];
-  const firstName       = parts[0];
-  const lastName        = parts[parts.length - 1];
-  const middleFormatted = parts.slice(1, parts.length - 1)
-    .map((m) => { const mm = String(m).replace(/\./g,''); return mm.length === 1 ? `${mm.toUpperCase()}.` : m; })
+  const firstName = parts[0];
+  const lastName = parts[parts.length - 1];
+  const middleFormatted = parts
+    .slice(1, parts.length - 1)
+    .map((m) => {
+      const mm = String(m).replace(/\./g, '');
+      return mm.length === 1 ? `${mm.toUpperCase()}.` : m;
+    })
     .join(' ');
   const base = `${lastName}, ${firstName}${middleFormatted ? ` ${middleFormatted}` : ''}`;
   return suffix ? `${base} ${suffix}` : base;
@@ -398,13 +780,20 @@ const formatFullName = (fullName) => {
 const highlightMatch = (text, q) => {
   const query = (q || '').trim();
   if (!query || !text) return text;
-  const s   = String(text);
+  const s = String(text);
   const idx = s.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) return text;
   return (
     <span>
       {s.slice(0, idx)}
-      <span style={{ backgroundColor: '#ffeb3b', color: '#000', padding: '0 3px', borderRadius: 2 }}>
+      <span
+        style={{
+          backgroundColor: '#ffeb3b',
+          color: '#000',
+          padding: '0 3px',
+          borderRadius: 2,
+        }}
+      >
         {s.slice(idx, idx + query.length)}
       </span>
       {s.slice(idx + query.length)}
@@ -412,48 +801,263 @@ const highlightMatch = (text, q) => {
   );
 };
 
-// ─────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  if (!last && !first) {
+    const raw = String(e?.fullName || '').trim();
+    if (raw.includes(',')) return raw;
+    const fromFull = formatFullName(raw);
+    if (fromFull) return fromFull;
+    return e?.employeeNumber ? `#${e.employeeNumber}` : '';
+  }
+  return last
+    ? `${last.toUpperCase()}, ${[first, mid].filter(Boolean).join(' ')}`
+    : [first, mid].filter(Boolean).join(' ');
+};
+
+const getEmployeeInitials = (e) =>
+  `${e?.lastName?.[0] || ''}${e?.firstName?.[0] || ''}`.toUpperCase() || '?';
+
+const GenderBadge = ({ gender }) => {
+  if (!gender) return null;
+  const isMale = String(gender).trim().toLowerCase() === 'male';
+  return (
+    <Chip
+      size="small"
+      icon={
+        isMale ? (
+          <MaleIcon style={{ fontSize: 11, color: '#1565C0' }} />
+        ) : (
+          <FemaleIcon style={{ fontSize: 11, color: '#c2185b' }} />
+        )
+      }
+      label={gender}
+      sx={{
+        height: 18,
+        fontSize: '0.6rem',
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        bgcolor: isMale ? 'rgba(21,101,192,0.08)' : 'rgba(194,24,91,0.08)',
+        color: isMale ? '#1565C0' : '#c2185b',
+        border: `1px solid ${isMale ? 'rgba(21,101,192,0.25)' : 'rgba(194,24,91,0.25)'}`,
+        borderRadius: '4px',
+      }}
+    />
+  );
+};
+
+const EmployeeProfileRow = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  avatarSize = 30,
+}) => {
+  if (!employee) return null;
+  const num = String(employee.employeeNumber ?? '').trim();
+  const initials = getEmployeeInitials(employee);
+  const name = buildDisplayName(employee);
+  const dc = deptMap[num];
+  const ec = empCatMap[num];
+  const gender = sexMap[num] || employee.sex || employee.gender;
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+      <Avatar
+        sx={{
+          width: avatarSize,
+          height: avatarSize,
+          bgcolor: T.accent,
+          fontSize: avatarSize <= 30 ? '0.65rem' : '0.8rem',
+          fontWeight: 800,
+          borderRadius: avatarSize <= 30 ? '4px' : '8px',
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </Avatar>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          sx={{
+            fontWeight: 700,
+            fontSize: avatarSize <= 30 ? '0.78rem' : '0.84rem',
+            color: T.text,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {name}
+        </Typography>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.45,
+            flexWrap: 'wrap',
+            mt: 0.25,
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{ color: T.faint, fontSize: '0.65rem', whiteSpace: 'nowrap' }}
+          >
+            #{num}
+          </Typography>
+          {gender && <GenderBadge gender={gender} />}
+          {dc && <DeptBadge code={dc} />}
+          {ec && (
+            <EmpCatBadge label={ec.label} colorHex={ec.colorHex} />
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const EmployeeProfileCard = ({
+  employee,
+  deptMap = {},
+  empCatMap = {},
+  sexMap = {},
+  loading = false,
+}) => {
+  if (!employee) return null;
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.25,
+        px: 1.25,
+        py: 1,
+        borderRadius: 2,
+        border: `1px solid ${T.accentBorder}`,
+        bgcolor: '#fafafa',
+      }}
+    >
+      <EmployeeProfileRow
+        employee={employee}
+        deptMap={deptMap}
+        empCatMap={empCatMap}
+        sexMap={sexMap}
+        avatarSize={44}
+      />
+      {loading && (
+        <CircularProgress size={14} sx={{ color: T.accent, flexShrink: 0 }} />
+      )}
+    </Box>
+  );
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────
 const ViewAttendanceRecord = () => {
   const { socket, connected } = useSocket();
-  const { settings }          = useSystemSettings();
-  const navigate              = useNavigate();
+  const { settings } = useSystemSettings();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const [personID, setPersonID]     = useState('');
-  const [startDate, setStartDate]   = useState('');
-  const [endDate, setEndDate]       = useState('');
-  const [records, setRecords]       = useState([]);
+  const renderSubmitToAttendanceNav = () => (
+    <Box
+      sx={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 0.5,
+        rowGap: 0.5,
+      }}
+    >
+      <Typography
+        component="span"
+        sx={{
+          fontSize: '0.62rem',
+          fontWeight: 700,
+          color: T.muted,
+          letterSpacing: '0.05em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+          mr: 0.25,
+        }}
+      >
+        Submit to
+      </Typography>
+      {[
+        { icon: People, label: 'Non-teaching', path: '/attendance_module', type: 'NONTEACHING' },
+        { icon: AccessTime, label: 'Faculty 30 hrs', path: '/attendance_module_faculty', type: 'FACULTY_30' },
+        { icon: Assignment, label: 'Faculty designated', path: '/attendance_module_faculty_40hrs', type: 'FACULTY_DESIGNATED' },
+      ].map(({ icon: Icon, label, path, type }) => (
+        <Button
+          key={type}
+          variant="contained"
+          size="small"
+          startIcon={<Icon sx={{ fontSize: 14 }} />}
+          onClick={() => goToComputationModule(path, type)}
+          sx={{
+            textTransform: 'none',
+            fontWeight: 700,
+            fontSize: '0.68rem',
+            py: 0.35,
+            px: 1.1,
+            minHeight: 28,
+            bgcolor: T.accent,
+            color: '#FEF9E1',
+            boxShadow: `0 2px 8px ${alpha(T.accent, 0.32)}`,
+            '&:hover': {
+              bgcolor: T.accentDark,
+              boxShadow: `0 3px 10px ${alpha(T.accent, 0.42)}`,
+            },
+          }}
+        >
+          {label}
+        </Button>
+      ))}
+    </Box>
+  );
+
+  const [personID, setPersonID] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [records, setRecords] = useState([]);
   const [personName, setPersonName] = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState('');
+  const [empCatMap, setEmpCatMap] = useState({});
+  const [sexMap, setSexMap] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const [snackbar, setSnackbar]               = useState({ open: false, message: '', severity: 'success' });
-  const [snackbarCountdown, setSnackbarCountdown] = useState(6);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
 
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [modalMessage, setModalMessage]         = useState('');
+  // ── Unified overlay (matches AllAttendanceRecord) ──
+  const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
 
-  const [allUsersDTR, setAllUsersDTR]         = useState([]);
-  const [selectedUsers, setSelectedUsers]     = useState(new Set());
+  const [allUsersDTR, setAllUsersDTR] = useState([]);
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
   const [loadingAllUsers, setLoadingAllUsers] = useState(false);
-  const [viewMode, setViewMode]               = useState('single');
-  const [selectedMonth, setSelectedMonth]     = useState(null);
+  const [viewMode, setViewMode] = useState('single');
+  const [selectedMonth, setSelectedMonth] = useState(null);
 
-  // ── Year selector — same pattern as DailyTimeRecord ──
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
-  const [departments, setDepartments]                             = useState([]);
-  const [departmentAssignmentsMap, setDepartmentAssignmentsMap]   = useState({});
-  const [departmentCodeFilter, setDepartmentCodeFilter]           = useState('');
-  const [loadingDepartments, setLoadingDepartments]               = useState(false);
+  const [departments, setDepartments] = useState([]);
+  const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  const [departmentCodeFilter, setDepartmentCodeFilter] = useState('');
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
 
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordFilter, setRecordFilter] = useState('all');
-  const [searchQuery, setSearchQuery]   = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
 
   const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
@@ -462,70 +1066,182 @@ const ViewAttendanceRecord = () => {
   }, [searchQuery]);
   const trimmedSearch = debouncedSearch.trim();
 
-  const [progressOpen, setProgressOpen]   = useState(false);
-  const [progressTotal, setProgressTotal] = useState(0);
-  const [progressDone, setProgressDone]   = useState(0);
+  const [loadPhase, setLoadPhase] = useState('');
 
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
 
-  const fetchRecordsRef     = useRef(null);
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsRowsPerPage, setRecordsRowsPerPage] = useState(50);
+  const [restoringKey, setRestoringKey] = useState(null);
+  const [recentlyRestoredKeys, setRecentlyRestoredKeys] = useState(() => new Set());
+  const [selectedLockedRows, setSelectedLockedRows] = useState(() => new Set());
+  const [bulkRestoring, setBulkRestoring] = useState(false);
+
+  const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
-  // ── AUTO-SCROLL ref — points to the Single User Results card ──
-  const resultsRef          = useRef(null);
 
-  const { hasAccess, loading: accessLoading } = usePageAccess('view-attendance');
+  // Returning to Device via workflow Back — clear filters; admin must search again.
+  useLayoutEffect(() => {
+    if (location.state?.workflowNavDirection !== 'back') return;
+    setPersonID('');
+    setSelectedEmployee(null);
+    setPersonName('');
+    setStartDate('');
+    setEndDate('');
+    setRecords([]);
+    setHasSearchedSingle(false);
+    setSelectedMonth(null);
+    setError('');
+  }, [location.key, location.state?.workflowNavDirection]);
 
-  // ── Theme ──
-  const primaryColor       = settings.accentColor        || '#FEF9E1';
-  const secondaryColor     = settings.backgroundColor    || '#FFF8E7';
-  const accentColor        = settings.primaryColor       || '#6d2323';
-  const accentDark         = settings.secondaryColor     || '#8B3333';
-  const textPrimaryColor   = settings.textPrimaryColor   || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
+  const {
+    prevStep,
+    nextStep,
+    goPrevious,
+    goNext,
+  } = useAttendanceWorkflow('device', {
+    employeeNumber: personID,
+    fullName: personName,
+    startDate,
+    endDate,
+  });
 
-  const today          = new Date();
-  const formattedToday = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  useAttendanceCompactPage();
+
+  const { hasAccess, loading: accessLoading } =
+    usePageAccess('view-attendance');
+
+  const today = new Date();
+  const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  const monthsShort = MONTHS_SHORT;
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
-    return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    };
   };
 
-  const showSnackbar = (message, severity = 'success') => {
+  const showSnackbar = (message, severity = 'success') =>
     setSnackbar({ open: true, message, severity });
-    setSnackbarCountdown(6);
-  };
-
   const handleCloseSnackbar = () => setSnackbar((p) => ({ ...p, open: false }));
 
-  useEffect(() => {
-    let timer;
-    if (snackbar.open && snackbarCountdown > 0)
-      timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
-    return () => clearInterval(timer);
-  }, [snackbar.open, snackbarCountdown]);
+  const buildDeviceAuditPayload = (button, overrides = {}) => {
+    const monthLabel =
+      selectedMonth != null
+        ? `${monthsShort[selectedMonth]} ${selectedYear}`
+        : startDate && endDate
+          ? `${startDate} – ${endDate}`
+          : null;
+    return {
+      auditButton: button,
+      targetEmployeeName: personName || null,
+      monthLabel,
+      searchQuery: overrides.searchQuery ?? null,
+      ...overrides,
+    };
+  };
 
-  // Dismiss wireframe once access resolves
-  useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
-
-  // ── AUTO-SCROLL: when records load in single-user mode, scroll to results ──
   useEffect(() => {
-    if (records.length > 0 && viewMode === 'single' && resultsRef.current) {
-      setTimeout(() => {
-        resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 30);
-    }
-  }, [records, viewMode]);
+    if (!accessLoading) setPageLoading(false);
+  }, [accessLoading]);
+
+  useEffect(() => {
+    if (accessLoading || hasAccess === false) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+          axios.get(
+            `${API_BASE_URL}/api/department-assignment`,
+            getAuthHeaders(),
+          ),
+          axios.get(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+            getAuthHeaders(),
+          ),
+          axios.get(
+            `${API_BASE_URL}/personalinfo/person_table`,
+            getAuthHeaders(),
+          ),
+        ]);
+        if (cancelled) return;
+        if (assignRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(assignRes.value.data) ? assignRes.value.data : []).forEach(
+            (a) => {
+              if (!a?.employeeNumber) return;
+              map[String(a.employeeNumber)] = a.code || '';
+            },
+          );
+          setDepartmentAssignmentsMap(map);
+        }
+        if (empCatRes.status === 'fulfilled') {
+          const map = {};
+          (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach(
+            (item) => {
+              if (!item.employeeNumber) return;
+              const label =
+                item.parentGroup && item.typeName
+                  ? `${item.parentGroup} | ${item.typeName}`
+                  : item.categoryLabel || '';
+              if (label) {
+                map[String(item.employeeNumber)] = {
+                  label,
+                  colorHex: item.colorHex || '#757575',
+                };
+              }
+            },
+          );
+          setEmpCatMap(map);
+        }
+        if (personsRes.status === 'fulfilled') {
+          const list = Array.isArray(personsRes.value.data)
+            ? personsRes.value.data
+            : personsRes.value.data?.data || [];
+          const gMap = {};
+          list.forEach((p) => {
+            const num =
+              p.agencyEmployeeNum?.toString() || p.employeeNumber?.toString();
+            if (num && p.sex) gMap[num] = p.sex;
+          });
+          setSexMap(gMap);
+        }
+      } catch (err) {
+        console.error('Error loading employee reference data:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessLoading, hasAccess]);
+
+  useEffect(() => {
+    const handleScroll = () => setShowScrollTop(window.scrollY > 300);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
     try {
       const [deptRes, assignRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders()),
-        axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
+        axios.get(
+          `${API_BASE_URL}/api/department-assignment`,
+          getAuthHeaders(),
+        ),
       ]);
       const deptList = Array.isArray(deptRes.data) ? deptRes.data : [];
-      deptList.sort((a, b) => String(a?.code||'').localeCompare(String(b?.code||'')));
+      deptList.sort((a, b) =>
+        String(a?.code || '').localeCompare(String(b?.code || '')),
+      );
       setDepartments(deptList);
       const map = {};
       (Array.isArray(assignRes.data) ? assignRes.data : []).forEach((a) => {
@@ -533,11 +1249,16 @@ const ViewAttendanceRecord = () => {
         map[String(a.employeeNumber)] = a.code || '';
       });
       setDepartmentAssignmentsMap(map);
+      return map;
     } catch (err) {
       console.error('Error fetching departments/assignments:', err);
-      setDepartments([]); setDepartmentAssignmentsMap({});
+      setDepartments([]);
+      setDepartmentAssignmentsMap({});
       showSnackbar('Failed to load departments for filtering', 'warning');
-    } finally { setLoadingDepartments(false); }
+      return {};
+    } finally {
+      setLoadingDepartments(false);
+    }
   };
 
   useEffect(() => {
@@ -547,9 +1268,17 @@ const ViewAttendanceRecord = () => {
   }, [viewMode]);
 
   const filteredUsers = useMemo(() => {
-    let f = allUsersDTR.slice();
+    const searchableUsers = allUsersDTR.map((u) => ({
+      ...u,
+      _searchText:
+        `${u.fullName || ''} ${u.lastName || ''} ${u.employeeNumber || ''}`.toLowerCase(),
+      _formattedFullName: formatFullName(u.fullName),
+    }));
+
+    let f = searchableUsers;
     if (recordFilter === 'has') f = f.filter((u) => (u.recordsCount || 0) > 0);
-    else if (recordFilter === 'no') f = f.filter((u) => (u.recordsCount || 0) === 0);
+    else if (recordFilter === 'no')
+      f = f.filter((u) => (u.recordsCount || 0) === 0);
     if (departmentCodeFilter) {
       f = f.filter((u) => {
         const dc = departmentAssignmentsMap?.[u.employeeNumber] || '';
@@ -559,567 +1288,2202 @@ const ViewAttendanceRecord = () => {
     }
     if (!trimmedSearch) return f;
     const q = trimmedSearch.toLowerCase();
-    return f.filter((u) =>
-      (u.fullName||'').toLowerCase().includes(q) ||
-      (u.lastName||'').toLowerCase().includes(q) ||
-      (u.employeeNumber||'').toLowerCase().includes(q),
-    );
-  }, [allUsersDTR, recordFilter, departmentCodeFilter, departmentAssignmentsMap, trimmedSearch]);
+    return f.filter((u) => u._searchText.includes(q));
+  }, [
+    allUsersDTR,
+    recordFilter,
+    departmentCodeFilter,
+    departmentAssignmentsMap,
+    trimmedSearch,
+  ]);
 
   const selectedCountInFiltered = useMemo(() => {
-    let c = 0; for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) c++;
+    let c = 0;
+    for (const u of filteredUsers) if (selectedUsers.has(u.employeeNumber)) c++;
     return c;
   }, [filteredUsers, selectedUsers]);
 
-  const totalPages     = useMemo(() => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)), [filteredUsers.length, rowsPerPage]);
-  const paginatedUsers = useMemo(() => { const s = (currentPage-1)*rowsPerPage; return filteredUsers.slice(s, s+rowsPerPage); }, [filteredUsers, currentPage, rowsPerPage]);
-  const goToPage       = (p) => setCurrentPage(Math.min(Math.max(1,p), totalPages));
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredUsers.length / rowsPerPage)),
+    [filteredUsers.length, rowsPerPage],
+  );
+  const paginatedUsers = useMemo(() => {
+    const s = (currentPage - 1) * rowsPerPage;
+    return filteredUsers.slice(s, s + rowsPerPage);
+  }, [filteredUsers, currentPage, rowsPerPage]);
+  const goToPage = (p) => setCurrentPage(Math.min(Math.max(1, p), totalPages));
 
-  const fetchRecords = async (showLoading = true) => {
+  const fetchRecords = async (showLoading = true, auditPayload = null) => {
     if (!personID || !startDate || !endDate) return;
-    if (showLoading) setLoading(true);
+    if (showLoading) {
+      setLoading(true);
+      setLoadPhase('Loading attendance records…');
+      setSuccessOverlayOpen(false);
+    }
     setError('');
     try {
-      const res  = await axios.post(`${API_BASE_URL}/attendance/api/all-attendance`, { personID, startDate, endDate }, getAuthHeaders());
-      const recs = Array.isArray(res.data) ? res.data : [];
+      const body = {
+        personID,
+        startDate,
+        endDate,
+        syncDeviceToRecords: true,
+      };
+      if (auditPayload?.auditButton) {
+        Object.assign(body, auditPayload);
+      }
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/all-attendance`,
+        body,
+        getAuthHeaders(),
+      );
+      const payload = res.data;
+      const recs = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.records)
+          ? payload.records
+          : [];
+      const sync = payload?.sync;
       setRecords(recs);
-      if (recs.length > 0) { setPersonName(recs[0].PersonName); showSnackbar(`Loaded ${recs.length} records and auto-saved to database`, 'success'); }
-      else { setPersonName(''); showSnackbar('No records found for this period', 'info'); }
+      if (recs.length > 0) {
+        const apiName = recs[0].PersonName || '';
+        setPersonName(apiName);
+        setSelectedEmployee((prev) => {
+          if (prev) return { ...prev, fullName: apiName || prev.fullName };
+          if (personID) return { employeeNumber: personID, fullName: apiName };
+          return prev;
+        });
+        const saved = sync?.saved ?? 0;
+        const updated = sync?.updated ?? 0;
+        const failed = sync?.failed ?? 0;
+        if (sync?.enabled && (saved > 0 || updated > 0)) {
+          showSnackbar(
+            `Loaded ${recs.length} records — saved ${saved}, updated ${updated} in database`,
+            'success',
+          );
+        } else if (sync?.enabled && failed > 0) {
+          const errHint = sync?.errors?.[0]?.error || 'database write failed';
+          showSnackbar(
+            `Loaded ${recs.length} device records but failed to save (${failed}): ${errHint}`,
+            'error',
+          );
+        } else {
+          showSnackbar(`Loaded ${recs.length} records`, 'success');
+        }
+      } else {
+        setPersonName('');
+        showSnackbar('No records found for this period', 'info');
+      }
     } catch (err) {
       console.error('Error fetching attendance records:', err);
       setError('Failed to fetch attendance records. Please try again.');
       showSnackbar('Failed to fetch attendance records', 'error');
-    } finally { if (showLoading) setLoading(false); }
+    } finally {
+      if (showLoading) {
+        setLoading(false);
+        setLoadPhase('');
+      }
+    }
   };
 
-  const fetchAllUsersDTR = async () => {
-    if (!startDate || !endDate) { showSnackbar('Please select start date and end date first', 'warning'); return; }
-    setLoadingAllUsers(true); setProgressOpen(true); setProgressDone(0); setProgressTotal(0);
+  const handleForceSync = async (syncPersonID, syncDate) => {
+    const key = makeRecordKey(syncPersonID, syncDate);
+    setRestoringKey(key);
     try {
-      const usersRes = await axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, getAuthHeaders());
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/force-sync-from-device`,
+        { personID: syncPersonID, date: syncDate },
+        getAuthHeaders(),
+      );
+      await fetchRecords(false);
+      setSelectedLockedRows((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      if (res.data?.restoredFromManual) {
+        setRecentlyRestoredKeys((prev) => new Set([...prev, key]));
+        setTimeout(() => {
+          setRecentlyRestoredKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+        }, 12000);
+      }
+      showSnackbar(
+        res.data?.message || 'Row restored from device data',
+        'success',
+      );
+    } catch (err) {
+      console.error('Force sync from device failed:', err);
+      showSnackbar(
+        err.response?.data?.error || 'Failed to restore from device',
+        'error',
+      );
+    } finally {
+      setRestoringKey(null);
+    }
+  };
+
+  const markRecentlyRestored = (keys) => {
+    if (!keys?.length) return;
+    setRecentlyRestoredKeys((prev) => new Set([...prev, ...keys]));
+    setTimeout(() => {
+      setRecentlyRestoredKeys((prev) => {
+        const next = new Set(prev);
+        keys.forEach((k) => next.delete(k));
+        return next;
+      });
+    }, 12000);
+  };
+
+  const handleBulkForceSync = async () => {
+    if (selectedLockedRows.size === 0) return;
+    setBulkRestoring(true);
+    try {
+      const rows = [...selectedLockedRows].map((key) => parseRecordKey(key));
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/bulk-force-sync-from-device`,
+        { rows },
+        getAuthHeaders(),
+      );
+      const { restored = 0, failed = 0, restoredRows = [], message } = res.data || {};
+      await fetchRecords(false);
+      setSelectedLockedRows(new Set());
+      const restoredKeys = restoredRows.map((r) =>
+        makeRecordKey(r.personID, r.date),
+      );
+      markRecentlyRestored(
+        restoredKeys.filter((_, i) => restoredRows[i]?.restoredFromManual),
+      );
+      if (failed > 0 && restored === 0) {
+        const errHint = res.data?.errors?.[0]?.error || 'Some rows could not be restored';
+        showSnackbar(errHint, 'error');
+      } else {
+        showSnackbar(
+          message || `Restored ${restored} row(s)${failed ? `, ${failed} failed` : ''}`,
+          failed > 0 ? 'warning' : 'success',
+        );
+      }
+    } catch (err) {
+      console.error('Bulk force sync failed:', err);
+      showSnackbar(
+        err.response?.data?.error || 'Bulk restore failed',
+        'error',
+      );
+    } finally {
+      setBulkRestoring(false);
+    }
+  };
+
+  const toggleLockedRowSelection = (key, checked) => {
+    setSelectedLockedRows((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const handleSelectAllLockedInPeriod = () => {
+    setSelectedLockedRows(
+      new Set(
+        records
+          .filter((r) => isManuallyLocked(r))
+          .map((r) => makeRecordKey(r.PersonID, r.Date)),
+      ),
+    );
+  };
+
+  const handleClearLockedSelection = () => setSelectedLockedRows(new Set());
+
+  const fetchAllUsersDTR = async (opts = {}) => {
+    const { syncDevice = true } = opts;
+    if (!startDate || !endDate) {
+      showSnackbar('Please select a month first', 'warning');
+      return;
+    }
+    setLoadingAllUsers(true);
+    if (syncDevice) {
+      setLoadPhase('Syncing device records to database…');
+    } else {
+      setLoadPhase('Refreshing employee list…');
+    }
+    try {
+      if (syncDevice) {
+        const bulkRes = await axios.post(
+          `${API_BASE_URL}/attendance/api/bulk-auto-save`,
+          { startDate, endDate },
+          getAuthHeaders(),
+        );
+        const bulkMsg = bulkRes.data?.message;
+        if (bulkMsg) showSnackbar(bulkMsg, 'success');
+      }
+      setLoadPhase('Loading employee list…');
+      const [usersRes, summaryRes] = await Promise.all([
+        axios.get(
+          `${API_BASE_URL}/attendance/api/all-device-users`,
+          getAuthHeaders(),
+        ),
+        axios.post(
+          `${API_BASE_URL}/attendance/api/device-attendance-summary`,
+          { startDate, endDate },
+          getAuthHeaders(),
+        ),
+      ]);
+
       let users = usersRes.data || [];
-      if (departmentCodeFilter && Object.keys(departmentAssignmentsMap||{}).length === 0 && !loadingDepartments)
-        await fetchDepartmentsAndAssignments();
+      const summaryRows = Array.isArray(summaryRes.data)
+        ? summaryRes.data
+        : [];
+
+      let dm = departmentAssignmentsMap || {};
+      if (
+        departmentCodeFilter &&
+        Object.keys(dm).length === 0 &&
+        !loadingDepartments
+      ) {
+        dm = await fetchDepartmentsAndAssignments();
+      }
       if (departmentCodeFilter) {
-        const dm = departmentAssignmentsMap || {};
         users = users.filter((u) => {
-          const dc = dm[String(u?.PersonID??'')] || '';
+          const dc = dm[String(u?.PersonID ?? '')] || '';
           if (departmentCodeFilter === '__UNASSIGNED__') return !dc;
           return dc === departmentCodeFilter;
         });
       }
-      showSnackbar(`Found ${users.length} users in device records`, 'info');
-      setProgressTotal(users.length); setProgressDone(0);
-      const dtrPromises = users.map(async (user) => {
-        const empNo = user?.PersonID; const dn = user?.PersonName || empNo || 'Unknown';
-        try {
-          const dr = await axios.post(`${API_BASE_URL}/attendance/api/all-attendance`, { personID: empNo, startDate, endDate }, getAuthHeaders());
-          const dd = Array.isArray(dr.data) ? dr.data : [];
-          return { employeeNumber: empNo, firstName: dn.split(' ')[0], lastName: dn.split(' ').slice(1).join(' '), fullName: dn, recordsCount: dd.length, hasRecords: dd.length > 0 };
-        } catch { return { employeeNumber: empNo, firstName: dn.split(' ')[0], lastName: dn.split(' ').slice(1).join(' '), fullName: dn, recordsCount: 0, hasRecords: false }; }
-        finally { setProgressDone((p) => p + 1); }
-      });
-      const all = await Promise.all(dtrPromises);
-      all.sort((a, b) => (a.lastName||'').toUpperCase().localeCompare((b.lastName||'').toUpperCase()));
-      setAllUsersDTR(all);
-      const totalRecs = all.reduce((s,u) => s+(u.recordsCount||0), 0);
-      const withRecs  = all.filter((u) => u.hasRecords).length;
-      showSnackbar(`Loaded ${all.length} employees (${withRecs} with records, ${totalRecs} total records auto-saved)`, 'success');
-      if (totalRecs > 0) {
-        setModalMessage(`Successfully auto-saved ${totalRecs} attendance records for ${withRecs} employees to the database. You can now view or print their DTR.`);
-        setShowSuccessModal(true);
+
+      const countByPerson = new Map();
+      for (const row of summaryRows) {
+        const pid = row?.PersonID;
+        if (pid == null || pid === '') continue;
+        countByPerson.set(String(pid), Number(row.recordsCount) || 0);
       }
+
+      const all = users.map((user) => {
+        const empNo = user?.PersonID;
+        const dn = user?.PersonName || empNo || 'Unknown';
+        const n = countByPerson.get(String(empNo)) ?? 0;
+        return {
+          employeeNumber: empNo,
+          firstName: dn.split(' ')[0],
+          lastName: dn.split(' ').slice(1).join(' '),
+          fullName: dn,
+          recordsCount: n,
+          hasRecords: n > 0,
+        };
+      });
+
+      all.sort((a, b) =>
+        (a.lastName || '')
+          .toUpperCase()
+          .localeCompare((b.lastName || '').toUpperCase()),
+      );
+      setAllUsersDTR(all);
+      const withRecs = all.filter((u) => u.hasRecords).length;
+      showSnackbar(
+        `Loaded ${all.length} employees (${withRecs} with device records in this period)`,
+        'success',
+      );
     } catch (err) {
       console.error('Error fetching all users DTR:', err);
-      showSnackbar('Error fetching users DTR data: ' + (err.response?.data?.error || err.message), 'error');
-    } finally { setLoadingAllUsers(false); setTimeout(() => setProgressOpen(false), 250); }
+      showSnackbar(
+        'Error fetching users: ' + (err.response?.data?.error || err.message),
+        'error',
+      );
+    } finally {
+      setLoadingAllUsers(false);
+      setLoadPhase('');
+    }
   };
 
-  useEffect(() => { fetchRecordsRef.current = fetchRecords; fetchAllUsersDTRRef.current = fetchAllUsersDTR; });
+  useEffect(() => {
+    fetchRecordsRef.current = fetchRecords;
+    fetchAllUsersDTRRef.current = fetchAllUsersDTR;
+  });
 
   useEffect(() => {
     if (!socket || !connected) return;
     let debounceTimer = null;
     const handleAttendanceChanged = (payload) => {
-      const ids = Array.isArray(payload?.personIDs) ? payload.personIDs : payload?.personID ? [payload.personID] : [];
+      // Never re-run bulk-auto-save from sockets — soft-refresh summary only
+      if (payload?.light) return;
+      const action = payload?.action;
+      if (
+        action === 'leaves-fetched' ||
+        action === 'holidays-fetched' ||
+        action === 'suspensions-fetched' ||
+        action === 'dtr-printed' ||
+        action === 'overall-daily-late-updated' ||
+        action === 'overall-daily-late-created'
+      ) {
+        return;
+      }
+      const ids = Array.isArray(payload?.personIDs)
+        ? payload.personIDs
+        : payload?.personID
+          ? [payload.personID]
+          : [];
       if (viewMode === 'single') {
         if (personID && ids.length > 0 && !ids.includes(personID)) return;
-        if (personID && startDate && endDate) fetchRecordsRef.current?.(false);
+        if (personID && startDate && endDate && hasSearchedSingle)
+          fetchRecordsRef.current?.(false);
         return;
       }
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 300);
+      debounceTimer = setTimeout(
+        () => fetchAllUsersDTRRef.current?.({ syncDevice: false }),
+        1200,
+      );
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
-    return () => { if (debounceTimer) clearTimeout(debounceTimer); socket.off('attendanceChanged', handleAttendanceChanged); };
-  }, [socket, connected, viewMode, personID, startDate, endDate, allUsersDTR.length]);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      socket.off('attendanceChanged', handleAttendanceChanged);
+    };
+  }, [
+    socket,
+    connected,
+    viewMode,
+    personID,
+    startDate,
+    endDate,
+    allUsersDTR.length,
+    hasSearchedSingle,
+  ]);
 
   const handleSendToDTR = async () => {
-    if (!personID || !startDate || !endDate) { showSnackbar('Please fill in all fields first', 'warning'); return; }
+    if (!personID || !startDate || !endDate) {
+      showSnackbar('Please fill in all fields first', 'warning');
+      return;
+    }
     try {
-      const res = await axios.post(`${API_BASE_URL}/attendance/api/send-to-dtr`, { personID, startDate, endDate }, getAuthHeaders());
-      if (res.data.success) { showSnackbar(res.data.message, 'success'); navigate('/daily_time_record_faculty', { state: { employeeNumber: personID, fullName: personName, startDate, endDate } }); }
-    } catch (err) { showSnackbar(err.response?.data?.message || 'Failed to view to DTR', 'error'); }
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/send-to-dtr`,
+        {
+          personID,
+          startDate,
+          endDate,
+          ...buildDeviceAuditPayload('View in DTR Module'),
+        },
+        getAuthHeaders(),
+      );
+      if (res.data.success) {
+        showSnackbar(res.data.message, 'success');
+        navigateAttendanceWorkflow(navigate, 'dtr', {
+          employeeNumber: personID,
+          fullName: personName,
+          startDate,
+          endDate,
+        });
+      }
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.message || 'Failed to view to DTR',
+        'error',
+      );
+    }
+  };
+
+  const handleGoToState = () => {
+    if (!personID || !startDate || !endDate) {
+      showSnackbar('Please fill in all fields first', 'warning');
+      return;
+    }
+    navigateAttendanceWorkflow(navigate, 'state', {
+      employeeNumber: personID,
+      fullName: personName,
+      startDate,
+      endDate,
+    });
   };
 
   const handleBulkSendToDTR = async () => {
-    const sel = filteredUsers.filter((u) => selectedUsers.has(u.employeeNumber));
-    if (sel.length === 0) { showSnackbar('Please select at least one user', 'warning'); return; }
+    const sel = filteredUsers.filter((u) =>
+      selectedUsers.has(u.employeeNumber),
+    );
+    if (sel.length === 0) {
+      showSnackbar('Please select at least one user', 'warning');
+      return;
+    }
     try {
-      const res = await axios.post(`${API_BASE_URL}/attendance/api/bulk-send-to-dtr`, { userIDs: sel.map((u) => u.employeeNumber), startDate, endDate }, getAuthHeaders());
-      if (res.data.success) { showSnackbar(res.data.message, 'success'); navigate('/daily_time_record_faculty', { state: { users: sel, startDate, endDate, isBulk: true } }); }
-    } catch (err) { showSnackbar(err.response?.data?.message || 'Failed to view DTR', 'error'); }
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/bulk-send-to-dtr`,
+        {
+          userIDs: sel.map((u) => u.employeeNumber),
+          startDate,
+          endDate,
+          ...buildDeviceAuditPayload(`View DTR (${sel.length} selected)`),
+        },
+        getAuthHeaders(),
+      );
+      if (res.data.success) {
+        showSnackbar(res.data.message, 'success');
+        navigate('/daily_time_record_faculty', {
+          state: { users: sel, startDate, endDate, isBulk: true },
+        });
+      }
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.message || 'Failed to view DTR',
+        'error',
+      );
+    }
   };
 
-  const handleUserSelect = (empNo) => setSelectedUsers((p) => { const n = new Set(p); n.has(empNo) ? n.delete(empNo) : n.add(empNo); return n; });
-  const handleSelectAll  = (checked) => checked ? setSelectedUsers(new Set(filteredUsers.map((u) => u.employeeNumber))) : setSelectedUsers(new Set());
-  const handleSubmit     = (e) => { e.preventDefault(); fetchRecords(true); };
+  // Computation-type mismatch guard dialog
+  const [computationChangeDialog, setComputationChangeDialog] = useState({ open: false, existingType: null, newType: null, path: null });
 
-  useEffect(() => {
-    if (personID && startDate && endDate) fetchRecords(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate]);
+const COMPUTATION_TYPE_LABELS = {
+  NONTEACHING: 'Non-Teaching',
+  FACULTY_30: 'Faculty 30 hrs',
+  FACULTY_DESIGNATED: 'Faculty designated',
+};
 
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const COMPUTATION_BUTTON_LABELS = {
+  NONTEACHING: 'Non-teaching',
+  FACULTY_30: 'Faculty 30 hrs',
+  FACULTY_DESIGNATED: 'Faculty designated',
+};
 
-  // ── Month click — same as DailyTimeRecord ──
+const goToComputationModule = async (path, selectedComputationType) => {
+  if (!personID || !startDate || !endDate) {
+    showSnackbar('Please fill in all fields first', 'warning');
+    return;
+  }
+
+  const auditButtonLabel =
+    COMPUTATION_BUTTON_LABELS[selectedComputationType] ||
+    selectedComputationType;
+
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/attendance-computation-view-state`, {
+      params: { employeeNumber: personID, periodStart: startDate, periodEnd: endDate },
+      ...getAuthHeaders(),
+    });
+    const existingType = res.data?.selectedComputationType ?? res.data?.row?.selected_computation_type ?? null;
+    if (existingType && existingType !== selectedComputationType) {
+      setComputationChangeDialog({
+        open: true,
+        existingType: COMPUTATION_TYPE_LABELS[existingType] || existingType,
+        newType: COMPUTATION_TYPE_LABELS[selectedComputationType] || selectedComputationType,
+        rawNewType: selectedComputationType,
+        path,
+        auditButtonLabel,
+        employeeName: personName || 'this employee',
+      });
+      return;
+    }
+    await proceedToComputationModule(path, selectedComputationType, auditButtonLabel);
+  } catch (err) {
+    console.error('Error checking computation view state:', err);
+    showSnackbar('Failed to check saved computation type', 'error');
+  }
+};
+
+  const proceedToComputationModule = async (
+    path,
+    selectedComputationType,
+    auditButtonLabel,
+  ) => {
+    try {
+      await axios.post(`${API_BASE_URL}/api/attendance-computation-view-state`, {
+        employeeNumber: personID,
+        periodStart: startDate,
+        periodEnd: endDate,
+        selectedComputationType,
+        ...buildDeviceAuditPayload(auditButtonLabel),
+      }, getAuthHeaders());
+      const moduleByPath = {
+        '/attendance_module': 'non_teaching',
+        '/attendance_module_faculty': 'faculty_30',
+        '/attendance_module_faculty_40hrs': 'faculty_designated',
+      };
+      const targetModuleId = moduleByPath[path];
+      if (targetModuleId) {
+        navigateAttendanceWorkflow(navigate, targetModuleId, {
+          employeeNumber: personID,
+          fullName: personName,
+          startDate,
+          endDate,
+        });
+      } else {
+        navigate(path, {
+          state: {
+            fromDevice: true,
+            employeeNumber: personID,
+            fullName: personName,
+            startDate,
+            endDate,
+          },
+        });
+      }
+    } catch (err) {
+      console.error('Error saving computation view state:', err);
+      showSnackbar('Failed to save computation selection', 'error');
+    }
+  };
+
+  const handleUserSelect = (empNo) =>
+    setSelectedUsers((p) => {
+      const n = new Set(p);
+      n.has(empNo) ? n.delete(empNo) : n.add(empNo);
+      return n;
+    });
+  const handleSelectAll = (checked) =>
+    checked
+      ? setSelectedUsers(new Set(filteredUsers.map((u) => u.employeeNumber)))
+      : setSelectedUsers(new Set());
+
+  const handleSingleSearch = () => {
+    if (!personID || !startDate || !endDate) {
+      showSnackbar(
+        'Please enter an employee number and select a month before searching.',
+        'warning',
+      );
+      return;
+    }
+    setHasSearchedSingle(true);
+    fetchRecords(
+      true,
+      buildDeviceAuditPayload('Fetch Records', {
+        searchQuery: employeeSearchQuery.trim() || personID,
+      }),
+    );
+  };
+
+  // Month click — shared for both modes
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end   = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
+    if (viewMode === 'single') {
+      setHasSearchedSingle(false);
+      setRecords([]);
+    }
   };
 
-  const handleClearFilters = () => {
-    setPersonID(''); setStartDate(''); setEndDate(''); setRecords([]);
-    setPersonName(''); setError(''); setAllUsersDTR([]); setSelectedUsers(new Set());
-    setDepartmentCodeFilter(''); setSelectedMonth(null); setSearchQuery(''); setCurrentPage(1);
+  // Quick date helpers
+  const setQuickDate = (s, e) => {
+    setStartDate(s);
+    setEndDate(e);
+    setSelectedMonth(null);
+    if (viewMode === 'single') {
+      setHasSearchedSingle(false);
+      setRecords([]);
+    }
   };
 
-  // ── Wireframe guard ──
-  if (pageLoading || accessLoading) return (
-    <ViewAttendanceWireframe accentColor={accentColor} primaryColor={primaryColor} secondaryColor={secondaryColor} />
+  const handleQuickDateSelect = (value) => {
+    if (!value) return;
+    if (value === 'today') {
+      setQuickDate(formattedToday, formattedToday);
+      return;
+    }
+    if (value === 'yesterday') {
+      const y = new Date(today);
+      y.setDate(y.getDate() - 1);
+      const s = y.toISOString().substring(0, 10);
+      setQuickDate(s, s);
+      return;
+    }
+    if (value === 'last7') {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 7);
+      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
+      return;
+    }
+    if (value === 'last15') {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 15);
+      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
+      return;
+    }
+    if (value === 'last30') {
+      const d = new Date(today);
+      d.setMonth(d.getMonth() - 1);
+      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
+    }
+  };
+
+  const missingTimeInCount = useMemo(
+    () =>
+      records.filter((r) => {
+        const hasAnyTime = r.Time1 || r.Time2 || r.Time3 || r.Time4;
+        return hasAnyTime && !r.Time1;
+      }).length,
+    [records],
   );
 
-  if (hasAccess === false) return (
-    <AccessDenied title="Access Denied" message="You do not have permission to access Device Attendance Records." returnPath="/admin-home" returnButtonText="Return to Home" />
+  const missingTimeOutCount = useMemo(
+    () =>
+      records.filter((r) => {
+        const hasAnyTime = r.Time1 || r.Time2 || r.Time3 || r.Time4;
+        return hasAnyTime && !r.Time4;
+      }).length,
+    [records],
   );
 
-  const pct = progressTotal > 0 ? Math.min(100, Math.round((progressDone / progressTotal) * 100)) : 0;
+  const lockedRowCount = useMemo(
+    () => records.filter((r) => isManuallyLocked(r)).length,
+    [records],
+  );
 
+  const recordsTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(records.length / recordsRowsPerPage)),
+    [records.length, recordsRowsPerPage],
+  );
+
+  const paginatedRecords = useMemo(() => {
+    const s = (recordsPage - 1) * recordsRowsPerPage;
+    return records.slice(s, s + recordsRowsPerPage);
+  }, [records, recordsPage, recordsRowsPerPage]);
+
+  const lockedRowsOnPage = useMemo(
+    () => paginatedRecords.filter((r) => isManuallyLocked(r)),
+    [paginatedRecords],
+  );
+
+  const selectedLockedOnPageCount = useMemo(() => {
+    let c = 0;
+    for (const r of lockedRowsOnPage) {
+      if (selectedLockedRows.has(makeRecordKey(r.PersonID, r.Date))) c++;
+    }
+    return c;
+  }, [lockedRowsOnPage, selectedLockedRows]);
+
+  const handleSelectAllLockedOnPage = (checked) => {
+    setSelectedLockedRows((prev) => {
+      const next = new Set(prev);
+      for (const record of lockedRowsOnPage) {
+        const key = makeRecordKey(record.PersonID, record.Date);
+        if (checked) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setSelectedLockedRows((prev) => {
+      const validKeys = new Set(
+        records
+          .filter((r) => isManuallyLocked(r))
+          .map((r) => makeRecordKey(r.PersonID, r.Date)),
+      );
+      const next = new Set();
+      for (const key of prev) {
+        if (validKeys.has(key)) next.add(key);
+      }
+      return next;
+    });
+  }, [records]);
+
+  useEffect(() => {
+    setRecordsPage(1);
+  }, [records.length, personID, startDate, endDate]);
+
+  const goToRecordsPage = (p) =>
+    setRecordsPage(
+      Math.min(Math.max(1, p), recordsTotalPages),
+    );
+
+  const displayEmployee = useMemo(() => {
+    if (selectedEmployee?.employeeNumber) return selectedEmployee;
+    if (!personID) return null;
+    return {
+      employeeNumber: personID,
+      fullName: personName || '',
+      lastName: '',
+      firstName: '',
+    };
+  }, [selectedEmployee, personID, personName]);
+
+  const handleEmployeeSelect = (emp, num) => {
+    if (emp && typeof emp === 'object') {
+      setSelectedEmployee(emp);
+      setPersonID(String(emp.employeeNumber || num || ''));
+      setPersonName(buildDisplayName(emp));
+    } else {
+      setSelectedEmployee(null);
+      setPersonID(num || '');
+      if (!num) setPersonName('');
+    }
+    setHasSearchedSingle(false);
+    setRecords([]);
+  };
+
+  const clearSingleEmployee = () => {
+    setPersonID('');
+    setSelectedEmployee(null);
+    setPersonName('');
+    setHasSearchedSingle(false);
+    setRecords([]);
+  };
+
+  // ── Guards ──
+  if (pageLoading || accessLoading) return <ViewAttendanceWireframe />;
+  if (hasAccess === false)
+    return (
+      <AccessDenied
+        title="Access Denied"
+        message="You do not have permission to access Device Attendance Records."
+        returnPath="/admin-home"
+        returnButtonText="Return to Home"
+      />
+    );
+
+  // ─── Left panel content — compact, no scroll ──────────────────────────
+  const renderLeftPanel = () => (
+    <Box
+      sx={{
+        px: 2,
+        py: 1,
+        flexGrow: 1,
+        overflow: 'hidden', // NO scroll
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0,
+      }}
+    >
+      {/* View Mode toggle */}
+      <FormSectionLabel icon={People}>View Mode</FormSectionLabel>
+      <Box sx={{ display: 'flex', gap: '4px', mb: 1.25 }}>
+        {[
+          { val: 'single', label: 'Single User' },
+          { val: 'multiple', label: 'All Users' },
+        ].map(({ val, label }) => {
+          const isActive = viewMode === val;
+          return (
+            <Box
+              key={val}
+              onClick={() => {
+                setViewMode(val);
+                setRecords([]);
+                clearSingleEmployee();
+                setAllUsersDTR([]);
+                setSelectedUsers(new Set());
+              }}
+              sx={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                px: 1,
+                py: 0.6,
+                borderRadius: '6px',
+                cursor: 'pointer',
+                border: `1px solid ${isActive ? T.accent : T.accentBorder}`,
+                bgcolor: isActive ? T.accent : 'transparent',
+                transition: 'all 0.14s ease',
+                '&:hover': isActive ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accent}` },
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: '0.72rem',
+                  fontWeight: isActive ? 700 : 500,
+                  color: isActive ? '#fff' : T.text,
+                  lineHeight: 1,
+                  textAlign: 'center',
+                }}
+              >
+                {label}
+              </Typography>
+            </Box>
+          );
+        })}
+      </Box>
+
+      {viewMode === 'single' && (
+        <Box sx={{ mb: 0.75 }}>
+          <AttendanceEmployeeSearchSection selected={Boolean(displayEmployee)}>
+            <AttendanceEmployeeSearchField
+              searchApi="users"
+              value={personID}
+              selectedEmployee={selectedEmployee}
+              onSearchQueryChange={setEmployeeSearchQuery}
+              onSelectEmployee={handleEmployeeSelect}
+              onClear={() => handleEmployeeSelect(null, '')}
+              deptMap={departmentAssignmentsMap}
+              empCatMap={empCatMap}
+              sexMap={sexMap}
+            />
+          </AttendanceEmployeeSearchSection>
+          {displayEmployee && (
+            <Box sx={{ mb: 0.75 }}>
+              <EmployeeProfileCard
+                employee={displayEmployee}
+                deptMap={departmentAssignmentsMap}
+                empCatMap={empCatMap}
+                sexMap={sexMap}
+                loading={loading}
+              />
+            </Box>
+          )}
+        </Box>
+      )}
+
+      <AttendanceFilterDateControls
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value));
+          setSelectedMonth(null);
+          setHasSearchedSingle(false);
+          setRecords([]);
+          if (viewMode === 'single') setPersonName('');
+          showSnackbar('Year changed — select a month to load records.', 'info');
+        }}
+        yearOptions={yearOptions}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+        onMonthClear={() => {
+          setSelectedMonth(null);
+          setStartDate('');
+          setEndDate('');
+          setRecords([]);
+          if (viewMode === 'single') setPersonName('');
+          setAllUsersDTR([]);
+          setHasSearchedSingle(false);
+        }}
+        onQuickDate={handleQuickDateSelect}
+        months={monthsShort}
+      />
+
+      {/* ── Multiple mode extras ── */}
+      {viewMode === 'multiple' && (
+        <>
+          <FormSectionLabel icon={FilterList}>Department</FormSectionLabel>
+          <Box sx={{ mb: 0.75 }}>
+            <FormControl fullWidth size="small" disabled={loadingDepartments}>
+              <Select
+                value={departmentCodeFilter}
+                onChange={(e) => { setDepartmentCodeFilter(e.target.value); setCurrentPage(1); }}
+                displayEmpty
+                sx={compactSelectSx}
+              >
+                <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All Departments</MenuItem>
+                <MenuItem value="__UNASSIGNED__" sx={{ fontSize: '0.76rem' }}>Unassigned</MenuItem>
+                {departments.map((d) => (
+                  <MenuItem key={d.id ?? d.code} value={d.code} sx={{ fontSize: '0.76rem' }}>
+                    {d.code}{d.description ? ` — ${d.description}` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+          <Button
+            variant="contained"
+            fullWidth
+            onClick={fetchAllUsersDTR}
+            disabled={loadingAllUsers || !startDate || !endDate}
+            startIcon={
+              loadingAllUsers
+                ? <CircularProgress size={12} sx={{ color: '#fff' }} />
+                : <People sx={{ fontSize: '14px !important' }} />
+            }
+            sx={{
+              borderRadius: '6px',
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.74rem',
+              py: 0.6,
+              mb: 0.75,
+              bgcolor: T.accent,
+              color: '#fff',
+              boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+              '&:hover': { bgcolor: T.accentDark },
+              '&:disabled': { opacity: 0.5 },
+            }}
+          >
+            {loadingAllUsers ? 'Loading…' : 'Load All Users'}
+          </Button>
+
+          {/* Batch summary — compact */}
+          <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65), mb: 0.3, lineHeight: 1 }}>
+              Batch Summary
+            </Typography>
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, color: T.text, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {loadingAllUsers
+                ? `${loadPhase || 'Loading…'}`
+                : `${filteredUsers.length} ${filteredUsers.length === 1 ? 'employee' : 'employees'} found`}
+            </Typography>
+            <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {loadingAllUsers
+                ? 'Aggregating device punches for the selected period…'
+                : 'Use filters on the right to narrow the list.'}
+            </Typography>
+          </Box>
+        </>
+      )}
+
+      {/* ── Single mode extras ── */}
+      {viewMode === 'single' && (
+        <Box>
+          <Button
+            variant="contained"
+            fullWidth
+            onClick={handleSingleSearch}
+            startIcon={<Search sx={{ fontSize: '14px !important' }} />}
+            sx={{
+              borderRadius: '6px',
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '0.74rem',
+              py: 0.6,
+              mb: 0.75,
+              bgcolor: T.accent,
+              color: '#fff',
+              boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+              '&:hover': { bgcolor: T.accentDark },
+            }}
+          >
+            Fetch Records
+          </Button>
+
+          {/* Record summary — compact */}
+          <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65), mb: 0.3, lineHeight: 1 }}>
+              Record Summary
+            </Typography>
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, color: T.text, lineHeight: 1.2 }}>
+              {loading
+                ? 'Loading records...'
+                : hasSearchedSingle
+                  ? `${records.length} ${records.length === 1 ? 'record' : 'records'} found`
+                  : 'No records loaded'}
+            </Typography>
+            <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.25, lineHeight: 1.2 }}>
+              {loading
+                ? 'Fetching attendance data...'
+                : hasSearchedSingle
+                  ? 'Search complete.'
+                  : 'Select month and fetch records.'}
+            </Typography>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+
+  // ─── Render ────────────────────────────────────────────────────────────
   return (
-    <Fade in timeout={500}>
-      <Box sx={{ py: { xs: 2, md: 4 }, width: '100vw', mx: 'auto', maxWidth: '100%', overflow: 'hidden', position: 'relative', left: '53%', transform: 'translateX(-51%)', px: { xs: 2, sm: 3, md: 6 } }}>
+    <Fade in timeout={400}>
+      <Box>
+        <style>{shimmerKf}</style>
 
-          {/* ── Snackbar ── */}
-          <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
-            <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} variant="filled"
-              sx={{ width: '100%', fontWeight: 600, backgroundColor: snackbar.severity === 'success' ? '#4caf50' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, '& .MuiAlert-icon': { color: snackbar.severity === 'success' ? '#ffffff' : undefined } }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <span>{snackbar.message}</span>
-                {snackbar.open && snackbarCountdown > 0 && (
-                  <Chip label={`${snackbarCountdown}s`} size="small" sx={{ backgroundColor: snackbar.severity === 'success' ? 'rgba(255,255,255,0.3)' : undefined, color: snackbar.severity === 'success' ? '#ffffff' : undefined, fontWeight: 700 }} />
-                )}
-              </Box>
-            </Alert>
-          </Snackbar>
+        {/* Snackbar */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={5000}
+          onClose={handleCloseSnackbar}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={handleCloseSnackbar}
+            severity={snackbar.severity}
+            variant="filled"
+            sx={{ width: '100%', fontWeight: 600 }}
+          >
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
 
-          {/* ── Progress Dialog ── */}
-          <Dialog open={progressOpen} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, backgroundColor: '#ffffff', boxShadow: `0 10px 50px ${alpha(accentColor,0.12)}`, overflow: 'hidden' } }}>
-            <Box sx={{ p: 4, minHeight: 320, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 2 }}>
-              <Typography sx={{ fontWeight: 900, fontSize: '1.4rem', color: '#111', mb: 0.5 }}>Loading All Users</Typography>
-              <CircularProgress size={90} thickness={4.2} sx={{ color: '#2e7d32', my: 1 }} />
-              <Typography sx={{ fontWeight: 1000, fontSize: '1.5rem', lineHeight: 1, color: '#2e7d32', letterSpacing: '-0.02em' }}>{pct}%</Typography>
-              <Box sx={{ width: '100%', maxWidth: 420, mt: 1 }}>
-                <LinearProgress variant="determinate" value={pct} sx={{ height: 14, borderRadius: 99, backgroundColor: '#eeeeee', '& .MuiLinearProgress-bar': { borderRadius: 99, backgroundColor: '#2e7d32' } }} />
-              </Box>
-              <Typography variant="body2" sx={{ color: '#444', fontWeight: 700, mt: 1 }}>{progressDone} / {progressTotal} processed</Typography>
-              <Typography variant="caption" sx={{ color: '#666' }}>Please wait while records are being fetched and auto-saved...</Typography>
-            </Box>
-          </Dialog>
-
-          {/* ── Success Modal ── */}
-          <Dialog open={showSuccessModal} onClose={() => setShowSuccessModal(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4, boxShadow: `0 8px 40px ${alpha(accentColor,0.2)}` } }}>
-            <Box sx={{ p: 4, textAlign: 'center', background: `linear-gradient(135deg, ${alpha(primaryColor,0.3)} 0%, ${alpha(secondaryColor,0.5)} 100%)` }}>
-              <Avatar sx={{ width: 80, height: 80, margin: '0 auto 20px', backgroundColor: '#4caf50' }}><CheckCircle sx={{ fontSize: 48, color: '#ffffff' }} /></Avatar>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: textPrimaryColor, mb: 2 }}>Records Auto-Saved Successfully!</Typography>
-              <Typography variant="body1" sx={{ color: alpha(textPrimaryColor,0.8), mb: 4, lineHeight: 1.6 }}>{modalMessage}</Typography>
-              <ProfessionalButton variant="contained" onClick={() => setShowSuccessModal(false)}
-                sx={{ backgroundColor: accentColor, color: textSecondaryColor, px: 6, py: 1.5, fontSize: '1rem', fontWeight: 700, '&:hover': { backgroundColor: accentDark, transform: 'scale(1.05)' }, transition: 'all 0.3s ease' }}>
-                OK
-              </ProfessionalButton>
-            </Box>
-          </Dialog>
-
-          {/* ── Hero Header ── */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 4 }}>
-              <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 5, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, position: 'relative', overflow: 'hidden' }}>
-                  <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: `radial-gradient(circle,${alpha(accentColor,0.1)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                  <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: `radial-gradient(circle,${alpha(accentColor,0.08)} 0%,${alpha(accentColor,0)} 70%)` }} />
-                  <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                    <Box display="flex" alignItems="center">
-                      <Avatar sx={{ bgcolor: alpha(accentColor,0.15), mr: 4, width: 64, height: 64, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                        <Search sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                      </Avatar>
-                      <Box>
-                        <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>Device Attendance Records</Typography>
-                        <Typography variant="body1" sx={{ opacity: 0.8, color: textPrimaryColor }}>Auto-saved records from biometric devices - ready for DTR</Typography>
-                      </Box>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Chip icon={<CheckCircle />} label="Auto-Save Enabled" size="small" sx={{ bgcolor: alpha('#4caf50',0.2), color: '#2e7d32', fontWeight: 600 }} />
-                      <Box display="flex" gap={1}>
-                        <ProfessionalButton variant={viewMode === 'single' ? 'contained' : 'outlined'} onClick={() => setViewMode('single')}
-                          sx={{ backgroundColor: viewMode === 'single' ? accentColor : 'transparent', color: viewMode === 'single' ? textSecondaryColor : textPrimaryColor, borderColor: accentColor, py: 0.75, px: 2 }}>
-                          Single User
-                        </ProfessionalButton>
-                        <ProfessionalButton variant={viewMode === 'multiple' ? 'contained' : 'outlined'} onClick={() => setViewMode('multiple')}
-                          sx={{ backgroundColor: viewMode === 'multiple' ? accentColor : 'transparent', color: viewMode === 'multiple' ? textSecondaryColor : textPrimaryColor, borderColor: accentColor, py: 0.75, px: 2 }}>
-                          All Users
-                        </ProfessionalButton>
-                      </Box>
-                    </Box>
-                  </Box>
+        <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+                <Search sx={{ fontSize: 32, color: T.accent }} />
+                <Box>
+                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                    Device Attendance Records
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                    Administrative Panel • Auto-saved records from biometric devices
+                  </Typography>
                 </Box>
-              </GlassCard>
-            </Box>
-          </Fade>
-
-          {/* ── Controls Card ── */}
-          <Fade in timeout={700}>
-            <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-              <CardContent sx={{ p: 4 }}>
-                <Box component="form" onSubmit={handleSubmit}>
-
-                  {/* Date inputs */}
-                  {viewMode === 'single' ? (
-                    <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                      {[
-                        { label: 'Employee Number', value: personID,   onChange: (e) => setPersonID(e.target.value),   type: 'text', icon: <Person sx={{ color: textPrimaryColor }} /> },
-                        { label: 'Start Date',      value: startDate,  onChange: (e) => setStartDate(e.target.value),  type: 'date', icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                        { label: 'End Date',        value: endDate,    onChange: (e) => setEndDate(e.target.value),    type: 'date', icon: <CalendarToday sx={{ color: textPrimaryColor }} /> },
-                      ].map(({ label, value, onChange, type, icon }) => (
-                        <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
-                          <ModernTextField type={type} value={value} onChange={onChange} InputLabelProps={type === 'date' ? { shrink: true } : {}}
-                            InputProps={{ startAdornment: <InputAdornment position="start">{icon}</InputAdornment> }} fullWidth required />
-                        </Box>
-                      ))}
-                    </Box>
-                  ) : (
-                    <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-                      {[
-                        { label: 'Start Date', value: startDate, onChange: (e) => setStartDate(e.target.value) },
-                        { label: 'End Date',   value: endDate,   onChange: (e) => setEndDate(e.target.value) },
-                      ].map(({ label, value, onChange }) => (
-                        <Box key={label} sx={{ flex: 1, minWidth: 160 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}>{label}</Typography>
-                          <ModernTextField type="date" value={value} onChange={onChange} InputLabelProps={{ shrink: true }}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><CalendarToday sx={{ color: textPrimaryColor }} /></InputAdornment> }} fullWidth required />
-                        </Box>
-                      ))}
-                    </Box>
-                  )}
-
-                  <Divider sx={{ my: 3, borderColor: alpha(accentColor,0.1) }} />
-
-                  {/* Quick Date Selection */}
-                  <Box sx={{ mb: 4 }}>
-                    <Typography variant="h6" sx={{ color: textPrimaryColor, fontWeight: 600, display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <FilterList sx={{ mr: 2 }} />Select date range to filter records
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <AttendanceWorkflowNav
+                  inline
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  onPrevious={goPrevious}
+                  onNext={goNext}
+                />
+                <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
+                  <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <CheckCircle sx={{ fontSize: 12 }} /> Auto-Save Enabled
+                  </Typography>
+                </Box>
+                {viewMode === 'single' && records.length > 0 && (
+                  <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                      {records.length} records
                     </Typography>
+                  </Box>
+                )}
+                {viewMode === 'multiple' && allUsersDTR.length > 0 && (
+                  <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                      {allUsersDTR.length} employees
+                    </Typography>
+                  </Box>
+                )}
+                <Tooltip title="Refresh">
+                  <IconButton
+                    onClick={() => viewMode === 'single' ? fetchRecords(true) : fetchAllUsersDTR()}
+                    sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
+                  >
+                    <Refresh sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          </SectionCard>
 
-                    {/* Department filter */}
-                    {viewMode === 'multiple' && (
-                      <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                        <FormControl sx={{ minWidth: 320, backgroundColor: 'white' }} disabled={loadingDepartments}>
-                          <InputLabel>Department</InputLabel>
-                          <Select value={departmentCodeFilter} label="Department" onChange={(e) => { setDepartmentCodeFilter(e.target.value); setCurrentPage(1); }}>
-                            <MenuItem value="">All Departments</MenuItem>
-                            <MenuItem value="__UNASSIGNED__">Unassigned</MenuItem>
-                            {departments.map((d) => <MenuItem key={d.id??d.code} value={d.code}>{d.code}{d.description ? ` - ${d.description}` : ''}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                        <ProfessionalButton variant="outlined" onClick={fetchDepartmentsAndAssignments} disabled={loadingDepartments}
-                          startIcon={loadingDepartments ? <CircularProgress size={18} /> : <Refresh />}
-                          sx={{ borderColor: accentColor, color: textPrimaryColor }}>
-                          Refresh Departments
-                        </ProfessionalButton>
-                      </Box>
-                    )}
+          {/* Error alert */}
+          <Collapse in={!!error}>
+            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>
+              {error}
+            </Alert>
+          </Collapse>
 
-                    {/* Quick buttons */}
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-                      {[
-                        { label: 'Today',        icon: <Today />,        fn: () => { setStartDate(formattedToday); setEndDate(formattedToday); } },
-                        { label: 'Yesterday',    icon: <ArrowBackIos />, fn: () => { const y = new Date(today); y.setDate(y.getDate()-1); const s = y.toISOString().substring(0,10); setStartDate(s); setEndDate(s); } },
-                        { label: 'Last 7 Days',  icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-7); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); } },
-                        { label: 'Last 15 Days', icon: null,             fn: () => { const d = new Date(today); d.setDate(d.getDate()-15); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); } },
-                        { label: 'Last 30 Days', icon: null,             fn: () => { const d = new Date(today); d.setMonth(d.getMonth()-1); setStartDate(d.toISOString().substring(0,10)); setEndDate(formattedToday); } },
-                      ].map(({ label, icon, fn }) => (
-                        <ProfessionalButton key={label} variant="outlined" size="medium" onClick={fn}
-                          startIcon={icon || undefined}
-                          sx={{ borderColor: accentColor, color: textPrimaryColor, fontWeight: 600, py: 1.5, '&:hover':{ backgroundColor: alpha(accentColor,0.07), borderWidth: 2 }, transition: 'all 0.3s ease' }}>
-                          {label}
-                        </ProfessionalButton>
-                      ))}
-                    </Box>
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+            {/* LEFT: Sidebar */}
+            <Grid item xs={12} lg={3}>
+              <SectionCard
+                sx={{
+                  ...attendanceMainPanelHeightSx,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
+                <Box
+                  sx={{
+                    px: 2,
+                    py: 1,
+                    borderBottom: `1px solid ${T.divider}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    bgcolor: T.accentFaint,
+                    flexShrink: 0,
+                  }}
+                >
+                  <FilterList sx={{ fontSize: 13, color: T.accent }} />
+                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
+                    Attendance Filter
+                  </Typography>
+                </Box>
+                {renderLeftPanel()}
+              </SectionCard>
+            </Grid>
 
-                    {/* Month picker — layout matches DailyTimeRecord exactly */}
-                    <Box sx={{ p: 3, borderRadius: 2, border: `2px dashed ${alpha(accentColor,0.2)}`, backgroundColor: alpha(primaryColor,0.3) }}>
-                      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, mb: 2 }}>
-                        <Box>
-                          <Typography variant="subtitle1" sx={{ color: textPrimaryColor, fontWeight: 600, mb: 0.5 }}>Select Entire Month</Typography>
-                          <Typography variant="body2" sx={{ color: alpha(textPrimaryColor,0.7) }}>Choose a year, then click any month to set the range</Typography>
+            {/* RIGHT: Content */}
+            <Grid item xs={12} lg={9}>
+              <SectionCard
+                sx={{
+                  ...attendanceMainPanelHeightSx,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  position: 'relative',
+                }}
+              >
+                {/* ── SINGLE USER VIEW ── */}
+                {viewMode === 'single' && (
+                  <>
+                    {/* Toolbar */}
+                    <Box
+                      sx={{
+                        px: 3,
+                        py: 2,
+                        borderBottom: `1px solid ${T.divider}`,
+                        bgcolor: T.accentFaint,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Assignment sx={{ fontSize: 15, color: T.accent }} />
+                          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                            Attendance Records
+                          </Typography>
                         </Box>
-
-                        {/* ── Year selector ── */}
-                        <FormControl sx={{ minWidth: 140 }}>
-                          <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                          <Select
-                            value={selectedYear}
-                            label="Year"
-                            onChange={(e) => {
-                              setSelectedYear(e.target.value);
-                              setSelectedMonth(null);
-                              showSnackbar('Year changed — please click a month to load records.', 'info');
-                            }}
-                            sx={{ backgroundColor: 'white', '& .MuiOutlinedInput-notchedOutline':{ borderColor: accentColor }, borderRadius: 2, fontWeight: 600 }}
-                          >
-                            {yearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                      </Box>
-
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, justifyContent: 'center' }}>
-                        {months.map((month, index) => {
-                          const sel = selectedMonth === index;
-                          return (
-                            <ProfessionalButton key={month} variant={sel ? 'contained' : 'outlined'} size="medium" onClick={() => handleMonthClick(index)}
-                              sx={{ borderColor: accentColor, backgroundColor: sel ? accentColor : 'transparent', color: sel ? textSecondaryColor : textPrimaryColor, py: 1.5, px: 4.5, fontWeight: 600, '&:hover':{ backgroundColor: sel ? accentDark : alpha(accentColor,0.1), borderWidth: 2 }, transition: 'all 0.3s ease', boxShadow: sel ? `0 4px 12px ${alpha(accentColor,0.3)}` : 'none' }}>
-                              {month}
-                            </ProfessionalButton>
-                          );
-                        })}
+                        {records.length > 0 && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {missingTimeInCount > 0 && (
+                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
+                                <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
+                                  {missingTimeInCount} {NO_TIME_IN_LABEL}
+                                </Typography>
+                              </Box>
+                            )}
+                            {missingTimeOutCount > 0 && (
+                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
+                                <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
+                                  {missingTimeOutCount} {NO_TIME_OUT_LABEL}
+                                </Typography>
+                              </Box>
+                            )}
+                            {lockedRowCount > 0 && (
+                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(33,150,243,0.10)', border: '1px solid rgba(33,150,243,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Lock sx={{ fontSize: 11, color: '#1976d2' }} />
+                                <Typography sx={{ fontSize: '0.72rem', color: '#1976d2', fontWeight: 700 }}>
+                                  {lockedRowCount} Admin Modified
+                                </Typography>
+                              </Box>
+                            )}
+                            {selectedLockedRows.size > 0 && (
+                              <AccentButton
+                                variant="contained"
+                                size="small"
+                                startIcon={
+                                  bulkRestoring ? (
+                                    <CircularProgress size={13} sx={{ color: '#fff' }} />
+                                  ) : (
+                                    <Sync sx={{ fontSize: '13px !important' }} />
+                                  )
+                                }
+                                disabled={bulkRestoring || restoringKey !== null}
+                                onClick={handleBulkForceSync}
+                                sx={{
+                                  fontSize: '0.78rem',
+                                  bgcolor: '#1976d2',
+                                  color: '#fff',
+                                  boxShadow: '0 2px 8px rgba(25,118,210,0.3)',
+                                  '&:hover': { bgcolor: '#1565c0' },
+                                }}
+                              >
+                                Restore Selected ({selectedLockedRows.size})
+                              </AccentButton>
+                            )}
+                            <AccentButton
+                              variant="contained"
+                              size="small"
+                              startIcon={<Assignment sx={{ fontSize: '13px !important' }} />}
+                              onClick={handleGoToState}
+                              sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`, '&:hover': { bgcolor: T.accentDark } }}
+                            >
+                              Go to Attendance State
+                            </AccentButton>
+                            <AccentButton
+                              variant="contained"
+                              size="small"
+                              startIcon={<Send sx={{ fontSize: '13px !important' }} />}
+                              onClick={handleSendToDTR}
+                              sx={{ fontSize: '0.78rem', bgcolor: '#2e7d32', color: '#fff', boxShadow: `0 2px 8px rgba(46,125,50,0.3)`, '&:hover': { bgcolor: '#1b5e20' } }}
+                            >
+                              View in DTR Module
+                            </AccentButton>
+                          </Box>
+                        )}
                       </Box>
                     </Box>
-                  </Box>
 
-                  {/* Clear button */}
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <ProfessionalButton variant="outlined" startIcon={<Clear />} onClick={handleClearFilters}
-                      sx={{ borderColor: '#d32f2f', color: '#d32f2f', '&:hover':{ borderColor: '#b71c1c', backgroundColor: alpha('#d32f2f',0.05) } }}>
-                      Clear All Filters
-                    </ProfessionalButton>
-                  </Box>
-                </Box>
-              </CardContent>
-            </GlassCard>
-          </Fade>
-
-          {/* ── All Users Card ── */}
-          {viewMode === 'multiple' && (
-            <Fade in timeout={1000}>
-              <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 4px rgba(0,0,0,0.08)' }}>
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: textPrimaryColor }}>All Users DTR List (Auto-Saved)</Typography>
-                  <Box display="flex" gap={2} flexWrap="wrap">
-                    <ProfessionalButton variant="contained" onClick={fetchAllUsersDTR} disabled={loadingAllUsers || !startDate || !endDate}
-                      startIcon={loadingAllUsers ? <CircularProgress size={20} /> : <People />}
-                      sx={{ backgroundColor: accentColor, color: textSecondaryColor }}>
-                      {loadingAllUsers ? 'Loading...' : 'Load All Users'}
-                    </ProfessionalButton>
-                    {allUsersDTR.length > 0 && (
-                      <ProfessionalButton variant="contained" onClick={handleBulkSendToDTR} disabled={selectedCountInFiltered === 0} startIcon={<Send />}
-                        sx={{ backgroundColor: '#4caf50', color: '#ffffff', '&:hover':{ backgroundColor: '#45a049' } }}>
-                        View DTR ({selectedCountInFiltered})
-                      </ProfessionalButton>
-                    )}
-                  </Box>
-                </Box>
-
-                <Box sx={{ p: 4 }}>
-                  {allUsersDTR.length > 0 ? (
-                    <>
-                      {/* Toolbar */}
-                      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <ModernTextField label="Search users" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                          InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment>, endAdornment: searchQuery ? (<InputAdornment position="end"><IconButton size="small" onClick={() => { setSearchQuery(''); setCurrentPage(1); }}><Clear /></IconButton></InputAdornment>) : null }}
-                          sx={{ minWidth: 300 }} />
-                        <FormControl sx={{ minWidth: 160, backgroundColor: 'white' }}>
-                          <InputLabel>Records</InputLabel>
-                          <Select value={recordFilter} label="Records" onChange={(e) => { setRecordFilter(e.target.value); setCurrentPage(1); }}>
-                            <MenuItem value="all">All</MenuItem>
-                            <MenuItem value="has">Has Records</MenuItem>
-                            <MenuItem value="no">No Records</MenuItem>
-                          </Select>
-                        </FormControl>
-                        <ProfessionalButton variant="outlined" onClick={() => handleSelectAll(selectedCountInFiltered !== filteredUsers.length)}
-                          sx={{ borderColor: accentColor, color: accentColor }}>
-                          {selectedCountInFiltered === filteredUsers.length ? 'Deselect All' : 'Select All'}
-                        </ProfessionalButton>
-                      </Box>
-
-                      {/* Table */}
-                      <PremiumTableContainer sx={{ maxHeight: 520, overflowY: 'auto' }}>
-                        <Table sx={{ minWidth: 800 }} stickyHeader>
-                          <TableHead>
-                            <TableRow sx={{ bgcolor: alpha(primaryColor,0.7) }}>
-                              <PremiumTableCell isHeader>
-                                <Checkbox checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0} indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length} onChange={(e) => handleSelectAll(e.target.checked)}
-                                  sx={{ color: alpha(accentColor,0.5), '&.Mui-checked':{ color: accentColor }, '&.MuiCheckbox-indeterminate':{ color: accentColor } }} />
-                              </PremiumTableCell>
-                              {['Employee Number','Department','Full Name','Records Count','Status','Action'].map((h) => (
-                                <PremiumTableCell key={h} isHeader sx={{ color: textPrimaryColor }}>{h}</PremiumTableCell>
+                    {/* Records area */}
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto', position: 'relative', ...scrollbarSx }}>
+                      {!hasSearchedSingle || !personID ? (
+                        <Box sx={{ py: 10, textAlign: 'center' }}>
+                          <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <Person sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                          </Box>
+                          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                            Select an Employee & Period
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                            {!personID
+                              ? 'Enter an employee number and select a month from the left panel.'
+                              : 'Click Fetch Records to load attendance data.'}
+                          </Typography>
+                        </Box>
+                      ) : records.length === 0 && !loading ? (
+                        <Box sx={{ py: 10, textAlign: 'center' }}>
+                          <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <Info sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                          </Box>
+                          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                            No records found
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                            Try adjusting your date range or employee number.
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Fade in timeout={250}>
+                          <Box>
+                            {/* Column headers */}
+                            <Box
+                              sx={{
+                                display: 'grid',
+                                gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                                px: 2.5,
+                                py: 1.25,
+                                bgcolor: T.accent,
+                                gap: 1,
+                                position: 'sticky',
+                                top: 0,
+                                zIndex: 2,
+                                minWidth: lockedRowCount > 0 ? 932 : 900,
+                                alignItems: 'center',
+                              }}
+                            >
+                              {lockedRowCount > 0 && (
+                                <Checkbox
+                                  size="small"
+                                  checked={
+                                    lockedRowsOnPage.length > 0 &&
+                                    selectedLockedOnPageCount === lockedRowsOnPage.length
+                                  }
+                                  indeterminate={
+                                    selectedLockedOnPageCount > 0 &&
+                                    selectedLockedOnPageCount < lockedRowsOnPage.length
+                                  }
+                                  disabled={lockedRowsOnPage.length === 0}
+                                  onChange={(e) => handleSelectAllLockedOnPage(e.target.checked)}
+                                  sx={{
+                                    color: 'rgba(255,255,255,0.7)',
+                                    p: 0,
+                                    '&.Mui-checked': { color: '#fff' },
+                                    '&.MuiCheckbox-indeterminate': { color: '#fff' },
+                                  }}
+                                />
+                              )}
+                              {['EMP ID', 'DATE', 'DAY', 'TIME IN', 'BREAK IN', 'BREAK OUT', 'TIME OUT', 'SPECIAL TYPE', 'SP. IN', 'SP. OUT'].map((h) => (
+                                <Typography key={h} sx={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.07em' }}>
+                                  {h}
+                                </Typography>
                               ))}
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {paginatedUsers.map((user) => (
-                              <TableRow key={user.employeeNumber} sx={{ '&:nth-of-type(even)':{ bgcolor: alpha(primaryColor,0.3) }, '&:hover':{ bgcolor: alpha(accentColor,0.05) }, transition: 'all 0.2s ease' }}>
-                                <PremiumTableCell><Checkbox checked={selectedUsers.has(user.employeeNumber)} onChange={() => handleUserSelect(user.employeeNumber)} /></PremiumTableCell>
-                                <PremiumTableCell>{user.employeeNumber}</PremiumTableCell>
-                                <PremiumTableCell>{(() => { const d = departmentAssignmentsMap?.[user.employeeNumber]||''; return d ? <Chip label={d} size="small" /> : <Chip label="Unassigned" size="small" variant="outlined" />; })()}</PremiumTableCell>
-                                <PremiumTableCell>{trimmedSearch ? highlightMatch(formatFullName(user.fullName), trimmedSearch) : formatFullName(user.fullName)}</PremiumTableCell>
-                                <PremiumTableCell>{user.recordsCount || 0}</PremiumTableCell>
-                                <PremiumTableCell><Chip label={user.hasRecords ? 'Auto-Saved' : 'No Records'} color={user.hasRecords ? 'success' : 'default'} size="small" icon={user.hasRecords ? <CheckCircle /> : undefined} /></PremiumTableCell>
-                                <PremiumTableCell>
-                                  <ProfessionalButton variant="contained" size="small" startIcon={<Send />} disabled={!user.hasRecords}
-                                    onClick={() => navigate('/daily_time_record_faculty', { state: { employeeNumber: user.employeeNumber, fullName: user.fullName, startDate, endDate } })}
-                                    sx={{ backgroundColor: '#4caf50', color: '#ffffff', py: 0.5, px: 1.5, '&:hover':{ backgroundColor: '#45a049' }, '&:disabled':{ backgroundColor: alpha('#4caf50',0.3), color: alpha('#ffffff',0.5) } }}>
-                                    View DTR
-                                  </ProfessionalButton>
-                                </PremiumTableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </PremiumTableContainer>
+                            </Box>
+                            <Box
+                              sx={{
+                                px: 2.5,
+                                py: 0.75,
+                                display: 'flex',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: 1,
+                                borderBottom: `1px solid ${T.divider}`,
+                                bgcolor: alpha(T.accent, 0.02),
+                              }}
+                            >
+                              <Typography sx={{ fontSize: '0.72rem', color: T.muted, mr: 'auto' }}>
+                                {records.length > recordsRowsPerPage
+                                  ? `Showing ${(recordsPage - 1) * recordsRowsPerPage + 1}–${Math.min(records.length, recordsPage * recordsRowsPerPage)} of ${records.length}`
+                                  : `${records.length} row${records.length === 1 ? '' : 's'}`}
+                              </Typography>
+                              {lockedRowCount > 0 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                  <Typography
+                                    component="button"
+                                    type="button"
+                                    onClick={handleSelectAllLockedInPeriod}
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      color: '#1976d2',
+                                      bgcolor: 'transparent',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      p: 0,
+                                      fontFamily: 'inherit',
+                                      '&:hover': { textDecoration: 'underline' },
+                                    }}
+                                  >
+                                    Select all {lockedRowCount} locked
+                                  </Typography>
+                                  {selectedLockedRows.size > 0 && (
+                                    <>
+                                      <Typography sx={{ fontSize: '0.68rem', color: T.faint }}>·</Typography>
+                                      <Typography
+                                        component="button"
+                                        type="button"
+                                        onClick={handleClearLockedSelection}
+                                        sx={{
+                                          fontSize: '0.68rem',
+                                          fontWeight: 600,
+                                          color: T.muted,
+                                          bgcolor: 'transparent',
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          p: 0,
+                                          fontFamily: 'inherit',
+                                          '&:hover': { textDecoration: 'underline' },
+                                        }}
+                                      >
+                                        Clear ({selectedLockedRows.size})
+                                      </Typography>
+                                    </>
+                                  )}
+                                </Box>
+                              )}
+                              <FormControl size="small" sx={{ minWidth: 92 }}>
+                                <Select
+                                  value={recordsRowsPerPage}
+                                  onChange={(e) => {
+                                    setRecordsRowsPerPage(Number(e.target.value));
+                                    setRecordsPage(1);
+                                  }}
+                                  sx={selectSx}
+                                >
+                                  {[25, 50, 100, 200].map((n) => (
+                                    <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} / page</MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                              {recordsTotalPages > 1 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                  {[{ label: '«', fn: () => goToRecordsPage(1), dis: recordsPage === 1 }, { label: '‹', fn: () => goToRecordsPage(recordsPage - 1), dis: recordsPage === 1 }].map(({ label, fn, dis }) => (
+                                    <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                      <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
+                                    </IconButton>
+                                  ))}
+                                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.muted, minWidth: 56, textAlign: 'center' }}>
+                                    {recordsPage} / {recordsTotalPages}
+                                  </Typography>
+                                  {[{ label: '›', fn: () => goToRecordsPage(recordsPage + 1), dis: recordsPage === recordsTotalPages }, { label: '»', fn: () => goToRecordsPage(recordsTotalPages), dis: recordsPage === recordsTotalPages }].map(({ label, fn, dis }) => (
+                                    <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                      <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
+                                    </IconButton>
+                                  ))}
+                                </Box>
+                              )}
+                            </Box>
+                            <Box sx={{ overflowX: 'auto' }}>
+                              {paginatedRecords.map((record, index) => {
+                                const globalIndex = (recordsPage - 1) * recordsRowsPerPage + index;
+                                const hasTimeIn = !!record.Time1;
+                                const hasBreakIn = !!record.Time3;
+                                const hasBreakOut = !!record.Time2;
+                                const hasTimeOut = !!record.Time4;
+                                const hasAnyTime = hasTimeIn || hasBreakIn || hasBreakOut || hasTimeOut;
+                                const timeInUncategorized = hasAnyTime && !hasTimeIn;
+                                const timeOutUncategorized = hasAnyTime && !hasTimeOut;
+                                const hasAnyUncategorized = timeInUncategorized || timeOutUncategorized;
+                                const isLocked = isManuallyLocked(record);
+                                const rowRestoreKey = makeRecordKey(record.PersonID, record.Date);
+                                const wasRecentlyRestored = recentlyRestoredKeys.has(rowRestoreKey);
+                                const isRowSelected = selectedLockedRows.has(rowRestoreKey);
 
-                      {/* Pagination */}
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, gap: 2, flexWrap: 'wrap' }}>
-                        <Typography variant="body2" sx={{ color: textPrimaryColor }}>
-                          Showing {filteredUsers.length === 0 ? 0 : Math.min(filteredUsers.length,(currentPage-1)*rowsPerPage+1)} - {Math.min(filteredUsers.length,currentPage*rowsPerPage)} of {filteredUsers.length} users
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <FormControl sx={{ minWidth: 140, backgroundColor: 'white' }}>
-                            <InputLabel>Rows</InputLabel>
-                            <Select value={rowsPerPage} label="Rows" onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}>
-                              {[10,20,50,100].map((n) => <MenuItem key={n} value={n}>{n}</MenuItem>)}
-                            </Select>
-                          </FormControl>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <IconButton onClick={() => goToPage(currentPage-1)} disabled={currentPage === 1} sx={{ bgcolor: 'white', border: `1px solid ${alpha(accentColor,0.15)}` }}><ArrowBack /></IconButton>
-                            <Typography sx={{ minWidth: 36, textAlign: 'center', fontWeight: 600, color: textPrimaryColor }}>{currentPage} / {totalPages}</Typography>
-                            <IconButton onClick={() => goToPage(currentPage+1)} disabled={currentPage === totalPages} sx={{ bgcolor: 'white', border: `1px solid ${alpha(accentColor,0.15)}` }}><ArrowForward /></IconButton>
+                                let specialTypeBadge = null;
+                                if (record.Time5 || record.Time6) {
+                                  const type = record.specialType || 'UNCATEGORIZED';
+                                  const typeLabels = { HONORARIUM: 'Honorarium', SERVICE: 'Service Credit', OVERTIME: 'Overtime', UNCATEGORIZED: 'Uncategorized' };
+                                  const colors = { HONORARIUM: '#4CAF50', SERVICE: '#2196F3', OVERTIME: '#FF9800', UNCATEGORIZED: '#9E9E9E' };
+                                  const bc = colors[type] || colors.UNCATEGORIZED;
+                                  specialTypeBadge = (
+                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: '10px', bgcolor: alpha(bc, 0.12), border: `1px solid ${alpha(bc, 0.3)}` }}>
+                                      <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: bc }}>
+                                        {typeLabels[type] || 'Uncategorized'}
+                                      </Typography>
+                                    </Box>
+                                  );
+                                }
+
+                                const rowBg = isLocked
+                                  ? 'rgba(33, 150, 243, 0.06)'
+                                  : wasRecentlyRestored
+                                    ? 'rgba(76, 175, 80, 0.06)'
+                                    : hasAnyUncategorized
+                                      ? 'rgba(244,67,54,0.03)'
+                                      : globalIndex % 2 === 0
+                                        ? '#fff'
+                                        : T.rowOdd;
+                                const rowHoverBg = isLocked
+                                  ? 'rgba(33, 150, 243, 0.10)'
+                                  : wasRecentlyRestored
+                                    ? 'rgba(76, 175, 80, 0.10)'
+                                    : hasAnyUncategorized
+                                      ? 'rgba(244,67,54,0.07)'
+                                      : T.rowHover;
+
+                                return (
+                                  <Box
+                                    key={`${record.PersonID}-${record.Date}-${globalIndex}`}
+                                    sx={{
+                                      display: 'grid',
+                                      gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
+                                      px: 2.5,
+                                      py: 1.5,
+                                      gap: 1,
+                                      alignItems: 'center',
+                                      minWidth: lockedRowCount > 0 ? 932 : 900,
+                                      bgcolor: rowBg,
+                                      borderBottom: isLocked
+                                        ? '1px solid rgba(33,150,243,0.18)'
+                                        : wasRecentlyRestored
+                                          ? '1px solid rgba(76,175,80,0.22)'
+                                          : hasAnyUncategorized
+                                            ? '1px solid rgba(244,67,54,0.12)'
+                                            : `1px solid ${T.divider}`,
+                                      transition: 'background 0.12s',
+                                      '&:hover': { bgcolor: rowHoverBg },
+                                      '&:last-child': { borderBottom: 'none' },
+                                    }}
+                                  >
+                                    {lockedRowCount > 0 && (
+                                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {isLocked ? (
+                                          <Checkbox
+                                            size="small"
+                                            checked={isRowSelected}
+                                            disabled={bulkRestoring}
+                                            onChange={(e) =>
+                                              toggleLockedRowSelection(rowRestoreKey, e.target.checked)
+                                            }
+                                            sx={{
+                                              p: 0,
+                                              color: '#1976d2',
+                                              '&.Mui-checked': { color: '#1976d2' },
+                                            }}
+                                          />
+                                        ) : null}
+                                      </Box>
+                                    )}
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{record.PersonID}</Typography>
+                                    <Box>
+                                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+                                      {isLocked && (
+                                        <LockStatusChip
+                                          modifiedBy={record.modified_by}
+                                          modifiedByName={record.modified_by_name}
+                                          modifiedAt={record.modified_at}
+                                        />
+                                      )}
+                                      {!isLocked && wasRecentlyRestored && <RestoredStatusChip />}
+                                    </Box>
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{getDayOfWeek(record.Date)}</Typography>
+                                    <TimeCell time={record.Time1} isUncategorized={timeInUncategorized} missingLabel={NO_TIME_IN_LABEL} />
+                                    <TimeCell time={record.Time3} isUncategorized={false} />
+                                    <TimeCell time={record.Time2} isUncategorized={false} />
+                                    <TimeCell time={record.Time4} isUncategorized={timeOutUncategorized} missingLabel={NO_TIME_OUT_LABEL} />
+                                    <Box>{specialTypeBadge || <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>—</Typography>}</Box>
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time5 ? formatTime(record.Time5) : '—'}</Typography>
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.35 }}>
+                                      <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
+                                      {isLocked && (
+                                        <Tooltip title="Restore raw device data for this day" placement="left" arrow>
+                                          <span>
+                                            <RowBtn
+                                              icon={<Sync sx={{ fontSize: 11 }} />}
+                                              label="Restore"
+                                              color="#1976d2"
+                                              hoverBg="rgba(33,150,243,0.08)"
+                                              disabled={
+                                                bulkRestoring ||
+                                                restoringKey === rowRestoreKey
+                                              }
+                                              onClick={() => handleForceSync(record.PersonID, record.Date)}
+                                            />
+                                          </span>
+                                        </Tooltip>
+                                      )}
+                                    </Box>
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+                          </Box>
+                        </Fade>
+                      )}
+                    </Box>
+
+                    {/* Footer legend + submit to attendance modules */}
+                    {records.length > 0 && (
+                      <Box
+                        sx={{
+                          px: 2,
+                          py: 0.65,
+                          borderTop: `1px solid ${T.divider}`,
+                          bgcolor: T.accentFaint,
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          columnGap: 1.5,
+                          rowGap: 0.65,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 1.25,
+                            alignItems: 'center',
+                            minWidth: 0,
+                            flex: '1 1 auto',
+                          }}
+                        >
+                          {[
+                            {
+                              icon: CheckCircle,
+                              color: '#4caf50',
+                              label: 'Auto-saved',
+                              show: true,
+                            },
+                            {
+                              icon: Info,
+                              color: T.accent,
+                              label: '12h format',
+                              show: true,
+                            },
+                            {
+                              icon: Cancel,
+                              color: '#f44336',
+                              label: NO_TIME_IN_LABEL,
+                              show: true,
+                            },
+                            {
+                              icon: Cancel,
+                              color: '#f44336',
+                              label: NO_TIME_OUT_LABEL,
+                              show: true,
+                            },
+                            {
+                              icon: Lock,
+                              color: '#1976d2',
+                              label: 'Locked',
+                              show: lockedRowCount > 0,
+                            },
+                            {
+                              icon: Restore,
+                              color: '#2e7d32',
+                              label: 'Restored',
+                              show: true,
+                            },
+                          ]
+                            .filter((item) => item.show)
+                            .map((item, i) => {
+                              const Icon = item.icon;
+                              return (
+                                <Box
+                                  key={i}
+                                  sx={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 0.35,
+                                  }}
+                                >
+                                  <Icon sx={{ fontSize: 11, color: item.color }} />
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.62rem',
+                                      color: T.faint,
+                                      lineHeight: 1,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {item.label}
+                                  </Typography>
+                                </Box>
+                              );
+                            })}
+                        </Box>
+                        <Box
+                          sx={{
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            ml: { xs: 0, md: 1 },
+                          }}
+                        >
+                          {renderSubmitToAttendanceNav()}
+                        </Box>
+                      </Box>
+                    )}
+                  </>
+                )}
+
+                {/* ── ALL USERS VIEW ── */}
+                {viewMode === 'multiple' && (
+                  <>
+                    {/* Toolbar */}
+                    <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <People sx={{ fontSize: 15, color: T.accent }} />
+                          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>All Users DTR</Typography>
+                          {allUsersDTR.length > 0 && (
+                            <Box sx={{ px: 1.5, py: 0.3, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: '0.7rem', color: T.accent, fontWeight: 700 }}>
+                                {filteredUsers.length} users
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Tooltip title="Reload all users" placement="top">
+                            <IconButton
+                              size="small"
+                              onClick={fetchAllUsersDTR}
+                              disabled={loadingAllUsers || !startDate || !endDate}
+                              sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) }, '&:disabled': { opacity: 0.4 } }}
+                            >
+                              <Refresh sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Tooltip>
+                          {selectedCountInFiltered > 0 && (
+                            <AccentButton
+                              variant="contained"
+                              size="small"
+                              startIcon={<Send sx={{ fontSize: '13px !important' }} />}
+                              onClick={handleBulkSendToDTR}
+                              sx={{ fontSize: '0.78rem', bgcolor: '#2e7d32', color: '#fff', boxShadow: `0 2px 8px rgba(46,125,50,0.3)`, '&:hover': { bgcolor: '#1b5e20' } }}
+                            >
+                              View DTR ({selectedCountInFiltered})
+                            </AccentButton>
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+
+                    {allUsersDTR.length > 0 ? (
+                      <>
+                        {/* Filters bar */}
+                        <Box sx={{ px: 3, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: alpha(T.accent, 0.02), flexShrink: 0 }}>
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                            <FieldInput
+                              size="small"
+                              placeholder="Search by name or employee number…"
+                              value={searchQuery}
+                              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                              sx={{ flex: 1, minWidth: 200 }}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <SearchOutlined sx={{ fontSize: 16, color: T.muted }} />
+                                  </InputAdornment>
+                                ),
+                              }}
+                            />
+                            <FormControl size="small" sx={{ minWidth: 130 }}>
+                              <Select value={recordFilter} onChange={(e) => { setRecordFilter(e.target.value); setCurrentPage(1); }} sx={selectSx} displayEmpty>
+                                <MenuItem value="all" sx={{ fontSize: '0.82rem' }}>All Records</MenuItem>
+                                <MenuItem value="has" sx={{ fontSize: '0.82rem' }}>Has Records</MenuItem>
+                                <MenuItem value="no" sx={{ fontSize: '0.82rem' }}>No Records</MenuItem>
+                              </Select>
+                            </FormControl>
+                            <FormControl size="small" sx={{ minWidth: 80 }}>
+                              <Select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }} sx={selectSx}>
+                                {[10, 20, 50, 100].map((n) => (
+                                  <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, ml: 'auto' }}>
+                              {[{ label: '«', fn: () => goToPage(1), dis: currentPage === 1 }, { label: '‹', fn: () => goToPage(currentPage - 1), dis: currentPage === 1 }].map(({ label, fn, dis }) => (
+                                <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                  <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
+                                </IconButton>
+                              ))}
+                              <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.muted, minWidth: 60, textAlign: 'center' }}>
+                                {currentPage} / {totalPages}
+                              </Typography>
+                              {[{ label: '›', fn: () => goToPage(currentPage + 1), dis: currentPage === totalPages }, { label: '»', fn: () => goToPage(totalPages), dis: currentPage === totalPages }].map(({ label, fn, dis }) => (
+                                <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                                  <Typography sx={{ fontSize: '0.8rem', lineHeight: 1 }}>{label}</Typography>
+                                </IconButton>
+                              ))}
+                            </Box>
                           </Box>
                         </Box>
-                      </Box>
-                    </>
-                  ) : (
-                    <Box sx={{ textAlign: 'center', py: 4, color: textPrimaryColor, opacity: 0.7 }}>
-                      <Typography variant="body1">Click "Load All Users" to fetch and auto-save all users' DTR data</Typography>
-                    </Box>
-                  )}
-                </Box>
-              </GlassCard>
-            </Fade>
-          )}
 
-          {/* ── Loading Backdrop ── */}
-          <Backdrop sx={{ color: textSecondaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
-            <Box sx={{ textAlign: 'center' }}>
-              <CircularProgress color="inherit" size={60} thickness={4} />
-              <Typography variant="h6" sx={{ mt: 2, color: textSecondaryColor }}>Fetching and auto-saving records...</Typography>
-            </Box>
-          </Backdrop>
-
-          {error && <Fade in timeout={300}><Alert severity="error" sx={{ mb: 3, borderRadius: 3 }}>{error}</Alert></Fade>}
-
-          {/* ── Single User Results ── */}
-          {viewMode === 'single' && personName && (
-            <Fade in={!loading} timeout={500}>
-              {/* ref attached here so the page auto-scrolls when records arrive */}
-              <GlassCard ref={resultsRef} sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)},0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor,0.08)}`, border: `1px solid ${alpha(accentColor,0.1)}` }}>
-                <Box sx={{ p: 4, background: `linear-gradient(135deg,${primaryColor} 0%,${secondaryColor} 100%)`, color: textPrimaryColor, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: textPrimaryColor }}>Device Record Summary (Auto-Saved)</Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>{personName}</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
-                      <Chip icon={<Assignment />} label={`${records.length} Records`} size="small" sx={{ bgcolor: alpha(accentColor,0.15), color: textPrimaryColor, fontWeight: 500 }} />
-                      <Chip icon={<CheckCircle />} label="Auto-Saved" size="small" sx={{ bgcolor: alpha('#4caf50',0.2), color: '#2e7d32', fontWeight: 500 }} />
-                      <Typography variant="body2" sx={{ opacity: 0.8, color: textPrimaryColor }}>{startDate} to {endDate}</Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" flexDirection="column" alignItems="flex-end" gap={2}>
-                    <Avatar sx={{ bgcolor: alpha(accentColor,0.15), width: 80, height: 80, fontSize: '2rem', fontWeight: 700, color: textPrimaryColor, boxShadow: `0 8px 24px ${alpha(accentColor,0.15)}` }}>
-                      {personName.split(' ').map((n) => n[0]).join('').toUpperCase()}
-                    </Avatar>
-                    <ProfessionalButton variant="contained" startIcon={<Send />} onClick={handleSendToDTR} disabled={records.length === 0}
-                      sx={{ backgroundColor: '#4caf50', color: '#ffffff', py: 1.5, px: 3, '&:hover':{ backgroundColor: '#45a049' } }}>
-                      View DTR Module
-                    </ProfessionalButton>
-                  </Box>
-                </Box>
-
-                <PremiumTableContainer>
-                  <Table sx={{ minWidth: 800 }}>
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: alpha(primaryColor,0.7) }}>
-                        {['Employee ID','Date','Day','Time IN','Break IN','Break OUT','Time OUT','Special Type','Special Time IN','Special Time OUT'].map((h) => (
-                          <PremiumTableCell key={h} isHeader sx={{ color: textPrimaryColor }}>{h}</PremiumTableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {records.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={10} align="center" sx={{ py: 8 }}>
-                            <Box sx={{ textAlign: 'center' }}>
-                              <Info sx={{ fontSize: 80, color: alpha(accentColor,0.3), mb: 3 }} />
-                              <Typography variant="h5" sx={{ color: alpha(accentColor,0.6), fontWeight: 600, mb: 1 }}>No Records Found</Typography>
-                              <Typography variant="body1" sx={{ color: alpha(accentColor,0.4) }}>Try adjusting your date range or search for a different employee</Typography>
+                        {/* Table */}
+                        <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+                          <Table stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 700 }}>
+                            <TableHead>
+                              <TableRow sx={{ '& .MuiTableCell-head': { bgcolor: T.accent, color: '#fff', fontWeight: 700, fontSize: '0.75rem', py: 1.25 } }}>
+                                <TableCell padding="checkbox" sx={{ width: 48 }}>
+                                  <Checkbox
+                                    checked={selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0}
+                                    indeterminate={selectedCountInFiltered > 0 && selectedCountInFiltered < filteredUsers.length}
+                                    onChange={(e) => handleSelectAll(e.target.checked)}
+                                    sx={{ color: '#fff', '&.Mui-checked': { color: '#fff' }, '&.MuiCheckbox-indeterminate': { color: '#fff' } }}
+                                  />
+                                </TableCell>
+                                {['Emp. No.', 'Full Name', 'Department', 'Records', 'Status', 'Action'].map((h) => (
+                                  <TableCell key={h} sx={{ minWidth: h === 'Full Name' ? 180 : 80 }}>{h}</TableCell>
+                                ))}
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {paginatedUsers.map((user, idx) => {
+                                const isSelected = selectedUsers.has(user.employeeNumber);
+                                const dept = departmentAssignmentsMap?.[user.employeeNumber] || '';
+                                return (
+                                  <TableRow
+                                    key={user.employeeNumber}
+                                    sx={{ bgcolor: isSelected ? alpha(T.accent, 0.06) : idx % 2 === 0 ? '#fff' : T.rowOdd, '&:hover': { bgcolor: T.rowHover }, transition: 'background 0.1s' }}
+                                  >
+                                    <TableCell padding="checkbox">
+                                      <Checkbox checked={isSelected} onChange={() => handleUserSelect(user.employeeNumber)} sx={{ '&.Mui-checked': { color: T.accent } }} />
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600 }}>#{user.employeeNumber}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {trimmedSearch ? highlightMatch(user._formattedFullName, trimmedSearch) : user._formattedFullName}
+                                    </TableCell>
+                                    <TableCell>
+                                      {dept ? (
+                                        <Box sx={{ px: 1.2, py: 0.3, borderRadius: 1, bgcolor: alpha(T.accent, 0.07), border: `1px solid ${T.accentBorder}`, display: 'inline-block' }}>
+                                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.accent }}>{dept}</Typography>
+                                        </Box>
+                                      ) : (
+                                        <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{user.recordsCount || 0}</TableCell>
+                                    <TableCell>
+                                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1.25, py: 0.3, borderRadius: '12px', bgcolor: user.hasRecords ? 'rgba(76,175,80,0.1)' : T.accentFaint, border: `1px solid ${user.hasRecords ? 'rgba(76,175,80,0.25)' : T.accentBorder}` }}>
+                                        {user.hasRecords ? <CheckCircle sx={{ fontSize: 11, color: '#4caf50' }} /> : <Cancel sx={{ fontSize: 11, color: T.faint }} />}
+                                        <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: user.hasRecords ? '#2e7d32' : T.faint }}>
+                                          {user.hasRecords ? 'Auto-Saved' : 'No Records'}
+                                        </Typography>
+                                      </Box>
+                                    </TableCell>
+                                    <TableCell>
+                                      <RowBtn
+                                        icon={<Send sx={{ fontSize: 11 }} />}
+                                        label="View DTR"
+                                        color="#2e7d32"
+                                        hoverBg="rgba(46,125,50,0.08)"
+                                        disabled={!user.hasRecords}
+                                        onClick={() => navigateAttendanceWorkflow(navigate, 'dtr', {
+                                          employeeNumber: user.employeeNumber,
+                                          fullName: user.fullName,
+                                          startDate,
+                                          endDate,
+                                        })}
+                                      />
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                          {paginatedUsers.length === 0 && (
+                            <Box sx={{ py: 8, textAlign: 'center' }}>
+                              <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                                {allUsersDTR.length === 0 ? 'No data loaded' : 'No users match your filters'}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                                {allUsersDTR.length === 0 ? 'Click Load All Users in the left panel.' : 'Try adjusting the search or filters.'}
+                              </Typography>
                             </Box>
-                          </TableCell>
-                        </TableRow>
-                      ) : records.map((record, index) => {
-                        let specialTypeBadge = null;
-                        if (record.Time5 || record.Time6) {
-                          const type       = record.specialType || 'UNCATEGORIZED';
-                          const typeLabels = { HONORARIUM: 'Honorarium', SERVICE: 'Service Credit', OVERTIME: 'Overtime', UNCATEGORIZED: 'Uncategorized' };
-                          const colors     = { HONORARIUM: { bg: '#4CAF50', text: '#fff' }, SERVICE: { bg: '#2196F3', text: '#fff' }, OVERTIME: { bg: '#FF9800', text: '#fff' }, UNCATEGORIZED: { bg: '#9E9E9E', text: '#fff' } };
-                          const bc         = colors[type] || colors.UNCATEGORIZED;
-                          specialTypeBadge = <Chip label={typeLabels[type]||'Uncategorized'} size="small" sx={{ bgcolor: bc.bg, color: bc.text, fontWeight: 600, fontSize: '0.75rem' }} />;
-                        }
-                        return (
-                          <TableRow key={index} sx={{ '&:nth-of-type(even)':{ bgcolor: alpha(primaryColor,0.3) }, '&:hover':{ bgcolor: alpha(accentColor,0.05) }, transition: 'all 0.2s ease' }}>
-                            <PremiumTableCell>{record.PersonID}</PremiumTableCell>
-                            <PremiumTableCell>{record.Date}</PremiumTableCell>
-                            <PremiumTableCell>{getDayOfWeek(record.Date)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time1)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time3)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time2)}</PremiumTableCell>
-                            <PremiumTableCell>{formatTime(record.Time4)}</PremiumTableCell>
-                            <PremiumTableCell>{specialTypeBadge || '-'}</PremiumTableCell>
-                            <PremiumTableCell>{record.Time5 ? formatTime(record.Time5) : '-'}</PremiumTableCell>
-                            <PremiumTableCell>{record.Time6 ? formatTime(record.Time6) : '-'}</PremiumTableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </PremiumTableContainer>
-              </GlassCard>
-            </Fade>
-          )}
+                          )}
+                        </Box>
 
+                        {/* Footer: selection, submit-to modules, pagination */}
+                        <Box
+                          sx={{
+                            px: 3,
+                            py: 1.25,
+                            borderTop: `1px solid ${T.divider}`,
+                            bgcolor: T.accentFaint,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 1.5,
+                            rowGap: 1.25,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1,
+                              flexShrink: 0,
+                            }}
+                          >
+                            <AccentButton
+                              variant="text"
+                              size="small"
+                              onClick={() => handleSelectAll(selectedCountInFiltered !== filteredUsers.length)}
+                              sx={{ color: T.accent, fontSize: '0.75rem', '&:hover': { bgcolor: T.accentFaint, transform: 'none' }, '&:active': { transform: 'none' } }}
+                            >
+                              {selectedCountInFiltered === filteredUsers.length && filteredUsers.length > 0 ? 'Deselect All' : 'Select All'}
+                            </AccentButton>
+                          </Box>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              gap: 1.5,
+                              flex: '1 1 auto',
+                              justifyContent: 'center',
+                              minWidth: 0,
+                            }}
+                          >
+                            {renderSubmitToAttendanceNav()}
+                          </Box>
+                          <Typography
+                            sx={{
+                              fontSize: '0.75rem',
+                              color: T.muted,
+                              flexShrink: 0,
+                              ml: { xs: 0, md: 'auto' },
+                            }}
+                          >
+                            {filteredUsers.length > 0
+                              ? `Showing ${Math.min(filteredUsers.length, (currentPage - 1) * rowsPerPage + 1)}–${Math.min(filteredUsers.length, currentPage * rowsPerPage)} of ${filteredUsers.length}`
+                              : '0 users'}
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : (
+                      /* Empty state */
+                      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                          <People sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                        </Box>
+                        <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                          {!startDate || !endDate ? 'Select a month first' : 'No data loaded'}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                          {!startDate || !endDate
+                            ? 'Pick a year and month from the left panel, then click Load All Users.'
+                            : 'Click Load All Users in the left panel to fetch records.'}
+                        </Typography>
+                      </Box>
+                    )}
+                  </>
+                )}
+              </SectionCard>
+            </Grid>
+          </Grid>
+        </Box>
+
+        {/* Scroll to top FAB */}
+        <Zoom in={showScrollTop}>
+          <Fab
+            size="small"
+            sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          >
+            <KeyboardArrowUp />
+          </Fab>
+        </Zoom>
+
+        {/* ── Unified overlays ── */}
+        {/* Computation type mismatch dialog */}
+        <Dialog
+          open={computationChangeDialog.open}
+          onClose={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+          aria-labelledby="computation-type-mismatch-title"
+          maxWidth="xs"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: '12px',
+              overflow: 'hidden',
+              border: `1.5px solid ${T.accentBorder}`,
+              boxShadow: `0 20px 60px ${alpha(T.accent, 0.22)}`,
+            },
+          }}
+        >
+          {/* Header */}
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 2,
+              position: 'relative',
+              overflow: 'hidden',
+              borderBottom: `1px solid ${T.accentBorder}`,
+            }}
+          >
+            <Box
+              sx={{
+                position: 'absolute',
+                top: -40,
+                right: -40,
+                width: 140,
+                height: 140,
+                borderRadius: '50%',
+                background: `radial-gradient(circle,${alpha(T.accent, 0.1)} 0%,transparent 70%)`,
+                pointerEvents: 'none',
+              }}
+            />
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                bgcolor: alpha(T.accent, 0.12),
+                border: `1.5px solid ${T.accentBorder}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                zIndex: 1,
+              }}
+            >
+              <WarningAmberRoundedIcon sx={{ fontSize: 22, color: T.accent }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0, zIndex: 1 }}>
+              <Typography
+                id="computation-type-mismatch-title"
+                sx={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1.25, color: T.accent }}
+              >
+                Computation type mismatch
+              </Typography>
+              <Typography sx={{ fontSize: '0.76rem', color: T.accentMid, lineHeight: 1.45, mt: 0.4, fontWeight: 600 }}>
+                A different type was previously saved for this employee and period.
+              </Typography>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+              aria-label="Close"
+              sx={{ color: T.accentMid, p: '4px', zIndex: 1, '&:hover': { bgcolor: alpha(T.accent, 0.08) } }}
+            >
+              <Close sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Box>
+
+          {/* Body */}
+          <DialogContent sx={{ px: 3, pt: 2.5, pb: 2, bgcolor: '#fff' }}>
+            <Box
+              sx={{
+                px: 2,
+                py: 1.5,
+                borderRadius: '10px',
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                mb: 2.5,
+              }}
+            >
+              <Typography sx={{ fontSize: '0.8rem', color: T.text, lineHeight: 1.6 }}>
+                Records for{' '}
+                <Box component="span" sx={{ fontWeight: 800, color: T.accent }}>
+                  {computationChangeDialog.employeeName || 'this employee'}
+                </Box>{' '}
+                in this period were first saved as{' '}
+                <Chip
+                  label={computationChangeDialog.existingType || '—'}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    mx: 0.25,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    bgcolor: alpha(T.accent, 0.1),
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                  }}
+                />
+                . Switching will overwrite that with{' '}
+                <Chip
+                  label={computationChangeDialog.newType || '—'}
+                  size="small"
+                  sx={{
+                    height: 22,
+                    mx: 0.25,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    bgcolor: T.accent,
+                    color: '#FEF9E1',
+                    border: `1px solid ${T.accentDark}`,
+                  }}
+                />
+                .
+              </Typography>
+            </Box>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: 1.5 }}>
+              {/* Previously saved */}
+              <Box
+                sx={{
+                  py: 1.75,
+                  px: 1.25,
+                  borderRadius: '10px',
+                  bgcolor: '#fafafa',
+                  border: `1px solid ${T.divider}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                  textAlign: 'center',
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.62rem',
+                    color: T.faint,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    fontWeight: 700,
+                  }}
+                >
+                  Previously saved
+                </Typography>
+                <Box
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <CheckCircle sx={{ fontSize: 18, color: T.accentMid }} />
+                </Box>
+                <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.muted, lineHeight: 1.3 }}>
+                  {computationChangeDialog.existingType || '—'}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.accentMid }}>
+                <ArrowForward sx={{ fontSize: 20 }} />
+              </Box>
+
+              {/* Switching to */}
+              <Box
+                sx={{
+                  py: 1.75,
+                  px: 1.25,
+                  borderRadius: '10px',
+                  bgcolor: T.accentFaint,
+                  border: `2px solid ${T.accent}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                  textAlign: 'center',
+                  boxShadow: `0 4px 14px ${alpha(T.accent, 0.12)}`,
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.62rem',
+                    color: T.accent,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    fontWeight: 800,
+                  }}
+                >
+                  Switching to
+                </Typography>
+                <Box
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    bgcolor: T.accent,
+                    border: `1px solid ${T.accentDark}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <AccessTime sx={{ fontSize: 18, color: '#FEF9E1' }} />
+                </Box>
+                <Typography sx={{ fontSize: '0.78rem', fontWeight: 800, color: T.accent, lineHeight: 1.3 }}>
+                  {computationChangeDialog.newType || '—'}
+                </Typography>
+              </Box>
+            </Box>
+          </DialogContent>
+
+          {/* Actions */}
+          <DialogActions
+            sx={{
+              px: 3,
+              py: 2,
+              borderTop: `1px solid ${T.divider}`,
+              gap: 1.5,
+              bgcolor: '#fff',
+            }}
+          >
+            <Button
+              onClick={() => setComputationChangeDialog((p) => ({ ...p, open: false }))}
+              sx={{
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                color: T.muted,
+                px: 2,
+                '&:hover': { bgcolor: alpha(T.accent, 0.06), color: T.accent },
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={async () => {
+                const next = { ...computationChangeDialog };
+                setComputationChangeDialog((p) => ({ ...p, open: false }));
+                await proceedToComputationModule(
+                  next.path,
+                  next.rawNewType,
+                  next.auditButtonLabel ||
+                    COMPUTATION_BUTTON_LABELS[next.rawNewType] ||
+                    next.rawNewType,
+                );
+              }}
+              sx={{
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                px: 2.5,
+                borderRadius: '8px',
+                bgcolor: T.accent,
+                color: '#FEF9E1',
+                boxShadow: `0 4px 14px ${alpha(T.accent, 0.28)}`,
+                '&:hover': { bgcolor: T.accentDark, boxShadow: `0 6px 18px ${alpha(T.accent, 0.35)}` },
+              }}
+            >
+              Yes, switch &amp; continue
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <LoadingOverlay
+          open={loading || loadingAllUsers}
+          message={
+            loadingAllUsers
+              ? `Loading all users — ${loadPhase || 'Please wait…'}`
+              : personName
+                ? `Loading attendance — ${personName}…`
+                : loadPhase || 'Loading attendance…'
+          }
+        />
+        <SuccessfulOverlay
+          open={successOverlayOpen}
+          onClose={() => setSuccessOverlayOpen(false)}
+          message="Attendance records loaded"
+        />
       </Box>
     </Fade>
   );
 };
 
-export default ViewAttendanceRecord;
+export default ViewAttendanceRecord

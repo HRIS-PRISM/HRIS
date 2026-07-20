@@ -1,10 +1,15 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useDeferredValue,
+} from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
 import { useSocket } from '../../contexts/SocketContext';
 import {
-  Container,
   Typography,
   TextField,
   Button,
@@ -21,16 +26,17 @@ import {
   ToggleButtonGroup,
   List,
   ListItem,
-  ListItemText,
-  ListItemIcon,
   Card,
-  CardContent,
   Fade,
   Divider,
-  Backdrop,
   styled,
+  alpha,
   Avatar,
   Tooltip,
+  FormControl,
+  Select,
+  MenuItem,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -42,59 +48,283 @@ import {
   Search as SearchIcon,
   ViewList as ViewListIcon,
   ViewModule as ViewModuleIcon,
-  WorkHistory as WorkHistoryIcon,
   Person as PersonIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  WorkHistory as WorkHistoryIcon,
   Refresh,
-  CalendarToday,
 } from '@mui/icons-material';
-import {
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-} from '@mui/material';
-
 import ReorderIcon from '@mui/icons-material/Reorder';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
-import { useNavigate } from 'react-router-dom';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
-import { useCRUDButtonStyles, useCRUDButtonStylesOutlined } from '../../hooks/useCRUDButtonStyles';
-import {
-  createThemedCard,
-  createThemedButton,
-  createThemedTextField,
-} from '../../utils/theme';
-import { alpha } from '@mui/material';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
-// Stable themed components (avoid recreating styled components on every render)
-const ThemedCard = styled(Card, {
-  shouldForwardProp: (prop) => prop !== 'settings',
-})(({ settings = {} }) => createThemedCard(settings));
-
-const ThemedButton = styled(Button, {
-  shouldForwardProp: (prop) => prop !== 'settings',
-})(({ settings = {}, variant = 'contained' }) =>
-  createThemedButton(settings, variant),
-);
-
-const ThemedTextField = styled(TextField, {
-  shouldForwardProp: (prop) => prop !== 'settings',
-})(({ settings = {} }) => createThemedTextField(settings));
-
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '109, 35, 35';
+// ─── Theme tokens (mirroring Children/EmploymentCategoryManagement) ───────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
 };
 
-// Professional styled components - will be created inside component with settings
+// ─── Styled primitives ────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+});
 
-// Employee Autocomplete Component
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+// ─── Shimmer keyframes ────────────────────────────────────────────────────────
+const shimmerKeyframes = `
+@keyframes weShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes wePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.60; }
+}
+`;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
+      backgroundSize: '800px 100%',
+      animation: 'weShimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
+// ─── Section label used inside form panels ────────────────────────────────────
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: '0.68rem',
+        fontWeight: 700,
+        letterSpacing: '0.09em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
+
+// ─── Wireframe skeleton ───────────────────────────────────────────────────────
+const WorkExperienceWireframe = () => (
+  <>
+    <style>{shimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* Header card skeleton */}
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'wePulse 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute', top: -50, right: -50,
+              width: 180, height: 180, borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 52, height: 52, borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0,
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Bone w={260} h={18} sx={{ mb: 1 }} />
+              <Bone w={400} h={11} />
+            </Box>
+          </Box>
+          <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.1)' }} />
+        </Box>
+      </Box>
+
+      {/* Two-column skeleton */}
+      <Grid container spacing={3}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={col === 0 ? 4 : 8} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                animation: `wePulse 2s ease-in-out ${col * 0.1}s infinite`,
+                height: 'calc(100vh - 280px)',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5, py: 1.25,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex', alignItems: 'center', gap: 1.5,
+                }}
+              >
+                <Box sx={{ width: 15, height: 15, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+                <Bone w={col === 0 ? 180 : 220} h={13} />
+              </Box>
+              <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                {(col === 0
+                  ? [100, 160, 120, 140, 110, 130, 90, 120]
+                  : [200, 140, 180, 100, 160]
+                ).map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box
+                      sx={{
+                        height: 40, borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─── System settings hook (inline) ───────────────────────────────────────────
+const useLocalSystemSettings = () => {
+  const [settings, setSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem('systemSettings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {
+      primaryColor: '#894444',
+      secondaryColor: '#6d2323',
+      accentColor: '#FEF9E1',
+      textColor: '#FFFFFF',
+      textPrimaryColor: '#6D2323',
+      textSecondaryColor: '#FEF9E1',
+      hoverColor: '#6D2323',
+      backgroundColor: '#FFFFFF',
+    };
+  });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const url = API_BASE_URL.includes('/api')
+          ? `${API_BASE_URL}/system-settings`
+          : `${API_BASE_URL}/api/system-settings`;
+        const response = await axios.get(url);
+        if (response.data && typeof response.data === 'object') {
+          setSettings(response.data);
+          localStorage.setItem('systemSettings', JSON.stringify(response.data));
+        }
+      } catch (e) {
+        console.error('Error fetching system settings:', e);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  return settings;
+};
+
+// ─── Employee Autocomplete ────────────────────────────────────────────────────
+const buildEmployeeTextField = () =>
+  styled(TextField)(() => ({
+    '& .MuiOutlinedInput-root': {
+      borderRadius: 8,
+      fontSize: '0.875rem',
+      backgroundColor: '#fff',
+      '& fieldset': { borderColor: T.accentBorder },
+      '&:hover fieldset': { borderColor: T.accent },
+      '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    },
+  }));
+
 const EmployeeAutocomplete = ({
   value,
   onChange,
@@ -106,7 +336,6 @@ const EmployeeAutocomplete = ({
   selectedEmployee,
   onEmployeeSelect,
   dropdownDisabled = false,
-  settings = {},
 }) => {
   const [query, setQuery] = useState('');
   const [employees, setEmployees] = useState([]);
@@ -114,44 +343,35 @@ const EmployeeAutocomplete = ({
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
-  const inputRef = useRef(null);
+  const EmpTextField = useMemo(() => buildEmployeeTextField(), []);
 
   useEffect(() => {
-    if (value && !selectedEmployee) {
-      fetchEmployeeById(value);
-    }
-  }, [value]);
+    if (value && !selectedEmployee) fetchEmployeeById(value);
+  }, [value]); // eslint-disable-line
 
   useEffect(() => {
-    if (selectedEmployee) {
-      setQuery(selectedEmployee.name || '');
-    } else if (!value) {
-      setQuery('');
-    }
+    if (selectedEmployee) setQuery(selectedEmployee.name || '');
+    else if (!value) setQuery('');
   }, [selectedEmployee, value]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
         setShowDropdown(false);
-      }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const fetchEmployees = async (searchQuery) => {
+  const fetchEmployees = async (q) => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(
-          searchQuery
-        )}`,
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
         getAuthHeaders()
       );
-      setEmployees(response.data);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
+      setEmployees(r.data);
+    } catch {
       setEmployees([]);
     } finally {
       setIsLoading(false);
@@ -161,102 +381,59 @@ const EmployeeAutocomplete = ({
   const fetchAllEmployees = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
+      const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search`,
         getAuthHeaders()
       );
-      setEmployees(response.data);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
+      setEmployees(r.data);
+    } catch {
       setEmployees([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchEmployeeById = async (employeeNumber) => {
+  const fetchEmployeeById = async (empNum) => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/${employeeNumber}`,
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/${empNum}`,
         getAuthHeaders()
       );
-      const employee = response.data;
-      onEmployeeSelect(employee);
-      setQuery(employee.name || '');
-    } catch (error) {
-      console.error('Error fetching employee by ID:', error);
+      onEmployeeSelect(r.data);
+      setQuery(r.data.name || '');
+    } catch (err) {
+      if (err.response?.status !== 404) console.error(err);
     }
   };
 
   const handleInputChange = (e) => {
-    const inputValue = e.target.value;
-    setQuery(inputValue);
+    const v = e.target.value;
+    setQuery(v);
     setShowDropdown(true);
-
-    if (selectedEmployee && inputValue !== selectedEmployee.name) {
+    if (selectedEmployee && v !== selectedEmployee.name) {
       onEmployeeSelect(null);
       onChange('');
     }
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
+    clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      if (inputValue.trim().length >= 2) {
-        fetchEmployees(inputValue);
-      } else if (inputValue.trim().length === 0) {
-        fetchAllEmployees();
-      } else {
-        setEmployees([]);
-      }
+      if (v.trim().length >= 2) fetchEmployees(v);
+      else if (v.trim().length === 0) fetchAllEmployees();
+      else setEmployees([]);
     }, 300);
-  };
-
-  const handleEmployeeSelect = (employee) => {
-    onEmployeeSelect(employee);
-    setQuery(employee.name);
-    setShowDropdown(false);
-    onChange(employee.employeeNumber);
-  };
-
-  const handleInputFocus = () => {
-    setShowDropdown(true);
-    if (employees.length === 0 && !isLoading) {
-      if (query.length >= 2) {
-        fetchEmployees(query);
-      } else {
-        fetchAllEmployees();
-      }
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Escape') {
-      setShowDropdown(false);
-    }
-  };
-
-  const handleDropdownClick = () => {
-    if (!showDropdown) {
-      setShowDropdown(true);
-      if (employees.length === 0 && !isLoading) {
-        fetchAllEmployees();
-      }
-    } else {
-      setShowDropdown(false);
-    }
   };
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={dropdownRef}>
-      <ThemedTextField
-        settings={settings}
-        ref={inputRef}
+      <EmpTextField
         value={query}
         onChange={handleInputChange}
-        onFocus={handleInputFocus}
-        onKeyDown={handleKeyDown}
+        onFocus={() => {
+          setShowDropdown(true);
+          if (!employees.length && !isLoading) {
+            query.length >= 2 ? fetchEmployees(query) : fetchAllEmployees();
+          }
+        }}
+        onKeyDown={(e) => e.key === 'Escape' && setShowDropdown(false)}
         placeholder={placeholder}
         disabled={disabled}
         required={required}
@@ -266,76 +443,87 @@ const EmployeeAutocomplete = ({
         autoComplete="off"
         size="small"
         InputProps={{
-          startAdornment: <PersonIcon sx={{ color: settings.textPrimaryColor || settings.primaryColor || '#6D2323', mr: 1 }} />,
+          startAdornment: (
+            <PersonIcon sx={{ color: T.muted, mr: 1, fontSize: 15 }} />
+          ),
           endAdornment: (
             <IconButton
-              onClick={dropdownDisabled ? undefined : handleDropdownClick}
+              onClick={
+                dropdownDisabled
+                  ? undefined
+                  : () => {
+                      if (!showDropdown) {
+                        setShowDropdown(true);
+                        if (!employees.length && !isLoading) fetchAllEmployees();
+                      } else setShowDropdown(false);
+                    }
+              }
               size="small"
               disabled={dropdownDisabled}
-              sx={{ color: settings.textPrimaryColor || settings.primaryColor || '#6D2323' }}
+              sx={{ color: T.muted }}
             >
-              {showDropdown ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              {showDropdown ? (
+                <ExpandLessIcon sx={{ fontSize: 15 }} />
+              ) : (
+                <ExpandMoreIcon sx={{ fontSize: 15 }} />
+              )}
             </IconButton>
           ),
         }}
       />
-
       {showDropdown && (
         <Paper
-          elevation={3}
+          elevation={4}
           sx={{
             position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 1000,
-            maxHeight: 300,
+            top: '100%', left: 0, right: 0,
+            zIndex: 1300,
+            maxHeight: 280,
             overflow: 'auto',
-            mt: 1,
+            mt: 0.75,
             borderRadius: 2,
+            border: `1px solid ${T.accentBorder}`,
           }}
         >
           {isLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" sx={{ ml: 1 }}>
-                Loading...
-              </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 2, gap: 1 }}>
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography variant="body2" sx={{ fontSize: '0.8rem', color: T.muted }}>Loading…</Typography>
             </Box>
           ) : employees.length > 0 ? (
-            <List dense>
-              {employees.map((employee) => (
+            <List dense disablePadding>
+              {employees.map((emp) => (
                 <ListItem
-                  key={employee.employeeNumber}
+                  key={emp.employeeNumber}
                   button
-                  onClick={() => handleEmployeeSelect(employee)}
+                  onClick={() => {
+                    onEmployeeSelect(emp);
+                    setQuery(emp.name);
+                    setShowDropdown(false);
+                    onChange(emp.employeeNumber);
+                  }}
                   sx={{
-                    '&:hover': {
-                      backgroundColor: alpha(settings.accentColor || settings.backgroundColor || '#FEF9E1', 0.3),
-                    },
+                    py: 1, px: 1.5,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    borderBottom: `1px solid ${T.divider}`,
                   }}
                 >
-                  <ListItemText
-                    primary={employee.name}
-                    secondary={`#${employee.employeeNumber}`}
-                    primaryTypographyProps={{ fontWeight: 'bold', color: settings.textPrimaryColor || '#6D2323' }}
-                    secondaryTypographyProps={{ color: settings.textSecondaryColor || '#666' }}
-                  />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Avatar sx={{ width: 28, height: 28, fontSize: '0.72rem', bgcolor: T.accent, color: '#fff', fontWeight: 700 }}>
+                      {emp.name?.charAt(0)?.toUpperCase() || '?'}
+                    </Avatar>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{emp.name}</Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>#{emp.employeeNumber}</Typography>
+                    </Box>
+                  </Box>
                 </ListItem>
               ))}
             </List>
-          ) : query.length >= 2 ? (
-            <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                No employees found matching "{query}"
-              </Typography>
-            </Box>
           ) : (
             <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                {employees.length === 0
-                  ? 'No employees available'
-                  : 'Type to search or scroll to browse'}
+              <Typography sx={{ fontSize: '0.8rem', color: T.faint, fontStyle: 'italic' }}>
+                {query.length >= 2 ? `No employees found for "${query}"` : 'Type to search or scroll to browse'}
               </Typography>
             </Box>
           )}
@@ -345,12 +533,18 @@ const EmployeeAutocomplete = ({
   );
 };
 
+// ─── Main Component ───────────────────────────────────────────────────────────
 const WorkExperience = () => {
+  useLocalSystemSettings(); // keeps localStorage in sync
   const { socket, connected } = useSocket();
-  const refreshWorkExperienceRef = useRef(null);
-  const [data, setData] = useState([]);
+  const refreshRef = useRef(null);
+
+  // ── State ──
+  const [workExperiences, setWorkExperiences] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
-  const [newWorkExperience, setNewWorkExperience] = useState({
+  const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearch = useDeferredValue(searchTerm);
+  const [newWorkExp, setNewWorkExp] = useState({
     workDateFrom: '',
     workDateTo: '',
     workPositionTitle: '',
@@ -358,156 +552,150 @@ const WorkExperience = () => {
     workMonthlySalary: '',
     SalaryJobOrPayGrade: '',
     StatusOfAppointment: '',
-    isGovtService: '',
+    isGovtService: 'No',
     person_id: '',
   });
-  const [editWorkExperience, setEditWorkExperience] = useState(null);
-  const [originalWorkExperience, setOriginalWorkExperience] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
-  const [errors, setErrors] = useState({});
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [viewMode, setViewMode] = useState('grid');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
 
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
-
-  const [snackbar, setSnackbar] = useState({
+  // Modal — split view
+  const [modalState, setModalState] = useState({
     open: false,
-    message: '',
-    severity: 'success',
+    employeeId: null,
+    employeeName: '',
+    workExperiences: [],
   });
+  const [selectedWorkExp, setSelectedWorkExp] = useState(null);
+  const [tempWorkExpData, setTempWorkExpData] = useState(null);
+  const [isEditingWorkExp, setIsEditingWorkExp] = useState(false);
 
-  const showSnackbar = (message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity });
-  };
+  // Access control
+  const { hasAccess } = usePageAccess('workexperience');
 
-  const { settings } = useSystemSettings();
-  const navigate = useNavigate();
-  
-  // Use stable themed components
-  const GlassCard = ThemedCard;
-  const ProfessionalButton = ThemedButton;
-  const ModernTextField = ThemedTextField;
-  
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6d2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const grayColor = settings.textSecondaryColor || '#6c757d';
-
-  // Dynamic page access control using component identifier
-  const { hasAccess, loading: accessLoading, error: accessError } = usePageAccess('workexperience');
+  useEffect(() => { setPage(0); }, [deferredSearch]);
 
   useEffect(() => {
-    fetchWorkExperiences();
-  }, []);
+    fetchWorkExperiences().finally(() => setPageLoading(false));
+  }, []); // eslint-disable-line
+
+  useEffect(() => { refreshRef.current = fetchWorkExperiences; });
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+    const handler = () => refreshRef.current?.();
+    socket.on('workExperienceTableChanged', handler);
+    return () => socket.off('workExperienceTableChanged', handler);
+  }, [socket, connected]);
+
+  const showSnackbar = (message, severity = 'success') =>
+    setSnackbar({ open: true, message, severity });
 
   const fetchWorkExperiences = async () => {
+    setLoading(true);
     try {
-      const res = await axios.get(
+      const r = await axios.get(
         `${API_BASE_URL}/WorkExperienceRoute/work-experience-table`,
         getAuthHeaders()
       );
-      setData(res.data);
-
-      const uniqueEmployeeIds = [
-        ...new Set(res.data.map((c) => c.person_id).filter(Boolean)),
-      ];
+      setWorkExperiences(r.data);
+      const ids = [...new Set(r.data.map((we) => we.person_id).filter(Boolean))];
       const namesMap = {};
-
       await Promise.all(
-        uniqueEmployeeIds.map(async (id) => {
+        ids.map(async (id) => {
           try {
-            const response = await axios.get(
+            const res = await axios.get(
               `${API_BASE_URL}/Remittance/employees/${id}`,
               getAuthHeaders()
             );
-            namesMap[id] = response.data.name || 'Unknown';
-          } catch (error) {
+            namesMap[id] = res.data.name || 'Unknown';
+          } catch {
             namesMap[id] = 'Unknown';
           }
         })
       );
-
       setEmployeeNames(namesMap);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      showSnackbar(
-        'Failed to fetch work experience records. Please try again.',
-        'error'
-      );
+    } catch {
+      showSnackbar('Failed to fetch work experience records.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Keep latest fetch function for Socket.IO handler
-  useEffect(() => {
-    refreshWorkExperienceRef.current = fetchWorkExperiences;
-  });
-
-  // Realtime: refresh when anyone changes work experience records
-  useEffect(() => {
-    if (!socket || !connected) return;
-
-    const handleChanged = () => {
-      refreshWorkExperienceRef.current?.();
-    };
-
-    socket.on('workExperienceChanged', handleChanged);
-    return () => {
-      socket.off('workExperienceChanged', handleChanged);
-    };
-  }, [socket, connected]);
-
-  const validateForm = () => {
-    const newErrors = {};
-    const requiredFields = [
-      'workDateFrom',
-      'workDateTo',
-      'workPositionTitle',
-      'workCompany',
-      'person_id',
-    ];
-
-    requiredFields.forEach((field) => {
-      if (!newWorkExperience[field] || newWorkExperience[field].trim() === '') {
-        newErrors[field] = 'This field is required';
+  // ── Grouped & filtered data ──
+  const groupedData = useMemo(() => {
+    const map = {};
+    workExperiences.forEach((we) => {
+      if (!map[we.person_id]) {
+        map[we.person_id] = {
+          employeeId: we.person_id,
+          employeeName: employeeNames[we.person_id] || 'Unknown',
+          workExperiences: [],
+        };
       }
+      map[we.person_id].workExperiences.push(we);
     });
+    return Object.values(map).map((g) => ({
+      ...g,
+      workExperiences: g.workExperiences.sort(
+        (a, b) => new Date(b.workDateFrom || 0) - new Date(a.workDateFrom || 0)
+      ),
+    }));
+  }, [workExperiences, employeeNames]);
 
-    if (newWorkExperience.workDateFrom && newWorkExperience.workDateTo) {
-      if (
-        new Date(newWorkExperience.workDateFrom) >
-        new Date(newWorkExperience.workDateTo)
-      ) {
-        newErrors.workDateTo = 'End date must be after start date';
-      }
+  const filteredData = useMemo(() => {
+    const q = (deferredSearch || '').toString().toLowerCase().trim();
+    if (!q) return groupedData;
+    return groupedData.filter(
+      (g) =>
+        g.employeeId?.toString().includes(q) ||
+        g.employeeName?.toLowerCase().includes(q) ||
+        g.workExperiences.some(
+          (we) =>
+            we.workCompany?.toLowerCase().includes(q) ||
+            we.workPositionTitle?.toLowerCase().includes(q)
+        )
+    );
+  }, [groupedData, deferredSearch]);
+
+  const pagedData = useMemo(
+    () => filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredData, page, rowsPerPage]
+  );
+
+  // ── CRUD ──
+  const validateAdd = () => {
+    const errs = {};
+    if (!newWorkExp.person_id) errs.person_id = 'Required';
+    if (!newWorkExp.workDateFrom) errs.workDateFrom = 'Required';
+    if (!newWorkExp.workDateTo) errs.workDateTo = 'Required';
+    if (!newWorkExp.workPositionTitle?.trim()) errs.workPositionTitle = 'Required';
+    if (!newWorkExp.workCompany?.trim()) errs.workCompany = 'Required';
+    if (newWorkExp.workDateFrom && newWorkExp.workDateTo) {
+      if (new Date(newWorkExp.workDateFrom) > new Date(newWorkExp.workDateTo))
+        errs.workDateTo = 'End date must be after start date';
     }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
-  const handleAdd = async () => {
-    if (!validateForm()) {
-      showSnackbar('Please fill in all required fields', 'error');
-      return;
-    }
-
+  const handleCreate = async () => {
+    if (!validateAdd()) { showSnackbar('Please fill in all required fields.', 'error'); return; }
     setLoading(true);
     try {
       await axios.post(
         `${API_BASE_URL}/WorkExperienceRoute/work-experience-table`,
-        newWorkExperience,
+        newWorkExp,
         getAuthHeaders()
       );
-      setNewWorkExperience({
+      setNewWorkExp({
         workDateFrom: '',
         workDateTo: '',
         workPositionTitle: '',
@@ -515,1424 +703,988 @@ const WorkExperience = () => {
         workMonthlySalary: '',
         SalaryJobOrPayGrade: '',
         StatusOfAppointment: '',
-        isGovtService: '',
+        isGovtService: 'No',
         person_id: '',
       });
       setSelectedEmployee(null);
       setErrors({});
+      fetchWorkExperiences();
       setTimeout(() => {
         setLoading(false);
         setSuccessAction('adding');
         setSuccessOpen(true);
         setTimeout(() => setSuccessOpen(false), 2000);
       }, 300);
-      fetchWorkExperiences();
     } catch (err) {
-      console.error('Error adding data:', err);
+      showSnackbar(err.response?.data?.error || 'Failed to add work experience record.', 'error');
       setLoading(false);
-      showSnackbar(
-        'Failed to add work experience record. Please try again.',
-        'error'
-      );
     }
   };
 
   const handleUpdate = async () => {
+    if (!tempWorkExpData) return;
+    setLoading(true);
     try {
       await axios.put(
-        `${API_BASE_URL}/WorkExperienceRoute/work-experience-table/${editWorkExperience.id}`,
-        editWorkExperience,
+        `${API_BASE_URL}/WorkExperienceRoute/work-experience-table/${tempWorkExpData.id}`,
+        tempWorkExpData,
         getAuthHeaders()
       );
-      setEditWorkExperience(null);
-      setOriginalWorkExperience(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
+      const updatedList = modalState.workExperiences.map((we) =>
+        we.id === tempWorkExpData.id ? { ...tempWorkExpData } : we
+      );
+      setModalState((s) => ({ ...s, workExperiences: updatedList }));
+      setSelectedWorkExp({ ...tempWorkExpData });
+      setIsEditingWorkExp(false);
       fetchWorkExperiences();
       setSuccessAction('edit');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error updating data:', err);
-      showSnackbar(
-        'Failed to update work experience record. Please try again.',
-        'error'
-      );
+    } catch {
+      showSnackbar('Failed to update work experience record.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async () => {
+    if (!selectedWorkExp) return;
+    if (!window.confirm('Are you sure you want to delete this work experience record?')) return;
+    setLoading(true);
     try {
       await axios.delete(
-        `${API_BASE_URL}/WorkExperienceRoute/work-experience-table/${id}`,
+        `${API_BASE_URL}/WorkExperienceRoute/work-experience-table/${selectedWorkExp.id}`,
         getAuthHeaders()
       );
-      setEditWorkExperience(null);
-      setOriginalWorkExperience(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
+      const updatedList = modalState.workExperiences.filter((we) => we.id !== selectedWorkExp.id);
+      setModalState((s) => ({ ...s, workExperiences: updatedList }));
+      if (updatedList.length > 0) selectWorkExp(updatedList[0]);
+      else { setSelectedWorkExp(null); setTempWorkExpData(null); }
       fetchWorkExperiences();
       setSuccessAction('delete');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error deleting data:', err);
-      showSnackbar(
-        'Failed to delete work experience record. Please try again.',
-        'error'
-      );
+    } catch {
+      showSnackbar('Failed to delete work experience record.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleChange = (field, value, isEdit = false) => {
-    if (isEdit) {
-      setEditWorkExperience({ ...editWorkExperience, [field]: value });
-    } else {
-      setNewWorkExperience({ ...newWorkExperience, [field]: value });
-      if (errors[field]) {
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors[field];
-          return newErrors;
-        });
-      }
-    }
-  };
-
-  const handleEmployeeChange = (employeeNumber) => {
-    setNewWorkExperience({ ...newWorkExperience, person_id: employeeNumber });
-    setErrors((prev) => {
-      const newErrors = { ...prev };
-      delete newErrors.person_id;
-      return newErrors;
+  // ── Modal helpers ──
+  const openModal = (group) => {
+    setModalState({
+      open: true,
+      employeeId: group.employeeId,
+      employeeName: group.employeeName,
+      workExperiences: group.workExperiences,
     });
+    if (group.workExperiences.length > 0) selectWorkExp(group.workExperiences[0]);
+    else { setSelectedWorkExp(null); setTempWorkExpData(null); setIsEditingWorkExp(false); }
   };
 
-  const handleEmployeeSelect = (employee) => {
-    setSelectedEmployee(employee);
+  const closeModal = () => {
+    setModalState({ open: false, employeeId: null, employeeName: '', workExperiences: [] });
+    setSelectedWorkExp(null);
+    setTempWorkExpData(null);
+    setIsEditingWorkExp(false);
   };
 
-  const handleEditEmployeeChange = (employeeNumber) => {
-    setEditWorkExperience({ ...editWorkExperience, person_id: employeeNumber });
-  };
-
-  const handleEditEmployeeSelect = (employee) => {
-    setSelectedEditEmployee(employee);
-  };
-
-  const handleOpenModal = async (workExp) => {
-    const employeeName = employeeNames[workExp.person_id] || 'Unknown';
-
-    setEditWorkExperience({ ...workExp });
-    setOriginalWorkExperience({ ...workExp });
-    setSelectedEditEmployee({
-      name: employeeName,
-      employeeNumber: workExp.person_id,
-    });
-    setIsEditing(false);
-  };
-
-  const handleStartEdit = () => {
-    setIsEditing(true);
-  };
-
-  const handleCancelEdit = () => {
-    setEditWorkExperience({ ...originalWorkExperience });
-    setSelectedEditEmployee({
-      name: employeeNames[originalWorkExperience.person_id] || 'Unknown',
-      employeeNumber: originalWorkExperience.person_id,
-    });
-    setIsEditing(false);
-  };
-
-  const handleCloseModal = () => {
-    setEditWorkExperience(null);
-    setOriginalWorkExperience(null);
-    setSelectedEditEmployee(null);
-    setIsEditing(false);
-  };
-
-  const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
-    }
+  const selectWorkExp = (we) => {
+    setSelectedWorkExp(we);
+    setTempWorkExpData({ ...we });
+    setIsEditingWorkExp(false);
   };
 
   const hasChanges = () => {
-    if (!editWorkExperience || !originalWorkExperience) return false;
-
-    return (
-      editWorkExperience.workDateFrom !== originalWorkExperience.workDateFrom ||
-      editWorkExperience.workDateTo !== originalWorkExperience.workDateTo ||
-      editWorkExperience.workPositionTitle !==
-        originalWorkExperience.workPositionTitle ||
-      editWorkExperience.workCompany !== originalWorkExperience.workCompany ||
-      editWorkExperience.workMonthlySalary !==
-        originalWorkExperience.workMonthlySalary ||
-      editWorkExperience.SalaryJobOrPayGrade !==
-        originalWorkExperience.SalaryJobOrPayGrade ||
-      editWorkExperience.StatusOfAppointment !==
-        originalWorkExperience.StatusOfAppointment ||
-      editWorkExperience.isGovtService !==
-        originalWorkExperience.isGovtService ||
-      editWorkExperience.person_id !== originalWorkExperience.person_id
-    );
+    if (!tempWorkExpData || !selectedWorkExp) return false;
+    return JSON.stringify(tempWorkExpData) !== JSON.stringify(selectedWorkExp);
   };
 
-  if (accessLoading) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: textPrimaryColor, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: textPrimaryColor }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
+  const canAdd =
+    !loading &&
+    !!newWorkExp.person_id &&
+    !!newWorkExp.workDateFrom &&
+    !!newWorkExp.workDateTo &&
+    !!newWorkExp.workPositionTitle?.trim() &&
+    !!newWorkExp.workCompany?.trim();
 
+  // ── Access guard ──
   if (hasAccess === false) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Work Experience Information. Contact your administrator to request access."
+        message="You do not have permission to access Work Experience Information."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
     );
   }
 
-  const filteredData = data.filter((workExp) => {
-    const companyName = workExp.workCompany?.toLowerCase() || '';
-    const positionTitle = workExp.workPositionTitle?.toLowerCase() || '';
-    const personId = workExp.person_id?.toString() || '';
-    const employeeName = employeeNames[workExp.person_id]?.toLowerCase() || '';
-    const search = searchTerm.toLowerCase();
-    return (
-      personId.includes(search) ||
-      companyName.includes(search) ||
-      positionTitle.includes(search) ||
-      employeeName.includes(search)
-    );
-  });
+  if (pageLoading) return <WorkExperienceWireframe />;
 
   return (
-    <Box sx={{ 
-      py: { xs: 2, md: 4 },
-      mt: { xs: 0, md: -5 },
-      width: '100%',
-      maxWidth: '1600px',
-      mx: 'auto',
-      overflowX: 'hidden',
-    }}>
-      <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard settings={settings}>
-              <Box
-                sx={{
-                  p: 5,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(accentColor, 0.08)} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                  <Box display="flex" alignItems="center">
-                    <Avatar 
-                      sx={{ 
-                        bgcolor: 'rgba(109,35,35,0.15)', 
-                        mr: 4, 
-                        width: 64,
-                        height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)'
-                      }}
-                    >
-                      <WorkHistoryIcon sx={{color: accentColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: accentColor }}>
-                        Work Experience Information Management
-                      </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}>
-                        Add and manage work experience records for employees
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Tooltip title="Refresh Data">
-                      <IconButton 
-                        onClick={() => window.location.reload()}
-                        sx={{ 
-                          bgcolor: 'rgba(109,35,35,0.1)', 
-                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                          color: textPrimaryColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh sx={{ fontSize: 24 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
+    <>
+      <style>{shimmerKeyframes}</style>
+      <Fade in timeout={400}>
+        <Box
+          sx={{
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: '100vw',
+            maxWidth: '100%',
+            position: 'relative',
+            left: '63%',
+            transform: 'translateX(-61%)',
+            px: { xs: 2, sm: 3, md: 6 },
+          }}
+        >
+          <LoadingOverlay open={loading} message="Processing work experience record…" />
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
+            showOkButton={true}
+          />
+
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{
+                px: 4, py: 3,
+                background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                position: 'relative', overflow: 'hidden',
+              }}
+            >
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+                <WorkHistoryIcon sx={{ fontSize: 32, color: T.accent }} />
+                <Box>
+                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                    Work Experience Information Management
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                    Administrative Panel • Add and manage work experience records for employees
+                  </Typography>
                 </Box>
               </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Processing work experience record...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Main Content */}
-        <Grid container spacing={4}>
-          {/* Add New Work Experience Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={700}>
-              <GlassCard settings={settings} sx={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
-                <Box
-                  sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: textPrimaryColor,
-                    display: "flex",
-                    alignItems: "center",
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <WorkHistoryIcon sx={{ fontSize: "1.8rem", mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                      Add New Work Experience
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                      Fill in the work experience information
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  overflowY: 'auto'
-                }}>
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: accentColor, display: 'flex', alignItems: 'center' }}>
-                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information <span style={{ marginLeft: '12px', fontWeight: 400, opacity: 0.7, color: 'red' }}>*</span>
-                    </Typography>
-                    
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                          Search Employee
-                        </Typography>
-                        <EmployeeAutocomplete
-                          value={newWorkExperience.person_id}
-                          onChange={handleEmployeeChange}
-                          selectedEmployee={selectedEmployee}
-                          onEmployeeSelect={handleEmployeeSelect}
-                          placeholder="Search and select employee..."
-                          required
-                          error={!!errors.person_id}
-                          helperText={errors.person_id || ''}
-                          settings={settings}
-                        />
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                          Selected Employee
-                        </Typography>
-                        {selectedEmployee ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: alpha(settings.accentColor || settings.backgroundColor || '#FEF9E1', 0.8),
-                              border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              paddingLeft: '10px',
-                              gap: 1.5,
-                            }}
-                          >
-                            <PersonIcon sx={{ color: accentColor, fontSize: 20 }} />
-                            <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: textPrimaryColor,
-                                  fontSize: '14px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {selectedEmployee.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: settings.textPrimaryColor || '#A31D1D',
-                                  fontSize: '12px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                ID: {selectedEmployee.employeeNumber}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                              border: '2px dashed rgba(109, 35, 35, 0.3)',
-                              borderRadius: 2,
-                              minHeight: '30px',
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: grayColor,
-                                fontStyle: 'italic',
-                                fontSize: '14px',
-                              }}
-                            >
-                              No employee selected
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    </Grid>
-                  </Box>
-
-                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-                  <Typography variant="h5" sx={{ fontWeight: 600, mb: 3, color: accentColor, display: 'flex', alignItems: 'center' }}>
-                    <WorkHistoryIcon sx={{ mr: 2, fontSize: 24 }} />
-                    Work Experience Details
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+                <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                  <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                    {workExperiences.length} {workExperiences.length === 1 ? 'record' : 'records'}
                   </Typography>
-
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Date From <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        type="date"
-                        value={newWorkExperience.workDateFrom}
-                        onChange={(e) => handleChange('workDateFrom', e.target.value)}
-                        fullWidth
-                        size="small"
-                        InputLabelProps={{ shrink: true }}
-                        error={!!errors.workDateFrom}
-                        helperText={errors.workDateFrom || ''}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Date To <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        type="date"
-                        value={newWorkExperience.workDateTo}
-                        onChange={(e) => handleChange('workDateTo', e.target.value)}
-                        fullWidth
-                        size="small"
-                        InputLabelProps={{ shrink: true }}
-                        error={!!errors.workDateTo}
-                        helperText={errors.workDateTo || ''}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Position Title <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        value={newWorkExperience.workPositionTitle}
-                        onChange={(e) => handleChange('workPositionTitle', e.target.value)}
-                        fullWidth
-                        size="small"
-                        error={!!errors.workPositionTitle}
-                        helperText={errors.workPositionTitle || ''}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Company <span style={{ color: 'red' }}>*</span>
-                      </Typography>
-                      <ModernTextField
-                        value={newWorkExperience.workCompany}
-                        onChange={(e) => handleChange('workCompany', e.target.value)}
-                        fullWidth
-                        size="small"
-                        error={!!errors.workCompany}
-                        helperText={errors.workCompany || ''}
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Monthly Salary
-                      </Typography>
-                      <ModernTextField
-                        value={newWorkExperience.workMonthlySalary}
-                        onChange={(e) => handleChange('workMonthlySalary', e.target.value)}
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Salary Job/Pay Grade
-                      </Typography>
-                      <ModernTextField
-                        value={newWorkExperience.SalaryJobOrPayGrade}
-                        onChange={(e) => handleChange('SalaryJobOrPayGrade', e.target.value)}
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Status of Appointment
-                      </Typography>
-                      <ModernTextField
-                        value={newWorkExperience.StatusOfAppointment}
-                        onChange={(e) => handleChange('StatusOfAppointment', e.target.value)}
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Government Service
-                      </Typography>
-                      <FormControl fullWidth size="small">
-                        <Select
-                          value={newWorkExperience.isGovtService || 'No'}
-                          onChange={(e) => handleChange('isGovtService', e.target.value)}
-                          sx={{
-                            '& .MuiOutlinedInput-root': {
-                              borderRadius: 12,
-                              backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                              '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                              },
-                              '&.Mui-focused': {
-                                backgroundColor: 'rgba(255, 255, 255, 1)',
-                                boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-                              },
-                              '& fieldset': {
-                                borderColor: 'rgba(109, 35, 35, 0.5)',
-                                borderWidth: '1.5px',
-                              },
-                              '&:hover fieldset': {
-                                borderColor: 'rgba(109, 35, 35, 0.7)',
-                              },
-                              '&.Mui-focused fieldset': {
-                                borderColor: accentColor,
-                              },
-                            },
-                          }}
-                        >
-                          <MenuItem value="Yes">Yes</MenuItem>
-                          <MenuItem value="No">No</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                  </Grid>
-
-                  <Box sx={{ mt: 'auto', pt: 3 }}>
-                    <ProfessionalButton
-                      settings={settings}
-                      onClick={handleAdd}
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      fullWidth
-                      sx={{
-                        py: 1.5,
-                        fontSize: '1rem',
-                        backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                        color: settings.accentColor || '#FEF9E1',
-                        '&:hover': {
-                          backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                        },
-                      }}
-                    >
-                      Add Work Experience Record
-                    </ProfessionalButton>
-                  </Box>
                 </Box>
-              </GlassCard>
-            </Fade>
-          </Grid>
+                <DashboardModuleAuditLogs tableName="work_experience_table" moduleLabel="Work Experience" />
+                <Tooltip title="Refresh Data">
+                  <IconButton
+                    onClick={fetchWorkExperiences}
+                    sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
+                  >
+                    <Refresh sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          </SectionCard>
 
-          {/* Work Experience Records Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={900}>
-              <GlassCard settings={settings} sx={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+
+            {/* ── LEFT: Add New Work Experience ── */}
+            <Grid item xs={12} lg={4}>
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
                 <Box
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: textPrimaryColor,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    px: 3.5, py: 1.25,
+                    borderBottom: `1px solid ${T.divider}`,
+                    display: 'flex', alignItems: 'center', gap: 1.5,
+                    bgcolor: T.accentFaint,
                   }}
                 >
-                  <Box sx={{ display: "flex", alignItems: "center" }}>
-                    <ReorderIcon sx={{ fontSize: "1.8rem", mr: 2 }} />
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                        Work Experience Records
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                        View and manage existing records
-                      </Typography>
-                    </Box>
-                  </Box>
-                  
-                  <ToggleButtonGroup
-                    value={viewMode}
-                    exclusive
-                    onChange={handleViewModeChange}
-                    aria-label="view mode"
-                    size="small"
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                      '& .MuiToggleButton-root': {
-                        color: textPrimaryColor,
-                        borderColor: 'rgba(109, 35, 35, 0.5)',
-                        padding: '4px 8px',
-                        '&.Mui-selected': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          color: accentColor
-                        },
-                      }
-                    }}
-                  >
-                    <ToggleButton value="grid" aria-label="grid view">
-                      <ViewModuleIcon fontSize="small" />
-                    </ToggleButton>
-                    <ToggleButton value="list" aria-label="list view">
-                      <ViewListIcon fontSize="small" />
-                    </ToggleButton>
-                  </ToggleButtonGroup>
+                  <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>
+                    Add New Work Experience
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                    <Box component="span" sx={{ color: '#c62828' }}>*</Box> required
+                  </Typography>
                 </Box>
 
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  display: 'flex', 
-                  flexDirection: 'column',
-                  overflow: 'hidden'
-                }}>
-                  <Box sx={{ mb: 3 }}>
-                    <ModernTextField
-                      settings={settings}
-                      size="small"
-                      variant="outlined"
-                      placeholder="Search by Employee ID, Name, Company, or Position"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      fullWidth
-                      InputProps={{
-                        startAdornment: (
-                          <SearchIcon sx={{ color: accentColor, mr: 1 }} />
-                        ),
+                <Box
+                  sx={{
+                    px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto',
+                    display: 'flex', flexDirection: 'column', gap: 0,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                  }}
+                >
+                  {/* ── SECTION: Employee ── */}
+                  <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Search Employee <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <EmployeeAutocomplete
+                      value={newWorkExp.person_id}
+                      onChange={(val) => {
+                        setNewWorkExp((r) => ({ ...r, person_id: val }));
+                        setErrors((e) => { const n = { ...e }; delete n.person_id; return n; });
                       }}
+                      selectedEmployee={selectedEmployee}
+                      onEmployeeSelect={setSelectedEmployee}
+                      placeholder="Search name or employee ID…"
+                      required
+                      error={!!errors.person_id}
+                      helperText={errors.person_id || ''}
                     />
                   </Box>
 
-                  <Box 
-                    sx={{ 
-                      flexGrow: 1, 
-                      overflowY: 'auto',
-                      pr: 1,
-                      '&::-webkit-scrollbar': {
-                        width: '6px',
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        background: '#f1f1f1',
-                        borderRadius: '3px',
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: accentColor,
-                        borderRadius: '3px',
-                      },
+                  {/* Employee preview pill */}
+                  {selectedEmployee ? (
+                    <Box
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 1.25,
+                        px: 1.75, py: 1.25, mb: 2.5, borderRadius: 2,
+                        bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
+                      }}
+                    >
+                      <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: '0.78rem', color: T.accent, fontWeight: 700, flexShrink: 0 }}>
+                        {selectedEmployee.name?.charAt(0)?.toUpperCase() || '?'}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
+                          {selectedEmployee.name}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>
+                          #{selectedEmployee.employeeNumber}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2,
+                        py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02),
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic' }}>
+                        No employee selected yet
+                      </Typography>
+                    </Box>
+                  )}
+
+                  <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                  {/* ── SECTION: Work Experience Details ── */}
+                  <FormSectionLabel icon={WorkHistoryIcon}>Work Experience Details</FormSectionLabel>
+
+                  {/* Date From */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Date From <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      type="date"
+                      value={newWorkExp.workDateFrom}
+                      onChange={(e) => {
+                        setNewWorkExp((r) => ({ ...r, workDateFrom: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.workDateFrom; return n; });
+                      }}
+                      fullWidth size="small"
+                      InputLabelProps={{ shrink: true }}
+                      error={!!errors.workDateFrom}
+                      helperText={errors.workDateFrom || ''}
+                    />
+                  </Box>
+
+                  {/* Date To */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Date To <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      type="date"
+                      value={newWorkExp.workDateTo}
+                      onChange={(e) => {
+                        setNewWorkExp((r) => ({ ...r, workDateTo: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.workDateTo; return n; });
+                      }}
+                      fullWidth size="small"
+                      InputLabelProps={{ shrink: true }}
+                      error={!!errors.workDateTo}
+                      helperText={errors.workDateTo || ''}
+                    />
+                  </Box>
+
+                  {/* Position Title */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Position Title <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      value={newWorkExp.workPositionTitle}
+                      onChange={(e) => {
+                        setNewWorkExp((r) => ({ ...r, workPositionTitle: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.workPositionTitle; return n; });
+                      }}
+                      fullWidth size="small"
+                      error={!!errors.workPositionTitle}
+                      helperText={errors.workPositionTitle || ''}
+                    />
+                  </Box>
+
+                  {/* Company */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Company / Office <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                    </Typography>
+                    <FieldInput
+                      value={newWorkExp.workCompany}
+                      onChange={(e) => {
+                        setNewWorkExp((r) => ({ ...r, workCompany: e.target.value }));
+                        setErrors((er) => { const n = { ...er }; delete n.workCompany; return n; });
+                      }}
+                      fullWidth size="small"
+                      error={!!errors.workCompany}
+                      helperText={errors.workCompany || ''}
+                    />
+                  </Box>
+
+                  {/* Monthly Salary */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Monthly Salary</Typography>
+                    <FieldInput
+                      value={newWorkExp.workMonthlySalary}
+                      onChange={(e) => setNewWorkExp((r) => ({ ...r, workMonthlySalary: e.target.value }))}
+                      fullWidth size="small"
+                      placeholder="e.g., 25000"
+                    />
+                  </Box>
+
+                  {/* Salary Grade */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Salary Job / Pay Grade</Typography>
+                    <FieldInput
+                      value={newWorkExp.SalaryJobOrPayGrade}
+                      onChange={(e) => setNewWorkExp((r) => ({ ...r, SalaryJobOrPayGrade: e.target.value }))}
+                      fullWidth size="small"
+                      placeholder="e.g., SG-15"
+                    />
+                  </Box>
+
+                  {/* Status of Appointment */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Status of Appointment</Typography>
+                    <FieldInput
+                      value={newWorkExp.StatusOfAppointment}
+                      onChange={(e) => setNewWorkExp((r) => ({ ...r, StatusOfAppointment: e.target.value }))}
+                      fullWidth size="small"
+                      placeholder="e.g., Permanent, Casual"
+                    />
+                  </Box>
+
+                  {/* Government Service */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Government Service?</Typography>
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={newWorkExp.isGovtService || 'No'}
+                        onChange={(e) => setNewWorkExp((r) => ({ ...r, isGovtService: e.target.value }))}
+                        sx={{
+                          borderRadius: 2, fontSize: '0.875rem',
+                          '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+                          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: 1.5 },
+                        }}
+                      >
+                        <MenuItem value="Yes">Yes</MenuItem>
+                        <MenuItem value="No">No</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+
+                  {/* Submit */}
+                  <Box sx={{ mt: 'auto' }}>
+                    {(selectedEmployee || newWorkExp.workPositionTitle) && (
+                      <AccentButton
+                        onClick={() => {
+                          setNewWorkExp({ workDateFrom: '', workDateTo: '', workPositionTitle: '', workCompany: '', workMonthlySalary: '', SalaryJobOrPayGrade: '', StatusOfAppointment: '', isGovtService: 'No', person_id: '' });
+                          setSelectedEmployee(null);
+                          setErrors({});
+                        }}
+                        variant="outlined"
+                        fullWidth
+                        sx={{
+                          mb: 1, height: 36, fontSize: '0.8rem',
+                          borderColor: T.accentBorder, color: T.muted,
+                          '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent },
+                        }}
+                      >
+                        Clear Form
+                      </AccentButton>
+                    )}
+                    <AccentButton
+                      onClick={handleCreate}
+                      variant="contained"
+                      fullWidth
+                      disabled={!canAdd}
+                      startIcon={
+                        loading
+                          ? <CircularProgress size={14} sx={{ color: '#fff' }} />
+                          : <AddIcon sx={{ fontSize: '16px !important' }} />
+                      }
+                      sx={{
+                        height: 42,
+                        bgcolor: canAdd ? T.accent : '#d0d0d0',
+                        color: canAdd ? '#fff' : '#888',
+                        boxShadow: canAdd ? `0 2px 10px ${alpha(T.accent, 0.32)}` : 'none',
+                        '&:hover': {
+                          bgcolor: canAdd ? T.accentDark : '#d0d0d0',
+                          boxShadow: canAdd ? `0 4px 16px ${alpha(T.accent, 0.38)}` : 'none',
+                        },
+                        '&:disabled': { bgcolor: '#d0d0d0 !important', color: '#888 !important', boxShadow: 'none !important', transform: 'none !important' },
+                      }}
+                    >
+                      {loading ? 'Adding…' : 'Add Work Experience Record'}
+                    </AccentButton>
+                  </Box>
+                </Box>
+              </SectionCard>
+            </Grid>
+
+            {/* ── RIGHT: Records ── */}
+            <Grid item xs={12} lg={8}>
+              <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                        Employee Work Experience Records
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>
+                          {filteredData.length} groups
+                        </Typography>
+                      </Box>
+                      <ToggleButtonGroup
+                        value={viewMode}
+                        exclusive
+                        onChange={(_, v) => v && setViewMode(v)}
+                        size="small"
+                        sx={{
+                          '& .MuiToggleButton-root': {
+                            px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted,
+                            '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent },
+                          },
+                        }}
+                      >
+                        <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                        <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+                  </Box>
+                  <FieldInput
+                    size="small"
+                    placeholder="Search by employee ID, name, company, or position…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} />,
                     }}
-                  >
-                    {viewMode === 'grid' ? (
-                      <Grid container spacing={2}>
-                        {filteredData.map((workExp) => (
-                          <Grid item xs={12} sm={6} md={4} key={workExp.id}>
-                            <Card
-                              onClick={() => handleOpenModal(workExp)}
+                  />
+                </Box>
+
+                <Box
+                  sx={{
+                    flexGrow: 1, overflowY: 'auto', p: 2,
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                  }}
+                >
+                  {pagedData.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box
+                        sx={{
+                          width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2,
+                        }}
+                      >
+                        <WorkHistoryIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                        {groupedData.length === 0 ? 'No records yet' : 'No records match your search'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                        {groupedData.length === 0
+                          ? 'Use the form on the left to add a work experience record.'
+                          : 'Try a different search term.'}
+                      </Typography>
+                    </Box>
+                  ) : viewMode === 'grid' ? (
+                    <Grid container spacing={1.5} alignItems="stretch">
+                      {pagedData.map((group) => (
+                        <Grid item xs={12} sm={3} key={group.employeeId} sx={{ display: 'flex' }}>
+                          <Box
+                            onClick={() => openModal(group)}
+                            sx={{
+                              width: '100%', display: 'flex', flexDirection: 'column',
+                              p: 2, borderRadius: 2, cursor: 'pointer', bgcolor: '#fff',
+                              border: `1px solid ${T.accentBorder}`, position: 'relative',
+                              transition: 'all 0.13s',
+                              '&:hover': {
+                                bgcolor: T.rowHover, borderColor: T.accent,
+                                transform: 'translateY(-2px)',
+                                boxShadow: `0 4px 14px ${alpha(T.accent, 0.12)}`,
+                              },
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+                              <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: T.accent, flexShrink: 0 }} />
+                              <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>#{group.employeeId}</Typography>
+                            </Box>
+                            <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, mb: 1, flexGrow: 1 }} noWrap>
+                              {group.employeeName}
+                            </Typography>
+                            <Chip
+                              label={`${group.workExperiences.length} ${group.workExperiences.length === 1 ? 'record' : 'records'}`}
+                              size="small"
                               sx={{
-                                cursor: "pointer",
-                                border: "1px solid rgba(109, 35, 35, 0.1)",
-                                height: "100%",
-                                display: 'flex',
-                                flexDirection: 'column',
-                                "&:hover": { 
-                                  borderColor: accentColor,
-                                  transform: 'translateY(-2px)',
-                                  transition: 'all 0.2s ease',
-                                  boxShadow: '0 4px 8px rgba(109,35,35,0.15)'
-                                },
+                                height: 20, fontSize: '0.7rem', fontWeight: 600,
+                                color: T.accent, bgcolor: alpha(T.accent, 0.08),
+                                border: `1px solid ${alpha(T.accent, 0.25)}`,
+                                borderRadius: '4px', '& .MuiChip-label': { px: 0.75 },
                               }}
-                            >
-                              <CardContent sx={{ p: 2, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                                  <WorkHistoryIcon sx={{ fontSize: 18, color: accentColor, mr: 0.5 }} />
-                                  <Typography variant="caption" sx={{ 
-                                    color: textPrimaryColor, 
-                                    px: 0.5, 
-                                    py: 0.2, 
-                                    borderRadius: 0.5,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold'
-                                  }}>
-                                    ID: {workExp.person_id}
-                                  </Typography>
-                                </Box>
-                                
-                                <Typography variant="body2" fontWeight="bold" color="#333" mb={0.5} noWrap>
-                                  {employeeNames[workExp.person_id] || 'Loading...'}
-                                </Typography>
-                                
-                                <Typography variant="body2" fontWeight="bold" color="#333" mb={0.5} sx={{ flexGrow: 1, wordBreak: 'break-word' }}>
-                                  {workExp.workCompany || 'No Company'}
-                                </Typography>
-                                
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexWrap: 'nowrap', overflow: 'hidden', mb: 0.5 }}>
-                                  <CalendarToday sx={{ fontSize: 12, color: '#000', flexShrink: 0 }} />
-                                  <Typography variant="caption" color="#000" fontSize="0.7rem" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1 }}>
-                                    {workExp.workDateFrom?.split('T')[0] || '----'}
-                                  </Typography>
-                                  <Typography variant="caption" color="#000" fontSize="0.7rem" sx={{ mx: 0.25, flexShrink: 0 }}>
-                                    to
-                                  </Typography>
-                                  <CalendarToday sx={{ fontSize: 12, color: '#000', flexShrink: 0 }} />
-                                  <Typography variant="caption" color="#000" fontSize="0.7rem" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 1 }}>
-                                    {workExp.workDateTo?.split('T')[0] || '----'}
-                                  </Typography>
-                                </Box>
-                                
-                                {workExp.workPositionTitle && (
-                                  <Box
-                                    sx={{
-                                      display: 'inline-block',
-                                      px: 1,
-                                      py: 0.3,
-                                      borderRadius: 0.5,
-                                      backgroundColor: 'rgba(109, 35, 35, 0.1)',
-                                      border: '1px solid rgba(109, 35, 35, 0.2)',
-                                      alignSelf: 'flex-start'
-                                    }}
-                                  >
-                                    <Typography variant="caption" sx={{ 
-                                      color: textPrimaryColor,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold'
-                                    }}>
-                                      {workExp.workPositionTitle}
-                                    </Typography>
-                                  </Box>
-                                )}
-                              </CardContent>
-                            </Card>
-                          </Grid>
+                            />
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  ) : (
+                    <>
+                      <Box
+                        sx={{
+                          px: 1.5, py: 1,
+                          display: 'grid', gridTemplateColumns: '110px 1fr 120px',
+                          gap: 1, alignItems: 'center',
+                          bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1,
+                        }}
+                      >
+                        {['Emp. No', 'Employee', 'Records'].map((col) => (
+                          <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                            {col}
+                          </Typography>
                         ))}
-                      </Grid>
-                    ) : (
-                      filteredData.map((workExp) => (
-                        <Card
-                          key={workExp.id}
-                          onClick={() => handleOpenModal(workExp)}
+                      </Box>
+                      {pagedData.map((group, idx) => (
+                        <Box
+                          key={group.employeeId}
+                          onClick={() => openModal(group)}
                           sx={{
-                            cursor: "pointer",
-                            border: "1px solid rgba(109, 35, 35, 0.1)",
-                            mb: 1,
-                            "&:hover": { 
-                              borderColor: accentColor,
-                              backgroundColor: 'rgba(254, 249, 225, 0.3)'
-                            },
+                            px: 1.5, py: 1.25,
+                            display: 'grid', gridTemplateColumns: '110px 1fr 120px',
+                            gap: 1, alignItems: 'center', borderRadius: 1.5,
+                            cursor: 'pointer',
+                            bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                            border: '1px solid transparent',
+                            transition: 'background 0.13s ease',
+                            '&:hover': { bgcolor: T.rowHover },
                           }}
                         >
-                          <Box sx={{ p: 2 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                              <Box sx={{ mr: 1.5, mt: 0.2 }}>
-                                <WorkHistoryIcon sx={{ fontSize: 20, color: accentColor }} />
-                              </Box>
-                              
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography variant="caption" sx={{ 
-                                  color: textPrimaryColor,
-                                  fontSize: '0.7rem',
-                                  fontWeight: 'bold',
-                                  display: 'block',
-                                  mb: 0.5
-                                }}>
-                                  ID: {workExp.person_id}
-                                </Typography>
-                                <Typography variant="body2" fontWeight="bold" color="#333" sx={{ mb: 0.5 }}>
-                                  {employeeNames[workExp.person_id] || 'Loading...'}
-                                </Typography>
-                                
-                                <Typography variant="body2" fontWeight="bold" color="#333" sx={{ mb: 0.5, wordBreak: 'break-word' }}>
-                                  {workExp.workCompany || 'No Company'}
-                                </Typography>
-                                
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                                  <CalendarToday sx={{ fontSize: 14, color: '#000', flexShrink: 0 }} />
-                                  <Typography variant="caption" color="#000" fontSize="0.75rem" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {workExp.workDateFrom?.split('T')[0] || '----'}
-                                  </Typography>
-                                  <Typography variant="caption" color="#000" fontSize="0.75rem" sx={{ flexShrink: 0 }}>
-                                    to
-                                  </Typography>
-                                  <CalendarToday sx={{ fontSize: 14, color: '#000', flexShrink: 0 }} />
-                                  <Typography variant="caption" color="#000" fontSize="0.75rem" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {workExp.workDateTo?.split('T')[0] || '----'}
-                                  </Typography>
-                                </Box>
-                                
-                                {workExp.workPositionTitle && (
-                                  <Box
-                                    sx={{
-                                      display: 'inline-block',
-                                      px: 1,
-                                      py: 0.3,
-                                      borderRadius: 0.5,
-                                      backgroundColor: 'rgba(109, 35, 35, 0.1)',
-                                      border: '1px solid rgba(109, 35, 35, 0.2)',
-                                    }}
-                                  >
-                                    <Typography variant="caption" sx={{ 
-                                      color: textPrimaryColor,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold'
-                                    }}>
-                                      Position: {workExp.workPositionTitle}
-                                    </Typography>
-                                  </Box>
-                                )}
-                              </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: T.accent, flexShrink: 0 }} />
+                            <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>{group.employeeId}</Typography>
+                          </Box>
+                          <Typography sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }} noWrap>
+                            {group.employeeName}
+                          </Typography>
+                          <Chip
+                            label={`${group.workExperiences.length} ${group.workExperiences.length === 1 ? 'record' : 'records'}`}
+                            size="small"
+                            sx={{
+                              height: 20, fontSize: '0.68rem', fontWeight: 600,
+                              color: T.accent, bgcolor: alpha(T.accent, 0.08),
+                              border: `1px solid ${alpha(T.accent, 0.25)}`,
+                              borderRadius: '4px', '& .MuiChip-label': { px: 0.75 },
+                            }}
+                          />
+                        </Box>
+                      ))}
+                    </>
+                  )}
+                </Box>
+
+                {filteredData.length > 0 && (
+                  <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+                    <TablePagination
+                      component="div"
+                      count={filteredData.length}
+                      page={page}
+                      onPageChange={(_, newPage) => setPage(newPage)}
+                      rowsPerPage={rowsPerPage}
+                      onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                      rowsPerPageOptions={[12, 24, 48, 96]}
+                      sx={{
+                        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                          { fontSize: '0.78rem', fontWeight: 600 },
+                      }}
+                    />
+                  </Box>
+                )}
+              </SectionCard>
+            </Grid>
+          </Grid>
+
+          {/* ── Split-View Modal ── */}
+          <Modal
+            open={modalState.open}
+            onClose={closeModal}
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}
+          >
+            <Fade in={modalState.open}>
+              <Box
+                sx={{
+                  width: '95%', maxWidth: 960, height: '85vh',
+                  borderRadius: 3, overflow: 'hidden',
+                  boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+                  bgcolor: T.surface, display: 'flex', flexDirection: 'column',
+                }}
+              >
+                {/* Modal header */}
+                <Box
+                  sx={{
+                    px: 3.5, py: 2.5, background: T.headerGrad,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    position: 'relative', overflow: 'hidden', flexShrink: 0,
+                  }}
+                >
+                  <Box sx={{ position: 'absolute', top: -40, right: -30, width: 140, height: 140, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+                    <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <WorkHistoryIcon sx={{ fontSize: 18, color: '#fff' }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }}>
+                        Work Experience of {modalState.employeeName}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>
+                        Employee #{modalState.employeeId} • {modalState.workExperiences.length}{' '}
+                        {modalState.workExperiences.length === 1 ? 'record' : 'records'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <IconButton
+                    onClick={closeModal}
+                    size="small"
+                    sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}
+                  >
+                    <Close sx={{ fontSize: 17 }} />
+                  </IconButton>
+                </Box>
+
+                {/* Split body */}
+                <Box sx={{ flexGrow: 1, display: 'flex', overflow: 'hidden' }}>
+                  {/* Left panel — record list */}
+                  <Box
+                    sx={{
+                      width: 280, flexShrink: 0,
+                      borderRight: `1px solid ${T.divider}`,
+                      display: 'flex', flexDirection: 'column',
+                      bgcolor: T.accentFaint,
+                    }}
+                  >
+                    <List
+                      sx={{
+                        flexGrow: 1, overflowY: 'auto', p: 1,
+                        '&::-webkit-scrollbar': { width: 4 },
+                        '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                      }}
+                    >
+                      {modalState.workExperiences.map((we) => (
+                        <ListItem
+                          key={we.id}
+                          button
+                          selected={selectedWorkExp?.id === we.id}
+                          onClick={() => selectWorkExp(we)}
+                          sx={{
+                            borderRadius: 1.5, mb: 0.75,
+                            border: selectedWorkExp?.id === we.id ? `1px solid ${T.accent}` : '1px solid transparent',
+                            bgcolor: selectedWorkExp?.id === we.id ? alpha(T.accent, 0.08) : 'transparent',
+                            '&.Mui-selected': { bgcolor: alpha(T.accent, 0.08), '&:hover': { bgcolor: alpha(T.accent, 0.13) } },
+                            '&:hover': { bgcolor: T.accentFaint },
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, width: '100%' }}>
+                            <Avatar sx={{ width: 28, height: 28, bgcolor: alpha(T.accent, 0.15), color: T.accent, fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>
+                              {we.workPositionTitle?.charAt(0)?.toUpperCase() || '?'}
+                            </Avatar>
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
+                                {we.workPositionTitle || 'Untitled Position'}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.68rem', color: T.muted }} noWrap>
+                                {we.workCompany || 'No Company'}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.67rem', color: T.faint }}>
+                                {we.workDateFrom?.split('T')[0] || '----'} → {we.workDateTo?.split('T')[0] || '----'}
+                              </Typography>
                             </Box>
                           </Box>
-                        </Card>
-                      ))
-                    )}
-                    
-                    {filteredData.length === 0 && (
-                      <Box textAlign="center" py={4}>
-                        <Typography variant="h6" color={accentColor} fontWeight="bold" sx={{ mb: 1 }}>
-                          No Records Found
-                        </Typography>
-                        <Typography variant="body2" color={grayColor}>
-                          Try adjusting your search criteria
+                        </ListItem>
+                      ))}
+                      {modalState.workExperiences.length === 0 && (
+                        <Box sx={{ p: 2, textAlign: 'center' }}>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontStyle: 'italic' }}>
+                            No work experience records yet.
+                          </Typography>
+                        </Box>
+                      )}
+                    </List>
+                  </Box>
+
+                  {/* Right panel — detail / edit */}
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {selectedWorkExp ? (
+                      <>
+                        <Box
+                          sx={{
+                            flexGrow: 1, overflowY: 'auto',
+                            '&::-webkit-scrollbar': { width: 4 },
+                            '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+                          }}
+                        >
+                          {!isEditingWorkExp ? (
+                            <>
+                              {/* ── Avatar hero ── */}
+                              <Box
+                                sx={{
+                                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                  py: 4, px: 3,
+                                  borderBottom: `1px solid ${T.divider}`,
+                                  background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+                                  position: 'relative',
+                                }}
+                              >
+                                <Box sx={{ position: 'absolute', top: 12, right: 14 }}>
+                                  <Chip
+                                    label="View mode"
+                                    size="small"
+                                    sx={{ height: 16, fontSize: '0.62rem', bgcolor: alpha(T.accent, 0.08), color: T.muted, fontWeight: 500 }}
+                                  />
+                                </Box>
+                                <Avatar
+                                  sx={{
+                                    width: 72, height: 72,
+                                    bgcolor: alpha(T.accent, 0.15), color: T.accent,
+                                    fontSize: '1.75rem', fontWeight: 700, mb: 1.5,
+                                    border: `2px solid ${alpha(T.accent, 0.2)}`,
+                                  }}
+                                >
+                                  {selectedWorkExp.workPositionTitle?.charAt(0)?.toUpperCase() || '?'}
+                                </Avatar>
+                                <Typography sx={{ fontSize: '1.1rem', fontWeight: 900, color: T.accent, lineHeight: 1.25, textAlign: 'center' }}>
+                                  {selectedWorkExp.workPositionTitle || 'Untitled Position'}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, mt: 0.5 }}>
+                                  {selectedWorkExp.workCompany || 'No Company'}
+                                </Typography>
+                              </Box>
+
+                              {/* ── Key-value rows ── */}
+                              <Box sx={{ px: 3.5, py: 2.5 }}>
+                                {[
+                                  { label: 'Date From',             value: selectedWorkExp.workDateFrom?.split('T')[0] || '—' },
+                                  { label: 'Date To',               value: selectedWorkExp.workDateTo?.split('T')[0] || '—' },
+                                  { label: 'Position Title',        value: selectedWorkExp.workPositionTitle || '—' },
+                                  { label: 'Company / Office',      value: selectedWorkExp.workCompany || '—' },
+                                  { label: 'Monthly Salary',        value: selectedWorkExp.workMonthlySalary || '—' },
+                                  { label: 'Salary / Pay Grade',    value: selectedWorkExp.SalaryJobOrPayGrade || '—' },
+                                  { label: 'Status of Appointment', value: selectedWorkExp.StatusOfAppointment || '—' },
+                                  { label: 'Government Service',    value: selectedWorkExp.isGovtService || '—' },
+                                ].map(({ label, value }, i, arr) => (
+                                  <Box
+                                    key={label}
+                                    sx={{
+                                      display: 'flex', alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      py: 1.5,
+                                      borderBottom: i < arr.length - 1 ? `1px solid ${T.divider}` : 'none',
+                                    }}
+                                  >
+                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 600, letterSpacing: '0.03em' }}>
+                                      {label}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.85rem',
+                                        fontWeight: value === '—' ? 400 : 700,
+                                        color: value === '—' ? T.faint : T.text,
+                                        fontStyle: value === '—' ? 'italic' : 'normal',
+                                        textAlign: 'right', maxWidth: '60%',
+                                      }}
+                                    >
+                                      {value}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </>
+                          ) : (
+                            /* ── Edit form ── */
+                            <Box sx={{ px: 3.5, py: 3 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
+                                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>
+                                  Edit Work Experience Record
+                                </Typography>
+                                <Chip
+                                  label="Editing"
+                                  size="small"
+                                  sx={{ height: 16, fontSize: '0.62rem', bgcolor: 'rgba(255,200,0,0.18)', color: '#b8860b', fontWeight: 600 }}
+                                />
+                              </Box>
+                              <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Date From</Typography>
+                                <FieldInput type="date" value={tempWorkExpData?.workDateFrom?.split('T')[0] || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, workDateFrom: e.target.value }))} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Date To</Typography>
+                                <FieldInput type="date" value={tempWorkExpData?.workDateTo?.split('T')[0] || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, workDateTo: e.target.value }))} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Position Title</Typography>
+                                <FieldInput value={tempWorkExpData?.workPositionTitle || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, workPositionTitle: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Company / Office</Typography>
+                                <FieldInput value={tempWorkExpData?.workCompany || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, workCompany: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Monthly Salary</Typography>
+                                <FieldInput value={tempWorkExpData?.workMonthlySalary || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, workMonthlySalary: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Salary / Pay Grade</Typography>
+                                <FieldInput value={tempWorkExpData?.SalaryJobOrPayGrade || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, SalaryJobOrPayGrade: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Status of Appointment</Typography>
+                                <FieldInput value={tempWorkExpData?.StatusOfAppointment || ''} onChange={(e) => setTempWorkExpData((r) => ({ ...r, StatusOfAppointment: e.target.value }))} fullWidth size="small" />
+                              </Box>
+                              <Box sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Government Service?</Typography>
+                                <FormControl fullWidth size="small">
+                                  <Select
+                                    value={tempWorkExpData?.isGovtService || 'No'}
+                                    onChange={(e) => setTempWorkExpData((r) => ({ ...r, isGovtService: e.target.value }))}
+                                    sx={{
+                                      borderRadius: 2, fontSize: '0.875rem',
+                                      '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+                                      '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+                                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: 1.5 },
+                                    }}
+                                  >
+                                    <MenuItem value="Yes">Yes</MenuItem>
+                                    <MenuItem value="No">No</MenuItem>
+                                  </Select>
+                                </FormControl>
+                              </Box>
+                            </Box>
+                          )}
+                        </Box>
+
+                        {/* Modal footer */}
+                        <Box
+                          sx={{
+                            px: 3.5, py: 2,
+                            borderTop: `1px solid ${T.divider}`,
+                            bgcolor: '#f9f9f9',
+                            display: 'flex', justifyContent: 'flex-end', gap: 1.25,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {!isEditingWorkExp ? (
+                            <>
+                              <AccentButton
+                                onClick={handleDelete}
+                                variant="outlined"
+                                startIcon={<DeleteIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{
+                                  fontSize: '0.8rem', borderColor: '#e57373', color: '#c62828',
+                                  '&:hover': { bgcolor: 'rgba(198,40,40,0.04)', borderColor: '#c62828', transform: 'none' },
+                                }}
+                              >
+                                Delete
+                              </AccentButton>
+                              <AccentButton
+                                onClick={() => setIsEditingWorkExp(true)}
+                                variant="contained"
+                                startIcon={<EditIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}
+                              >
+                                Edit Record
+                              </AccentButton>
+                            </>
+                          ) : (
+                            <>
+                              <AccentButton
+                                onClick={() => { setTempWorkExpData({ ...selectedWorkExp }); setIsEditingWorkExp(false); }}
+                                variant="outlined"
+                                startIcon={<CancelIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
+                              >
+                                Cancel
+                              </AccentButton>
+                              <AccentButton
+                                onClick={handleUpdate}
+                                disabled={!hasChanges()}
+                                variant="contained"
+                                startIcon={<SaveIcon sx={{ fontSize: '14px !important' }} />}
+                                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}
+                              >
+                                Save Changes
+                              </AccentButton>
+                            </>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 1 }}>
+                        <WorkHistoryIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.2) }} />
+                        <Typography sx={{ fontSize: '0.88rem', color: T.faint, fontStyle: 'italic' }}>
+                          Select a record from the list to view details
                         </Typography>
                       </Box>
                     )}
                   </Box>
                 </Box>
-              </GlassCard>
+              </Box>
             </Fade>
-          </Grid>
-        </Grid>
+          </Modal>
 
-        {/* Edit Modal */}
-        <Modal
-          open={!!editWorkExperience}
-          onClose={handleCloseModal}
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <GlassCard
-            settings={settings}
-            sx={{
-              width: "90%",
-              maxWidth: "900px",
-              maxHeight: "90vh",
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={3000}
+            onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
           >
-            {editWorkExperience && (
-              <>
-                <Box
-                  sx={{
-                    p: 3,
-                    background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
-                    color: settings.accentColor || '#FEF9E1',
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: settings.accentColor || '#FEF9E1' }}>
-                    {isEditing
-                      ? "Edit Work Experience Information"
-                      : "Work Experience Details"}
-                  </Typography>
-                  <IconButton onClick={handleCloseModal} sx={{ color: settings.accentColor || '#FEF9E1' }}>
-                    <Close />
-                  </IconButton>
-                </Box>
-
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  overflowY: 'auto',
-                  minHeight: 0,
-                  '&::-webkit-scrollbar': {
-                    width: '6px',
-                  },
-                  '&::-webkit-scrollbar-track': {
-                    background: '#f1f1f1',
-                    borderRadius: '3px',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    background: settings.primaryColor || accentColor,
-                    borderRadius: '3px',
-                  },
-                }}>
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: accentColor, display: 'flex', alignItems: 'center' }}>
-                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information
-                    </Typography>
-                    
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                          Search Employee
-                        </Typography>
-                        <EmployeeAutocomplete
-                          value={editWorkExperience?.person_id || ''}
-                          onChange={
-                            isEditing ? handleEditEmployeeChange : () => {}
-                          }
-                          selectedEmployee={selectedEditEmployee}
-                          onEmployeeSelect={
-                            isEditing ? handleEditEmployeeSelect : () => {}
-                          }
-                          settings={settings}
-                          placeholder="Search and select employee..."
-                          required
-                          disabled={!isEditing}
-                          dropdownDisabled={!isEditing}
-                        />
-                        {!isEditing && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: grayColor,
-                              fontStyle: 'italic',
-                              display: 'block',
-                              mt: 0.5,
-                            }}
-                          >
-                            Contact administrator for assistance.
-                          </Typography>
-                        )}
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                          Selected Employee
-                        </Typography>
-                        {selectedEditEmployee ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: alpha(settings.accentColor || settings.backgroundColor || '#FEF9E1', 0.8),
-                              border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              padding: '12px',
-                              gap: 1.5,
-                            }}
-                          >
-                            <PersonIcon sx={{ color: accentColor, fontSize: 20 }} />
-                            <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: textPrimaryColor,
-                                  fontSize: '14px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {selectedEditEmployee.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: settings.textPrimaryColor || '#A31D1D',
-                                  fontSize: '12px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                ID: {selectedEditEmployee.employeeNumber}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                              border: '2px dashed rgba(109, 35, 35, 0.3)',
-                              borderRadius: 2,
-                              padding: '12px',
-                              minHeight: '48px',
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: grayColor,
-                                fontStyle: 'italic',
-                                fontSize: '14px',
-                              }}
-                            >
-                              No employee selected
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    </Grid>
-                  </Box>
-
-                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-                  <Typography variant="h5" sx={{ fontWeight: 600, mb: 3, color: accentColor, display: 'flex', alignItems: 'center' }}>
-                    <WorkHistoryIcon sx={{ mr: 2, fontSize: 24 }} />
-                    Work Experience Details
-                  </Typography>
-
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Date From
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          type="date"
-                          value={editWorkExperience.workDateFrom?.split('T')[0] || ''}
-                          onChange={(e) => handleChange('workDateFrom', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.workDateFrom?.split('T')[0] || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Date To
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          type="date"
-                          value={editWorkExperience.workDateTo?.split('T')[0] || ''}
-                          onChange={(e) => handleChange('workDateTo', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.workDateTo?.split('T')[0] || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Position Title
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editWorkExperience.workPositionTitle}
-                          onChange={(e) => handleChange('workPositionTitle', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.workPositionTitle || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Company
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editWorkExperience.workCompany}
-                          onChange={(e) => handleChange('workCompany', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.workCompany || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Monthly Salary
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editWorkExperience.workMonthlySalary}
-                          onChange={(e) => handleChange('workMonthlySalary', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.workMonthlySalary || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Salary Job/Pay Grade
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editWorkExperience.SalaryJobOrPayGrade}
-                          onChange={(e) => handleChange('SalaryJobOrPayGrade', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.SalaryJobOrPayGrade || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Status of Appointment
-                      </Typography>
-                      {isEditing ? (
-                        <ModernTextField
-                          value={editWorkExperience.StatusOfAppointment}
-                          onChange={(e) => handleChange('StatusOfAppointment', e.target.value, true)}
-                          fullWidth
-                          size="small"
-                        />
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.StatusOfAppointment || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 1, color: accentColor }}>
-                        Government Service
-                      </Typography>
-                      {isEditing ? (
-                        <FormControl fullWidth size="small">
-                          <Select
-                            value={editWorkExperience.isGovtService || 'No'}
-                            onChange={(e) => handleChange('isGovtService', e.target.value, true)}
-                            sx={{
-                              '& .MuiOutlinedInput-root': {
-                                borderRadius: 12,
-                                backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                },
-                                '&.Mui-focused': {
-                                  backgroundColor: 'rgba(255, 255, 255, 1)',
-                                  boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-                                },
-                                '& fieldset': {
-                                  borderColor: 'rgba(109, 35, 35, 0.5)',
-                                  borderWidth: '1.5px',
-                                },
-                                '&:hover fieldset': {
-                                  borderColor: 'rgba(109, 35, 35, 0.7)',
-                                },
-                                '&.Mui-focused fieldset': {
-                                  borderColor: accentColor,
-                                },
-                              },
-                            }}
-                          >
-                            <MenuItem value="Yes">Yes</MenuItem>
-                            <MenuItem value="No">No</MenuItem>
-                          </Select>
-                        </FormControl>
-                      ) : (
-                        <Box sx={{ 
-                          p: 1.5, 
-                          bgcolor: 'rgba(254, 249, 225, 0.5)', 
-                          borderRadius: 1,
-                          border: '1px solid rgba(109, 35, 35, 0.2)'
-                        }}>
-                          <Typography variant="body2">
-                            {editWorkExperience.isGovtService || 'N/A'}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Grid>
-                  </Grid>
-
-                </Box>
-
-                {/* Bottom action bar */}
-                <Box
-                  sx={{
-                    borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                    backgroundColor: '#FFFFFF',
-                    px: 3,
-                    py: 2,
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: 2,
-                    position: 'sticky',
-                    bottom: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  {!isEditing ? (
-                    <>
-                      <ProfessionalButton
-                        settings={settings}
-                        onClick={() => handleDelete(editWorkExperience.id)}
-                        variant="outlined"
-                        startIcon={<DeleteIcon />}
-                        sx={{
-                          borderColor: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(settings.deleteButtonColor || settings.primaryColor || '#6d2323', 0.1),
-                            borderColor: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
-                            color: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Delete
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        settings={settings}
-                        onClick={handleStartEdit}
-                        variant="contained"
-                        startIcon={<EditIcon />}
-                        sx={{
-                          backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Edit
-                      </ProfessionalButton>
-                    </>
-                  ) : (
-                    <>
-                      <ProfessionalButton
-                        settings={settings}
-                        onClick={handleCancelEdit}
-                        variant="outlined"
-                        startIcon={<CancelIcon />}
-                        sx={{
-                          borderColor: settings.cancelButtonColor || '#6c757d',
-                          color: settings.cancelButtonColor || '#6c757d',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(settings.cancelButtonColor || '#6c757d', 0.1),
-                            borderColor: settings.cancelButtonHoverColor || '#5a6268',
-                            color: settings.cancelButtonHoverColor || '#5a6268',
-                          },
-                        }}
-                      >
-                        Cancel
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        settings={settings}
-                        onClick={handleUpdate}
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        disabled={!hasChanges()}
-                        sx={{
-                          backgroundColor: hasChanges() 
-                            ? (settings.updateButtonColor || settings.primaryColor || '#6d2323')
-                            : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: hasChanges() 
-                              ? (settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d')
-                              : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          },
-                          '&:disabled': {
-                            color: alpha(settings.accentColor || '#FEF9E1', 0.5),
-                          },
-                        }}
-                      >
-                        Save
-                      </ProfessionalButton>
-                    </>
-                  )}
-                </Box>
-              </>
-            )}
-          </GlassCard>
-        </Modal>
-
-        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
-        
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={3000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert
-            onClose={() => setSnackbar({ ...snackbar, open: false })}
-            severity={snackbar.severity}
-            sx={{ width: '100%' }}
-          >
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-      </Box>
-    </Box>
+            <Alert onClose={() => setSnackbar((s) => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2 }}>
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+        </Box>
+      </Fade>
+    </>
   );
 };
 

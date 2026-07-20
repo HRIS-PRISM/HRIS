@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireSelfOrAdmin } = require('../middleware/auth');
 const { profileUpload } = require('../middleware/upload');
 
 // Profile picture upload endpoint
 router.post(
   '/upload-profile-picture/:employeeNumber',
   authenticateToken,
+  requireSelfOrAdmin('employeeNumber'),
   profileUpload.single('profile'),
   async (req, res) => {
     try {

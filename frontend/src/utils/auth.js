@@ -31,25 +31,24 @@
 export const getAuthHeaders = (options = {}) => {
   const { contentType = 'application/json', includeContentType = true } = options;
   const token = localStorage.getItem('token');
-  
-  // Log token status for debugging (remove in production if needed)
-  if (!token) {
+
+  if (!token || token === 'null' || token === 'undefined') {
     console.warn('⚠️ No authentication token found in localStorage');
-    console.warn('User may need to log in again');
-  } else {
-    // Log token info (first 20 chars only for security)
-    console.log('✅ Token found:', token.substring(0, 20) + '...');
-    console.log('Token length:', token.length);
+    const headers = {};
+    if (includeContentType) {
+      headers['Content-Type'] = contentType;
+    }
+    return { headers };
   }
-  
+
   const headers = {
     Authorization: `Bearer ${token}`,
   };
-  
+
   if (includeContentType) {
     headers['Content-Type'] = contentType;
   }
-  
+
   return { headers };
 };
 

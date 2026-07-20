@@ -18,14 +18,14 @@ export const routeToComponentMap = {
   '/pds3': 'pds3',
   '/pds4': 'pds4',
   '/settings': 'settings',
-  '/reports': null, // Reports might not have a component identifier
+  '/reports': 'reports',
   '/users-list': 'users-list',
   '/registration': 'registration',
   '/employee-category': 'employee-category',
   '/reset-password': 'reset-password',
   '/payroll-formulas': 'payroll-formulas',
   '/admin-security': 'admin-security',
-  '/employee-reports': null, // Might not have component identifier
+  '/employee-reports': 'employee-reports',
   '/personalinfo': 'personalinfo',
   '/children': 'children',
   '/college': 'college',
@@ -56,19 +56,26 @@ export const routeToComponentMap = {
   '/salary-grade': 'salary-grade',
   '/department-table': 'department-table',
   '/department-assignment': 'department-assignment',
-  '/assessment-clearance': null, // Might not have component identifier
-  '/clearance': null,
-  '/faculty-clearance': null,
-  '/hrms-request-forms': null,
-  '/individual-faculty-loading': null,
-  '/in-service-training': null,
-  '/leave-card': null,
-  '/locator-slip': null,
-  '/permission-to-teach': null,
-  '/request-for-id': null,
-  '/saln-front': null,
-  '/scholarship-agreement': null,
-  '/subject': null,
+  '/assessment-clearance': 'assessment-clearance',
+  '/clearance': 'clearance',
+  '/clearance-back': 'clearance-back',
+  '/faculty-clearance': 'faculty-clearance',
+  '/faculty-clearance-70-days': 'faculty-clearance-70-days',
+  '/hrms-request-forms': 'hrms-request-forms',
+  '/individual-faculty-loading': 'individual-faculty-loading',
+  '/in-service-training': 'in-service-training',
+  '/leave-card': 'leave-card',
+  '/leave-card-back': 'leave-card-back',
+  '/leave-form': 'leave-form',
+  '/locator-slip': 'locator-slip',
+  '/permission-to-teach': 'permission-to-teach',
+  '/request-for-id': 'request-for-id',
+  '/saln-front': 'saln-front',
+  '/saln-back': 'saln-back',
+  '/scholarship-agreement': 'scholarship-agreement',
+  '/subject': 'subject',
+  '/absences-report': 'absences-report',
+  '/attendance-adjustment-reports': 'attendance-adjustment-reports',
   '/announcement': 'announcement',
   '/audit-logs': 'audit-logs',
   '/pages-list': 'pages-list',
@@ -82,7 +89,15 @@ export const routeToComponentMap = {
   '/leave-commutation': 'leave-commutation',
   '/system-settings': 'system-settings',
   '/pds-templates': 'pds-templates',
+  '/file201': 'file201',
   '/leave-commutation': 'leave-commutation',
+  '/service-credits': 'service-credits',
+  '/compensatory-time-off': 'compensatory-time-off',
+  '/assignment-management': 'assignment-management',
+  '/earnings-management': 'earnings-management',
+  '/supervisor-assignment': 'supervisor-assignment',
+  '/leave-request-supervisor': 'leave-request-supervisor',
+  '/daily-time-record-supervisor': 'daily-time-record-supervisor',
 };
 
 /**
@@ -94,6 +109,17 @@ export const getComponentIdentifierForRoute = (route) => {
   return routeToComponentMap[route] || null;
 };
 
+/** Resolve sidebar menu keys (e.g. view_attendance) to App route paths. */
+export const getRouteForMenuItemKey = (itemKey) => {
+  if (!itemKey) return null;
+  if (String(itemKey).startsWith('/')) return itemKey;
+  const underscored = `/${itemKey}`;
+  if (routeToComponentMap[underscored] !== undefined) return underscored;
+  const dashed = `/${String(itemKey).replace(/_/g, '-')}`;
+  if (routeToComponentMap[dashed] !== undefined) return dashed;
+  return underscored;
+};
+
 /**
  * Get all component identifiers that need access checking
  * @returns {string[]} Array of component identifiers
@@ -101,3 +127,6 @@ export const getComponentIdentifierForRoute = (route) => {
 export const getAllComponentIdentifiers = () => {
   return Object.values(routeToComponentMap).filter((id) => id !== null);
 };
+
+/** Stable list for sidebar access checks (avoid re-creating each render). */
+export const ALL_COMPONENT_IDENTIFIERS = getAllComponentIdentifiers();

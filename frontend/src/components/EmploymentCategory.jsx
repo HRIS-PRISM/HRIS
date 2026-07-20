@@ -39,6 +39,14 @@ import {
   ListSubheader,
   ListItemIcon,
   TablePagination,
+  Tab,
+  Tabs,
+  Badge,
+  Collapse,
+  InputAdornment,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -57,13 +65,85 @@ import {
   Refresh,
   Work as WorkIcon,
   Circle,
+  Settings as SettingsIcon,
+  Assignment as AssignIcon,
+  Palette as PaletteIcon,
+  FolderOpen as FolderOpenIcon,
+  Label as LabelIcon,
+  WarningAmber as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  DragIndicator as DragIcon,
+  FactCheck as DeductionPolicyIcon,
 } from "@mui/icons-material";
 import ReorderIcon from "@mui/icons-material/Reorder";
 import LoadingOverlay from "./LoadingOverlay";
 import SuccessfulOverlay from "./SuccessfulOverlay";
-import { useSystemSettings } from "../hooks/useSystemSettings";
 
-// ─── Shimmer keyframes ────────────────────────────────────────────────────────
+// ─── Theme tokens ─────────────────────────────────────────────────────────────
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover: "rgba(109,35,35,0.10)",
+  headerGrad: "linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)",
+  rowEven: "#ffffff",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  surface: "#ffffff",
+  divider: "rgba(0,0,0,0.08)",
+};
+
+// ─── Styled primitives ────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8,
+    fontSize: "0.875rem",
+    backgroundColor: "#fff",
+    "& fieldset": { borderColor: T.accentBorder },
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+    "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: T.text },
+  },
+  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.875rem",
+  letterSpacing: "0.01em",
+  transition: "all 0.18s ease",
+  "&:hover": { transform: "translateY(-1px)" },
+  "&:active": { transform: "translateY(0)" },
+});
+
+const selectSx = {
+  borderRadius: "8px",
+  fontSize: "0.875rem",
+  bgcolor: "#fff",
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+  "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+    borderColor: T.accent,
+    borderWidth: "1.5px",
+  },
+};
+
+// ─── Shimmer ─────────────────────────────────────────────────────────────────
 const shimmerKeyframes = `
 @keyframes ecmShimmer {
   0%   { background-position: -800px 0; }
@@ -75,456 +155,152 @@ const shimmerKeyframes = `
 }
 `;
 
-const EcmShim = ({
-  width = "100%",
-  height = 16,
-  borderRadius = 8,
-  sx = {},
-}) => (
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
   <Box
     sx={{
-      width,
-      height,
-      borderRadius: `${borderRadius}px`,
-      flexShrink: 0,
-      background:
-        "linear-gradient(90deg,rgba(137,68,68,0.08) 25%,rgba(137,68,68,0.20) 50%,rgba(137,68,68,0.08) 75%)",
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
       backgroundSize: "800px 100%",
-      animation: "ecmShimmer 1.5s infinite linear",
+      animation: "ecmShimmer 1.6s infinite linear",
+      flexShrink: 0,
       ...sx,
     }}
   />
 );
 
-// ─── System settings hook (inline, same pattern as BulkRegister) ──────────────
-const useLocalSystemSettings = () => {
-  const [settings, setSettings] = useState(() => {
-    try {
-      const stored = localStorage.getItem("systemSettings");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === "object") return parsed;
-      }
-    } catch {}
-    return {
-      primaryColor: "#894444",
-      secondaryColor: "#6d2323",
-      accentColor: "#FEF9E1",
-      textColor: "#FFFFFF",
-      textPrimaryColor: "#6D2323",
-      textSecondaryColor: "#FEF9E1",
-      hoverColor: "#6D2323",
-      backgroundColor: "#FFFFFF",
-    };
-  });
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const url = API_BASE_URL.includes("/api")
-          ? `${API_BASE_URL}/system-settings`
-          : `${API_BASE_URL}/api/system-settings`;
-        const response = await axios.get(url);
-        if (response.data && typeof response.data === "object") {
-          setSettings(response.data);
-          localStorage.setItem("systemSettings", JSON.stringify(response.data));
-        }
-      } catch (e) {
-        console.error("Error fetching system settings:", e);
-      }
-    };
-    fetchSettings();
-  }, []);
-
-  return settings;
-};
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: "0.68rem",
+        fontWeight: 700,
+        letterSpacing: "0.09em",
+        textTransform: "uppercase",
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
 
 // ─── Wireframe skeleton ───────────────────────────────────────────────────────
-const EcmWireframe = ({ settings }) => {
-  const p = settings?.primaryColor || "#894444";
-  const ac = settings?.accentColor || "#FEF9E1";
-
-  return (
-    <>
-      <style>{shimmerKeyframes}</style>
+const EcmWireframe = () => (
+  <>
+    <style>{shimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
       <Box
         sx={{
-          py: 3,
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
+          mb: 3,
+          borderRadius: 3,
           overflow: "hidden",
-          position: "relative",
-          left: "50%",
-          transform: "translateX(-50%)",
-          minHeight: "92vh",
+          border: `1px solid ${T.accentBorder}`,
+          animation: "ecmPulse 2s ease-in-out infinite",
         }}
       >
-        <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-          {/* Header shimmer */}
-          <Box
-            sx={{
-              mb: 3,
-              borderRadius: 20,
-              overflow: "hidden",
-              background: `${ac}F2`,
-              border: `1px solid ${alpha(p, 0.1)}`,
-              boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
-              animation: "ecmPulse 2.2s ease-in-out infinite",
-            }}
-          >
-            <Box
-              sx={{
-                px: 4,
-                py: 3,
-                position: "relative",
-                overflow: "hidden",
-                background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-              }}
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-                  <Box
-                    sx={{
-                      width: 52,
-                      height: 52,
-                      borderRadius: "50%",
-                      bgcolor: alpha(p, 0.12),
-                      flexShrink: 0,
-                    }}
-                  />
-                  <Box>
-                    <EcmShim
-                      width={260}
-                      height={22}
-                      borderRadius={6}
-                      sx={{ mb: 0.75 }}
-                    />
-                    <EcmShim width={300} height={12} borderRadius={4} />
-                  </Box>
-                </Box>
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: "50%",
-                    bgcolor: alpha(p, 0.1),
-                  }}
-                />
-              </Box>
-            </Box>
+        <Box
+          sx={{
+            p: 3.5,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 2.5,
+          }}
+        >
+          <Box sx={{ width: 52, height: 52, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
+          <Box sx={{ flex: 1 }}>
+            <Bone w={220} h={18} sx={{ mb: 1 }} />
+            <Bone w={360} h={11} />
           </Box>
-
-          <Grid container spacing={3}>
-            {/* Left panel shimmer */}
-            <Grid item xs={12} lg={4}>
-              <Box
-                sx={{
-                  borderRadius: 20,
-                  overflow: "hidden",
-                  background: `${ac}F2`,
-                  border: `1px solid ${alpha(p, 0.1)}`,
-                  animation: "ecmPulse 2.2s ease-in-out 0.05s infinite",
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 3.5,
-                    py: 2.5,
-                    borderBottom: `1px solid ${alpha(p, 0.08)}`,
-                    bgcolor: alpha(ac, 0.5),
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 2,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: "50%",
-                      bgcolor: alpha(p, 0.12),
-                    }}
-                  />
-                  <Box>
-                    <EcmShim
-                      width={160}
-                      height={13}
-                      borderRadius={5}
-                      sx={{ mb: 0.5 }}
-                    />
-                    <EcmShim width={220} height={10} borderRadius={4} />
-                  </Box>
-                </Box>
-                <Box
-                  sx={{
-                    p: 3,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2.5,
-                  }}
-                >
-                  <Box>
-                    <EcmShim
-                      width={160}
-                      height={11}
-                      borderRadius={4}
-                      sx={{ mb: 1.5 }}
-                    />
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <EcmShim width="100%" height={40} borderRadius={12} />
-                      </Grid>
-                      <Grid item xs={6}>
-                        <EcmShim width="100%" height={40} borderRadius={12} />
-                      </Grid>
-                    </Grid>
-                  </Box>
-                  <Box
-                    sx={{ borderTop: `1px solid ${alpha(p, 0.1)}`, pt: 2.5 }}
-                  >
-                    <EcmShim
-                      width={180}
-                      height={11}
-                      borderRadius={4}
-                      sx={{ mb: 1.5 }}
-                    />
-                    <EcmShim
-                      width="100%"
-                      height={40}
-                      borderRadius={12}
-                      sx={{ mb: 1.5 }}
-                    />
-                  </Box>
-                  <EcmShim width="100%" height={44} borderRadius={12} />
-                </Box>
-              </Box>
-            </Grid>
-
-            {/* Right panel shimmer */}
-            <Grid item xs={12} lg={8}>
-              <Box
-                sx={{
-                  borderRadius: 20,
-                  overflow: "hidden",
-                  background: `${ac}F2`,
-                  border: `1px solid ${alpha(p, 0.1)}`,
-                  animation: "ecmPulse 2.2s ease-in-out 0.08s infinite",
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 3.5,
-                    py: 2.5,
-                    background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                    borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Box
-                      sx={{
-                        width: 46,
-                        height: 46,
-                        borderRadius: "50%",
-                        bgcolor: alpha(p, 0.12),
-                      }}
-                    />
-                    <Box>
-                      <EcmShim
-                        width={200}
-                        height={14}
-                        borderRadius={5}
-                        sx={{ mb: 0.5 }}
-                      />
-                      <EcmShim width={240} height={10} borderRadius={4} />
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 1 }}>
-                    <EcmShim width={36} height={36} borderRadius={8} />
-                    <EcmShim width={36} height={36} borderRadius={8} />
-                  </Box>
-                </Box>
-                <Box sx={{ p: 3 }}>
-                  <EcmShim
-                    width="100%"
-                    height={40}
-                    borderRadius={12}
-                    sx={{ mb: 2.5 }}
-                  />
-                  <Grid container spacing={1.5}>
-                    {[...Array(8)].map((_, i) => (
-                      <Grid item xs={3} key={i}>
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            borderRadius: 3,
-                            border: `1px solid ${alpha(p, 0.1)}`,
-                            animation: `ecmPulse 2.2s ease-in-out ${i * 0.06}s infinite`,
-                          }}
-                        >
-                          <EcmShim
-                            width="50%"
-                            height={10}
-                            borderRadius={3}
-                            sx={{ mb: 0.75 }}
-                          />
-                          <EcmShim
-                            width="80%"
-                            height={12}
-                            borderRadius={4}
-                            sx={{ mb: 0.75 }}
-                          />
-                          <EcmShim width={70} height={20} borderRadius={10} />
-                        </Box>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              </Box>
-            </Grid>
-          </Grid>
         </Box>
       </Box>
-    </>
-  );
-};
-
-// ─── Styled components (matching BulkRegister pattern) ───────────────────────
-const getStyledComponents = (p, ac) => {
-  const GlassCard = styled(Card)(() => ({
-    borderRadius: 20,
-    background: `${ac}F2`,
-    backdropFilter: "blur(10px)",
-    boxShadow: `0 8px 40px ${alpha(p, 0.08)}`,
-    border: `1px solid ${alpha(p, 0.1)}`,
-    overflow: "hidden",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    "&:hover": { boxShadow: `0 12px 48px ${alpha(p, 0.16)}` },
-  }));
-
-  const ProfessionalButton = styled(Button)(({ variant: v }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: "10px 22px",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    textTransform: "none",
-    fontSize: "0.9rem",
-    letterSpacing: "0.025em",
-    boxShadow: v === "contained" ? `0 4px 14px ${alpha(p, 0.4)}` : "none",
-    "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow: v === "contained" ? `0 6px 20px ${alpha(p, 0.55)}` : "none",
-    },
-    "&:active": { transform: "translateY(0)" },
-  }));
-
-  const ModernTextField = styled(TextField)(() => ({
-    "& .MuiOutlinedInput-root": {
-      borderRadius: 12,
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-      backgroundColor: "rgba(255,255,255,0.8)",
-      "&:hover": { backgroundColor: "rgba(255,255,255,0.95)" },
-      "&.Mui-focused": {
-        backgroundColor: "rgba(255,255,255,1)",
-        boxShadow: `0 4px 20px ${alpha(p, 0.12)}`,
-      },
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-      "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: alpha(p, 0.45),
-      },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
-    },
-    "& .MuiInputLabel-root": { fontWeight: 500 },
-  }));
-
-  const ModernSelect = styled(Select)(() => ({
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.8)",
-    "&:hover": { backgroundColor: "rgba(255,255,255,0.95)" },
-    "&.Mui-focused": { backgroundColor: "rgba(255,255,255,1)" },
-    "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.45) },
-    "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
-  }));
-
-  return { GlassCard, ProfessionalButton, ModernTextField, ModernSelect };
-};
+      <Grid container spacing={3}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={col === 0 ? 4 : 8} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: "#fff",
+                height: "calc(100vh - 280px)",
+                animation: `ecmPulse 2s ease-in-out ${col * 0.1}s infinite`,
+              }}
+            >
+              <Box sx={{ p: 3.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+                {[100, 160, 120, 140, 110].map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box sx={{ height: 40, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: "#fafafa" }} />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  </>
+);
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
   if (!token) return {};
   return {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     withCredentials: true,
   };
 };
 
-// ─── Category color map ───────────────────────────────────────────────────────
-const getCategoryColor = (catId) => {
-  const map = {
-    0: "#F57C00",
-    1: "#E64A19",
-    2: "#2E7D32",
-    3: "#1565C0",
-    4: "#7B1FA2",
-    5: "#00796B",
-  };
-  return map[parseInt(catId)] || "#757575";
-};
-
-const CATEGORY_OPTIONS = [
-  {
-    group: "Job Order (JO)",
-    items: [
-      { value: 0, label: "Graduated", color: "#F57C00" },
-      { value: 1, label: "UnderGrad", color: "#E64A19" },
-    ],
-  },
-  {
-    group: "Regular",
-    items: [
-      { value: 2, label: "Non-Teaching", color: "#2E7D32" },
-      { value: 3, label: "Teaching (30Hrs)", color: "#1565C0" },
-      { value: 4, label: "Designated (40Hrs)", color: "#7B1FA2" },
-    ],
-  },
-  {
-    group: "Custom",
-    items: [{ value: 5, label: "Other (specify)", color: "#00796B" }],
-  },
-];
+// ─── Color swatch input ───────────────────────────────────────────────────────
+const ColorSwatch = ({ value, onChange, disabled }) => (
+  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+    <Box
+      component="input"
+      type="color"
+      value={value || "#757575"}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      sx={{
+        width: 36,
+        height: 36,
+        borderRadius: 1.5,
+        border: `1px solid ${T.accentBorder}`,
+        cursor: disabled ? "not-allowed" : "pointer",
+        p: 0.25,
+        bgcolor: "#fff",
+      }}
+    />
+    <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontFamily: "monospace" }}>
+      {value || "#757575"}
+    </Typography>
+  </Box>
+);
 
 // ─── Employee Autocomplete ────────────────────────────────────────────────────
-// FIX 2: Moved styled TextField OUTSIDE the component so it doesn't
-// get recreated on every render, which was breaking focus/typing.
-const buildEmployeeTextField = (p) =>
+const buildEmployeeTextField = () =>
   styled(TextField)(() => ({
     "& .MuiOutlinedInput-root": {
-      borderRadius: 12,
-      backgroundColor: "rgba(255,255,255,0.8)",
-      "&:hover": { backgroundColor: "rgba(255,255,255,0.95)" },
-      "&.Mui-focused": {
-        backgroundColor: "#fff",
-        boxShadow: `0 4px 20px ${alpha(p, 0.12)}`,
-      },
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-      "&:hover .MuiOutlinedInput-notchedOutline": {
-        borderColor: alpha(p, 0.45),
-      },
-      "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
+      borderRadius: 8,
+      fontSize: "0.875rem",
+      backgroundColor: "#fff",
+      "& fieldset": { borderColor: T.accentBorder },
+      "&:hover fieldset": { borderColor: T.accent },
+      "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
     },
   }));
 
@@ -538,10 +314,6 @@ const EmployeeAutocomplete = ({
   helperText = "",
   selectedEmployee,
   onEmployeeSelect,
-  dropdownDisabled = false,
-  p,
-  ac,
-  tp,
 }) => {
   const [query, setQuery] = useState("");
   const [employees, setEmployees] = useState([]);
@@ -549,17 +321,17 @@ const EmployeeAutocomplete = ({
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
-
-  // FIX 2: Memoize the styled component so it's stable across renders
-  const EmpTextField = useMemo(() => buildEmployeeTextField(p), [p]);
+  const EmpTextField = useMemo(() => buildEmployeeTextField(), []);
 
   useEffect(() => {
     if (value && !selectedEmployee) fetchEmployeeById(value);
-  }, [value]);
+  }, [value]); // eslint-disable-line
+
   useEffect(() => {
     if (selectedEmployee) setQuery(selectedEmployee.name || "");
     else if (!value) setQuery("");
   }, [selectedEmployee, value]);
+
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target))
@@ -574,35 +346,25 @@ const EmployeeAutocomplete = ({
     try {
       const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
-        getAuthHeaders(),
+        getAuthHeaders()
       );
       setEmployees(r.data);
-    } catch {
-      setEmployees([]);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch { setEmployees([]); }
+    finally { setIsLoading(false); }
   };
+
   const fetchAllEmployees = async () => {
     setIsLoading(true);
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search`,
-        getAuthHeaders(),
-      );
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search`, getAuthHeaders());
       setEmployees(r.data);
-    } catch {
-      setEmployees([]);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch { setEmployees([]); }
+    finally { setIsLoading(false); }
   };
+
   const fetchEmployeeById = async (empNum) => {
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/${empNum}`,
-        getAuthHeaders(),
-      );
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${empNum}`, getAuthHeaders());
       onEmployeeSelect(r.data);
       setQuery(r.data.name || "");
     } catch (err) {
@@ -647,29 +409,17 @@ const EmployeeAutocomplete = ({
         autoComplete="off"
         size="small"
         InputProps={{
-          startAdornment: <PersonIcon sx={{ color: p, mr: 1, fontSize: 18 }} />,
+          startAdornment: <PersonIcon sx={{ color: T.muted, mr: 1, fontSize: 15 }} />,
           endAdornment: (
             <IconButton
-              onClick={
-                dropdownDisabled
-                  ? undefined
-                  : () => {
-                      if (!showDropdown) {
-                        setShowDropdown(true);
-                        if (!employees.length && !isLoading)
-                          fetchAllEmployees();
-                      } else setShowDropdown(false);
-                    }
-              }
+              onClick={() => {
+                setShowDropdown(!showDropdown);
+                if (!showDropdown && !employees.length && !isLoading) fetchAllEmployees();
+              }}
               size="small"
-              disabled={dropdownDisabled}
-              sx={{ color: p }}
+              sx={{ color: T.muted }}
             >
-              {showDropdown ? (
-                <ExpandLessIcon sx={{ fontSize: 18 }} />
-              ) : (
-                <ExpandMoreIcon sx={{ fontSize: 18 }} />
-              )}
+              {showDropdown ? <ExpandLessIcon sx={{ fontSize: 15 }} /> : <ExpandMoreIcon sx={{ fontSize: 15 }} />}
             </IconButton>
           ),
         }}
@@ -686,27 +436,14 @@ const EmployeeAutocomplete = ({
             maxHeight: 280,
             overflow: "auto",
             mt: 0.75,
-            borderRadius: 3,
-            border: `1px solid ${alpha(p, 0.15)}`,
+            borderRadius: 2,
+            border: `1px solid ${T.accentBorder}`,
           }}
         >
           {isLoading ? (
-            <Box
-              sx={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                p: 2,
-                gap: 1,
-              }}
-            >
-              <CircularProgress size={16} sx={{ color: p }} />
-              <Typography
-                variant="body2"
-                sx={{ fontSize: "0.8rem", color: alpha("#000", 0.5) }}
-              >
-                Loading…
-              </Typography>
+            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", p: 2, gap: 1 }}>
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography variant="body2" sx={{ fontSize: "0.8rem", color: T.muted }}>Loading…</Typography>
             </Box>
           ) : employees.length > 0 ? (
             <List dense disablePadding>
@@ -720,44 +457,24 @@ const EmployeeAutocomplete = ({
                     setShowDropdown(false);
                     onChange(emp.employeeNumber);
                   }}
-                  sx={{
-                    py: 1,
-                    px: 1.5,
-                    "&:hover": { bgcolor: alpha(p, 0.05) },
-                    borderBottom: `1px solid ${alpha(p, 0.05)}`,
-                  }}
+                  sx={{ py: 1, px: 1.5, "&:hover": { bgcolor: T.accentFaint }, borderBottom: `1px solid ${T.divider}` }}
                 >
-                  <ListItemText
-                    primary={
-                      <Typography
-                        sx={{ fontSize: "0.82rem", fontWeight: 600, color: p }}
-                      >
-                        {emp.name}
-                      </Typography>
-                    }
-                    secondary={
-                      <Typography
-                        sx={{ fontSize: "0.72rem", color: alpha("#000", 0.45) }}
-                      >
-                        #{emp.employeeNumber}
-                      </Typography>
-                    }
-                  />
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Avatar sx={{ width: 28, height: 28, fontSize: "0.72rem", bgcolor: T.accent, color: "#fff", fontWeight: 700 }}>
+                      {emp.name?.charAt(0)?.toUpperCase() || "?"}
+                    </Avatar>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text }}>{emp.name}</Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>#{emp.employeeNumber}</Typography>
+                    </Box>
+                  </Box>
                 </ListItem>
               ))}
             </List>
           ) : (
             <Box sx={{ p: 2, textAlign: "center" }}>
-              <Typography
-                sx={{
-                  fontSize: "0.8rem",
-                  color: alpha("#000", 0.4),
-                  fontStyle: "italic",
-                }}
-              >
-                {query.length >= 2
-                  ? `No employees found for "${query}"`
-                  : "Type to search or scroll to browse"}
+              <Typography sx={{ fontSize: "0.8rem", color: T.faint, fontStyle: "italic" }}>
+                {query.length >= 2 ? `No employees found for "${query}"` : "Type to search or scroll to browse"}
               </Typography>
             </Box>
           )}
@@ -767,30 +484,41 @@ const EmployeeAutocomplete = ({
   );
 };
 
-// ─── Category Select ──────────────────────────────────────────────────────────
-const CategorySelect = ({ value, onChange, p, disabled = false }) => {
+// ─── Dynamic Category Select ──────────────────────────────────────────────────
+const DynamicCategorySelect = ({ value, onChange, typeConfigs, disabled = false }) => {
+  const grouped = useMemo(() => {
+    const g = {};
+    typeConfigs.filter(t => t.isActive).forEach(t => {
+      if (!g[t.parentGroup]) g[t.parentGroup] = [];
+      g[t.parentGroup].push(t);
+    });
+    return g;
+  }, [typeConfigs]);
+
   return (
     <FormControl fullWidth size="small">
       <Select
-        value={value}
+        value={value || ""}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        sx={{
-          borderRadius: 3,
-          backgroundColor: "rgba(255,255,255,0.8)",
-          "& .MuiOutlinedInput-notchedOutline": { borderColor: alpha(p, 0.25) },
-          "&:hover .MuiOutlinedInput-notchedOutline": {
-            borderColor: alpha(p, 0.45),
-          },
-          "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: p },
-          // FIX 3: Ensure the selected value renders with flex + centered alignment
-          "& .MuiSelect-select": {
-            display: "flex",
-            alignItems: "center",
-          },
+        displayEmpty
+        sx={{ ...selectSx, "& .MuiSelect-select": { display: "flex", alignItems: "center" } }}
+        renderValue={(val) => {
+          if (!val) return <Typography sx={{ color: T.faint, fontSize: "0.875rem" }}>Select a category…</Typography>;
+          const found = typeConfigs.find(t => t.id === parseInt(val));
+          if (!found) return val;
+          return (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Circle sx={{ fontSize: 8, color: found.colorHex }} />
+              <Typography sx={{ fontSize: "0.875rem" }}>{found.parentGroup} | {found.typeName}</Typography>
+            </Box>
+          );
         }}
       >
-        {CATEGORY_OPTIONS.map(({ group, items }) => [
+        <MenuItem value="" disabled>
+          <Typography sx={{ color: T.faint, fontSize: "0.875rem" }}>Select a category…</Typography>
+        </MenuItem>
+        {Object.entries(grouped).map(([group, items]) => [
           <ListSubheader
             key={group}
             sx={{
@@ -798,28 +526,19 @@ const CategorySelect = ({ value, onChange, p, disabled = false }) => {
               fontWeight: 700,
               letterSpacing: "0.07em",
               textTransform: "uppercase",
-              color: alpha(p, 0.5),
+              color: alpha(T.accent, 0.55),
               lineHeight: "2em",
-              bgcolor: alpha("#FEF9E1", 0.6),
+              bgcolor: T.accentFaint,
             }}
           >
             {group}
           </ListSubheader>,
-          ...items.map(({ value: v, label, color }) => (
-            // FIX 3: Added display:flex + alignItems:center to MenuItem so dot and label are vertically aligned
-            <MenuItem
-              key={v}
-              value={v}
-              sx={{ py: 1, display: "flex", alignItems: "center" }}
-            >
-              <ListItemIcon
-                sx={{ minWidth: 26, display: "flex", alignItems: "center" }}
-              >
-                <Circle sx={{ fontSize: 10, color }} />
+          ...items.map((item) => (
+            <MenuItem key={item.id} value={item.id} sx={{ py: 1, display: "flex", alignItems: "center" }}>
+              <ListItemIcon sx={{ minWidth: 26, display: "flex", alignItems: "center" }}>
+                <Circle sx={{ fontSize: 8, color: item.colorHex }} />
               </ListItemIcon>
-              <Typography sx={{ fontSize: "0.85rem", lineHeight: 1 }}>
-                {label}
-              </Typography>
+              <Typography sx={{ fontSize: "0.875rem", lineHeight: 1 }}>{item.typeName}</Typography>
             </MenuItem>
           )),
         ])}
@@ -828,31 +547,690 @@ const CategorySelect = ({ value, onChange, p, disabled = false }) => {
   );
 };
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-const EmploymentCategoryManagement = () => {
-  const rawSettings = useLocalSystemSettings();
-  const p = rawSettings?.primaryColor || "#894444";
-  const s = rawSettings?.secondaryColor || "#6d2323";
-  const ac = rawSettings?.accentColor || "#FEF9E1";
-  const tp = rawSettings?.textPrimaryColor || "#6D2323";
+// ─── Manage Types Tab ─────────────────────────────────────────────────────────
+const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
+  const [newType, setNewType] = useState({ parentGroup: "", typeName: "", colorHex: "#6d2323", isNewGroup: false, newGroupName: "" });
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({});
 
-  const { GlassCard, ProfessionalButton, ModernTextField } = useMemo(
-    () => getStyledComponents(p, ac),
-    [p, ac],
+  const existingGroups = useMemo(() => {
+    const groups = [...new Set(typeConfigs.map(t => t.parentGroup))].sort();
+    return groups;
+  }, [typeConfigs]);
+
+  const grouped = useMemo(() => {
+    const g = {};
+    typeConfigs.forEach(t => {
+      if (!g[t.parentGroup]) g[t.parentGroup] = [];
+      g[t.parentGroup].push(t);
+    });
+    return g;
+  }, [typeConfigs]);
+
+  const toggleGroup = (group) => setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
+
+  const handleCreate = async () => {
+    const parentGroup = newType.isNewGroup ? newType.newGroupName.trim() : newType.parentGroup;
+    if (!parentGroup) { showSnackbar("Parent group is required", "error"); return; }
+    if (!newType.typeName.trim()) { showSnackbar("Type name is required", "error"); return; }
+
+    setSubmitting(true);
+    try {
+      await axios.post(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`,
+        { parentGroup, typeName: newType.typeName.trim(), colorHex: newType.colorHex },
+        getAuthHeaders()
+      );
+      setNewType({ parentGroup: "", typeName: "", colorHex: "#6d2323", isNewGroup: false, newGroupName: "" });
+      onRefresh();
+      showSnackbar("Employment type created successfully", "success");
+    } catch (err) {
+      showSnackbar(err.response?.data?.error || "Failed to create employment type", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdate = async (id) => {
+    if (!editData.parentGroup?.trim()) { showSnackbar("Parent group is required", "error"); return; }
+    if (!editData.typeName?.trim()) { showSnackbar("Type name is required", "error"); return; }
+
+    setSubmitting(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config/${id}`,
+        { ...editData },
+        getAuthHeaders()
+      );
+      setEditingId(null);
+      onRefresh();
+      showSnackbar("Employment type updated successfully", "success");
+    } catch (err) {
+      showSnackbar(err.response?.data?.error || "Failed to update employment type", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    setSubmitting(true);
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config/${id}`,
+        getAuthHeaders()
+      );
+      setDeleteConfirm(null);
+      onRefresh();
+      showSnackbar("Employment type deleted successfully", "success");
+    } catch (err) {
+      showSnackbar(err.response?.data?.error || "Failed to delete employment type", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const startEdit = (type) => {
+    setEditingId(type.id);
+    setEditData({ parentGroup: type.parentGroup, typeName: type.typeName, colorHex: type.colorHex, isActive: type.isActive, sortOrder: type.sortOrder });
+  };
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {/* Add new type form */}
+      <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1.5, display: "flex", alignItems: "center", gap: 0.75 }}>
+          <AddIcon sx={{ fontSize: 14 }} /> Add New Employment Type
+        </Typography>
+
+        <Grid container spacing={1.5} alignItems="flex-start">
+          {/* Parent Group */}
+          <Grid item xs={12} sm={4}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
+              Parent Group <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+            </Typography>
+            {newType.isNewGroup ? (
+              <Box sx={{ display: "flex", gap: 0.5 }}>
+                <FieldInput
+                  value={newType.newGroupName}
+                  onChange={(e) => setNewType(p => ({ ...p, newGroupName: e.target.value }))}
+                  placeholder="New group name…"
+                  size="small"
+                  fullWidth
+                  inputProps={{ maxLength: 100 }}
+                />
+                <Tooltip title="Use existing group">
+                  <IconButton size="small" onClick={() => setNewType(p => ({ ...p, isNewGroup: false, newGroupName: "" }))} sx={{ color: T.muted, border: `1px solid ${T.accentBorder}`, borderRadius: 1.5 }}>
+                    <Close sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ) : (
+              <FormControl fullWidth size="small">
+                <Select
+                  value={newType.parentGroup}
+                  onChange={(e) => {
+                    if (e.target.value === "__new__") setNewType(p => ({ ...p, isNewGroup: true, parentGroup: "" }));
+                    else setNewType(p => ({ ...p, parentGroup: e.target.value }));
+                  }}
+                  displayEmpty
+                  sx={selectSx}
+                >
+                  <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select group…</Typography></MenuItem>
+                  {existingGroups.map(g => (
+                    <MenuItem key={g} value={g}><Typography sx={{ fontSize: "0.85rem" }}>{g}</Typography></MenuItem>
+                  ))}
+                  <Divider />
+                  <MenuItem value="__new__">
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <AddIcon sx={{ fontSize: 14, color: T.accent }} />
+                      <Typography sx={{ fontSize: "0.82rem", color: T.accent, fontWeight: 600 }}>Create new group</Typography>
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+            )}
+          </Grid>
+
+          {/* Type Name */}
+          <Grid item xs={12} sm={4}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
+              Type Name <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+            </Typography>
+            <FieldInput
+              value={newType.typeName}
+              onChange={(e) => setNewType(p => ({ ...p, typeName: e.target.value }))}
+              placeholder="e.g. CAS, Gen. Ad., Auxiliary…"
+              size="small"
+              fullWidth
+              inputProps={{ maxLength: 100 }}
+            />
+          </Grid>
+
+          {/* Color */}
+          <Grid item xs={12} sm={2}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>Color</Typography>
+            <ColorSwatch value={newType.colorHex} onChange={(v) => setNewType(p => ({ ...p, colorHex: v }))} />
+          </Grid>
+
+          {/* Add button */}
+          <Grid item xs={12} sm={2} sx={{ display: "flex", alignItems: "flex-end" }}>
+            <AccentButton
+              onClick={handleCreate}
+              disabled={submitting || (!newType.parentGroup && !newType.newGroupName) || !newType.typeName.trim()}
+              variant="contained"
+              fullWidth
+              startIcon={submitting ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "15px !important" }} />}
+              sx={{
+                height: 36,
+                bgcolor: T.accent,
+                color: "#fff",
+                "&:hover": { bgcolor: T.accentDark },
+                "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" },
+              }}
+            >
+              Add
+            </AccentButton>
+          </Grid>
+        </Grid>
+      </Box>
+
+      {/* Existing types list grouped */}
+      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+        {Object.keys(grouped).length === 0 ? (
+          <Box sx={{ py: 8, textAlign: "center" }}>
+            <FolderOpenIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.2), mb: 1 }} />
+            <Typography sx={{ fontSize: "0.85rem", color: T.muted }}>No employment types configured yet</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>Use the form above to add your first type.</Typography>
+          </Box>
+        ) : (
+          Object.entries(grouped).map(([group, items]) => {
+            const isExpanded = expandedGroups[group] !== false;
+            return (
+              <Box key={group} sx={{ mb: 1.5, borderRadius: 2, border: `1px solid ${T.accentBorder}`, overflow: "hidden" }}>
+                {/* Group header */}
+                <Box
+                  onClick={() => toggleGroup(group)}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.5,
+                    px: 2,
+                    py: 1.25,
+                    bgcolor: alpha(T.accent, 0.05),
+                    cursor: "pointer",
+                    "&:hover": { bgcolor: alpha(T.accent, 0.08) },
+                    transition: "background 0.15s",
+                  }}
+                >
+                  <FolderOpenIcon sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent, flex: 1 }}>{group}</Typography>
+                  <Chip
+                    label={`${items.length} type${items.length !== 1 ? "s" : ""}`}
+                    size="small"
+                    sx={{ height: 18, fontSize: "0.65rem", bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 600 }}
+                  />
+                  {isExpanded ? <ExpandLessIcon sx={{ fontSize: 16, color: T.muted }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: T.muted }} />}
+                </Box>
+
+                <Collapse in={isExpanded}>
+                  {items.map((type, idx) => (
+                    <Box key={type.id}>
+                      {idx > 0 && <Divider sx={{ borderColor: T.divider }} />}
+                      {editingId === type.id ? (
+                        <Box sx={{ px: 2, py: 1.5, bgcolor: alpha(T.accent, 0.02) }}>
+                          <Grid container spacing={1.5} alignItems="center">
+                            <Grid item xs={12} sm={3.5}>
+                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Parent Group</Typography>
+                              <FormControl fullWidth size="small">
+                                <Select value={editData.parentGroup} onChange={(e) => {
+                                  if (e.target.value === "__new__") return;
+                                  setEditData(p => ({ ...p, parentGroup: e.target.value }));
+                                }} sx={selectSx}>
+                                  {existingGroups.map(g => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+                                  <MenuItem value={editData.parentGroup} sx={{ display: existingGroups.includes(editData.parentGroup) ? "none" : undefined }}>{editData.parentGroup}</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                            <Grid item xs={12} sm={3.5}>
+                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Type Name</Typography>
+                              <FieldInput value={editData.typeName} onChange={(e) => setEditData(p => ({ ...p, typeName: e.target.value }))} size="small" fullWidth inputProps={{ maxLength: 100 }} />
+                            </Grid>
+                            <Grid item xs={12} sm={2}>
+                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Color</Typography>
+                              <ColorSwatch value={editData.colorHex} onChange={(v) => setEditData(p => ({ ...p, colorHex: v }))} />
+                            </Grid>
+                            <Grid item xs={12} sm={3} sx={{ display: "flex", gap: 0.75, alignItems: "flex-end", pt: { sm: 2.5 } }}>
+                              <AccentButton
+                                onClick={() => handleUpdate(type.id)}
+                                disabled={submitting}
+                                variant="contained"
+                                size="small"
+                                startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />}
+                                sx={{ fontSize: "0.75rem", height: 32, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}
+                              >
+                                Save
+                              </AccentButton>
+                              <AccentButton
+                                onClick={() => setEditingId(null)}
+                                variant="outlined"
+                                size="small"
+                                sx={{ fontSize: "0.75rem", height: 32, borderColor: T.accentBorder, color: T.muted }}
+                              >
+                                Cancel
+                              </AccentButton>
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      ) : deleteConfirm === type.id ? (
+                        <Box sx={{ px: 2, py: 1.25, bgcolor: "rgba(198,40,40,0.04)", display: "flex", alignItems: "center", gap: 1.5 }}>
+                          <WarningIcon sx={{ fontSize: 16, color: "#c62828" }} />
+                          <Typography sx={{ fontSize: "0.78rem", color: "#c62828", flex: 1 }}>
+                            Delete <strong>{type.typeName}</strong>? This cannot be undone.
+                          </Typography>
+                          <AccentButton
+                            onClick={() => handleDelete(type.id)}
+                            disabled={submitting}
+                            variant="contained"
+                            size="small"
+                            sx={{ fontSize: "0.72rem", height: 28, bgcolor: "#c62828", color: "#fff", "&:hover": { bgcolor: "#b71c1c" } }}
+                          >
+                            {submitting ? "Deleting…" : "Confirm Delete"}
+                          </AccentButton>
+                          <AccentButton
+                            onClick={() => setDeleteConfirm(null)}
+                            variant="outlined"
+                            size="small"
+                            sx={{ fontSize: "0.72rem", height: 28, borderColor: T.accentBorder, color: T.muted }}
+                          >
+                            Cancel
+                          </AccentButton>
+                        </Box>
+                      ) : (
+                        <Box
+                          sx={{
+                            px: 2,
+                            py: 1.25,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 2,
+                            bgcolor: idx % 2 === 0 ? "#fff" : T.rowOdd,
+                            "&:hover": { bgcolor: T.rowHover },
+                            transition: "background 0.12s",
+                          }}
+                        >
+                          <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: type.colorHex, flexShrink: 0, border: "1.5px solid rgba(0,0,0,0.08)" }} />
+                          <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text, flex: 1 }}>{type.typeName}</Typography>
+                          <Chip
+                            label={`${type.colorHex}`}
+                            size="small"
+                            sx={{ height: 18, fontSize: "0.62rem", fontFamily: "monospace", bgcolor: alpha(type.colorHex, 0.1), color: type.colorHex, fontWeight: 600, border: `1px solid ${alpha(type.colorHex, 0.25)}` }}
+                          />
+                          {!type.isActive && (
+                            <Chip label="Inactive" size="small" sx={{ height: 18, fontSize: "0.62rem", bgcolor: "#eee", color: T.muted }} />
+                          )}
+                          <Box sx={{ display: "flex", gap: 0.5 }}>
+                            <Tooltip title="Edit type">
+                              <IconButton size="small" onClick={() => startEdit(type)} sx={{ color: T.accent, p: 0.5, "&:hover": { bgcolor: T.accentFaint } }}>
+                                <EditIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete type">
+                              <IconButton size="small" onClick={() => setDeleteConfirm(type.id)} sx={{ color: "#c62828", p: 0.5, "&:hover": { bgcolor: "rgba(198,40,40,0.07)" } }}>
+                                <DeleteIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+                </Collapse>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+    </Box>
+  );
+};
+
+const DEDUCTION_CONTEXT_BLOCKS = [
+  {
+    key: "ABSENCE",
+    title: "Absence (leave form filed)",
+    hint: "Used when a full-day absence has an approved/pending leave request. Absence with no leave form is salary-only (system rule).",
+  },
+  {
+    key: "HALF_DAY",
+    title: "Half-day (leave form filed)",
+    hint: "Used when a half-day has a filed leave form. Half-day without a leave form defaults to VL only (system rule).",
+  },
+  {
+    key: "TARDINESS",
+    title: "Tardiness",
+    hint: "Leave types that may be charged for tardiness offsets in Earnings / policy-driven flows.",
+  },
+];
+
+// ─── Deduction policy tab (employment_type_config ↔ leave types) ────────────
+const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
+  const [selectedTypeId, setSelectedTypeId] = useState("");
+  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [checked, setChecked] = useState(() => ({
+    ABSENCE: new Set(),
+    HALF_DAY: new Set(),
+    TARDINESS: new Set(),
+  }));
+  const [loadingTypes, setLoadingTypes] = useState(false);
+  const [loadingPolicy, setLoadingPolicy] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoadingTypes(true);
+      try {
+        const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders());
+        const rows = Array.isArray(r.data) ? r.data : [];
+        if (alive) setLeaveTypes(rows);
+      } catch {
+        if (alive) {
+          setLeaveTypes([]);
+          showSnackbar("Could not load leave types.", "error");
+        }
+      } finally {
+        if (alive) setLoadingTypes(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const loadPolicy = async (typeId) => {
+    if (!typeId) {
+      setChecked({
+        ABSENCE: new Set(),
+        HALF_DAY: new Set(),
+        TARDINESS: new Set(),
+      });
+      return;
+    }
+    setLoadingPolicy(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category-deduction-types/${typeId}`,
+        getAuthHeaders(),
+      );
+      const by = r.data?.byContext || {};
+      setChecked({
+        ABSENCE: new Set((by.ABSENCE || []).map(Number)),
+        HALF_DAY: new Set((by.HALF_DAY || []).map(Number)),
+        TARDINESS: new Set((by.TARDINESS || []).map(Number)),
+      });
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.error || err.response?.data?.message || "Failed to load deduction policy.",
+        "error",
+      );
+      setChecked({
+        ABSENCE: new Set(),
+        HALF_DAY: new Set(),
+        TARDINESS: new Set(),
+      });
+    } finally {
+      setLoadingPolicy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedTypeId) {
+      setChecked({
+        ABSENCE: new Set(),
+        HALF_DAY: new Set(),
+        TARDINESS: new Set(),
+      });
+      return;
+    }
+    loadPolicy(selectedTypeId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTypeId]);
+
+  const toggleLeave = (contextKey, leaveTypeId, on) => {
+    setChecked((prev) => {
+      const next = {
+        ABSENCE: new Set(prev.ABSENCE),
+        HALF_DAY: new Set(prev.HALF_DAY),
+        TARDINESS: new Set(prev.TARDINESS),
+      };
+      const s = next[contextKey];
+      if (on) s.add(leaveTypeId);
+      else s.delete(leaveTypeId);
+      return next;
+    });
+  };
+
+  const allLeaveTypeIds = useMemo(
+    () =>
+      leaveTypes
+        .map((lt) => Number(lt.id))
+        .filter((id) => Number.isFinite(id)),
+    [leaveTypes],
   );
 
+  const setContextIds = (contextKey, ids) => {
+    setChecked((prev) => ({
+      ABSENCE: new Set(prev.ABSENCE),
+      HALF_DAY: new Set(prev.HALF_DAY),
+      TARDINESS: new Set(prev.TARDINESS),
+      [contextKey]: new Set(ids),
+    }));
+  };
+
+  const selectAllInContext = (contextKey) => {
+    setContextIds(contextKey, allLeaveTypeIds);
+  };
+
+  const clearAllInContext = (contextKey) => {
+    setContextIds(contextKey, []);
+  };
+
+  const handleSave = async () => {
+    if (!selectedTypeId) {
+      showSnackbar("Select an employment category (type) first.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category-deduction-types/${selectedTypeId}`,
+        {
+          ABSENCE: [...checked.ABSENCE],
+          HALF_DAY: [...checked.HALF_DAY],
+          TARDINESS: [...checked.TARDINESS],
+        },
+        getAuthHeaders(),
+      );
+      showSnackbar("Deduction policy saved.", "success");
+      await loadPolicy(selectedTypeId);
+    } catch (err) {
+      showSnackbar(
+        err.response?.data?.error || err.response?.data?.message || "Failed to save policy.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectedCfg = typeConfigs.find((t) => String(t.id) === String(selectedTypeId));
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1 }}>
+          1. Select employment category (type)
+        </Typography>
+        <DynamicCategorySelect
+          value={selectedTypeId}
+          onChange={(v) => setSelectedTypeId(String(v))}
+          typeConfigs={typeConfigs}
+          disabled={loadingTypes}
+        />
+        {selectedCfg && (
+          <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 1 }}>
+            Editing policy for <strong>{selectedCfg.parentGroup}</strong> · <strong>{selectedCfg.typeName}</strong>{" "}
+            <Box component="span" sx={{ fontFamily: "monospace", color: T.faint }}>
+              (id {selectedCfg.id})
+            </Box>
+          </Typography>
+        )}
+      </Box>
+
+      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+        {!selectedTypeId ? (
+          <Box sx={{ py: 6, textAlign: "center" }}>
+            <DeductionPolicyIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.25), mb: 1 }} />
+            <Typography sx={{ fontSize: "0.85rem", color: T.muted }}>Choose an employment type above to configure allowed deduction leave types.</Typography>
+          </Box>
+        ) : loadingPolicy || loadingTypes ? (
+          <Box sx={{ py: 8, display: "flex", justifyContent: "center" }}>
+            <CircularProgress size={28} sx={{ color: T.accent }} />
+          </Box>
+        ) : leaveTypes.length === 0 ? (
+          <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>No leave types found. Configure the Leave Types module first.</Typography>
+        ) : (
+          <>
+            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1.5 }}>
+              2. Allowed deduction sources (from Leave Types)
+            </Typography>
+            {DEDUCTION_CONTEXT_BLOCKS.map((block) => (
+              <Box
+                key={block.key}
+                sx={{
+                  mb: 2,
+                  p: 2,
+                  borderRadius: 2,
+                  border: `1px solid ${T.accentBorder}`,
+                  bgcolor: "#fff",
+                }}
+              >
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 1,
+                    flexWrap: "wrap",
+                    mb: 0.5,
+                  }}
+                >
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.text }}>
+                    {block.title}
+                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, flexShrink: 0 }}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => selectAllInContext(block.key)}
+                      disabled={!allLeaveTypeIds.length}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.75,
+                        py: 0.125,
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        color: T.accent,
+                        textTransform: "none",
+                      }}
+                    >
+                      Select all
+                    </Button>
+                    <Typography component="span" sx={{ fontSize: "0.65rem", color: T.faint, userSelect: "none" }}>
+                      ·
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => clearAllInContext(block.key)}
+                      disabled={checked[block.key].size === 0}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.75,
+                        py: 0.125,
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        color: T.muted,
+                        textTransform: "none",
+                      }}
+                    >
+                      Clear all
+                    </Button>
+                  </Box>
+                </Box>
+                <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 1.25, lineHeight: 1.5 }}>
+                  {block.hint}
+                </Typography>
+                <FormGroup row sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                  {leaveTypes.map((lt) => {
+                    const id = Number(lt.id);
+                    const isOn = checked[block.key].has(id);
+                    const code = String(lt.leave_code || "").trim();
+                    const desc = String(lt.leave_description || "").trim();
+                    const label = desc && code ? `${desc} (${code})` : code || desc || `id ${id}`;
+                    return (
+                      <FormControlLabel
+                        key={`${block.key}-${id}`}
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={isOn}
+                            onChange={(e) => toggleLeave(block.key, id, e.target.checked)}
+                            sx={{ py: 0.25, color: T.accent, "&.Mui-checked": { color: T.accent } }}
+                          />
+                        }
+                        label={<Typography sx={{ fontSize: "0.78rem" }}>{label}</Typography>}
+                        sx={{ mr: 1.5, ml: 0 }}
+                      />
+                    );
+                  })}
+                </FormGroup>
+              </Box>
+            ))}
+          </>
+        )}
+      </Box>
+
+      <Box sx={{ px: 2, py: 1.5, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 1 }}>
+        <AccentButton
+          variant="contained"
+          disabled={!selectedTypeId || saving || loadingPolicy}
+          onClick={handleSave}
+          startIcon={saving ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "15px !important" }} />}
+          sx={{ bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#ccc" } }}
+        >
+          {saving ? "Saving…" : "Save deduction policy"}
+        </AccentButton>
+      </Box>
+    </Box>
+  );
+};
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+const EmploymentCategoryManagement = () => {
   // ── State ──
   const [employmentCategories, setEmploymentCategories] = useState([]);
+  const [typeConfigs, setTypeConfigs] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterCategory, setFilterCategory] = useState(""); // ← NEW: "" = show all
   const deferredSearch = useDeferredValue(searchTerm);
   const [editRecord, setEditRecord] = useState(null);
   const [originalRecord, setOriginalRecord] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [newRecord, setNewRecord] = useState({
-    employeeNumber: "",
-    employmentCategory: 0,
-    customCategory: "",
-  });
+  const [newRecord, setNewRecord] = useState({ employeeNumber: "", employmentCategory: "" });
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
@@ -860,36 +1238,41 @@ const EmploymentCategoryManagement = () => {
   const [viewMode, setViewMode] = useState("grid");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(24);
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: "",
-    severity: "success",
-  });
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
   const [errors, setErrors] = useState({});
+  const [activeTab, setActiveTab] = useState(0);
+
+  useEffect(() => { setPage(0); }, [deferredSearch, filterCategory]);
 
   useEffect(() => {
-    setPage(0);
-  }, [deferredSearch]);
-
-  useEffect(() => {
-    fetchEmploymentCategories().finally(() => setPageLoading(false));
-  }, []);
+    Promise.all([fetchEmploymentCategories(), fetchTypeConfigs()]).finally(() => setPageLoading(false));
+  }, []); // eslint-disable-line
 
   const fetchEmploymentCategories = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-        getAuthHeaders(),
-      );
+      const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, getAuthHeaders());
       setEmploymentCategories(r.data);
     } catch {
       showSnackbar("Failed to fetch employment categories.", "error");
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchTypeConfigs = async () => {
+    try {
+      const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, getAuthHeaders());
+      setTypeConfigs(r.data.flat || []);
+    } catch {
+      showSnackbar("Failed to fetch employment type configurations.", "error");
+    }
+  };
+
+  const handleRefreshAll = async () => {
+    await Promise.all([fetchEmploymentCategories(), fetchTypeConfigs()]);
   };
 
   const showSnackbar = (message, severity = "success") =>
@@ -901,93 +1284,62 @@ const EmploymentCategoryManagement = () => {
       setErrors({ employeeNumber: "Required" });
       return;
     }
-    if (
-      newRecord.employmentCategory === 5 &&
-      !newRecord.customCategory.trim()
-    ) {
-      showSnackbar("Please enter a custom category description", "error");
-      setErrors({ customCategory: 'Required for "Other"' });
+    if (!newRecord.employmentCategory) {
+      showSnackbar("Please select an employment category", "error");
+      setErrors({ employmentCategory: "Required" });
       return;
     }
     setLoading(true);
     try {
       await axios.post(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-        newRecord,
-        getAuthHeaders(),
+        { employeeNumber: newRecord.employeeNumber, employmentCategory: newRecord.employmentCategory },
+        getAuthHeaders()
       );
-      setNewRecord({
-        employeeNumber: "",
-        employmentCategory: 0,
-        customCategory: "",
-      });
+      setNewRecord({ employeeNumber: "", employmentCategory: "" });
       setSelectedEmployee(null);
       setErrors({});
-      fetchEmploymentCategories();
-      setTimeout(() => {
-        setLoading(false);
-        setSuccessAction("adding");
-        setSuccessOpen(true);
-        setTimeout(() => setSuccessOpen(false), 2000);
-      }, 300);
+      await fetchEmploymentCategories();
+      setLoading(false);
+      setSuccessAction("adding");
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
     } catch (err) {
-      showSnackbar(
-        err.response?.data?.error || "Failed to create employment category.",
-        "error",
-      );
+      showSnackbar(err.response?.data?.error || "Failed to create employment category.", "error");
       setLoading(false);
     }
   };
 
   const handleUpdate = async () => {
-    if (!editRecord?.employeeNumber) {
-      showSnackbar("Employee number is required.", "error");
-      return;
-    }
-    if (
-      editRecord.employmentCategory === 5 &&
-      !editRecord.customCategory?.trim()
-    ) {
-      showSnackbar("Please enter a custom category description", "error");
-      return;
-    }
+    if (!editRecord?.employeeNumber) { showSnackbar("Employee number is required.", "error"); return; }
+    if (!editRecord?.employmentCategory) { showSnackbar("Please select an employment category.", "error"); return; }
     try {
       await axios.put(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${editRecord.id}`,
-        {
-          employeeNumber: editRecord.employeeNumber,
-          employmentCategory: editRecord.employmentCategory,
-          customCategory: editRecord.customCategory || "",
-        },
-        getAuthHeaders(),
+        { employeeNumber: editRecord.employeeNumber, employmentCategory: editRecord.employmentCategory },
+        getAuthHeaders()
       );
       setEditRecord(null);
       setOriginalRecord(null);
       setSelectedEditEmployee(null);
       setIsEditing(false);
-      fetchEmploymentCategories();
+      await fetchEmploymentCategories();
       setSuccessAction("edit");
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
     } catch (err) {
-      showSnackbar(
-        err.response?.data?.error || "Failed to update employment category.",
-        "error",
-      );
+      showSnackbar(err.response?.data?.error || "Failed to update employment category.", "error");
     }
   };
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${id}`,
-        getAuthHeaders(),
-      );
+      await axios.delete(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${id}`, getAuthHeaders());
       setEditRecord(null);
       setOriginalRecord(null);
       setSelectedEditEmployee(null);
       setIsEditing(false);
-      fetchEmploymentCategories();
+      await fetchEmploymentCategories();
       setSuccessAction("delete");
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
@@ -1000,19 +1352,10 @@ const EmploymentCategoryManagement = () => {
     setEditRecord({ ...record });
     setOriginalRecord({ ...record });
     try {
-      const r = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/${record.employeeNumber}`,
-        getAuthHeaders(),
-      );
-      setSelectedEditEmployee({
-        name: r.data.name,
-        employeeNumber: record.employeeNumber,
-      });
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${record.employeeNumber}`, getAuthHeaders());
+      setSelectedEditEmployee({ name: r.data.name, employeeNumber: record.employeeNumber });
     } catch {
-      setSelectedEditEmployee({
-        name: record.employeeName || "Unknown",
-        employeeNumber: record.employeeNumber,
-      });
+      setSelectedEditEmployee({ name: record.employeeName || "Unknown", employeeNumber: record.employeeNumber });
     }
     setIsEditing(false);
   };
@@ -1021,1382 +1364,792 @@ const EmploymentCategoryManagement = () => {
     if (!editRecord || !originalRecord) return false;
     return (
       editRecord.employeeNumber !== originalRecord.employeeNumber ||
-      editRecord.employmentCategory !== originalRecord.employmentCategory ||
-      editRecord.customCategory !== originalRecord.customCategory
+      editRecord.employmentCategory !== originalRecord.employmentCategory
     );
   };
 
+  const getTypeConfig = (catId) => typeConfigs.find(t => t.id === parseInt(catId));
+
+  // ── Filtered data with category filter + text search ──────────────────────
   const filteredData = useMemo(() => {
     const q = (deferredSearch || "").toString().toLowerCase().trim();
-    if (!q) return employmentCategories;
-    return employmentCategories.filter(
-      (r) =>
-        r.employeeNumber?.toString().includes(q) ||
-        r.employeeName?.toLowerCase().includes(q) ||
-        r.categoryLabel?.toLowerCase().includes(q),
+    let data = employmentCategories;
+
+    // 1. Apply category / group filter
+    if (filterCategory) {
+      const [filterType, filterValue] = filterCategory.split("||");
+      data = data.filter(r =>
+        filterType === "group"
+          ? r.parentGroup === filterValue
+          : String(r.employmentCategory) === filterValue
+      );
+    }
+
+    // 2. Apply text search on top
+    if (!q) return data;
+    return data.filter(r =>
+      r.employeeNumber?.toString().includes(q) ||
+      r.employeeName?.toLowerCase().includes(q) ||
+      r.categoryLabel?.toLowerCase().includes(q) ||
+      r.parentGroup?.toLowerCase().includes(q) ||
+      r.typeName?.toLowerCase().includes(q)
     );
-  }, [employmentCategories, deferredSearch]);
+  }, [employmentCategories, deferredSearch, filterCategory]);
 
   const pagedData = useMemo(
-    () =>
-      filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
-    [filteredData, page, rowsPerPage],
+    () => filteredData.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredData, page, rowsPerPage]
   );
 
-  // Show wireframe while initial load
-  if (pageLoading) return <EcmWireframe settings={rawSettings} />;
+  // ── Grouped typeConfigs for the filter dropdown ───────────────────────────
+  const groupedTypeConfigs = useMemo(() => {
+    const g = {};
+    typeConfigs.filter(t => t.isActive).forEach(t => {
+      if (!g[t.parentGroup]) g[t.parentGroup] = [];
+      g[t.parentGroup].push(t);
+    });
+    return g;
+  }, [typeConfigs]);
+
+  const canAdd = !loading && newRecord.employeeNumber && newRecord.employmentCategory;
+
+  if (pageLoading) return <EcmWireframe />;
 
   return (
     <>
       <style>{shimmerKeyframes}</style>
-      <Box
-        sx={{
-          pt: 3,
-          pb: 0,
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
-          overflow: "hidden",
-          position: "relative",
-          left: "50%",
-          transform: "translateX(-50%)",
-        }}
-      >
-        <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-          {/* ── Header ── */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 3 }}>
-              <GlassCard>
-                <Box
-                  sx={{
-                    px: 4,
-                    py: 3,
-                    background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                    position: "relative",
-                    overflow: "hidden",
-                  }}
-                >
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      top: -40,
-                      right: -40,
-                      width: 160,
-                      height: 160,
-                      background: `radial-gradient(circle, ${alpha(p, 0.1)} 0%, transparent 70%)`,
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      bottom: -25,
-                      left: "30%",
-                      width: 120,
-                      height: 120,
-                      background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)`,
-                    }}
-                  />
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    position="relative"
-                    zIndex={1}
-                  >
-                    <Box display="flex" alignItems="center" gap={3}>
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(p, 0.15),
-                          width: 52,
-                          height: 52,
-                          boxShadow: `0 6px 20px ${alpha(p, 0.15)}`,
-                        }}
-                      >
-                        <CategoryIcon sx={{ fontSize: 26, color: p }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h5"
-                          component="h1"
-                          sx={{ fontWeight: 700, lineHeight: 1.2, color: p }}
-                        >
-                          Employment Category Management
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            opacity: 0.75,
-                            fontWeight: 400,
-                            color: tp,
-                            mt: 0.25,
-                          }}
-                        >
-                          Manage employee employment categories and assignments
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Chip
-                        label="Category Management"
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(p, 0.15),
-                          color: p,
-                          fontWeight: 500,
-                        }}
-                      />
-                      <Tooltip title="Refresh Data">
-                        <IconButton
-                          onClick={fetchEmploymentCategories}
-                          sx={{
-                            bgcolor: alpha(p, 0.1),
-                            "&:hover": { bgcolor: alpha(p, 0.2) },
-                            color: p,
-                            width: 44,
-                            height: 44,
-                          }}
-                        >
-                          <Refresh sx={{ fontSize: 20 }} />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
+      <Fade in timeout={400}>
+        <Box
+          sx={{
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: "100vw",
+            maxWidth: "100%",
+            position: "relative",
+            left: "63%",
+            transform: "translateX(-61%)",
+            px: { xs: 2, sm: 3, md: 6 },
+          }}
+        >
+          <LoadingOverlay open={loading} message="Processing employment category…" />
+          <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} showOkButton={true} />
+
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)" }} />
+              <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)" }} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
+                <CategoryIcon sx={{ fontSize: 32, color: T.accent }} />
+                <Box>
+                  <Typography sx={{ fontSize: "1.25rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                    Employment Category Management
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                    Administrative Panel • Assign and manage employee employment categories
+                  </Typography>
                 </Box>
-              </GlassCard>
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
+                <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                  <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }}>
+                    {employmentCategories.length} {employmentCategories.length === 1 ? "record" : "records"}
+                  </Typography>
+                </Box>
+                <Tooltip title="Refresh Data">
+                  <IconButton onClick={handleRefreshAll} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, "&:hover": { bgcolor: alpha(T.accent, 0.15) } }}>
+                    <Refresh sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Box>
-          </Fade>
 
-          <Grid container spacing={3} alignItems="flex-start">
-            {/* ── LEFT: Add New Category ── */}
-            <Grid item xs={12} lg={4}>
-              <Fade in timeout={700}>
-                <GlassCard>
-                  {/* Panel header */}
-                  <Box
-                    sx={{
-                      px: 3.5,
-                      py: 2.5,
-                      background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                      borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        top: -20,
-                        right: -20,
-                        width: 90,
-                        height: 90,
-                        background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)`,
-                      }}
-                    />
-                    <Avatar
-                      sx={{ bgcolor: alpha(p, 0.15), width: 42, height: 42 }}
-                    >
-                      <CategoryIcon sx={{ fontSize: 20, color: p }} />
-                    </Avatar>
-                    <Box sx={{ flex: 1, zIndex: 1 }}>
-                      <Typography
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: "0.95rem",
-                          color: p,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Add New Category
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.72rem",
-                          color: alpha(tp, 0.65),
-                          mt: 0.2,
-                        }}
-                      >
-                        Assign employment category to employee
-                      </Typography>
+            {/* Tabs */}
+            <Box sx={{ borderBottom: `1px solid ${T.divider}`, bgcolor: "#fff" }}>
+              <Tabs
+                value={activeTab}
+                onChange={(_, v) => setActiveTab(v)}
+                sx={{
+                  px: 3,
+                  "& .MuiTab-root": { textTransform: "none", fontSize: "0.82rem", fontWeight: 600, minHeight: 44, color: T.muted },
+                  "& .Mui-selected": { color: `${T.accent} !important` },
+                  "& .MuiTabs-indicator": { bgcolor: T.accent, height: 2 },
+                }}
+              >
+                <Tab
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <AssignIcon sx={{ fontSize: 15 }} />
+                      Assign Categories
                     </Box>
-                    <Chip
-                      label="New"
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(p, 0.15),
-                        color: p,
-                        fontWeight: 600,
-                        zIndex: 1,
-                      }}
-                    />
+                  }
+                />
+                <Tab
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <SettingsIcon sx={{ fontSize: 15 }} />
+                      Manage Types
+                      <Chip
+                        label={typeConfigs.length}
+                        size="small"
+                        sx={{ height: 16, fontSize: "0.62rem", bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 700 }}
+                      />
+                    </Box>
+                  }
+                />
+                <Tab
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <DeductionPolicyIcon sx={{ fontSize: 15 }} />
+                      Deduction policy
+                    </Box>
+                  }
+                />
+              </Tabs>
+            </Box>
+          </SectionCard>
+
+          {/* ── Tab 0: Assign Categories ── */}
+          {activeTab === 0 && (
+            <Grid container spacing={2}>
+              {/* LEFT: Add New */}
+              <Grid item xs={12} lg={4}>
+                <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
+                  <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint }}>
+                    <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Add New Category</Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>
+                      <Box component="span" sx={{ color: "#c62828" }}>*</Box> required
+                    </Typography>
                   </Box>
 
-                  <Box
-                    sx={{
-                      p: 3,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                    }}
-                  >
-                    {/* ── Search Employee ── */}
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.68rem",
-                          fontWeight: 700,
-                          letterSpacing: "0.09em",
-                          textTransform: "uppercase",
-                          color: alpha(tp, 0.45),
-                          mb: 1.25,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.75,
-                        }}
-                      >
-                        <PersonIcon sx={{ fontSize: 13 }} /> Employee
-                        Information
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.72rem",
-                          fontWeight: 600,
-                          color: tp,
-                          mb: 0.6,
-                        }}
-                      >
-                        Search Employee{" "}
-                        <Box component="span" sx={{ color: "red" }}>
-                          *
-                        </Box>
+                  <Box sx={{ px: 3.5, py: 3, flexGrow: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                    <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                        Search Employee <Box component="span" sx={{ color: "#c62828" }}>*</Box>
                       </Typography>
                       <EmployeeAutocomplete
                         value={newRecord.employeeNumber}
-                        onChange={(val) => {
-                          setNewRecord((r) => ({ ...r, employeeNumber: val }));
-                          setErrors((e) => {
-                            const n = { ...e };
-                            delete n.employeeNumber;
-                            return n;
-                          });
-                        }}
+                        onChange={(val) => { setNewRecord(r => ({ ...r, employeeNumber: val })); setErrors(e => { const n = { ...e }; delete n.employeeNumber; return n; }); }}
                         selectedEmployee={selectedEmployee}
                         onEmployeeSelect={setSelectedEmployee}
-                        placeholder="Search employee…"
+                        placeholder="Search name or employee ID…"
                         required
                         error={!!errors.employeeNumber}
                         helperText={errors.employeeNumber || ""}
-                        p={p}
-                        ac={ac}
-                        tp={tp}
                       />
                     </Box>
 
-                    {/* ── Selected Employee display ── */}
                     {selectedEmployee ? (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 1.25,
-                          px: 1.75,
-                          py: 1.25,
-                          borderRadius: 3,
-                          bgcolor: alpha(p, 0.05),
-                          border: `1px solid ${alpha(p, 0.15)}`,
-                        }}
-                      >
-                        <Avatar
-                          sx={{
-                            width: 32,
-                            height: 32,
-                            bgcolor: alpha(p, 0.15),
-                            fontSize: "0.8rem",
-                            color: p,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {selectedEmployee.name?.charAt(0)}
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.75, py: 1.25, mb: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                        <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: "0.78rem", color: T.accent, fontWeight: 700, flexShrink: 0 }}>
+                          {selectedEmployee.name?.charAt(0)?.toUpperCase() || "?"}
                         </Avatar>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography
-                            sx={{
-                              fontSize: "0.82rem",
-                              fontWeight: 700,
-                              color: p,
-                              lineHeight: 1.2,
-                            }}
-                            noWrap
-                          >
-                            {selectedEmployee.name}
-                          </Typography>
-                          <Typography
-                            sx={{ fontSize: "0.68rem", color: alpha(tp, 0.5) }}
-                          >
-                            #{selectedEmployee.employeeNumber}
-                          </Typography>
+                          <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{selectedEmployee.name}</Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>#{selectedEmployee.employeeNumber}</Typography>
                         </Box>
                       </Box>
                     ) : (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          border: `2px dashed ${alpha(p, 0.18)}`,
-                          borderRadius: 3,
-                          py: 1.5,
-                          bgcolor: alpha(p, 0.02),
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: "0.75rem",
-                            color: alpha(tp, 0.35),
-                            fontStyle: "italic",
-                          }}
-                        >
-                          No employee selected yet
-                        </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02) }}>
+                        <Typography sx={{ fontSize: "0.75rem", color: T.faint, fontStyle: "italic" }}>No employee selected yet</Typography>
                       </Box>
                     )}
 
-                    <Box sx={{ borderTop: `1px dashed ${alpha(p, 0.12)}` }} />
+                    <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
 
-                    {/* ── Category Type ── */}
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontSize: "0.68rem",
-                          fontWeight: 700,
-                          letterSpacing: "0.09em",
-                          textTransform: "uppercase",
-                          color: alpha(tp, 0.45),
-                          mb: 1.25,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.75,
-                        }}
-                      >
-                        <WorkIcon sx={{ fontSize: 13 }} /> Employment Category
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontSize: "0.72rem",
-                          fontWeight: 600,
-                          color: tp,
-                          mb: 0.6,
-                        }}
-                      >
-                        Category Type
-                      </Typography>
-                      <CategorySelect
-                        value={newRecord.employmentCategory}
-                        onChange={(v) =>
-                          setNewRecord((r) => ({
-                            ...r,
-                            employmentCategory: v,
-                            customCategory: v === 5 ? r.customCategory : "",
-                          }))
-                        }
-                        p={p}
-                      />
+                    <FormSectionLabel icon={WorkIcon}>Employment Category</FormSectionLabel>
 
-                      {newRecord.employmentCategory === 5 && (
-                        <Fade in>
-                          <Box sx={{ mt: 1.5 }}>
-                            <Typography
-                              sx={{
-                                fontSize: "0.72rem",
-                                fontWeight: 600,
-                                color: tp,
-                                mb: 0.6,
-                              }}
-                            >
-                              Custom Category{" "}
-                              <Box component="span" sx={{ color: "red" }}>
-                                *
-                              </Box>
-                            </Typography>
-                            <ModernTextField
-                              value={newRecord.customCategory}
-                              onChange={(e) => {
-                                setNewRecord((r) => ({
-                                  ...r,
-                                  customCategory: e.target.value,
-                                }));
-                                setErrors((er) => {
-                                  const n = { ...er };
-                                  delete n.customCategory;
-                                  return n;
-                                });
-                              }}
-                              placeholder="e.g., Part-timer, OJT, Consultant…"
-                              fullWidth
-                              size="small"
-                              error={!!errors.customCategory}
-                              helperText={
-                                errors.customCategory || "Max 100 characters"
-                              }
-                              inputProps={{ maxLength: 100 }}
-                            />
-                          </Box>
-                        </Fade>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                        Category Type <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                      </Typography>
+                      {typeConfigs.length === 0 ? (
+                        <Box sx={{ p: 2, textAlign: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: alpha(T.accent, 0.02) }}>
+                          <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>
+                            No types configured.{" "}
+                            <Box component="span" onClick={() => setActiveTab(1)} sx={{ color: T.accent, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
+                              Manage Types
+                            </Box>
+                            {" "}to add some.
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <DynamicCategorySelect
+                          value={newRecord.employmentCategory}
+                          onChange={(v) => { setNewRecord(r => ({ ...r, employmentCategory: v })); setErrors(e => { const n = { ...e }; delete n.employmentCategory; return n; }); }}
+                          typeConfigs={typeConfigs}
+                        />
+                      )}
+                      {errors.employmentCategory && (
+                        <Typography sx={{ fontSize: "0.72rem", color: "#c62828", mt: 0.5 }}>{errors.employmentCategory}</Typography>
                       )}
                     </Box>
 
-                    {/* ── Actions ── */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        gap: 1.5,
-                        pt: 1,
-                        borderTop: `1px solid ${alpha(p, 0.08)}`,
-                        justifyContent: "flex-end",
-                      }}
-                    >
-                      {(selectedEmployee || newRecord.customCategory) && (
-                        <ProfessionalButton
+                    {newRecord.employmentCategory && (() => {
+                      const cfg = getTypeConfig(newRecord.employmentCategory);
+                      return cfg ? (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, mb: 2, borderRadius: 2, bgcolor: alpha(cfg.colorHex, 0.06), border: `1px solid ${alpha(cfg.colorHex, 0.2)}` }}>
+                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: cfg.colorHex, flexShrink: 0 }} />
+                          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: cfg.colorHex }}>
+                            {cfg.parentGroup} | {cfg.typeName}
+                          </Typography>
+                        </Box>
+                      ) : null;
+                    })()}
+
+                    <Box sx={{ mt: "auto" }}>
+                      {selectedEmployee && (
+                        <AccentButton
+                          onClick={() => { setNewRecord({ employeeNumber: "", employmentCategory: "" }); setSelectedEmployee(null); setErrors({}); }}
                           variant="outlined"
-                          onClick={() => {
-                            setNewRecord({
-                              employeeNumber: "",
-                              employmentCategory: 0,
-                              customCategory: "",
-                            });
-                            setSelectedEmployee(null);
-                            setErrors({});
-                          }}
-                          sx={{
-                            borderColor: alpha(p, 0.4),
-                            color: alpha(tp, 0.6),
-                            "&:hover": {
-                              borderColor: p,
-                              bgcolor: alpha(p, 0.05),
-                            },
-                          }}
+                          fullWidth
+                          sx={{ mb: 1, height: 36, fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
                         >
-                          Clear
-                        </ProfessionalButton>
+                          Clear Form
+                        </AccentButton>
                       )}
-                      <ProfessionalButton
-                        variant="contained"
-                        disabled={loading}
+                      <AccentButton
                         onClick={handleCreate}
-                        startIcon={
-                          loading ? (
-                            <CircularProgress size={16} sx={{ color: ac }} />
-                          ) : (
-                            <AddIcon />
-                          )
-                        }
+                        variant="contained"
+                        fullWidth
+                        disabled={!canAdd}
+                        startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
                         sx={{
-                          bgcolor: p,
-                          color: ac,
-                          "&:hover": { bgcolor: s },
-                          "&:disabled": {
-                            bgcolor: alpha(p, 0.4),
-                            color: alpha(ac, 0.7),
-                          },
+                          height: 42,
+                          bgcolor: canAdd ? T.accent : "#d0d0d0",
+                          color: canAdd ? "#fff" : "#888",
+                          boxShadow: canAdd ? `0 2px 10px ${alpha(T.accent, 0.32)}` : "none",
+                          "&:hover": { bgcolor: canAdd ? T.accentDark : "#d0d0d0" },
+                          "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none !important", transform: "none !important" },
                         }}
                       >
                         {loading ? "Adding…" : "Add Category"}
-                      </ProfessionalButton>
+                      </AccentButton>
                     </Box>
                   </Box>
-                </GlassCard>
-              </Fade>
-            </Grid>
+                </SectionCard>
+              </Grid>
 
-            {/* ── RIGHT: Records ── */}
-            <Grid item xs={12} lg={8}>
-              <Fade in timeout={900}>
-                <GlassCard>
-                  {/* Panel header */}
-                  <Box
-                    sx={{
-                      px: 3.5,
-                      py: 2.5,
-                      background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                      borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        top: -25,
-                        right: -25,
-                        width: 110,
-                        height: 110,
-                        background: `radial-gradient(circle, ${alpha(p, 0.07)} 0%, transparent 70%)`,
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                        zIndex: 1,
-                      }}
-                    >
-                      <Avatar
-                        sx={{ bgcolor: alpha(p, 0.15), width: 42, height: 42 }}
-                      >
-                        <ReorderIcon sx={{ fontSize: 20, color: p }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
-                            color: p,
-                            lineHeight: 1.2,
-                          }}
+              {/* RIGHT: Records */}
+              <Grid item xs={12} lg={8}>
+                <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
+                  {/* Toolbar */}
+                  <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
+                        <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>Employment Category Records</Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                        <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>{filteredData.length} records</Typography>
+                        </Box>
+                        <ToggleButtonGroup
+                          value={viewMode}
+                          exclusive
+                          onChange={(_, v) => v && setViewMode(v)}
+                          size="small"
+                          sx={{ "& .MuiToggleButton-root": { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, "&.Mui-selected": { bgcolor: T.accentFaint, color: T.accent } } }}
                         >
-                          Employment Category Records
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: "0.72rem",
-                            color: alpha(tp, 0.65),
-                            mt: 0.2,
-                          }}
-                        >
-                          View and manage existing records
-                        </Typography>
+                          <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                          <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                        </ToggleButtonGroup>
                       </Box>
                     </Box>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 1.5,
-                        zIndex: 1,
-                      }}
-                    >
-                      <Chip
-                        label={`${filteredData.length} records`}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(p, 0.15),
-                          color: p,
-                          fontWeight: 500,
-                        }}
-                      />
-                      <ToggleButtonGroup
-                        value={viewMode}
-                        exclusive
-                        onChange={(_, m) => m && setViewMode(m)}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(p, 0.08),
-                          borderRadius: 2,
-                          "& .MuiToggleButton-root": {
-                            color: alpha(p, 0.5),
-                            border: "none",
-                            borderRadius: "8px !important",
-                            px: 1.25,
-                            py: 0.75,
-                            "&.Mui-selected": {
-                              bgcolor: alpha(p, 0.15),
-                              color: p,
-                            },
-                          },
-                        }}
-                      >
-                        <ToggleButton value="grid">
-                          <ViewModuleIcon sx={{ fontSize: 18 }} />
-                        </ToggleButton>
-                        <ToggleButton value="list">
-                          <ViewListIcon sx={{ fontSize: 18 }} />
-                        </ToggleButton>
-                      </ToggleButtonGroup>
-                    </Box>
-                  </Box>
 
-                  <Box sx={{ p: 3 }}>
-                    {/* Search */}
-                    <Box sx={{ mb: 2 }}>
-                      <ModernTextField
+                    {/* ── Search + Filter row ── */}
+                    <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                      {/* Search */}
+                      <FieldInput
                         size="small"
-                        placeholder="Search by Employee ID, Name, or Category…"
+                        placeholder="Search by employee ID, name, category, or group…"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         fullWidth
-                        InputProps={{
-                          startAdornment: (
-                            <SearchIcon
-                              sx={{ color: p, mr: 1, fontSize: 18 }}
-                            />
-                          ),
-                        }}
+                        InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }}
                       />
-                    </Box>
 
-                    <Box
-                      sx={{
-                        maxHeight: 420,
-                        minHeight: 220,
-                        overflowY: "auto",
-                        pr: 0.5,
-                        "&::-webkit-scrollbar": { width: "4px" },
-                        "&::-webkit-scrollbar-track": {
-                          background: alpha(p, 0.04),
-                          borderRadius: 2,
-                        },
-                        "&::-webkit-scrollbar-thumb": {
-                          background: alpha(p, 0.25),
-                          borderRadius: 2,
-                        },
-                      }}
-                    >
-                      {viewMode === "grid" ? (
-                        <Grid container spacing={1.25}>
-                          {pagedData.map((record) => {
-                            const catColor = getCategoryColor(
-                              record.employmentCategory,
-                            );
-                            return (
-                              <Grid
-                                item
-                                xs={3}
-                                key={record.id}
-                                sx={{ mb: 0.5 }}
-                              >
-                                <Box
-                                  onClick={() => handleOpenModal(record)}
-                                  sx={{
-                                    p: 1.5,
-                                    borderRadius: 2.5,
-                                    border: `1px solid ${alpha(p, 0.09)}`,
-                                    bgcolor: alpha(ac, 0.5),
-                                    cursor: "pointer",
-                                    transition: "all 0.18s ease",
-                                    justifyContent: "space-between",
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: 0.5,
-                                    "&:hover": {
-                                      border: `1px solid ${alpha(catColor, 0.4)}`,
-                                      bgcolor: alpha(ac, 0.85),
-                                      transform: "translateY(-2px)",
-                                      boxShadow: `0 4px 14px ${alpha(catColor, 0.12)}`,
-                                    },
-                                  }}
-                                >
-                                  <Typography
-                                    sx={{
-                                      fontSize: "0.63rem",
-                                      fontWeight: 700,
-                                      color: alpha(p, 0.5),
-                                      letterSpacing: "0.02em",
-                                    }}
-                                  >
-                                    #{record.employeeNumber}
-                                  </Typography>
-                                  <Typography
-                                    sx={{
-                                      fontSize: "0.78rem",
-                                      fontWeight: 700,
-                                      color: tp,
-                                      lineHeight: 1.3,
-                                    }}
-                                    noWrap
-                                  >
-                                    {record.employeeName || "Loading…"}
-                                  </Typography>
-                                  <Box sx={{ mt: 0.25 }}>
-                                    <Chip
-                                      label={record.categoryLabel}
-                                      size="small"
-                                      sx={{
-                                        width: "100%",
-                                        color: catColor,
-                                        bgcolor: alpha(catColor, 0.08),
-                                        border: `1px solid ${alpha(catColor, 0.25)}`,
-                                        fontWeight: 600,
-                                        fontSize: "0.62rem",
-                                        height: 20,
-                                        maxWidth: "100%",
-                                        "& .MuiChip-label": {
-                                          px: 0.75,
-                                          overflow: "hidden",
-                                          textOverflow: "ellipsis",
-                                        },
-                                      }}
-                                    />
-                                  </Box>
-                                </Box>
-                              </Grid>
-                            );
-                          })}
-                        </Grid>
-                      ) : (
-                        <Box
+                      {/* Category Filter */}
+                      <FormControl size="small" sx={{ minWidth: 190, flexShrink: 0 }}>
+                        <Select
+                          value={filterCategory}
+                          onChange={(e) => { setFilterCategory(e.target.value); setPage(0); }}
+                          displayEmpty
                           sx={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 0.6,
+                            ...selectSx,
+                            "& .MuiSelect-select": { display: "flex", alignItems: "center", gap: 0.75 },
                           }}
-                        >
-                          {pagedData.map((record) => {
-                            const catColor = getCategoryColor(
-                              record.employmentCategory,
-                            );
-                            return (
-                              <Box
-                                key={record.id}
-                                onClick={() => handleOpenModal(record)}
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 1.5,
-                                  px: 1.75,
-                                  py: 1.25,
-                                  borderRadius: 2.5,
-                                  border: `1px solid ${alpha(p, 0.09)}`,
-                                  bgcolor: alpha(ac, 0.5),
-                                  cursor: "pointer",
-                                  transition: "all 0.18s ease",
-                                  "&:hover": {
-                                    border: `1px solid ${alpha(catColor, 0.35)}`,
-                                    bgcolor: alpha(ac, 0.85),
-                                    transform: "translateX(3px)",
-                                  },
-                                }}
-                              >
-                                <Box
-                                  sx={{
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: "50%",
-                                    bgcolor: catColor,
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.68rem",
-                                    fontWeight: 700,
-                                    color: alpha(p, 0.5),
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  #{record.employeeNumber}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.82rem",
-                                    fontWeight: 600,
-                                    color: tp,
-                                    flex: 1,
-                                    minWidth: 0,
-                                  }}
-                                  noWrap
-                                >
-                                  {record.employeeName || "Loading…"}
-                                </Typography>
-                                <Chip
-                                  label={record.categoryLabel}
-                                  size="small"
-                                  sx={{
-                                    color: catColor,
-                                    bgcolor: alpha(catColor, 0.08),
-                                    border: `1px solid ${alpha(catColor, 0.25)}`,
-                                    fontWeight: 600,
-                                    fontSize: "0.65rem",
-                                    height: 20,
-                                    flexShrink: 0,
-                                  }}
-                                />
+                          renderValue={(val) => {
+                            if (!val) return (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                                <LabelIcon sx={{ fontSize: 13, color: T.muted }} />
+                                <Typography sx={{ fontSize: "0.8rem", color: T.faint }}>All Types</Typography>
                               </Box>
                             );
-                          })}
-                        </Box>
-                      )}
+                            const [filterType, filterValue] = val.split("||");
+                            if (filterType === "group") return (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                                <FolderOpenIcon sx={{ fontSize: 13, color: T.accent }} />
+                                <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }}>{filterValue}</Typography>
+                              </Box>
+                            );
+                            const cfg = typeConfigs.find(t => String(t.id) === filterValue);
+                            return cfg ? (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                                <Circle sx={{ fontSize: 8, color: cfg.colorHex }} />
+                                <Typography sx={{ fontSize: "0.8rem", color: T.text, fontWeight: 600 }}>{cfg.typeName}</Typography>
+                              </Box>
+                            ) : <Typography sx={{ fontSize: "0.8rem" }}>{filterValue}</Typography>;
+                          }}
+                        >
+                          {/* All Types option */}
+                          <MenuItem value="">
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <LabelIcon sx={{ fontSize: 13, color: T.muted }} />
+                              <Typography sx={{ fontSize: "0.83rem", color: T.muted }}>All Types</Typography>
+                            </Box>
+                          </MenuItem>
 
-                      {filteredData.length === 0 && (
-                        <Box sx={{ textAlign: "center", py: 6 }}>
-                          <Box
+                          {/* Grouped options */}
+                          {Object.entries(groupedTypeConfigs).flatMap(([group, items]) => [
+                            // Group subheader
+                            <ListSubheader
+                              key={`gh-${group}`}
+                              sx={{
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                letterSpacing: "0.07em",
+                                textTransform: "uppercase",
+                                color: alpha(T.accent, 0.55),
+                                lineHeight: "2em",
+                                bgcolor: T.accentFaint,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 0.75,
+                              }}
+                            >
+                              <FolderOpenIcon sx={{ fontSize: 11 }} />
+                              {group}
+                            </ListSubheader>,
+
+                            // "All in group" shortcut
+                            <MenuItem key={`group-all-${group}`} value={`group||${group}`} sx={{ py: 0.75, pl: 2.5 }}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: alpha(T.accent, 0.3), flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: "0.78rem", color: T.accent, fontStyle: "italic" }}>
+                                  All in {group}
+                                </Typography>
+                              </Box>
+                            </MenuItem>,
+
+                            // Individual types
+                            ...items.map(item => (
+                              <MenuItem key={`type-${item.id}`} value={`type||${item.id}`} sx={{ py: 0.75, pl: 3.5 }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Circle sx={{ fontSize: 8, color: item.colorHex }} />
+                                  <Typography sx={{ fontSize: "0.82rem" }}>{item.typeName}</Typography>
+                                </Box>
+                              </MenuItem>
+                            )),
+                          ])}
+                        </Select>
+                      </FormControl>
+
+                      {/* Clear filter button — only shown when a filter is active */}
+                      {filterCategory && (
+                        <Tooltip title="Clear filter">
+                          <IconButton
+                            size="small"
+                            onClick={() => { setFilterCategory(""); setPage(0); }}
                             sx={{
-                              width: 48,
-                              height: 48,
-                              borderRadius: "50%",
-                              bgcolor: alpha(p, 0.07),
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              mx: "auto",
-                              mb: 1.25,
+                              flexShrink: 0,
+                              color: T.accent,
+                              border: `1px solid ${T.accentBorder}`,
+                              borderRadius: 2,
+                              width: 34,
+                              height: 34,
+                              "&:hover": { bgcolor: T.accentFaint },
                             }}
                           >
-                            <CategoryIcon
-                              sx={{ fontSize: 22, color: alpha(p, 0.3) }}
-                            />
-                          </Box>
-                          <Typography
-                            sx={{
-                              fontSize: "0.88rem",
-                              fontWeight: 600,
-                              color: p,
-                              mb: 0.4,
-                            }}
-                          >
-                            No Records Found
-                          </Typography>
-                          <Typography
-                            sx={{ fontSize: "0.76rem", color: alpha(tp, 0.45) }}
-                          >
-                            Try adjusting your search criteria
-                          </Typography>
-                        </Box>
+                            <Close sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
                       )}
                     </Box>
+                  </Box>
 
-                    {/* Pagination */}
-                    <Box
-                      sx={{
-                        mt: 1.5,
-                        pt: 1.5,
-                        borderTop: `1px solid ${alpha(p, 0.08)}`,
-                      }}
-                    >
+                  {/* Records */}
+                  <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                    {pagedData.length === 0 ? (
+                      <Box sx={{ py: 10, textAlign: "center" }}>
+                        <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
+                          <CategoryIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                        </Box>
+                        <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                          {employmentCategories.length === 0 ? "No categories yet" : "No records match your search"}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>
+                          {employmentCategories.length === 0
+                            ? "Use the form on the left to add a category."
+                            : filterCategory
+                              ? "Try clearing the filter or changing your search term."
+                              : "Try a different search term."}
+                        </Typography>
+                      </Box>
+                    ) : viewMode === "grid" ? (
+                      <Grid container spacing={1.5} alignItems="stretch">
+                        {pagedData.map((record) => {
+                          const cfg = getTypeConfig(record.employmentCategory);
+                          const catColor = cfg?.colorHex || record.colorHex || "#757575";
+                          return (
+                            <Grid item xs={12} sm={3} key={record.id} sx={{ display: "flex" }}>
+                              <Box
+                                onClick={() => handleOpenModal(record)}
+                                sx={{
+                                  width: "100%",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  p: 2,
+                                  borderRadius: 2,
+                                  cursor: "pointer",
+                                  bgcolor: "#fff",
+                                  border: `1px solid ${T.accentBorder}`,
+                                  position: "relative",
+                                  transition: "all 0.13s",
+                                  "&:hover": { bgcolor: T.rowHover, borderColor: T.accent, transform: "translateY(-2px)", boxShadow: `0 4px 14px ${alpha(catColor, 0.12)}` },
+                                }}
+                              >
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
+                                  <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: catColor, flexShrink: 0 }} />
+                                  <Typography sx={{ fontSize: "0.7rem", color: T.faint }}>#{record.employeeNumber}</Typography>
+                                </Box>
+                                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, mb: 1, flexGrow: 1 }} noWrap>
+                                  {record.employeeName || "Loading…"}
+                                </Typography>
+                                {record.parentGroup && record.typeName ? (
+                                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
+                                    <Chip
+                                      label={record.parentGroup}
+                                      size="small"
+                                      sx={{ height: 18, fontSize: "0.65rem", fontWeight: 600, color: alpha(catColor, 0.85), bgcolor: alpha(catColor, 0.06), border: `1px solid ${alpha(catColor, 0.18)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
+                                    />
+                                    <Chip
+                                      label={record.typeName}
+                                      size="small"
+                                      sx={{ height: 20, fontSize: "0.7rem", fontWeight: 700, color: catColor, bgcolor: alpha(catColor, 0.1), border: `1px solid ${alpha(catColor, 0.28)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
+                                    />
+                                  </Box>
+                                ) : (
+                                  <Chip
+                                    label={record.categoryLabel || "Unassigned"}
+                                    size="small"
+                                    sx={{ height: 20, fontSize: "0.7rem", fontWeight: 600, color: catColor, bgcolor: alpha(catColor, 0.08), border: `1px solid ${alpha(catColor, 0.25)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
+                                  />
+                                )}
+                              </Box>
+                            </Grid>
+                          );
+                        })}
+                      </Grid>
+                    ) : (
+                      <>
+                        <Box sx={{ px: 1.5, py: 1, display: "grid", gridTemplateColumns: "110px 1fr 80px 120px", gap: 1, alignItems: "center", bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1 }}>
+                          {["Emp. No", "Employee", "Group", "Type"].map((col) => (
+                            <Typography key={col} sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.07em" }}>{col}</Typography>
+                          ))}
+                        </Box>
+                        {pagedData.map((record, idx) => {
+                          const cfg = getTypeConfig(record.employmentCategory);
+                          const catColor = cfg?.colorHex || record.colorHex || "#757575";
+                          return (
+                            <Box
+                              key={record.id}
+                              onClick={() => handleOpenModal(record)}
+                              sx={{
+                                px: 1.5, py: 1.25,
+                                display: "grid",
+                                gridTemplateColumns: "110px 1fr 80px 120px",
+                                gap: 1,
+                                alignItems: "center",
+                                borderRadius: 1.5,
+                                cursor: "pointer",
+                                bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                                border: "1px solid transparent",
+                                transition: "background 0.13s ease",
+                                "&:hover": { bgcolor: T.rowHover },
+                              }}
+                            >
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                                <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: catColor, flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>{record.employeeNumber}</Typography>
+                              </Box>
+                              <Typography sx={{ fontSize: "0.82rem", fontWeight: 500, color: T.text }} noWrap>{record.employeeName || "Loading…"}</Typography>
+                              <Typography sx={{ fontSize: "0.72rem", color: T.muted }} noWrap>{record.parentGroup || "—"}</Typography>
+                              <Chip
+                                label={record.typeName || record.categoryLabel || "—"}
+                                size="small"
+                                sx={{ height: 20, fontSize: "0.68rem", fontWeight: 600, color: catColor, bgcolor: alpha(catColor, 0.08), border: `1px solid ${alpha(catColor, 0.25)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
+                              />
+                            </Box>
+                          );
+                        })}
+                      </>
+                    )}
+                  </Box>
+
+                  {/* Pagination */}
+                  {filteredData.length > 0 && (
+                    <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
                       <TablePagination
                         component="div"
                         count={filteredData.length}
                         page={page}
                         onPageChange={(_, newPage) => setPage(newPage)}
                         rowsPerPage={rowsPerPage}
-                        onRowsPerPageChange={(e) => {
-                          setRowsPerPage(parseInt(e.target.value, 10));
-                          setPage(0);
-                        }}
+                        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
                         rowsPerPageOptions={[12, 24, 48, 96]}
-                        sx={{
-                          "& .MuiTablePagination-toolbar": {
-                            minHeight: 44,
-                            px: 0,
-                          },
-                          "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
-                            { fontSize: "0.75rem", color: alpha(tp, 0.6) },
-                        }}
+                        sx={{ "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": { fontSize: "0.78rem", fontWeight: 600 } }}
                       />
                     </Box>
-                  </Box>
-                </GlassCard>
-              </Fade>
+                  )}
+                </SectionCard>
+              </Grid>
             </Grid>
-          </Grid>
-        </Box>
+          )}
 
-        {/* ── Edit/View Modal ── */}
-        <Modal
-          open={!!editRecord}
-          onClose={() => {
-            setEditRecord(null);
-            setOriginalRecord(null);
-            setSelectedEditEmployee(null);
-            setIsEditing(false);
-          }}
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <Fade in={!!editRecord}>
-            <Box
-              sx={{
-                width: "90%",
-                maxWidth: 560,
-                maxHeight: "90vh",
-                overflowY: "auto",
-                borderRadius: 4,
-                background: `${ac}FA`,
-                border: `1px solid ${alpha(p, 0.15)}`,
-                boxShadow: `0 24px 80px ${alpha(p, 0.2)}`,
-              }}
-            >
-              {editRecord && (
-                <>
-                  {/* Modal header */}
-                  <Box
-                    sx={{
-                      px: 3.5,
-                      py: 2.5,
-                      background: `linear-gradient(135deg, ${ac} 0%, ${alpha(ac, 0.9)} 100%)`,
-                      borderBottom: `1px solid ${alpha(p, 0.1)}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <Avatar
-                        sx={{ bgcolor: alpha(p, 0.15), width: 38, height: 38 }}
-                      >
-                        <CategoryIcon sx={{ fontSize: 18, color: p }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
-                            color: p,
-                            lineHeight: 1.2,
-                          }}
-                        >
-                          {isEditing
-                            ? "Edit Employment Category"
-                            : "Category Details"}
-                        </Typography>
-                        <Typography
-                          sx={{ fontSize: "0.7rem", color: alpha(tp, 0.55) }}
-                        >
-                          {isEditing
-                            ? "Make changes and save"
-                            : "View record details"}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    <IconButton
-                      onClick={() => {
-                        setEditRecord(null);
-                        setOriginalRecord(null);
-                        setSelectedEditEmployee(null);
-                        setIsEditing(false);
-                      }}
-                      sx={{
-                        color: p,
-                        bgcolor: alpha(p, 0.08),
-                        "&:hover": { bgcolor: alpha(p, 0.15) },
-                        width: 34,
-                        height: 34,
-                      }}
-                    >
-                      <Close sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Box>
+          {/* ── Tab 1: Manage Types ── */}
+          {activeTab === 1 && (
+            <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                <SettingsIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Employment Type Configuration</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>
+                  {typeConfigs.length} type{typeConfigs.length !== 1 ? "s" : ""} configured across {[...new Set(typeConfigs.map(t => t.parentGroup))].length} group{[...new Set(typeConfigs.map(t => t.parentGroup))].length !== 1 ? "s" : ""}
+                </Typography>
+              </Box>
+              <ManageTypesTab
+                typeConfigs={typeConfigs}
+                onRefresh={handleRefreshAll}
+                showSnackbar={showSnackbar}
+              />
+            </SectionCard>
+          )}
 
-                  <Box sx={{ p: 3 }}>
-                    {/* Employee section */}
-                    <Typography
+          {/* ── Tab 2: Deduction policy (per employment type) ── */}
+          {activeTab === 2 && (
+            <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                <DeductionPolicyIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Attendance deduction policy</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted, maxWidth: 420, textAlign: "right", display: { xs: "none", md: "block" } }}>
+                  Maps each employment type to leave types allowed in Earnings (absence / half-day / tardiness).
+                </Typography>
+              </Box>
+              <DeductionPolicyTab typeConfigs={typeConfigs} showSnackbar={showSnackbar} />
+            </SectionCard>
+          )}
+
+          {/* ── Edit / View Modal ── */}
+          <Modal
+            open={!!editRecord}
+            onClose={() => { setEditRecord(null); setOriginalRecord(null); setSelectedEditEmployee(null); setIsEditing(false); }}
+            sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}
+          >
+            <Fade in={!!editRecord}>
+              <Box
+                sx={{
+                  width: "100%",
+                  maxWidth: 520,
+                  maxHeight: "90vh",
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  boxShadow: "0 24px 64px rgba(0,0,0,0.22)",
+                  bgcolor: T.surface,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {editRecord && (
+                  <>
+                    <Box
                       sx={{
-                        fontSize: "0.68rem",
-                        fontWeight: 700,
-                        letterSpacing: "0.09em",
-                        textTransform: "uppercase",
-                        color: alpha(tp, 0.45),
-                        mb: 1.75,
+                        px: 3.5, py: 2.5,
+                        background: T.headerGrad,
                         display: "flex",
                         alignItems: "center",
-                        gap: 0.75,
+                        justifyContent: "space-between",
+                        position: "relative",
+                        overflow: "hidden",
+                        flexShrink: 0,
                       }}
                     >
-                      <PersonIcon sx={{ fontSize: 14 }} /> Employee Information
-                    </Typography>
-
-                    <Grid container spacing={2} sx={{ mb: 0.5 }}>
-                      <Grid item xs={12} sm={6}>
-                        <Box
-                          sx={{
-                            p: 2,
-                            borderRadius: 3,
-                            border: `1px solid ${alpha(p, 0.1)}`,
-                            bgcolor: alpha(ac, 0.4),
-                          }}
-                        >
-                          <Typography
-                            sx={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              color: tp,
-                              mb: 1,
-                            }}
-                          >
-                            Search Employee
+                      <Box sx={{ position: "absolute", top: -40, right: -30, width: 140, height: 140, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+                        <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <CategoryIcon sx={{ fontSize: 18, color: "#fff" }} />
+                        </Box>
+                        <Box>
+                          <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, mb: 0.3 }}>
+                            {isEditing ? "Edit Category" : "Category Details"}
                           </Typography>
-                          <EmployeeAutocomplete
-                            value={editRecord?.employeeNumber || ""}
-                            onChange={
-                              isEditing
-                                ? (val) =>
-                                    setEditRecord((r) => ({
-                                      ...r,
-                                      employeeNumber: val,
-                                    }))
-                                : () => {}
-                            }
-                            selectedEmployee={selectedEditEmployee}
-                            onEmployeeSelect={
-                              isEditing ? setSelectedEditEmployee : () => {}
-                            }
-                            placeholder="Search employee…"
-                            required
-                            disabled={!isEditing}
-                            dropdownDisabled={!isEditing}
-                            p={p}
-                            ac={ac}
-                            tp={tp}
-                          />
-                          {!isEditing && (
-                            <Typography
-                              sx={{
-                                fontSize: "0.68rem",
-                                color: alpha(tp, 0.4),
-                                fontStyle: "italic",
-                                mt: 0.5,
-                              }}
-                            >
-                              Contact administrator to change employee.
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                            <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.68)" }}>
+                              #{editRecord.employeeNumber} • {selectedEditEmployee?.name || "—"}
                             </Typography>
-                          )}
+                            {!isEditing && <Chip label="View mode" size="small" sx={{ height: 16, fontSize: "0.62rem", bgcolor: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.7)", fontWeight: 500 }} />}
+                            {isEditing && <Chip label="Editing" size="small" sx={{ height: 16, fontSize: "0.62rem", bgcolor: "rgba(255,200,0,0.22)", color: "#ffe082", fontWeight: 600 }} />}
+                          </Box>
                         </Box>
-                      </Grid>
-                      <Grid item xs={12} sm={6}>
-                        <Box
-                          sx={{
-                            p: 2,
-                            borderRadius: 3,
-                            border: `1px solid ${alpha(p, 0.1)}`,
-                            bgcolor: alpha(ac, 0.4),
-                            height: "100%",
-                          }}
-                        >
-                          <Typography
-                            sx={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              color: tp,
-                              mb: 1,
-                            }}
-                          >
-                            Selected Employee
-                          </Typography>
-                          {selectedEditEmployee ? (
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 1.25,
-                                p: 1.25,
-                                borderRadius: 2,
-                                bgcolor: alpha(p, 0.05),
-                                border: `1px solid ${alpha(p, 0.15)}`,
-                              }}
-                            >
-                              <Avatar
-                                sx={{
-                                  width: 30,
-                                  height: 30,
-                                  bgcolor: alpha(p, 0.15),
-                                  fontSize: "0.75rem",
-                                  color: p,
-                                }}
-                              >
-                                {selectedEditEmployee.name?.charAt(0)}
-                              </Avatar>
-                              <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.8rem",
-                                    fontWeight: 700,
-                                    color: p,
-                                    lineHeight: 1.2,
-                                  }}
-                                  noWrap
-                                >
-                                  {selectedEditEmployee.name}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.68rem",
-                                    color: alpha(tp, 0.5),
-                                  }}
-                                >
-                                  #{selectedEditEmployee.employeeNumber}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          ) : (
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                border: `2px dashed ${alpha(p, 0.2)}`,
-                                borderRadius: 2,
-                                minHeight: 52,
-                                bgcolor: alpha(p, 0.02),
-                              }}
-                            >
-                              <Typography
-                                sx={{
-                                  fontSize: "0.75rem",
-                                  color: alpha(tp, 0.4),
-                                  fontStyle: "italic",
-                                }}
-                              >
-                                No employee selected
-                              </Typography>
-                            </Box>
-                          )}
-                        </Box>
-                      </Grid>
-                    </Grid>
-
-                    <Box
-                      sx={{ borderTop: `1px dashed ${alpha(p, 0.15)}`, my: 2 }}
-                    />
-
-                    {/* Category section */}
-                    <Typography
-                      sx={{
-                        fontSize: "0.68rem",
-                        fontWeight: 700,
-                        letterSpacing: "0.09em",
-                        textTransform: "uppercase",
-                        color: alpha(tp, 0.45),
-                        mb: 1.75,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.75,
-                      }}
-                    >
-                      <WorkIcon sx={{ fontSize: 14 }} /> Employment Category
-                    </Typography>
-
-                    <Box
-                      sx={{
-                        p: 2,
-                        borderRadius: 3,
-                        border: `1px solid ${alpha(p, 0.1)}`,
-                        bgcolor: alpha(ac, 0.4),
-                      }}
-                    >
-                      {isEditing ? (
-                        <>
-                          <Typography
-                            sx={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              color: tp,
-                              mb: 1,
-                            }}
-                          >
-                            Category Type
-                          </Typography>
-                          <CategorySelect
-                            value={editRecord.employmentCategory}
-                            onChange={(v) =>
-                              setEditRecord((r) => ({
-                                ...r,
-                                employmentCategory: v,
-                                customCategory: v === 5 ? r.customCategory : "",
-                              }))
-                            }
-                            p={p}
-                          />
-                          {editRecord.employmentCategory === 5 && (
-                            <Fade in>
-                              <Box sx={{ mt: 1.5 }}>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.72rem",
-                                    fontWeight: 700,
-                                    color: tp,
-                                    mb: 0.75,
-                                  }}
-                                >
-                                  Custom Category{" "}
-                                  <Box component="span" sx={{ color: "red" }}>
-                                    *
-                                  </Box>
-                                </Typography>
-                                <ModernTextField
-                                  value={editRecord.customCategory || ""}
-                                  onChange={(e) =>
-                                    setEditRecord((r) => ({
-                                      ...r,
-                                      customCategory: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="e.g., Part-timer, OJT, Consultant…"
-                                  fullWidth
-                                  size="small"
-                                  helperText="Max 100 characters"
-                                  inputProps={{ maxLength: 100 }}
-                                />
-                              </Box>
-                            </Fade>
-                          )}
-                        </>
-                      ) : (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1.5,
-                            p: 1.25,
-                            borderRadius: 2,
-                            border: `1px solid ${alpha(getCategoryColor(editRecord.employmentCategory), 0.3)}`,
-                            bgcolor: alpha(
-                              getCategoryColor(editRecord.employmentCategory),
-                              0.05,
-                            ),
-                          }}
-                        >
-                          <Circle
-                            sx={{
-                              fontSize: 10,
-                              color: getCategoryColor(
-                                editRecord.employmentCategory,
-                              ),
-                            }}
-                          />
-                          <Typography
-                            sx={{
-                              fontSize: "0.85rem",
-                              fontWeight: 700,
-                              color: getCategoryColor(
-                                editRecord.employmentCategory,
-                              ),
-                            }}
-                          >
-                            {editRecord.categoryLabel}
-                          </Typography>
-                        </Box>
-                      )}
+                      </Box>
+                      <IconButton
+                        onClick={() => { setEditRecord(null); setOriginalRecord(null); setSelectedEditEmployee(null); setIsEditing(false); }}
+                        size="small"
+                        sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}
+                      >
+                        <Close sx={{ fontSize: 17 }} />
+                      </IconButton>
                     </Box>
 
-                    {/* Modal actions */}
-                    <Box
-                      sx={{
-                        display: "flex",
-                        gap: 1.5,
-                        mt: 2.5,
-                        pt: 2,
-                        borderTop: `1px solid ${alpha(p, 0.08)}`,
-                        justifyContent: "flex-end",
-                      }}
-                    >
+                    <Box sx={{ px: 3.5, py: 3, overflowY: "auto", flexGrow: 1, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                      <Divider sx={{ mb: 2.5, borderColor: T.divider }} />
+                      <Grid container spacing={2.5}>
+                        <Grid item xs={12} sm={5}>
+                          <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Employee</Typography>
+                          {isEditing ? (
+                            <EmployeeAutocomplete
+                              value={editRecord?.employeeNumber || ""}
+                              onChange={(val) => setEditRecord(r => ({ ...r, employeeNumber: val }))}
+                              selectedEmployee={selectedEditEmployee}
+                              onEmployeeSelect={setSelectedEditEmployee}
+                              placeholder="Search employee…"
+                              required
+                            />
+                          ) : (
+                            <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>#{editRecord.employeeNumber}</Typography>
+                              <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>{selectedEditEmployee?.name || editRecord.employeeName}</Typography>
+                            </Box>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} sm={7}>
+                          <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Category Type</Typography>
+                          {isEditing ? (
+                            <DynamicCategorySelect
+                              value={editRecord.employmentCategory}
+                              onChange={(v) => setEditRecord(r => ({ ...r, employmentCategory: v }))}
+                              typeConfigs={typeConfigs}
+                            />
+                          ) : (
+                            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75, p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                              {editRecord.parentGroup && (
+                                <Typography sx={{ fontSize: "0.7rem", color: T.muted, fontWeight: 600 }}>{editRecord.parentGroup}</Typography>
+                              )}
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: editRecord.colorHex || "#757575", flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: editRecord.colorHex || T.accent }}>
+                                  {editRecord.typeName || editRecord.categoryLabel || "—"}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          )}
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Box sx={{ p: 1.5, bgcolor: alpha(editRecord.colorHex || T.accent, 0.04), borderRadius: 2, border: `1px dashed ${alpha(editRecord.colorHex || T.accent, 0.2)}`, display: "flex", alignItems: "center", gap: 1 }}>
+                            <LabelIcon sx={{ fontSize: 14, color: editRecord.colorHex || T.accent }} />
+                            <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>Label shown in other modules:</Typography>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: editRecord.colorHex || T.accent }}>
+                              {editRecord.parentGroup && editRecord.typeName
+                                ? `${editRecord.parentGroup} | ${editRecord.typeName}`
+                                : editRecord.categoryLabel || "—"}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    </Box>
+
+                    <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1.25, flexShrink: 0 }}>
                       {!isEditing ? (
                         <>
-                          <ProfessionalButton
-                            variant="outlined"
-                            startIcon={<DeleteIcon />}
+                          <AccentButton
                             onClick={() => handleDelete(editRecord.id)}
-                            sx={{
-                              color: "#dc2626",
-                              borderColor: alpha("#dc2626", 0.4),
-                              "&:hover": {
-                                bgcolor: alpha("#dc2626", 0.06),
-                                borderColor: "#dc2626",
-                              },
-                            }}
+                            variant="outlined"
+                            startIcon={<DeleteIcon sx={{ fontSize: "14px !important" }} />}
+                            sx={{ fontSize: "0.8rem", borderColor: "#e57373", color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.04)", borderColor: "#c62828", transform: "none" } }}
                           >
                             Delete
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="contained"
-                            startIcon={<EditIcon />}
+                          </AccentButton>
+                          <AccentButton
                             onClick={() => setIsEditing(true)}
-                            sx={{
-                              bgcolor: p,
-                              color: ac,
-                              "&:hover": { bgcolor: s },
-                            }}
+                            variant="contained"
+                            startIcon={<EditIcon sx={{ fontSize: "14px !important" }} />}
+                            sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}
                           >
-                            Edit
-                          </ProfessionalButton>
+                            Edit Record
+                          </AccentButton>
                         </>
                       ) : (
                         <>
-                          <ProfessionalButton
+                          <AccentButton
+                            onClick={() => { setEditRecord({ ...originalRecord }); setSelectedEditEmployee({ name: originalRecord.employeeName || "Unknown", employeeNumber: originalRecord.employeeNumber }); setIsEditing(false); }}
                             variant="outlined"
-                            startIcon={<CancelIcon />}
-                            onClick={() => {
-                              setEditRecord({ ...originalRecord });
-                              setSelectedEditEmployee({
-                                name: originalRecord.employeeName || "Unknown",
-                                employeeNumber: originalRecord.employeeNumber,
-                              });
-                              setIsEditing(false);
-                            }}
-                            sx={{
-                              color: alpha(tp, 0.5),
-                              borderColor: alpha(tp, 0.25),
-                              "&:hover": {
-                                borderColor: alpha(tp, 0.45),
-                                bgcolor: alpha(p, 0.04),
-                              },
-                            }}
+                            startIcon={<CancelIcon sx={{ fontSize: "14px !important" }} />}
+                            sx={{ fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
                           >
                             Cancel
-                          </ProfessionalButton>
-                          <ProfessionalButton
-                            variant="contained"
-                            startIcon={<SaveIcon />}
-                            disabled={!hasChanges()}
+                          </AccentButton>
+                          <AccentButton
                             onClick={handleUpdate}
-                            sx={{
-                              bgcolor: p,
-                              color: ac,
-                              "&:hover": { bgcolor: s },
-                              "&:disabled": {
-                                bgcolor: alpha(p, 0.4),
-                                color: alpha(ac, 0.7),
-                              },
-                            }}
+                            disabled={!hasChanges()}
+                            variant="contained"
+                            startIcon={<SaveIcon sx={{ fontSize: "14px !important" }} />}
+                            sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}
                           >
                             Save Changes
-                          </ProfessionalButton>
+                          </AccentButton>
                         </>
                       )}
                     </Box>
-                  </Box>
-                </>
-              )}
-            </Box>
-          </Fade>
-        </Modal>
+                  </>
+                )}
+              </Box>
+            </Fade>
+          </Modal>
 
-        <LoadingOverlay
-          open={loading}
-          message="Processing employment category…"
-        />
-        <SuccessfulOverlay
-          open={successOpen}
-          action={successAction}
-          onClose={() => setSuccessOpen(false)}
-          showOkButton={true}
-        />
-
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={3000}
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-        >
-          <Alert
-            onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-            severity={snackbar.severity}
-            sx={{ width: "100%", borderRadius: 3 }}
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={3000}
+            onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
           >
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-      </Box>
+            <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} sx={{ width: "100%", borderRadius: 2 }}>
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+        </Box>
+      </Fade>
     </>
   );
 };
 
 export default EmploymentCategoryManagement;
+
+/** Compact panel for HR leave deduction flows (same data as this module). */
+export { EmploymentCategoryHrPanel } from "./EmploymentCategoryHrPanel";

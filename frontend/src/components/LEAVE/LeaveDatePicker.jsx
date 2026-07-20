@@ -86,6 +86,7 @@ const LeaveDatePicker = ({
   leaveType = '', // NEW: Pass leave type to show info
   leaveRequests = [], // NEW: pass leaveRequests for HR-approved logic
   maxSelectableDates = null, // NEW: pass max days allowed
+  adminOverride = false,
 }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [overBalanceWarning, setOverBalanceWarning] = useState('');
@@ -162,8 +163,7 @@ const LeaveDatePicker = ({
       const isSelected = selectedDates.includes(dateStr);
       const isToday = dateObj.getTime() === today.getTime();
       // Only disable past dates if allowPastDates is false
-      const isPast = !allowPastDates && dateObj < today;
-      // --- Disable if HR-approved ---
+const isPast = !adminOverride && !allowPastDates && dateObj < today;      // --- Disable if HR-approved ---
       const isHRApproved = hrApprovedDates.has(dateStr);
       // --- Disable if over balance ---
       // Only disable if HR-approved or past
@@ -273,6 +273,25 @@ const LeaveDatePicker = ({
               </Typography>
             </Box>
           )}
+
+          {adminOverride && (
+  <Box
+    sx={{
+      px: 3,
+      py: 2,
+      backgroundColor: alpha('#6d2323', 0.07),
+      borderBottom: `1px solid ${alpha('#6d2323', 0.15)}`,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1.5,
+    }}
+  >
+    <Info sx={{ color: '#6d2323', fontSize: 20 }} />
+    <Typography variant="body2" sx={{ color: '#6d2323', fontWeight: 500 }}>
+      Admin override active — past dates are selectable for backdated filing
+    </Typography>
+  </Box>
+)}
 
           {/* Month Navigation */}
           <Box

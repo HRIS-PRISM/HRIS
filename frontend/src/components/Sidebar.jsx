@@ -77,6 +77,10 @@ import {
   PointOfSale,
   LibraryBooks,
   Calculate as CalculateIcon,
+  PlaylistAdd,
+  PostAdd,
+  ManageAccounts,
+  SupervisedUserCircle,
 } from "@mui/icons-material";
 import {
   AccessAlarm,
@@ -94,9 +98,12 @@ import logo from "../assets/logo.PNG";
 import { getAuthHeaders } from "../utils/auth";
 import usePageAccesses from "../hooks/usePageAccesses";
 import {
-  getAllComponentIdentifiers,
+  ALL_COMPONENT_IDENTIFIERS,
   getComponentIdentifierForRoute,
+  getRouteForMenuItemKey,
 } from "../utils/routeToComponentMapping";
+import { normalizeRole } from "../utils/pageAccessUtils";
+import { useSocket } from "../contexts/SocketContext";
 
 const useSystemSettings = () => {
   const [settings, setSettings] = useState({
@@ -214,46 +221,55 @@ const Sidebar = ({
   const [profilePicture, setProfilePicture] = useState("");
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
-  const [hasUsersListAccess, setHasUsersListAccess] = useState(false);
   const [pageAccessVersion, setPageAccessVersion] = useState(0);
   const settings = useSystemSettings();
 
   const navigate = useNavigate();
   const location = useLocation();
+  const { socket, connected } = useSocket();
 
-  // Get all component identifiers that need access checking
-  const allComponentIdentifiers = getAllComponentIdentifiers();
+  const resolvedEmployeeNumber =
+    employeeNumber || getUserInfo()?.employeeNumber || "";
 
-  // Check page access for all menu items
-  const { hasAccess: checkPageAccess, loading: accessLoading } =
-    usePageAccesses(allComponentIdentifiers, {
-      employeeNumber,
+  const { hasAccess: checkPageAccess, loading: accessLoading, accessMap } =
+    usePageAccesses(ALL_COMPONENT_IDENTIFIERS, {
+      employeeNumber: resolvedEmployeeNumber,
       pageAccessVersion,
     });
 
-  // Helper function to check if a route should be shown based on page access
+  const bypassPageAccessRoles = ["superadmin", "technical"];
+  const normalizedUserRole = normalizeRole(userRole);
+  const accessMapReady = Object.keys(accessMap).length > 0;
+
   const shouldShowMenuItem = (route) => {
-    // Always show home, admin-home, and profile
     if (route === "/home" || route === "/admin-home" || route === "/profile") {
       return true;
     }
 
-    // Don't show anything while loading access data
-    if (accessLoading) {
+    if (accessLoading && !accessMapReady) {
       return false;
     }
 
     const componentIdentifier = getComponentIdentifierForRoute(route);
 
-    // If no component identifier mapping, show by default (for backward compatibility)
     if (!componentIdentifier) {
       return true;
     }
 
-    // Check access using the hook - only show if user has access
-    // Returns false if no access, so item will be completely hidden
+    if (bypassPageAccessRoles.includes(normalizedUserRole)) {
+      return true;
+    }
+
     return checkPageAccess(componentIdentifier) === true;
   };
+
+  const shouldShowMenuItemForKey = (itemKey) => {
+    const route = getRouteForMenuItemKey(itemKey);
+    return route ? shouldShowMenuItem(route) : false;
+  };
+
+  const sectionHasVisibleItems = (items) =>
+    items.some((item) => shouldShowMenuItemForKey(item));
 
   // Menu item arrays for access control
   const informationManagementItems = [
@@ -270,10 +286,12 @@ const Sidebar = ({
   ];
 
   const attendanceManagementItems = [
+    "my-attendance",
     "view_attendance",
     "attendance_form",
     "search_attendance",
     "daily_time_record_faculty",
+    "daily-time-record-supervisor",
     "attendance_module",
     "attendance_module_faculty",
     "attendance_module_faculty_40hrs",
@@ -297,19 +315,29 @@ const Sidebar = ({
     "holiday",
     "philhealth",
     "payroll-formulas",
-    "leave-table",
-    "leave-assignment",
-    "leave-request",
-    "leave-request-user",
+
   ];
 
-  const leaveManagementItems = [
-    "leave-table",
-    "leave-assignment",
-    "leave-request",
-    "leave-request-user",
-    "leave-commutation",
+  /** Routes actually rendered inside the Leave Management dropdown (not leave-request-user — that lives under DTR). */
+  const leaveDropdownAdminRoutes = [
+    "/assignment-management",
+    "/earnings-management",
+    "/leave-request",
+    "/leave-commutation",
+    "/leave-table",
+    "/supervisor-assignment",
   ];
+
+  const leaveDropdownHasVisibleItems = () => {
+    const isStaff = normalizedUserRole === "staff";
+    if (
+      !isStaff &&
+      leaveDropdownAdminRoutes.some((route) => shouldShowMenuItem(route))
+    ) {
+      return true;
+    }
+    return shouldShowMenuItem("/leave-request-supervisor");
+  };
 
   const formsItems = [
     "assessment-clearance",
@@ -327,17 +355,17 @@ const Sidebar = ({
     "subject",
   ];
 
-  const pdsItems = ["pds1", "pds2", "pds3", "pds4"];
+  const pdsItems = ["pds1", "pds2", "pds3", "pds4", "file201"];
 
   const systemAdministrationItems = [
-    "reports",
-    "user-management",
-    "system-settings",
+    "users-list",
     "registration",
+    "employee-category",
     "reset-password",
     "payroll-formulas",
     "admin-security",
     "pds-templates",
+    "system-settings",
   ];
 
   useEffect(() => {
@@ -346,17 +374,19 @@ const Sidebar = ({
 
     setUsername(storedUser || username || "");
     setEmployeeNumber(employeeNumber || "");
-    setUserRole(decodedRole || "");
+    setUserRole(normalizeRole(decodedRole) || "");
 
     const fetchProfileData = async () => {
+      if (!localStorage.getItem("token")) {
+        return;
+      }
       try {
         const response = await axios.get(
-          `${API_BASE_URL}/personalinfo/person_table`,
+          `${API_BASE_URL}/personalinfo/person_table/${encodeURIComponent(employeeNumber)}`,
+          getAuthHeaders(),
         );
-        const person = response.data.find(
-          (p) => p.agencyEmployeeNum === employeeNumber,
-        );
-        if (person) {
+        const person = response.data;
+        if (person && person.agencyEmployeeNum) {
           if (person.profile_picture) {
             setProfilePicture(`${API_BASE_URL}${person.profile_picture}`);
           }
@@ -368,158 +398,37 @@ const Sidebar = ({
           }
         }
       } catch (error) {
-        console.error("Error fetching profile data:", error);
+        if (error.response?.status !== 404) {
+          console.error("Error fetching profile data:", error);
+        }
       }
     };
 
     if (employeeNumber) {
       fetchProfileData();
     }
-  }, [employeeNumber, location.pathname]);
-
-  // Check page access for Users List
-  useEffect(() => {
-    const checkUsersListAccess = async () => {
-      if (!employeeNumber) {
-        setHasUsersListAccess(false);
-        return;
-      }
-
-      try {
-        const authHeaders = getAuthHeaders();
-        const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
-          method: "GET",
-          ...authHeaders,
-        });
-
-        if (pagesResponse.ok) {
-          let pagesData = await pagesResponse.json();
-          pagesData = Array.isArray(pagesData)
-            ? pagesData
-            : pagesData.pages || pagesData.data || [];
-
-          const usersListPage = pagesData.find(
-            (page) =>
-              page.page_name &&
-              (page.page_name.toLowerCase().includes("user") ||
-                page.page_name.toLowerCase().includes("users list") ||
-                page.page_name.toLowerCase().includes("user management")),
-          );
-
-          if (usersListPage) {
-            const pageId = usersListPage.id;
-            const accessResponse = await fetch(
-              `${API_BASE_URL}/page_access/${employeeNumber}`,
-              {
-                method: "GET",
-                ...authHeaders,
-              },
-            );
-
-            if (accessResponse.ok) {
-              const accessDataRaw = await accessResponse.json();
-              const accessData = Array.isArray(accessDataRaw)
-                ? accessDataRaw
-                : accessDataRaw.data || [];
-
-              const hasAccess = accessData.some(
-                (access) =>
-                  access.page_id === pageId &&
-                  String(access.page_privilege) === "1",
-              );
-
-              setHasUsersListAccess(hasAccess);
-            } else {
-              setHasUsersListAccess(false);
-            }
-          } else {
-            setHasUsersListAccess(false);
-          }
-        } else {
-          setHasUsersListAccess(false);
-        }
-      } catch (error) {
-        console.error("Error checking Users List access:", error);
-        setHasUsersListAccess(false);
-      }
-    };
-
-    if (employeeNumber) {
-      checkUsersListAccess();
-    }
   }, [employeeNumber]);
 
-  // Listen for page access updates from UsersList dialog
   useEffect(() => {
     const handlePageAccessUpdated = () => {
-      // Increment version to force usePageAccesses to re-run
       setPageAccessVersion((prev) => prev + 1);
-
-      // Also re-check the Users List specific access
-      const recheckAccess = async () => {
-        if (!employeeNumber) return;
-        try {
-          const authHeaders = getAuthHeaders();
-          const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
-            method: "GET",
-            ...authHeaders,
-          });
-
-          if (!pagesResponse.ok) return;
-
-          let pagesData = await pagesResponse.json();
-          pagesData = Array.isArray(pagesData)
-            ? pagesData
-            : pagesData.pages || pagesData.data || [];
-
-          const usersListPage = pagesData.find(
-            (page) =>
-              page.page_name &&
-              (page.page_name.toLowerCase().includes("user") ||
-                page.page_name.toLowerCase().includes("users list") ||
-                page.page_name.toLowerCase().includes("user management")),
-          );
-
-          if (!usersListPage) {
-            setHasUsersListAccess(false);
-            return;
-          }
-
-          const accessResponse = await fetch(
-            `${API_BASE_URL}/page_access/${employeeNumber}`,
-            { method: "GET", ...authHeaders },
-          );
-
-          if (!accessResponse.ok) {
-            setHasUsersListAccess(false);
-            return;
-          }
-
-          const accessDataRaw = await accessResponse.json();
-          const accessData = Array.isArray(accessDataRaw)
-            ? accessDataRaw
-            : accessDataRaw.data || [];
-
-          const hasAccess = accessData.some(
-            (access) =>
-              access.page_id === usersListPage.id &&
-              String(access.page_privilege) === "1",
-          );
-
-          setHasUsersListAccess(hasAccess);
-        } catch (error) {
-          console.error("Error rechecking page access:", error);
-        }
-      };
-
-      recheckAccess();
     };
-
     window.addEventListener("pageAccessUpdated", handlePageAccessUpdated);
     return () => {
       window.removeEventListener("pageAccessUpdated", handlePageAccessUpdated);
     };
-  }, [employeeNumber]);
+  }, []);
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+    const refreshAccess = () => setPageAccessVersion((prev) => prev + 1);
+    socket.on("pageAccessGranted", refreshAccess);
+    socket.on("pageAccessRevoked", refreshAccess);
+    return () => {
+      socket.off("pageAccessGranted", refreshAccess);
+      socket.off("pageAccessRevoked", refreshAccess);
+    };
+  }, [socket, connected]);
 
   const currentPath = location.pathname;
   useEffect(() => {
@@ -528,12 +437,16 @@ const Sidebar = ({
       setSelectedItem("home");
     } else if (currentPath === "/attendance-user-state") {
       setSelectedItem("attendance-user-state");
+    } else if (currentPath === "/my-attendance") {
+      setSelectedItem("my-attendance");
     } else if (currentPath === "/daily_time_record") {
       setSelectedItem("daily_time_record");
     } else if (currentPath === "/payslip") {
       setSelectedItem("payslip");
     } else if (currentPath === "/pds-templates") {
       setSelectedItem("pds-templates");
+    } else if (currentPath === "/file201") {
+      setSelectedItem("file201");
     } else if (currentPath === "/pds1") {
       setSelectedItem("pds1");
     } else if (currentPath === "/pds2") {
@@ -585,6 +498,10 @@ const Sidebar = ({
       setSelectedItem("daily_time_record_service_credits");
     } else if (currentPath === "/daily_time_record_overtime") {
       setSelectedItem("daily_time_record_overtime");
+    } else if (currentPath === "/daily-time-record-supervisor") {
+      setSelectedItem("daily-time-record-supervisor");
+    } else if (currentPath === "/leave-request-supervisor") {
+      setSelectedItem("leave-request-supervisor");
     } else if (currentPath === "/attendance_module") {
       setSelectedItem("attendance_module");
     } else if (currentPath === "/attendance_module_faculty") {
@@ -621,6 +538,10 @@ const Sidebar = ({
       setSelectedItem("department-assignment");
     } else if (currentPath === "/leave-table") {
       setSelectedItem("leave-table");
+    } else if (currentPath === "/assignment-management") {
+      setSelectedItem("assignment-management");
+    } else if (currentPath === "/earnings-management") {
+      setSelectedItem("earnings-management");
     } else if (currentPath === "/leave-assignment") {
       setSelectedItem("leave-assignment");
     } else if (currentPath === "/leave-request") {
@@ -880,7 +801,7 @@ const Sidebar = ({
                               color: settings.textSecondaryColor,
                             }}
                           >
-                            {employeeNumber}
+                            EMP NO.: <b>{employeeNumber}</b>
                           </Typography>
                         </Box>
                       </Box>
@@ -1178,12 +1099,14 @@ const Sidebar = ({
               </ListItem>
             )}
 
+
             {/* DAILY TIME RECORD DROPDOWN */}
             {(shouldShowMenuItem("/daily_time_record") ||
               shouldShowMenuItem("/daily_time_record_faculty") ||
               shouldShowMenuItem("/daily_time_record_honorarium") ||
               shouldShowMenuItem("/daily_time_record_service_credits") ||
-              shouldShowMenuItem("/daily_time_record_overtime")) && (
+              shouldShowMenuItem("/daily_time_record_overtime") ||
+              shouldShowMenuItem("/daily-time-record-supervisor")) && (
               <>
                 <ListItem
                   button
@@ -1456,6 +1379,65 @@ const Sidebar = ({
                         />
                       </ListItem>
                     )}
+
+                    {shouldShowMenuItem("/daily-time-record-supervisor") && (
+                      <ListItem
+                        button
+                        component={Link}
+                        to="/daily-time-record-supervisor"
+                        onClick={() =>
+                          handleItemClick("daily-time-record-supervisor")
+                        }
+                        sx={{
+                          bgcolor:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? settings.accentColor || "#FEF9E1"
+                              : "inherit",
+                          color:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+                          "& .MuiListItemIcon-root": {
+                            color:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "& .MuiListItemText-primary": {
+                            color:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                          },
+                          "&:hover": {
+                            bgcolor: settings.hoverColor || "#6D2323",
+                            color: settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color: settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color: settings.textSecondaryColor,
+                            },
+                          },
+                          borderTopRightRadius:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? "15px"
+                              : 0,
+                          borderBottomRightRadius:
+                            selectedItem === "daily-time-record-supervisor"
+                              ? "15px"
+                              : 0,
+                        }}
+                      >
+                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                          <SupervisedUserCircle />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Supervisor DTR"
+                          sx={{ marginLeft: "-10px" }}
+                        />
+                      </ListItem>
+                    )}
                   </List>
                 </Collapse>
               </>
@@ -1511,7 +1493,7 @@ const Sidebar = ({
                   <DescriptionIcon />
                 </ListItemIcon>
                 <ListItemText
-                  primary="Leave Request User"
+                  primary="Leave Request "
                   sx={{ marginLeft: "-10px" }}
                 />
               </ListItem>
@@ -1601,6 +1583,62 @@ const Sidebar = ({
 
                 <Collapse in={open5} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                    {(() => {
+                      const file201Route = "/file201";
+                      return shouldShowMenuItem(file201Route) ? (
+                        <ListItem
+                          button
+                          component={Link}
+                          to={file201Route}
+                          onClick={() => handleItemClick("file201")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "file201"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "file201"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "file201"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "file201"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "file201" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "file201" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <FolderSpecial />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="FILE 201"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      ) : null;
+                    })()}
+
                     {/* PDS1 */}
                     {shouldShowMenuItem("/pds1") && (
                       <ListItem
@@ -2004,9 +2042,7 @@ const Sidebar = ({
                       />
                     </ListItem> */}
 
-                    {/* User Management - Hidden for administrators */}
-                    {shouldShowMenuItem("/users-list") &&
-                      userRole !== "administrator" && (
+                    {shouldShowMenuItem("/users-list") && (
                         <ListItem
                           button
                           component={Link}
@@ -2223,9 +2259,7 @@ const Sidebar = ({
                       </ListItem>
                     )}
 
-                    {/* Payroll Formulas - Hidden for administrators */}
-                    {shouldShowMenuItem("/payroll-formulas") &&
-                      userRole !== "administrator" && (
+                    {shouldShowMenuItem("/payroll-formulas") && (
                         <ListItem
                           button
                           component={Link}
@@ -2278,9 +2312,7 @@ const Sidebar = ({
                         </ListItem>
                       )}
 
-                    {/* Admin Security - Hidden for administrators */}
-                    {shouldShowMenuItem("/admin-security") &&
-                      userRole !== "administrator" && (
+                    {shouldShowMenuItem("/admin-security") && (
                         <ListItem
                           button
                           component={Link}
@@ -2766,10 +2798,69 @@ const Sidebar = ({
                           <BadgeRounded />
                         </ListItemIcon>
                         <ListItemText
-                          primary="Overall Daily Time Record"
+                          primary="Overall Daily Time Record (DTR)"
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>
+
+                      {shouldShowMenuItem("/daily-time-record-supervisor") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/daily-time-record-supervisor"
+                          onClick={() =>
+                            handleItemClick("daily-time-record-supervisor")
+                          }
+                          sx={{
+                            bgcolor:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "daily-time-record-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "daily-time-record-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? "15px"
+                                : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "daily-time-record-supervisor"
+                                ? "15px"
+                                : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <SupervisedUserCircle />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Daily Time Record - Supervisor"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
 
                       {/* Attendance Module (Non-teaching) */}
                       <ListItem
@@ -3028,9 +3119,7 @@ const Sidebar = ({
               )}
 
             {/* LEAVE DROPDOWN */}
-            {(shouldShowMenuItem("/leave-table") ||
-              shouldShowMenuItem("/leave-assignment") ||
-              shouldShowMenuItem("/leave-request")) && (
+            {leaveDropdownHasVisibleItems() && (
               <>
                 <ListItem
                   button
@@ -3062,38 +3151,40 @@ const Sidebar = ({
 
                 <Collapse in={openLeave} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
-                    {/* Leave Table - Admin only */}
-                    {userRole !== "staff" &&
-                      shouldShowMenuItem("/leave-table") && (
+                    
+                     {userRole !== "staff" &&
+                      shouldShowMenuItem("/assignment-management") && (
                         <ListItem
                           button
                           component={Link}
-                          to="/leave-table"
-                          onClick={() => handleItemClick("leave-table")}
+                          to="/assignment-management"
+                          onClick={() => handleItemClick("assignment-management")}
                           sx={{
                             bgcolor:
-                              selectedItem === "leave-table"
+                              selectedItem === "assignment-management"
                                 ? settings.accentColor || "#FEF9E1"
                                 : "inherit",
                             color:
-                              selectedItem === "leave-table"
+                              selectedItem === "assignment-management"
                                 ? settings.textPrimaryColor
                                 : settings.textSecondaryColor,
                             "& .MuiListItemIcon-root": {
                               color:
-                                selectedItem === "leave-table"
+                                selectedItem === "assignment-management"
                                   ? settings.textPrimaryColor
                                   : settings.textSecondaryColor,
                             },
                             "& .MuiListItemText-primary": {
                               color:
-                                selectedItem === "leave-table"
+                                selectedItem === "assignment-management"
                                   ? settings.textPrimaryColor
                                   : settings.textSecondaryColor,
                             },
                             "&:hover": {
                               bgcolor: settings.hoverColor || "#6D2323",
                               color: settings.textSecondaryColor,
+                                 borderTopRightRadius: "15px",      
+          borderBottomRightRadius: "15px",
                               "& .MuiListItemIcon-root": {
                                 color: settings.textSecondaryColor,
                               },
@@ -3102,23 +3193,83 @@ const Sidebar = ({
                               },
                             },
                             borderTopRightRadius:
-                              selectedItem === "leave-table" ? "15px" : 0,
+                              selectedItem === "assignment-management" ? "15px" : 0,
                             borderBottomRightRadius:
-                              selectedItem === "leave-table" ? "15px" : 0,
+                              selectedItem === "assignment-management" ? "15px" : 0,
                           }}
                         >
                           <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                            <TableChartIcon />
+                            <PostAdd />
                           </ListItemIcon>
                           <ListItemText
-                            primary="Leave Table"
+                            primary="Assignment Management"
                             sx={{ marginLeft: "-10px" }}
                           />
                         </ListItem>
                       )}
 
+                      {/* Earnings Management */}
+                       {userRole !== "staff" &&
+                      shouldShowMenuItem("/earnings-management") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/earnings-management"
+                          onClick={() => handleItemClick("earnings-management")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "earnings-management"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "earnings-management"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "earnings-management"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "earnings-management"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                                 borderTopRightRadius: "15px",      
+                                 borderBottomRightRadius: "15px",
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "earnings-management" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "earnings-management" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <PlaylistAdd />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Earnings Management"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+                    
+          
+                    
+
                     {/* Leave Assignment - Admin only */}
-                    {userRole !== "staff" &&
+                    {/* {userRole !== "staff" &&
                       shouldShowMenuItem("/leave-assignment") && (
                         <ListItem
                           button
@@ -3170,7 +3321,7 @@ const Sidebar = ({
                             sx={{ marginLeft: "-10px" }}
                           />
                         </ListItem>
-                      )}
+                      )} */}
 
                     {/* Leave Request - Admin only */}
                     {userRole !== "staff" &&
@@ -3281,10 +3432,236 @@ const Sidebar = ({
                           />
                         </ListItem>
                       )}
+
+                       {/* Leave Table - Admin only */}
+                    {userRole !== "staff" &&
+                      shouldShowMenuItem("/leave-table") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/leave-table"
+                          onClick={() => handleItemClick("leave-table")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "leave-table"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "leave-table"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "leave-table"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "leave-table"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "leave-table" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "leave-table" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <TableChartIcon />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Leave Table"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
+                      {/* Supervisor Assignment - Admin only */}
+                      {userRole !== "staff" &&
+                      shouldShowMenuItem("/supervisor-assignment") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/supervisor-assignment"
+                          onClick={() => handleItemClick("supervisor-assignment")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "supervisor-assignment"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "supervisor-assignment"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "supervisor-assignment"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "supervisor-assignment"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              borderTopRightRadius: "15px",
+                              borderBottomRightRadius: "15px",
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "supervisor-assignment" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "supervisor-assignment" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <ManageAccounts />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Supervisor Assignment"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
+                      {/* Leave Request Supervisor - Supervisor only */}
+                      {shouldShowMenuItem("/leave-request-supervisor") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/leave-request-supervisor"
+                          onClick={() => handleItemClick("leave-request-supervisor")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "leave-request-supervisor"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "leave-request-supervisor"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "leave-request-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "leave-request-supervisor"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              borderTopRightRadius: "15px",
+                              borderBottomRightRadius: "15px",
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "leave-request-supervisor" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "leave-request-supervisor" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <SupervisedUserCircle />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Leave Request Approval"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )}
+
+                      
+                      {/*Service Credits - Admin only */}
+                    {/* {userRole !== "staff" &&
+                      shouldShowMenuItem("/service-credits") && (
+                        <ListItem
+                          button
+                          component={Link}
+                          to="/service-credits"
+                          onClick={() => handleItemClick("service-credits")}
+                          sx={{
+                            bgcolor:
+                              selectedItem === "service-credits"
+                                ? settings.accentColor || "#FEF9E1"
+                                : "inherit",
+                            color:
+                              selectedItem === "service-credits"
+                                ? settings.textPrimaryColor
+                                : settings.textSecondaryColor,
+                            "& .MuiListItemIcon-root": {
+                              color:
+                                selectedItem === "service-credits"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "& .MuiListItemText-primary": {
+                              color:
+                                selectedItem === "service-credits"
+                                  ? settings.textPrimaryColor
+                                  : settings.textSecondaryColor,
+                            },
+                            "&:hover": {
+                              bgcolor: settings.hoverColor || "#6D2323",
+                              color: settings.textSecondaryColor,
+                              "& .MuiListItemIcon-root": {
+                                color: settings.textSecondaryColor,
+                              },
+                              "& .MuiListItemText-primary": {
+                                color: settings.textSecondaryColor,
+                              },
+                            },
+                            borderTopRightRadius:
+                              selectedItem === "service-credits" ? "15px" : 0,
+                            borderBottomRightRadius:
+                              selectedItem === "service-credits" ? "15px" : 0,
+                          }}
+                        >
+                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
+                            <AssignmentIcon />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Service Credits"
+                            sx={{ marginLeft: "-10px" }}
+                          />
+                        </ListItem>
+                      )} */}
                   </List>
                 </Collapse>
               </>
             )}
+
+        
 
             {userRole !== "staff" &&
               payrollManagementItems.some((item) =>
@@ -5253,5 +5630,9 @@ const Sidebar = ({
     </Drawer>
   );
 };
+
+
+
+
 
 export default Sidebar;
