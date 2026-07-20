@@ -76,6 +76,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import { COMPUTATION_TYPE_TO_MODULE_ID } from '../../utils/attendanceHubFlow';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
@@ -982,19 +983,19 @@ const ViewAttendanceRecord = () => {
           mr: 0.25,
         }}
       >
-        Submit to
+        Submit to DTR
       </Typography>
       {[
-        { icon: People, label: 'Non-teaching', path: '/attendance_module', type: 'NONTEACHING' },
-        { icon: AccessTime, label: 'Faculty 30 hrs', path: '/attendance_module_faculty', type: 'FACULTY_30' },
-        { icon: Assignment, label: 'Faculty designated', path: '/attendance_module_faculty_40hrs', type: 'FACULTY_DESIGNATED' },
-      ].map(({ icon: Icon, label, path, type }) => (
+        { icon: People, label: 'Non-teaching', type: 'NONTEACHING' },
+        { icon: AccessTime, label: 'Faculty 30 hrs', type: 'FACULTY_30' },
+        { icon: Assignment, label: 'Faculty designated', type: 'FACULTY_DESIGNATED' },
+      ].map(({ icon: Icon, label, type }) => (
         <Button
           key={type}
           variant="contained"
           size="small"
           startIcon={<Icon sx={{ fontSize: 14 }} />}
-          onClick={() => goToComputationModule(path, type)}
+          onClick={() => goToComputationModule(type)}
           sx={{
             textTransform: 'none',
             fontWeight: 700,
@@ -1747,7 +1748,7 @@ const COMPUTATION_BUTTON_LABELS = {
   FACULTY_DESIGNATED: 'Faculty designated',
 };
 
-const goToComputationModule = async (path, selectedComputationType) => {
+const goToComputationModule = async (selectedComputationType) => {
   if (!personID || !startDate || !endDate) {
     showSnackbar('Please fill in all fields first', 'warning');
     return;
@@ -1769,13 +1770,12 @@ const goToComputationModule = async (path, selectedComputationType) => {
         existingType: COMPUTATION_TYPE_LABELS[existingType] || existingType,
         newType: COMPUTATION_TYPE_LABELS[selectedComputationType] || selectedComputationType,
         rawNewType: selectedComputationType,
-        path,
         auditButtonLabel,
         employeeName: personName || 'this employee',
       });
       return;
     }
-    await proceedToComputationModule(path, selectedComputationType, auditButtonLabel);
+    await proceedToComputationModule(selectedComputationType, auditButtonLabel);
   } catch (err) {
     console.error('Error checking computation view state:', err);
     showSnackbar('Failed to check saved computation type', 'error');
@@ -1783,7 +1783,6 @@ const goToComputationModule = async (path, selectedComputationType) => {
 };
 
   const proceedToComputationModule = async (
-    path,
     selectedComputationType,
     auditButtonLabel,
   ) => {
@@ -1795,32 +1794,24 @@ const goToComputationModule = async (path, selectedComputationType) => {
         selectedComputationType,
         ...buildDeviceAuditPayload(auditButtonLabel),
       }, getAuthHeaders());
-      const moduleByPath = {
-        '/attendance_module': 'non_teaching',
-        '/attendance_module_faculty': 'faculty_30',
-        '/attendance_module_faculty_40hrs': 'faculty_designated',
-      };
-      const targetModuleId = moduleByPath[path];
-      if (targetModuleId) {
-        navigateAttendanceWorkflow(navigate, targetModuleId, {
+      const targetModuleId =
+        COMPUTATION_TYPE_TO_MODULE_ID[selectedComputationType] || 'non_teaching';
+      navigateAttendanceWorkflow(
+        navigate,
+        'dtr',
+        {
           employeeNumber: personID,
           fullName: personName,
           startDate,
           endDate,
-        });
-      } else {
-        navigate(path, {
-          state: {
-            fromDevice: true,
-            employeeNumber: personID,
-            fullName: personName,
-            startDate,
-            endDate,
-          },
-        });
-      }
+        },
+        {
+          openComputationModule: targetModuleId,
+          fromDevice: true,
+        },
+      );
     } catch (err) {
-      console.error('Error saving computation view state:', err);
+      console.error('Error saving computation selection:', err);
       showSnackbar('Failed to save computation selection', 'error');
     }
   };
@@ -3444,7 +3435,6 @@ const goToComputationModule = async (path, selectedComputationType) => {
                 const next = { ...computationChangeDialog };
                 setComputationChangeDialog((p) => ({ ...p, open: false }));
                 await proceedToComputationModule(
-                  next.path,
                   next.rawNewType,
                   next.auditButtonLabel ||
                     COMPUTATION_BUTTON_LABELS[next.rawNewType] ||

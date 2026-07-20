@@ -18,6 +18,9 @@ import {
   ArrowForward,
   Close,
   Refresh,
+  Edit,
+  Schedule,
+  Assignment,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -31,6 +34,7 @@ import {
   Chip,
   Dialog,
   DialogContent,
+  Drawer,
   Fade,
   FormControl,
   FormControlLabel,
@@ -89,7 +93,15 @@ import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
 import LoadingOverlay from '../LoadingOverlay';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import AttendanceModification from './AttendanceModification';
+import OfficialTimeForm from './OfficialTimeForm';
+import DtrSavedSummaryPanel from './DtrSavedSummaryPanel';
+import AttendanceComputationDrawer from './AttendanceComputationDrawer';
 import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import {
+  resolveDrawerFromComputationModule,
+  HUB_COMPUTATION_BUTTONS,
+} from '../../utils/attendanceHubFlow';
 import {
   fetchDailyLateUndertime,
   fetchDailyLateUndertimeBatch,
@@ -98,22 +110,44 @@ import {
   isDtrDateScheduledByOfficialTime,
   isDtrHalfDayLateUndertimePending,
   parseHalfDayDatesSet,
+  getDayNameFromYmd,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { computeAndApplyModuleLateUndertime } from '../../utils/computeModuleLateUndertimeForDtr';
 import {
   buildReviewByDate,
   parseHalfDayReviewJson,
   MODULE_TYPES,
+  getRowHalfDayUiStatus,
+  getDtrHalfDayIndicator,
+  getDtrAbsentIndicator,
+  isDtrAbsentRow,
+  resolveDtrRowIndicator,
+  resolveDtrRowTint,
 } from '../../utils/halfDayReview';
 import {
   DTR_WIDTH_IN,
   DTR_WM_INLINE_STYLE,
+  DTR_NON_WORKING_DAY_LABEL,
+  DTR_ABSENT_LABEL,
   dtrTimeValueEmpty,
   isDtrCellWatermarkText,
+  isDtrNonWorkingDayRow,
   resolveDtrAmPmCellText,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
   openPdfBlobForPrint,
 } from '../../utils/dtrFormatHelpers';
+const COMPUTATION_DRAWER_KEYS = new Set([
+  'nonTeaching',
+  'faculty30',
+  'facultyDesignated',
+]);
+
+const isHubDrawerOpen = (drawer) =>
+  drawer === 'modification' ||
+  drawer === 'officialTime' ||
+  COMPUTATION_DRAWER_KEYS.has(drawer);
+
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
   accent: '#6d2323',
@@ -636,6 +670,13 @@ const DailyTimeRecordFaculty = ({
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
+  /** Sliding hub drawer: officialTime | modification | computation modules */
+  const [moduleDrawer, setModuleDrawer] = useState(null);
+  /** Last opened computation module — kept after drawer closes so Save to Summary stays enabled */
+  const [activeComputationDrawer, setActiveComputationDrawer] = useState(null);
+  const [lateComputeLoading, setLateComputeLoading] = useState(null);
+  const [computationSaveSignal, setComputationSaveSignal] = useState(0);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
 
   const { hasAccess, loading: accessLoading } = usePageAccess(pageAccessIdentifier);
 
@@ -666,12 +707,18 @@ const DailyTimeRecordFaculty = ({
               item.parentGroup && item.typeName
                 ? `${item.parentGroup} | ${item.typeName}`
                 : item.categoryLabel || '';
-            if (label) {
-              map[String(item.employeeNumber)] = {
-                label,
-                colorHex: item.colorHex || '#757575',
-              };
-            }
+            const employmentCategory =
+              item.employmentCategory != null && item.employmentCategory !== ''
+                ? item.employmentCategory
+                : null;
+            if (!label && employmentCategory == null) return;
+            map[String(item.employeeNumber)] = {
+              label: label || '',
+              colorHex: item.colorHex || '#757575',
+              employmentCategory,
+              typeName: item.typeName || '',
+              parentGroup: item.parentGroup || '',
+            };
           });
           setEmpCatMap(map);
         }
@@ -753,6 +800,16 @@ const DailyTimeRecordFaculty = ({
   }, [inboundDtrNavState]);
 
   useEffect(() => {
+    const mod = location.state?.openComputationModule;
+    if (!mod || !personID || !hasSearchedSingle) return;
+    const drawer = resolveDrawerFromComputationModule(mod);
+    if (drawer) {
+      setActiveComputationDrawer(drawer);
+      setModuleDrawer(drawer);
+    }
+  }, [location.state, personID, hasSearchedSingle]);
+
+  useEffect(() => {
     const st = location.state;
     if (st && typeof st === 'object' && st.startDate && st.endDate) {
       if (st.isBulk && Array.isArray(st.users) && st.users.length > 0) return;
@@ -814,6 +871,10 @@ const DailyTimeRecordFaculty = ({
     endDate,
     onHydrate: handleWorkflowHydrate,
   });
+
+  const handleHubNext = useCallback(() => {
+    goNext();
+  }, [goNext]);
 
   useAttendanceCompactPage();
 
@@ -1188,6 +1249,187 @@ const DailyTimeRecordFaculty = ({
       }));
     },
     [startDate, endDate],
+  );
+
+  const hasOfficialTimeSchedule = useMemo(() => {
+    const ot = officialTimes || {};
+    return Object.values(ot).some(
+      (sched) =>
+        sched?.officialTimeIN &&
+        sched?.officialTimeOUT &&
+        String(sched.officialTimeIN).trim() !== '00:00:00 AM' &&
+        String(sched.officialTimeOUT).trim() !== '00:00:00 PM',
+    );
+  }, [officialTimes]);
+
+  const appliedLateUtModuleType = useMemo(() => {
+    if (!personID) return null;
+    const key = String(personID);
+    const byDate = computedLateByEmployee[key];
+    if (!byDate || Object.keys(byDate).length === 0) return null;
+    return computationModuleTypeByEmployee[key] || null;
+  }, [personID, computedLateByEmployee, computationModuleTypeByEmployee]);
+
+  const appliedLateUtLabel = useMemo(() => {
+    if (!appliedLateUtModuleType) return null;
+    return (
+      HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === appliedLateUtModuleType)
+        ?.label || null
+    );
+  }, [appliedLateUtModuleType]);
+
+  const appliedLateUtColor = useMemo(() => {
+    if (!appliedLateUtModuleType) return T.accent;
+    return (
+      HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === appliedLateUtModuleType)
+        ?.categoryColor || T.accent
+    );
+  }, [appliedLateUtModuleType]);
+
+  const hubDrawerInitialContext = useMemo(
+    () => ({
+      employeeNumber: personID || '',
+      startDate: startDate || '',
+      endDate: endDate || '',
+      selectedYear,
+      selectedMonth,
+      fullName: employeeName || selectedEmployee?.fullName || '',
+      employee: selectedEmployee || (personID
+        ? {
+            employeeNumber: personID,
+            name: employeeName || '',
+            fullName: employeeName || '',
+          }
+        : null),
+    }),
+    [
+      personID,
+      startDate,
+      endDate,
+      selectedYear,
+      selectedMonth,
+      employeeName,
+      selectedEmployee,
+    ],
+  );
+
+  const openComputationDrawer = useCallback(
+    (drawerKey) => {
+      if (!drawerKey || !COMPUTATION_DRAWER_KEYS.has(drawerKey)) return;
+      if (!hasOfficialTimeSchedule) {
+        setSnackbar({
+          open: true,
+          message:
+            'No Official Time schedule found. Open Official Time to set it up first.',
+          severity: 'warning',
+        });
+        setModuleDrawer('officialTime');
+        return;
+      }
+      setActiveComputationDrawer(drawerKey);
+      setModuleDrawer(drawerKey);
+    },
+    [hasOfficialTimeSchedule],
+  );
+
+  const handleSavedToSummary = useCallback(() => {
+    setSummaryRefreshKey((k) => k + 1);
+    setActiveComputationDrawer(null);
+    setModuleDrawer(null);
+    if (personID) loadComputedLateForEmployee(personID);
+    setSnackbar({
+      open: true,
+      message: 'Attendance summary saved. Totals are now shown below.',
+      severity: 'success',
+    });
+  }, [personID, loadComputedLateForEmployee]);
+
+  const applyModuleLateUndertime = useCallback(
+    async (moduleType) => {
+      if (!moduleType) return;
+      if (!personID || !startDate || !endDate) {
+        setSnackbar({
+          open: true,
+          message: 'Select an employee and month first.',
+          severity: 'warning',
+        });
+        return;
+      }
+      if (!hasSearchedSingle) {
+        setSnackbar({
+          open: true,
+          message: 'Load the DTR for this employee first.',
+          severity: 'warning',
+        });
+        return;
+      }
+      if (!hasOfficialTimeSchedule) {
+        setSnackbar({
+          open: true,
+          message:
+            'No Official Time schedule found. Open Official Time to set it up first.',
+          severity: 'warning',
+        });
+        setModuleDrawer('officialTime');
+        return;
+      }
+      setLateComputeLoading(moduleType);
+      try {
+        const result = await computeAndApplyModuleLateUndertime({
+          personID,
+          startDate,
+          endDate,
+          moduleType,
+        });
+        const key = String(personID);
+        setComputedLateByEmployee((prev) => ({
+          ...prev,
+          [key]: result.byDate || {},
+        }));
+        setHalfDayDatesByEmployee((prev) => ({
+          ...prev,
+          [key]: parseHalfDayDatesSet(result.halfDayDates),
+        }));
+        setHalfDayReviewByEmployee((prev) => ({
+          ...prev,
+          [key]: buildReviewByDate(
+            parseHalfDayReviewJson(result.half_day_review),
+          ),
+        }));
+        setComputationModuleTypeByEmployee((prev) => ({
+          ...prev,
+          [key]: result.computation_module_type || moduleType,
+        }));
+        const label =
+          HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === moduleType)
+            ?.label || 'Module';
+        setSnackbar({
+          open: true,
+          message: `${label} late/undertime applied to DTR.`,
+          severity: 'success',
+        });
+      } catch (err) {
+        console.error('Module late/undertime compute failed:', err);
+        const msg =
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
+          'Failed to apply late/undertime.';
+        setSnackbar({ open: true, message: msg, severity: 'error' });
+        if (/official time|no matching official/i.test(String(msg))) {
+          setModuleDrawer('officialTime');
+        }
+      } finally {
+        setLateComputeLoading(null);
+      }
+    },
+    [
+      personID,
+      startDate,
+      endDate,
+      hasSearchedSingle,
+      hasOfficialTimeSchedule,
+    ],
   );
 
   const loadComputedLateBatch = useCallback(
@@ -3019,44 +3261,79 @@ const DailyTimeRecordFaculty = ({
       } else if (selectedMonth !== null) {
         fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
       }
-      const indicator = getDateIndicator(fullDate);
+      const dateIndicator = getDateIndicator(fullDate);
       const tf = getTimeFields(record, type);
       const rt = getRenderedTimeData(record, type);
-      const rowTint = indicator
-        ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)')
-        : 'transparent';
       const empKey =
         employeeNumber != null
           ? String(employeeNumber)
           : String(personID || '');
-      const computed =
-        empKey && fullDate
-          ? computedLateByEmployee[empKey]?.[fullDate] || null
-          : null;
-      const halfDaySet = empKey
-        ? halfDayDatesByEmployee[empKey] || new Set()
-        : new Set();
-      const isExcludedDay =
-        indicator?.type === 'holiday' ||
-        indicator?.type === 'suspension' ||
-        indicator?.type === 'leave';
-      const hasIncompletePunch = Boolean(
-        record &&
-        ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
-          (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
-      );
+      const moduleType =
+        computationModuleTypeByEmployee[empKey] ||
+        MODULE_TYPES.NON_TEACHING;
       const isNotScheduledDay = !isDtrDateScheduledByOfficialTime({
         record,
         officialTimesByDay: officialTimesForUser,
         fullDate,
       });
+      const dayName = getDayNameFromYmd(fullDate);
+      const dayOfficial =
+        (dayName && officialTimesForUser?.[dayName]) || {};
+      const rowForStatus = {
+        ...(record || {}),
+        ...dayOfficial,
+        date: fullDate || record?.date,
+        timeIN: tf.timeIN,
+        breaktimeIN: tf.breaktimeIN,
+        breaktimeOUT: tf.breaktimeOUT,
+        timeOUT: tf.timeOUT,
+      };
+      // Scheduled workday + no punches on DTR = absent
+      const rowIsAbsent =
+        type === 'regular' &&
+        isDtrAbsentRow({
+          record: rowForStatus,
+          dateIndicator,
+          isNotScheduledDay,
+          moduleType,
+        });
+      const halfUi =
+        type === 'regular' && !dateIndicator && !rowIsAbsent
+          ? getRowHalfDayUiStatus(
+              rowForStatus,
+              halfDayReviewByEmployee[empKey] || {},
+              moduleType,
+            )
+          : null;
+      const halfDayIndicator = halfUi ? getDtrHalfDayIndicator(halfUi) : null;
+      const absentIndicator = rowIsAbsent ? getDtrAbsentIndicator() : null;
+      const indicator = resolveDtrRowIndicator(dateIndicator, {
+        absentIndicator,
+        halfDayIndicator,
+      });
+      const rowTint = resolveDtrRowTint(dateIndicator, {
+        absentIndicator,
+        halfDayIndicator,
+        suggestedHalfDay: halfUi === 'suggested',
+      });
+      const computed =
+        empKey && fullDate
+          ? computedLateByEmployee[empKey]?.[fullDate] || null
+          : null;
+      const isExcludedDay =
+        dateIndicator?.type === 'holiday' ||
+        dateIndicator?.type === 'suspension' ||
+        dateIndicator?.type === 'leave';
+      const hasIncompletePunch = Boolean(
+        record &&
+        ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
+          (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
+      );
       const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
         record,
         fullDate,
         reviewByDate: halfDayReviewByEmployee[empKey] || {},
-        moduleType:
-          computationModuleTypeByEmployee[empKey] ||
-          MODULE_TYPES.NON_TEACHING,
+        moduleType,
       });
       const { lateDisplay, undertimeDisplay } =
         type !== 'regular'
@@ -3073,6 +3350,76 @@ const DailyTimeRecordFaculty = ({
               isNotScheduledDay,
               isPendingHalfDay,
             });
+      const nonWorkingRowTint =
+        isNotScheduledDay && !dateIndicator
+          ? 'rgba(128, 128, 128, 0.06)'
+          : rowTint;
+      if (
+        isDtrNonWorkingDayRow({
+          isNotScheduledDay,
+          indicator: dateIndicator,
+          timeFields: tf,
+        })
+      ) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{DTR_NON_WORKING_DAY_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (type === 'regular' && rowIsAbsent) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{DTR_ABSENT_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
       return (
         <tr key={i}>
           <td
@@ -3716,8 +4063,8 @@ const DailyTimeRecordFaculty = ({
                           opacity: 0.9,
                         }}
                       >
-                        Administrative Panel • View and print employee DTR
-                        records
+                        Central hub — Device → DTR → Summary. Use Modification
+                        only when punch data needs editing.
                       </Typography>
                     </Box>
                   </Box>
@@ -3735,7 +4082,7 @@ const DailyTimeRecordFaculty = ({
                       prevStep={prevStep}
                       nextStep={nextStep}
                       onPrevious={goPrevious}
-                      onNext={goNext}
+                      onNext={handleHubNext}
                     />
                     {viewMode === 'multiple' && allUsersDTR.length > 0 && (
                       <Box
@@ -3898,206 +4245,233 @@ const DailyTimeRecordFaculty = ({
                                 </Box>
                               )}
                             </Box>
-                            {selectedMonth !== null && records.length > 0 && (
-                              <Box sx={{ display: 'flex', gap: 1 }}>
-                                <Tooltip
-                                  placement="top"
-                                  title={
-                                    <Box
-                                      sx={{
-                                        p: 0.5,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: 1,
-                                      }}
-                                    >
-                                      <Typography
-                                        variant="caption"
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                flexShrink: 0,
+                                flexWrap: 'wrap',
+                                justifyContent: 'flex-end',
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: '0.7rem',
+                                  color: T.faint,
+                                  display: { xs: 'none', lg: 'block' },
+                                }}
+                              >
+                                Hub tools:
+                              </Typography>
+                              <Tooltip
+                                title="Open Official Time Schedule without leaving this page"
+                                placement="top"
+                              >
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={
+                                      <Schedule
+                                        sx={{ fontSize: '15px !important' }}
+                                      />
+                                    }
+                                    onClick={() =>
+                                      setModuleDrawer('officialTime')
+                                    }
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Official Time
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip
+                                title="Edit punch times when device data needs correction (optional step)"
+                                placement="top"
+                              >
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={
+                                      <Edit sx={{ fontSize: '15px !important' }} />
+                                    }
+                                    onClick={() =>
+                                      setModuleDrawer('modification')
+                                    }
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Modification
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              <Divider
+                                orientation="vertical"
+                                flexItem
+                                sx={{
+                                  mx: 0.25,
+                                  borderColor: T.accentBorder,
+                                  display: { xs: 'none', md: 'block' },
+                                }}
+                              />
+                              <Typography
+                                sx={{
+                                  fontSize: '0.7rem',
+                                  color: T.faint,
+                                  display: { xs: 'none', lg: 'block' },
+                                }}
+                              >
+                                Apply Late/UT:
+                              </Typography>
+                              {appliedLateUtLabel && (
+                                <Chip
+                                  size="small"
+                                  label={`Applied: ${appliedLateUtLabel}`}
+                                  sx={{
+                                    height: 22,
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                    bgcolor: appliedLateUtColor,
+                                    color: '#fff',
+                                    display: { xs: 'none', md: 'inline-flex' },
+                                  }}
+                                />
+                              )}
+                              {HUB_COMPUTATION_BUTTONS.map((btn) => {
+                                const isLoading =
+                                  lateComputeLoading === btn.moduleType;
+                                const isApplied =
+                                  appliedLateUtModuleType === btn.moduleType;
+                                const categoryColor =
+                                  btn.categoryColor || T.accent;
+                                const disabled =
+                                  !personID ||
+                                  !hasSearchedSingle ||
+                                  Boolean(lateComputeLoading);
+                                return (
+                                  <Tooltip
+                                    key={`apply-${btn.drawer}`}
+                                    title={
+                                      isApplied
+                                        ? `${btn.label} — currently applied to DTR late/undertime`
+                                        : btn.applyTip
+                                    }
+                                    placement="top"
+                                  >
+                                    <span>
+                                      <AccentButton
+                                        variant="outlined"
+                                        size="small"
+                                        disabled={disabled}
+                                        startIcon={
+                                          isLoading ? (
+                                            <CircularProgress
+                                              size={14}
+                                              sx={{ color: 'inherit' }}
+                                            />
+                                          ) : (
+                                            <AccessTime
+                                              sx={{
+                                                fontSize: '15px !important',
+                                              }}
+                                            />
+                                          )
+                                        }
+                                        onClick={() =>
+                                          applyModuleLateUndertime(
+                                            btn.moduleType,
+                                          )
+                                        }
                                         sx={{
+                                          height: 32,
+                                          fontSize: '0.72rem',
                                           fontWeight: 700,
-                                          fontSize: '11px',
-                                          letterSpacing: '0.05em',
+                                          px: 1.25,
+                                          ...(isApplied
+                                            ? {
+                                                bgcolor: categoryColor,
+                                                color: '#fff',
+                                                borderColor: categoryColor,
+                                                boxShadow: `0 2px 8px ${alpha(categoryColor, 0.35)}`,
+                                                '&:hover': {
+                                                  bgcolor: categoryColor,
+                                                  filter: 'brightness(0.92)',
+                                                  borderColor: categoryColor,
+                                                },
+                                                '&.Mui-focusVisible': {
+                                                  bgcolor: categoryColor,
+                                                  borderColor: categoryColor,
+                                                },
+                                              }
+                                            : {
+                                                color: categoryColor,
+                                                borderColor: alpha(
+                                                  categoryColor,
+                                                  0.45,
+                                                ),
+                                                bgcolor: alpha(
+                                                  categoryColor,
+                                                  0.1,
+                                                ),
+                                                '&:hover': {
+                                                  bgcolor: alpha(
+                                                    categoryColor,
+                                                    0.18,
+                                                  ),
+                                                  borderColor: categoryColor,
+                                                },
+                                              }),
+                                          '&.Mui-disabled': { opacity: 0.55 },
                                         }}
                                       >
-                                        LEGEND
-                                      </Typography>
-                                      {[
-                                        {
-                                          label: 'Holiday',
-                                          bg: 'rgba(237,108,2,0.25)',
-                                          border: '#ed6c02',
-                                        },
-                                        {
-                                          label: 'Suspension',
-                                          bg: 'rgba(211,47,47,0.2)',
-                                          border: '#d32f2f',
-                                        },
-                                        {
-                                          label: 'On Leave',
-                                          bg: 'rgba(46,125,50,0.2)',
-                                          border: '#2e7d32',
-                                        },
-                                      ].map(({ label, bg, border }) => (
-                                        <Box
-                                          key={label}
-                                          sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1,
-                                          }}
-                                        >
-                                          <Box
-                                            sx={{
-                                              width: 28,
-                                              height: 16,
-                                              backgroundColor: bg,
-                                              border: `1.5px solid ${border}`,
-                                              borderRadius: '3px',
-                                              flexShrink: 0,
-                                            }}
-                                          />
-                                          <Typography
-                                            variant="caption"
-                                            sx={{
-                                              fontSize: '11px',
-                                              fontWeight: 500,
-                                            }}
-                                          >
-                                            {label}
-                                          </Typography>
-                                        </Box>
-                                      ))}
-                                    </Box>
-                                  }
-                                  arrow
-                                  componentsProps={{
-                                    tooltip: {
-                                      sx: {
-                                        bgcolor: 'white',
-                                        color: '#333',
-                                        boxShadow:
-                                          '0 4px 20px rgba(0,0,0,0.15)',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '10px',
-                                        p: 1.5,
-                                      },
-                                    },
-                                    arrow: { sx: { color: 'white' } },
-                                  }}
-                                >
-                                  <IconButton
-                                    size="small"
-                                    sx={{
-                                      bgcolor: alpha(T.accent, 0.08),
-                                      border: `1px solid ${T.accentBorder}`,
-                                      color: T.accent,
-                                      fontSize: '13px',
-                                      fontWeight: 700,
-                                      width: 32,
-                                      height: 32,
-                                      '&:hover': {
-                                        bgcolor: alpha(T.accent, 0.15),
-                                      },
-                                    }}
-                                  >
-                                    ?
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Print DTR" placement="top">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => {
-                                      try {
-                                        logAttendanceModuleAction({
-                                          module:
-                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
-                                          auditButton: 'Print',
-                                          targetEmployeeNumber:
-                                            String(personID) || '#all-users',
-                                          targetEmployeeName:
-                                            employeeName || null,
-                                          targetUsername:
-                                            selectedEmployee?.username || null,
-                                          periodStart: startDate,
-                                          periodEnd: endDate,
-                                          monthLabel: buildAuditPeriodLabel({
-                                            selectedMonth,
-                                            monthNames: monthsShort,
-                                            selectedYear,
-                                            startDate,
-                                            endDate,
-                                          }),
-                                          auditEvent: 'dtr_overall_print',
-                                        });
-                                      } catch (e) {
-                                        console.error('Audit log failed', e);
-                                      }
-                                      printPage();
-                                    }}
-                                    sx={{
-                                      bgcolor: alpha(T.accent, 0.08),
-                                      border: `1px solid ${T.accentBorder}`,
-                                      color: T.accent,
-                                      width: 32,
-                                      height: 32,
-                                      '&:hover': {
-                                        bgcolor: alpha(T.accent, 0.15),
-                                      },
-                                    }}
-                                  >
-                                    <PrintIcon sx={{ fontSize: 16 }} />
-                                  </IconButton>
-                                </Tooltip>
-                                <AccentButton
-                                  variant="contained"
-                                  size="small"
-                                  startIcon={
-                                    <PictureAsPdfIcon
-                                      sx={{ fontSize: '13px !important' }}
-                                    />
-                                  }
-                                  onClick={() => {
-                                    try {
-                                      logAttendanceModuleAction({
-                                        module:
-                                          ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
-                                        auditButton: 'Download PDF',
-                                        targetEmployeeNumber:
-                                          String(personID) || '#all-users',
-                                        targetEmployeeName:
-                                          employeeName || null,
-                                        targetUsername:
-                                          selectedEmployee?.username || null,
-                                        periodStart: startDate,
-                                        periodEnd: endDate,
-                                        monthLabel: buildAuditPeriodLabel({
-                                          selectedMonth,
-                                          monthNames: monthsShort,
-                                          selectedYear,
-                                          startDate,
-                                          endDate,
-                                        }),
-                                        auditEvent: 'dtr_overall_download',
-                                      });
-                                    } catch (e) {
-                                      console.error('Audit log failed', e);
-                                    }
-                                    downloadPDF();
-                                  }}
-                                  sx={{
-                                    fontSize: '0.78rem',
-                                    bgcolor: T.accent,
-                                    color: '#fff',
-                                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
-                                    '&:hover': { bgcolor: T.accentDark },
-                                  }}
-                                >
-                                  Download PDF
-                                </AccentButton>
-                              </Box>
-                            )}
+                                        {btn.label}
+                                      </AccentButton>
+                                    </span>
+                                  </Tooltip>
+                                );
+                              })}
+                            </Box>
                           </Box>
                         </Box>
+
+                        {personID && hasSearchedSingle && !hasOfficialTimeSchedule && (
+                          <Alert
+                            severity="warning"
+                            sx={{ mx: 2, mt: 1.5, borderRadius: 2, fontSize: '0.78rem' }}
+                            action={
+                              <Button
+                                color="inherit"
+                                size="small"
+                                onClick={() => setModuleDrawer('officialTime')}
+                                sx={{ fontWeight: 700, textTransform: 'none' }}
+                              >
+                                Open Official Time
+                              </Button>
+                            }
+                          >
+                            No Official Time schedule for this employee/period.
+                            Set official time before computation or late/undertime.
+                          </Alert>
+                        )}
 
                         <Box
                           sx={{
@@ -4218,6 +4592,29 @@ const DailyTimeRecordFaculty = ({
                           )}
                         </Box>
 
+                        {personID && hasSearchedSingle && (
+                          <Box
+                            className="no-print"
+                            sx={{
+                              px: 2,
+                              pt: 1.5,
+                              pb: 0.5,
+                              flexShrink: 0,
+                              borderTop: `1px solid ${T.divider}`,
+                            }}
+                          >
+                            <DtrSavedSummaryPanel
+                              key={summaryRefreshKey}
+                              personID={personID}
+                              startDate={startDate}
+                              endDate={endDate}
+                              computationButtons={HUB_COMPUTATION_BUTTONS}
+                              onOpenComputation={openComputationDrawer}
+                              activeDrawer={activeComputationDrawer}
+                            />
+                          </Box>
+                        )}
+
                         {selectedMonth !== null && records.length > 0 && (
                           <Box
                             className="no-print"
@@ -4228,23 +4625,257 @@ const DailyTimeRecordFaculty = ({
                               bgcolor: T.accentFaint,
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 1,
+                              justifyContent: 'space-between',
+                              gap: 1.5,
                               flexShrink: 0,
+                              flexWrap: 'wrap',
                             }}
                           >
-                            <PictureAsPdfIcon
+                            <Box
                               sx={{
-                                fontSize: 13,
-                                color: alpha(T.accent, 0.45),
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.25,
+                                minWidth: 0,
+                                flex: 1,
                               }}
-                            />
-                            <Typography
-                              sx={{ fontSize: '0.7rem', color: T.faint }}
                             >
-                              Download generates a PDF of the DTR for{' '}
-                              {employeeName} — {monthsShort[selectedMonth]}{' '}
-                              {selectedYear}
-                            </Typography>
+                              <Tooltip
+                                placement="top"
+                                title={
+                                  <Box
+                                    sx={{
+                                      p: 0.5,
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: 1,
+                                    }}
+                                  >
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        fontWeight: 700,
+                                        fontSize: '11px',
+                                        letterSpacing: '0.05em',
+                                      }}
+                                    >
+                                      LEGEND
+                                    </Typography>
+                                    {[
+                                      {
+                                        label: 'Holiday',
+                                        bg: 'rgba(237,108,2,0.25)',
+                                        border: '#ed6c02',
+                                      },
+                                      {
+                                        label: 'Suspension',
+                                        bg: 'rgba(211,47,47,0.2)',
+                                        border: '#d32f2f',
+                                      },
+                                      {
+                                        label: 'On Leave',
+                                        bg: 'rgba(46,125,50,0.2)',
+                                        border: '#2e7d32',
+                                      },
+                                    ].map(({ label, bg, border }) => (
+                                      <Box
+                                        key={label}
+                                        sx={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 1,
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            width: 28,
+                                            height: 16,
+                                            backgroundColor: bg,
+                                            border: `1.5px solid ${border}`,
+                                            borderRadius: '3px',
+                                            flexShrink: 0,
+                                          }}
+                                        />
+                                        <Typography
+                                          variant="caption"
+                                          sx={{
+                                            fontSize: '11px',
+                                            fontWeight: 500,
+                                          }}
+                                        >
+                                          {label}
+                                        </Typography>
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                }
+                                arrow
+                                componentsProps={{
+                                  tooltip: {
+                                    sx: {
+                                      bgcolor: 'white',
+                                      color: '#333',
+                                      boxShadow:
+                                        '0 4px 20px rgba(0,0,0,0.15)',
+                                      border: '1px solid #e0e0e0',
+                                      borderRadius: '10px',
+                                      p: 1.5,
+                                    },
+                                  },
+                                  arrow: { sx: { color: 'white' } },
+                                }}
+                              >
+                                <AccentButton
+                                  variant="contained"
+                                  size="small"
+                                  aria-label="Color legend"
+                                  sx={{
+                                    minWidth: 32,
+                                    width: 32,
+                                    height: 32,
+                                    p: 0,
+                                    fontSize: '0.85rem',
+                                    fontWeight: 800,
+                                    bgcolor: T.accent,
+                                    color: '#fff',
+                                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                    '&:hover': { bgcolor: T.accentDark },
+                                  }}
+                                >
+                                  ?
+                                </AccentButton>
+                              </Tooltip>
+                              <PictureAsPdfIcon
+                                sx={{
+                                  fontSize: 13,
+                                  color: alpha(T.accent, 0.45),
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <Typography
+                                sx={{ fontSize: '0.7rem', color: T.faint }}
+                              >
+                                Download generates a PDF of the DTR for{' '}
+                                {employeeName} — {monthsShort[selectedMonth]}{' '}
+                                {selectedYear}
+                              </Typography>
+                            </Box>
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Tooltip title="Print this Daily Time Record" placement="top">
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    aria-label="Print DTR"
+                                    startIcon={
+                                      <PrintIcon
+                                        sx={{ fontSize: '15px !important' }}
+                                      />
+                                    }
+                                    onClick={() => {
+                                      try {
+                                        logAttendanceModuleAction({
+                                          module:
+                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
+                                          auditButton: 'Print',
+                                          targetEmployeeNumber:
+                                            String(personID) || '#all-users',
+                                          targetEmployeeName:
+                                            employeeName || null,
+                                          targetUsername:
+                                            selectedEmployee?.username || null,
+                                          periodStart: startDate,
+                                          periodEnd: endDate,
+                                          monthLabel: buildAuditPeriodLabel({
+                                            selectedMonth,
+                                            monthNames: monthsShort,
+                                            selectedYear,
+                                            startDate,
+                                            endDate,
+                                          }),
+                                          auditEvent: 'dtr_overall_print',
+                                        });
+                                      } catch (e) {
+                                        console.error('Audit log failed', e);
+                                      }
+                                      printPage();
+                                    }}
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Print DTR
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title="Download this DTR as a PDF file" placement="top">
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={
+                                      <PictureAsPdfIcon
+                                        sx={{ fontSize: '15px !important' }}
+                                      />
+                                    }
+                                    onClick={() => {
+                                      try {
+                                        logAttendanceModuleAction({
+                                          module:
+                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
+                                          auditButton: 'Download PDF',
+                                          targetEmployeeNumber:
+                                            String(personID) || '#all-users',
+                                          targetEmployeeName:
+                                            employeeName || null,
+                                          targetUsername:
+                                            selectedEmployee?.username || null,
+                                          periodStart: startDate,
+                                          periodEnd: endDate,
+                                          monthLabel: buildAuditPeriodLabel({
+                                            selectedMonth,
+                                            monthNames: monthsShort,
+                                            selectedYear,
+                                            startDate,
+                                            endDate,
+                                          }),
+                                          auditEvent: 'dtr_overall_download',
+                                        });
+                                      } catch (e) {
+                                        console.error('Audit log failed', e);
+                                      }
+                                      downloadPDF();
+                                    }}
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Download PDF
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                            </Box>
                           </Box>
                         )}
                       </>
@@ -5685,6 +6316,112 @@ const DailyTimeRecordFaculty = ({
           </Box>
         </Fade>
       )}
+
+      {/* ── Sliding hub panels (Official Time / Modification / Computation) ── */}
+      <Drawer
+        anchor="right"
+        open={isHubDrawerOpen(moduleDrawer)}
+        onClose={() => setModuleDrawer(null)}
+        className="no-print"
+        ModalProps={{ keepMounted: false }}
+        // Keep below AppBar/footer (1201); inset paper so chrome does not clip content
+        sx={{ zIndex: 1200 }}
+        PaperProps={{
+          sx: {
+            top: { xs: 0, sm: '62px' },
+            bottom: { xs: 0, sm: '48px' },
+            height: { xs: '100%', sm: 'auto' },
+            maxHeight: { xs: '100dvh', sm: 'calc(100dvh - 110px)' },
+            // Explicit width — without this, temporary Drawer sizes to content and
+            // the records table collapses, leaving only a cramped filter column.
+            width: { xs: '100%', sm: '90vw' },
+            maxWidth: { xs: '100vw', sm: 1480 },
+            minWidth: { sm: 960 },
+            borderRadius: { xs: 0, sm: '14px 0 0 14px' },
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            bgcolor: '#f7f8fa',
+            boxShadow: `-12px 0 40px ${alpha('#000', 0.22)}`,
+            borderLeft: `1px solid ${alpha(T.accent, 0.12)}`,
+          },
+        }}
+        SlideProps={{ timeout: 320 }}
+      >
+        {moduleDrawer === 'modification' && (
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              width: '100%',
+              height: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <AttendanceModification
+              key={`mod-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}`}
+              embedded
+              onClose={() => setModuleDrawer(null)}
+              initialContext={{
+                employeeNumber: personID || '',
+                startDate: startDate || '',
+                endDate: endDate || '',
+                selectedYear,
+                selectedMonth,
+                employee: selectedEmployee || (personID
+                  ? {
+                      employeeNumber: personID,
+                      name: employeeName || '',
+                      fullName: employeeName || '',
+                    }
+                  : null),
+              }}
+            />
+          </Box>
+        )}
+        {moduleDrawer === 'officialTime' && (
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              width: '100%',
+              height: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <OfficialTimeForm
+              key={`ot-drawer-${personID || 'none'}`}
+              embedded
+              onClose={() => setModuleDrawer(null)}
+              initialContext={{
+                employeeNumber: personID || '',
+                employee: selectedEmployee || (personID
+                  ? {
+                      employeeNumber: personID,
+                      name: employeeName || '',
+                      fullName: employeeName || '',
+                    }
+                  : null),
+              }}
+            />
+          </Box>
+        )}
+        {COMPUTATION_DRAWER_KEYS.has(moduleDrawer) && (
+          <AttendanceComputationDrawer
+            drawerKey={moduleDrawer}
+            initialContext={hubDrawerInitialContext}
+            saveSignal={computationSaveSignal}
+            onClose={() => setModuleDrawer(null)}
+            onSavedToSummary={handleSavedToSummary}
+          />
+        )}
+      </Drawer>
     </>
   );
 };

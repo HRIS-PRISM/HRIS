@@ -44,6 +44,8 @@ export const OVERALL_COMPARE_FIELD_META = [
   { key: 'overallRenderedOfficialTimeTardiness', label: 'Overall — tardiness' },
 ];
 
+export const OVERALL_COMPARE_FIELD_KEYS = OVERALL_COMPARE_FIELD_META.map((f) => f.key);
+
 export function timeToSec(hms) {
   if (hms == null || hms === '') return 0;
   const str = String(hms).trim();
@@ -97,14 +99,33 @@ export function hasOverallSummaryTotals(row) {
 }
 
 /**
+ * True when saved vs proposed differ on totals shown in the compare modal.
+ */
+export function hasOverallCompareFieldConflicts(
+  saved,
+  proposed,
+  keys = OVERALL_COMPARE_FIELD_KEYS,
+) {
+  if (!saved || !proposed) return false;
+  return keys.some((key) => {
+    const sv = saved[key] ?? '00:00:00';
+    const pv = proposed[key] ?? '00:00:00';
+    return !hmsRoughlyEqual(sv, pv);
+  });
+}
+
+/**
  * How save should treat an existing overall row for this employee/period.
- * @returns {'post'|'fill-stub'|'duplicate-info'|'compare'}
+ * @returns {'post'|'fill-stub'|'duplicate-info'|'auto-update'|'compare'}
  */
 export function classifyOverallSave(existingList, startDate, endDate, proposed) {
   const existing = findExactOverallRecord(existingList, startDate, endDate);
   if (!existing) return { action: 'post', existing: null };
   if (!hasOverallSummaryTotals(existing)) return { action: 'fill-stub', existing };
   if (!overallRecordsDiffer(existing, proposed)) return { action: 'duplicate-info', existing };
+  if (!hasOverallCompareFieldConflicts(existing, proposed)) {
+    return { action: 'auto-update', existing };
+  }
   return { action: 'compare', existing };
 }
 

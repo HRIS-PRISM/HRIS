@@ -67,6 +67,11 @@ import API_BASE_URL from '../../apiConfig';
   import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
   import AttendanceWorkflowNav from './AttendanceWorkflowNav';
   import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+  import {
+    seedEmbeddedModuleContext,
+    ATTENDANCE_EMBEDDED_ROOT_SX,
+    notifyModuleSaveSuccess,
+  } from '../../utils/attendanceModuleEmbedded';
   import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
   import { useSystemSettings } from '../../hooks/useSystemSettings';
   import usePageAccess from '../../hooks/usePageAccess';
@@ -967,7 +972,7 @@ import API_BASE_URL from '../../apiConfig';
   };
 
   // ─── Floating Totals Bar (unified style matching NonTeaching) ─────────────
-  const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDate, endDate }) => {
+  const FloatingTotalsBar = ({ totals, visible, onSave, saving, activeTab, startDate, endDate, showSaveButton = true }) => {
     const [expanded, setExpanded] = useState(true);
     if (!visible) return null;
 
@@ -1011,24 +1016,34 @@ import API_BASE_URL from '../../apiConfig';
               )}
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
+              {showSaveButton && (
+              <Button
+                variant="contained"
+                size="small"
                 onClick={(e) => { e.stopPropagation(); if (!saving) onSave(); }}
+                disabled={saving}
+                startIcon={
+                  saving
+                    ? <CircularProgress size={14} thickness={5} sx={{ color: '#fff' }} />
+                    : <SaveAs sx={{ fontSize: '15px !important' }} />
+                }
                 sx={{
-                  display: 'flex', alignItems: 'center', gap: 0.75,
-                  px: 1.5, py: 0.6, borderRadius: '8px',
-                  border: `1px solid ${T.accentBorder}`, bgcolor: '#fff',
-                  cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
-                  '&:hover': saving ? {} : { bgcolor: T.accentFaint, borderColor: T.accent },
+                  height: 32,
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  px: 1.5,
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  bgcolor: T.accent,
+                  color: '#fff',
+                  boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                  '&:hover': { bgcolor: T.accentDark },
+                  '&.Mui-disabled': { opacity: 0.7, color: '#fff' },
                 }}
               >
-                {saving
-                  ? <CircularProgress size={14} thickness={5} sx={{ color: T.accent }} />
-                  : <SaveAs sx={{ color: T.accent, fontSize: 16 }} />
-                }
-                <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent }}>
-                  {saving ? 'Saving…' : 'Save to summary'}
-                </Typography>
-              </Box>
+                {saving ? 'Saving…' : 'Save to Summary'}
+              </Button>
+              )}
               {expanded
                 ? <ExpandMore sx={{ fontSize: 16, color: T.muted }} />
                 : <ExpandLess sx={{ fontSize: 16, color: T.muted }} />
@@ -1351,16 +1366,27 @@ import API_BASE_URL from '../../apiConfig';
   };
 
   // ─── Main Component ────────────────────────────────────────────────────────
-  const AttendanceModuleFaculty = () => {
+  const AttendanceModuleFaculty = ({
+    embedded = false,
+    initialContext = null,
+    onClose,
+    onSavedToSummary,
+    saveSignal = 0,
+  } = {}) => {
+    const seedEmp = String(initialContext?.employeeNumber || '').trim();
+    const seedStart = initialContext?.startDate || '';
+    const seedEnd = initialContext?.endDate || '';
     const [suspensionByDate, setSuspensionByDate] = useState({});
     const [leaveByDate, setLeaveByDate] = useState({});
     const [holidayByDate, setHolidayByDate] = useState({});
     const { settings } = useSystemSettings();
-    const [employeeNumber, setEmployeeNumber] = useState('');
-    const [employeeDisplayName, setEmployeeDisplayName] = useState('');
+    const [employeeNumber, setEmployeeNumber] = useState(seedEmp);
+    const [employeeDisplayName, setEmployeeDisplayName] = useState(
+      initialContext?.fullName || initialContext?.employee?.fullName || '',
+    );
     const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    const [startDate, setStartDate] = useState(seedStart);
+    const [endDate, setEndDate] = useState(seedEnd);
     const [attendanceData, setAttendanceData] = useState([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -1387,8 +1413,12 @@ import API_BASE_URL from '../../apiConfig';
 
     const currentYear = new Date().getFullYear();
     const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-    const [selectedMonth, setSelectedMonth] = useState(null);
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(
+      initialContext?.selectedMonth ?? null,
+    );
+    const [selectedYear, setSelectedYear] = useState(
+      initialContext?.selectedYear ?? new Date().getFullYear(),
+    );
     const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -2023,12 +2053,16 @@ import API_BASE_URL from '../../apiConfig';
 
     // ── Save ──────────────────────────────────────────────────────────────────
     const navigateToOverallAttendanceSummary = useCallback(() => {
+      if (embedded && typeof onSavedToSummary === 'function') {
+        onSavedToSummary();
+        return;
+      }
       navigateAttendanceWorkflow(navigate, 'summary', {
         employeeNumber,
         startDate,
         endDate,
       });
-    }, [employeeNumber, startDate, endDate, navigate]);
+    }, [embedded, onSavedToSummary, employeeNumber, startDate, endDate, navigate]);
 
     const buildOverallRecordPayload = () => {
       const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
@@ -2083,7 +2117,7 @@ import API_BASE_URL from '../../apiConfig';
         mergedPayload,
         getAuthHeaders(),
       );
-      showSnackbar('Attendance summary updated from your choices.', 'success');
+      notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary updated from your choices.');
       navigateToOverallAttendanceSummary();
     };
 
@@ -2100,7 +2134,7 @@ import API_BASE_URL from '../../apiConfig';
         const { action, existing } = classifyOverallSave(existingList, startDate, endDate, record);
         if (action === 'fill-stub' && existing?.id) {
           await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
-          showSnackbar('Attendance summary saved.', 'success');
+          notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary saved.');
           await persistDailyLateUndertimeFromModule({
             personID: employeeNumber,
             startDate,
@@ -2114,6 +2148,11 @@ import API_BASE_URL from '../../apiConfig';
           return;
         }
         if (action === 'duplicate-info') {
+          if (embedded) {
+            navigateToOverallAttendanceSummary();
+            return;
+          }
+          showSnackbar('Summary already matches these totals.', 'info');
           showModal(
             'Duplicate attendance summary',
             `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
@@ -2128,9 +2167,25 @@ import API_BASE_URL from '../../apiConfig';
           );
           return;
         }
+        if (action === 'auto-update' && existing?.id) {
+          await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
+          notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary updated.');
+          await persistDailyLateUndertimeFromModule({
+            personID: employeeNumber,
+            startDate,
+            endDate,
+            moduleType: 'FACULTY_30HRS',
+            rows: record.daily_late_undertime,
+            halfDayDates: record.halfDayDates,
+            half_day_review: record.half_day_review,
+          });
+          navigateToOverallAttendanceSummary();
+          return;
+        }
         if (action === 'compare' && existing) {
           setPendingSavedOverall(existing);
           setPendingProposedOverall(record);
+          setLoading(false);
           setCompareOpen(true);
           return;
         }
@@ -2149,7 +2204,11 @@ import API_BASE_URL from '../../apiConfig';
           record,
           getAuthHeaders(),
         );
-        showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
+        notifyModuleSaveSuccess(
+          embedded,
+          showSnackbar,
+          response.data.message || 'Attendance record saved successfully!',
+        );
         await persistDailyLateUndertimeFromModule({
           personID: employeeNumber,
           startDate,
@@ -2168,8 +2227,38 @@ import API_BASE_URL from '../../apiConfig';
       }
     };
 
+    const saveOverallAttendanceRef = useRef(saveOverallAttendance);
+    useEffect(() => {
+      saveOverallAttendanceRef.current = saveOverallAttendance;
+    });
+    const lastSaveSignalRef = useRef(saveSignal);
+    useEffect(() => {
+      if (!embedded || !saveSignal) return;
+      if (saveSignal === lastSaveSignalRef.current) return;
+      lastSaveSignalRef.current = saveSignal;
+      saveOverallAttendanceRef.current?.();
+    }, [saveSignal, embedded]);
+
     const handleSubmitRef = useRef(handleSubmit);
     useEffect(() => { handleSubmitRef.current = handleSubmit; });
+
+    const embeddedSeededRef = useRef(false);
+    useEffect(() => {
+      if (!embedded || !initialContext || embeddedSeededRef.current) return;
+      embeddedSeededRef.current = true;
+      seedEmbeddedModuleContext({
+        initialContext,
+        setEmployeeNumber,
+        setEmployeeDisplayName,
+        setStartDate,
+        setEndDate,
+        setSelectedYear,
+        setSelectedMonth,
+      });
+      setTimeout(() => {
+        handleSubmitRef.current?.();
+      }, 350);
+    }, [embedded, initialContext]);
 
     const handleWorkflowHydrate = useCallback((payload) => {
       setEmployeeNumber(payload.employeeNumber || '');
@@ -2370,7 +2459,7 @@ import API_BASE_URL from '../../apiConfig';
     // ─────────────────────────────────────────────────────────────────────────
     return (
       <Fade in timeout={400}>
-        <Box sx={{
+        <Box sx={embedded ? ATTENDANCE_EMBEDDED_ROOT_SX : {
           py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
           pb: ATTENDANCE_PAGE_BOTTOM_PAD,
           width: '100vw', maxWidth: '100%',
@@ -2392,9 +2481,25 @@ import API_BASE_URL from '../../apiConfig';
             </Alert>
           </Snackbar>
 
-          <LoadingOverlay open={loading} message="Fetching attendance records…" />
+          <LoadingOverlay open={loading && !compareOpen} message="Fetching attendance records…" />
 
-          {/* ── Page Header ── */}
+          {embedded ? (
+            <Box sx={{ flexShrink: 0, mb: 1.25, px: 1.5, py: 1, borderRadius: '10px', border: `1px solid ${T.accentBorder}`, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                <WorkHistory sx={{ fontSize: 20, color: T.accent }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15 }}>Faculty 30hrs Computation</Typography>
+                  <Typography sx={{ fontSize: '0.68rem', color: T.accentMid, fontWeight: 600 }}>Review tardiness, then Save to Summary</Typography>
+                </Box>
+              </Box>
+              {typeof onClose === 'function' && (
+                <IconButton onClick={onClose} size="small" sx={{ bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } }}>
+                  <CloseIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              )}
+            </Box>
+          ) : (
+          /* ── Page Header ── */
           <SectionCard sx={{ mb: 2 }}>
             <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
               <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
@@ -2432,6 +2537,7 @@ import API_BASE_URL from '../../apiConfig';
               </Box>
             </Box>
           </SectionCard>
+          )}
 
           {/* ── Alerts ── */}
           <Collapse in={!!error}>
@@ -2441,7 +2547,8 @@ import API_BASE_URL from '../../apiConfig';
             <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{success}</Alert>
           </Collapse>
 
-          {/* ── Controls Card ── */}
+          {/* ── Controls Card — hidden in DTR sliding drawer ── */}
+          {!embedded && (
           <SectionCard sx={{ mb: 2 }}>
             <PanelHeader icon={FilterList} title="Filter Attendance Records" />
             <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
@@ -2517,6 +2624,7 @@ import API_BASE_URL from '../../apiConfig';
               </Box>
             </Box>
           </SectionCard>
+          )}
 
           {/* ── Results Card ── */}
           {attendanceData.length > 0 && (

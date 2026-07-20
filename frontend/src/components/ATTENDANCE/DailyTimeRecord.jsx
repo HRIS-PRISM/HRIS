@@ -58,6 +58,8 @@ import {
 import {
   formatDtrPdfFileName,
   openPdfBlobForPrint,
+  DTR_NON_WORKING_DAY_LABEL,
+  isDtrNonWorkingDayRow,
 } from '../../utils/dtrFormatHelpers';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1851,6 +1853,52 @@ const DailyTimeRecord = () => {
         isNotScheduledDay,
         isPendingHalfDay,
       });
+      const nonWorkingRowTint =
+        isNotScheduledDay && !indicator
+          ? 'rgba(128, 128, 128, 0.06)'
+          : rowTint;
+      const timeFields = {
+        timeIN: record?.timeIN,
+        breaktimeIN: record?.breaktimeIN,
+        breaktimeOUT: record?.breaktimeOUT,
+        timeOUT: record?.timeOUT,
+      };
+      if (
+        isDtrNonWorkingDayRow({
+          isNotScheduledDay,
+          indicator,
+          timeFields,
+        })
+      ) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={dtrWmSpanStyle}>{DTR_NON_WORKING_DAY_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
       return (
         <tr key={i}>
           <td

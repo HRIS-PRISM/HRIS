@@ -139,8 +139,19 @@ const T = {
 const RECORDS_ROW_GRID =
   'minmax(72px, 0.9fr) minmax(68px, 0.75fr) minmax(44px, 0.55fr) repeat(4, minmax(104px, 1.05fr)) minmax(120px, 1fr) minmax(130px, 1.1fr)';
 const FULL_MONTH_ROW_GRID =
-  'minmax(56px, 0.65fr) minmax(68px, 0.75fr) minmax(44px, 0.55fr) repeat(4, minmax(104px, 1.05fr)) minmax(120px, 1fr) minmax(130px, 1.1fr)';
-const MOD_TABLE_MIN_WIDTH = 1020;
+  '28px minmax(56px, 0.65fr) minmax(68px, 0.75fr) minmax(44px, 0.55fr) repeat(4, minmax(104px, 1.05fr)) minmax(120px, 1fr) minmax(130px, 1.1fr)';
+const MOD_TABLE_MIN_WIDTH = 1048;
+
+const rowHasOfficialSchedule = (record) =>
+  !!(
+    record?.officialTimeIN ||
+    record?.officialTimeOUT ||
+    record?.officialBreaktimeIN ||
+    record?.officialBreaktimeOUT
+  );
+
+const canFullMonthAutoFill = (record, autoFilledRows) =>
+  rowHasOfficialSchedule(record) && !autoFilledRows.has(record?.date);
 
 /** Shown in EDIT REMARKS after force-sync from Device module */
 const DEVICE_RESTORE_REMARK_PREFIX = 'Returned data from the device';
@@ -515,9 +526,11 @@ const ModernTextField = styled(TextField)(() => ({
 }));
 
 const scrollbarSx = {
-  '&::-webkit-scrollbar': { width: 4 },
-  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
-  '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
+  '&::-webkit-scrollbar': { width: 8, height: 8 },
+  '&::-webkit-scrollbar-thumb': { bgcolor: alpha(T.accent, 0.35), borderRadius: 4 },
+  '&::-webkit-scrollbar-track': { bgcolor: alpha(T.accent, 0.06) },
+  scrollbarWidth: 'thin',
+  scrollbarColor: `${alpha(T.accent, 0.35)} ${alpha(T.accent, 0.06)}`,
 };
 
 const PanelHeader = ({ icon: Icon, title, right }) => (
@@ -901,6 +914,9 @@ const FullMonthRow = memo(function FullMonthRow({
   autoFilledRows,
   onAutoFill,
   onFillBreak,
+  selected = false,
+  onToggleSelect,
+  canSelectForFill = false,
 }) {
   const rowKey = record.date;
   const isAutoFilled = autoFilledRows.has(rowKey);
@@ -914,7 +930,8 @@ const FullMonthRow = memo(function FullMonthRow({
   const rowSavedMod = !record.isNew && !rowDirty && rowEverModified;
   const hasTyped = record.isNew && hasAnyTime(record);
 
-  const showAutoFill = !!(record.officialTimeIN || record.officialTimeOUT) && !isAutoFilled;
+  const hasOfficialTimes = rowHasOfficialSchedule(record);
+  const showAutoFill = hasOfficialTimes && !isAutoFilled;
 
   const savedRemarks = record.remarks || '';
   const savedAutofillRemarks = record.autofill_remarks || '';
@@ -933,6 +950,34 @@ const FullMonthRow = memo(function FullMonthRow({
   return (
     <Box sx={{ borderBottom: `1px solid ${T.divider}`, borderLeft: leftBorder, transition: 'background 0.13s', bgcolor: rowBg, '&:hover': { bgcolor: isAutoFilled ? alpha(T.accent, 0.09) : T.rowHover }, minWidth: 0, animation: isAutoFilled ? 'autoFillPulse 0.6s ease-out' : 'none' }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: FULL_MONTH_ROW_GRID, px: 2, py: 1, gap: 1.25, alignItems: 'center', minWidth: MOD_TABLE_MIN_WIDTH }}>
+        {/* Select */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Tooltip
+            title={
+              canSelectForFill
+                ? 'Select for bulk auto-fill'
+                : isAutoFilled
+                  ? 'Already auto-filled'
+                  : 'No official schedule for this day'
+            }
+            placement="top"
+          >
+            <span>
+              <Checkbox
+                size="small"
+                checked={selected}
+                disabled={!canSelectForFill}
+                onChange={() => onToggleSelect?.(record.date)}
+                sx={{
+                  p: 0,
+                  color: T.accentBorder,
+                  '&.Mui-checked': { color: T.accent },
+                  '&.Mui-disabled': { opacity: 0.35 },
+                }}
+              />
+            </span>
+          </Tooltip>
+        </Box>
         {/* Status */}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.35, alignItems: 'center' }}>
           {record.isNew ? (
@@ -1302,10 +1347,11 @@ const EmployeeProfileCard = ({
 };
 
 // ─── Remarks Dialog (for auto-fill) ────────────────────────────────────────
-const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
+const RemarksDialog = ({ open, onClose, onConfirm, date, isNew, bulkCount = 0 }) => {
   const [remarks, setRemarks] = useState('');
   useEffect(() => { if (open) setRemarks(''); }, [open]);
   const canConfirm = remarks.trim().length > 0;
+  const isBulk = bulkCount > 1;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth
@@ -1318,9 +1364,13 @@ const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
             <EventAvailable sx={{ fontSize: 22, color: '#FEF9E1' }} />
           </Box>
           <Box sx={{ zIndex: 1 }}>
-            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#FEF9E1', lineHeight: 1.2, fontFamily: T.font }}>Auto-Fill Official Time</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#FEF9E1', lineHeight: 1.2, fontFamily: T.font }}>
+              {isBulk ? `Auto-Fill ${bulkCount} Days` : 'Auto-Fill Official Time'}
+            </Typography>
             <Typography sx={{ fontSize: '0.75rem', color: 'rgba(254,249,225,0.75)', mt: 0.3, fontFamily: T.font }}>
-              {date} — {isNew ? 'Create new record' : 'Override all time fields'}
+              {isBulk
+                ? `${bulkCount} selected days — bulk schedule fill`
+                : `${date} — ${isNew ? 'Create new record' : 'Override all time fields'}`}
             </Typography>
           </Box>
         </Box>
@@ -1328,7 +1378,11 @@ const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
       <DialogContent sx={{ p: 0, bgcolor: '#FFFDF5' }}>
         <Box sx={{ px: 3, pt: 2.5, pb: 2 }}>
           <Typography sx={{ fontSize: '0.82rem', color: T.muted, mb: 2, fontFamily: T.font, lineHeight: 1.6 }}>
-            This will <strong>overwrite all four time fields</strong> (Time IN, Breaktime IN, Breaktime OUT, Time OUT) using the employee's official schedule for this date. Please provide a reason below.
+            {isBulk ? (
+              <>This will <strong>overwrite all four time fields</strong> on <strong>{bulkCount} selected days</strong>, using each day&apos;s official schedule. One reason will apply to all selected rows (e.g. PVP / leave with pay).</>
+            ) : (
+              <>This will <strong>overwrite all four time fields</strong> (Time IN, Breaktime IN, Breaktime OUT, Time OUT) using the employee&apos;s official schedule for this date. Please provide a reason below.</>
+            )}
           </Typography>
           <Box sx={{ p: 2, borderRadius: '8px', border: `1.5px solid ${remarks.trim() ? T.accentBorder : alpha(T.accent, 0.12)}`, bgcolor: remarks.trim() ? T.accentFaint : '#fff', transition: 'all 0.2s' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
@@ -1555,7 +1609,12 @@ const AuthorizationDialog = ({
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
-const AttendanceSearch = () => {
+/** @param {{ embedded?: boolean, initialContext?: object|null, onClose?: () => void }} props */
+const AttendanceSearch = ({
+  embedded = false,
+  initialContext = null,
+  onClose,
+} = {}) => {
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
   const INITIAL_VISIBLE_ROWS = 60;
@@ -1566,12 +1625,32 @@ const AttendanceSearch = () => {
 
   const { hasAccess, loading: accessLoading } = usePageAccess('search-attendance');
 
-  const [personID, setPersonID] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const seedEmpNum = String(initialContext?.employeeNumber || '').trim();
+  const seedStart = initialContext?.startDate || '';
+  const seedEnd = initialContext?.endDate || '';
+
+  const [personID, setPersonID] = useState(seedEmpNum);
+  const [startDate, setStartDate] = useState(seedStart);
+  const [endDate, setEndDate] = useState(seedEnd);
+  const [selectedYear, setSelectedYear] = useState(() => {
+    if (initialContext?.selectedYear != null) return initialContext.selectedYear;
+    if (seedStart) {
+      const y = Number(String(seedStart).slice(0, 4));
+      return Number.isFinite(y) ? y : new Date().getFullYear();
+    }
+    return new Date().getFullYear();
+  });
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    if (initialContext?.selectedMonth != null) return initialContext.selectedMonth;
+    if (seedStart) {
+      const m = Number(String(seedStart).slice(5, 7)) - 1;
+      return Number.isFinite(m) && m >= 0 && m <= 11 ? m : null;
+    }
+    return null;
+  });
+  const [selectedEmployee, setSelectedEmployee] = useState(() =>
+    initialContext?.employee ? toProfileEmployee(initialContext.employee) : null,
+  );
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
   const [sexMap, setSexMap] = useState({});
@@ -1596,10 +1675,12 @@ const AttendanceSearch = () => {
 
   const [autoFilledRecordsRows, setAutoFilledRecordsRows] = useState(new Map());
   const [autoFilledFullRows, setAutoFilledFullRows] = useState(new Map());
+  const [selectedFullMonthDates, setSelectedFullMonthDates] = useState(new Set());
   const [pendingAutoFill, setPendingAutoFill] = useState(null);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [pendingAutoFillDate, setPendingAutoFillDate] = useState('');
   const [pendingIsNew, setPendingIsNew] = useState(false);
+  const [pendingAutoFillBulkCount, setPendingAutoFillBulkCount] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1625,6 +1706,23 @@ const AttendanceSearch = () => {
 
   const visibleRecords = useMemo(() => records.slice(0, recordsVisibleCount), [records, recordsVisibleCount]);
   const visibleFullRecords = useMemo(() => fullRecords.slice(0, fullVisibleCount), [fullRecords, fullVisibleCount]);
+
+  const fillableFullMonthDates = useMemo(
+    () => fullRecords.filter((r) => canFullMonthAutoFill(r, autoFilledFullRows)).map((r) => r.date),
+    [fullRecords, autoFilledFullRows],
+  );
+
+  const selectedFillableCount = useMemo(
+    () => fillableFullMonthDates.filter((d) => selectedFullMonthDates.has(d)).length,
+    [fillableFullMonthDates, selectedFullMonthDates],
+  );
+
+  const allFillableSelected =
+    fillableFullMonthDates.length > 0 &&
+    fillableFullMonthDates.every((d) => selectedFullMonthDates.has(d));
+
+  const someFillableSelected =
+    fillableFullMonthDates.some((d) => selectedFullMonthDates.has(d)) && !allFillableSelected;
 
   const handleWorkflowHydrate = useCallback((payload) => {
     setPersonID(payload.employeeNumber);
@@ -1905,6 +2003,7 @@ const AttendanceSearch = () => {
       fullCacheRef.current.set(cacheKey, fetched);
       if (fullCacheRef.current.size > 20) { const firstKey = fullCacheRef.current.keys().next().value; fullCacheRef.current.delete(firstKey); }
       setFullRecords(fetched); setSavedFullRecords(deepClone(fetched));
+      setSelectedFullMonthDates(new Set());
       if (!preserveBaseline) {
         // ── Fresh load: build keyed baseline Map, reset session state ─────────
         const bm = new Map();
@@ -1955,6 +2054,7 @@ const AttendanceSearch = () => {
     setLoadedTabs(new Set());
     setRecordsVisibleCount(INITIAL_VISIBLE_ROWS); setFullVisibleCount(INITIAL_VISIBLE_ROWS);
     setAutoFilledRecordsRows(new Map()); setAutoFilledFullRows(new Map());
+    setSelectedFullMonthDates(new Set());
     setHasSearched(true); setSubmittedID(String(personID || '').trim());
     const timer = setTimeout(() => {
       if (activeTab === 'records') fetchRecords(true, { force: true, auditView: true });
@@ -2198,18 +2298,57 @@ const AttendanceSearch = () => {
 
   const handleAutoFillClickRecords = useCallback((index) => {
     const record = records[index]; if (!record) return;
-    setPendingAutoFill({ index, tab: 'records' }); setPendingAutoFillDate(record.date || ''); setPendingIsNew(false); setRemarksDialogOpen(true);
+    setPendingAutoFill({ index, tab: 'records' });
+    setPendingAutoFillDate(record.date || '');
+    setPendingIsNew(false);
+    setPendingAutoFillBulkCount(0);
+    setRemarksDialogOpen(true);
   }, [records]);
 
   const handleAutoFillClickFull = useCallback((index) => {
     const record = fullRecords[index]; if (!record) return;
-    setPendingAutoFill({ index, tab: 'fullMonth' }); setPendingAutoFillDate(record.date || ''); setPendingIsNew(record.isNew || false); setRemarksDialogOpen(true);
+    setPendingAutoFill({ index, tab: 'fullMonth' });
+    setPendingAutoFillDate(record.date || '');
+    setPendingIsNew(record.isNew || false);
+    setPendingAutoFillBulkCount(0);
+    setRemarksDialogOpen(true);
   }, [fullRecords]);
+
+  const handleToggleFullMonthSelect = useCallback((date) => {
+    setSelectedFullMonthDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllFillableFullMonth = useCallback(() => {
+    setSelectedFullMonthDates((prev) => {
+      const allSelected =
+        fillableFullMonthDates.length > 0 &&
+        fillableFullMonthDates.every((d) => prev.has(d));
+      return allSelected ? new Set() : new Set(fillableFullMonthDates);
+    });
+  }, [fillableFullMonthDates]);
+
+  const handleBulkAutoFillClickFull = useCallback(() => {
+    const dates = fillableFullMonthDates.filter((d) => selectedFullMonthDates.has(d));
+    if (!dates.length) {
+      showSnackbar('Select at least one day with an official schedule.', 'warning');
+      return;
+    }
+    setPendingAutoFill({ tab: 'fullMonth', bulk: true, dates });
+    setPendingAutoFillDate(dates.length === 1 ? dates[0] : `${dates[0]} … ${dates[dates.length - 1]}`);
+    setPendingIsNew(false);
+    setPendingAutoFillBulkCount(dates.length);
+    setRemarksDialogOpen(true);
+  }, [fillableFullMonthDates, selectedFullMonthDates, showSnackbar]);
 
   const handleAutoFillConfirm = useCallback((remarks) => {
     setRemarksDialogOpen(false);
     if (!pendingAutoFill) return;
-    const { index, tab } = pendingAutoFill;
+    const { index, tab, bulk, dates } = pendingAutoFill;
 
     if (tab === 'records') {
       const record = records[index]; if (!record) return;
@@ -2226,6 +2365,42 @@ const AttendanceSearch = () => {
       const key = `${record.personID}-${record.date}`;
       setAutoFilledRecordsRows((prev) => new Map([...prev, [key, { remarks, originalValues }]]));
       showSnackbar(`Auto-filled times for ${record.date}. Click Save to persist.`, 'info');
+    } else if (bulk && Array.isArray(dates) && dates.length > 0) {
+      const updated = [...fullRecords];
+      let filledCount = 0;
+      const filledDates = [];
+      dates.forEach((date) => {
+        const rowIndex = updated.findIndex((r) => r.date === date);
+        if (rowIndex === -1) return;
+        const record = updated[rowIndex];
+        if (!rowHasOfficialSchedule(record)) return;
+        const originalValues = {};
+        EDITABLE_FIELDS.forEach((f) => { originalValues[f] = record[f] || ''; });
+        updated[rowIndex] = {
+          ...record,
+          timeIN: record.officialTimeIN || '',
+          breaktimeIN: record.officialBreaktimeIN || '',
+          breaktimeOUT: record.officialBreaktimeOUT || '',
+          timeOUT: record.officialTimeOUT || '',
+        };
+        filledDates.push({ date, originalValues });
+        filledCount += 1;
+      });
+      setFullRecords(updated);
+      setAutoFilledFullRows((prev) => {
+        const next = new Map(prev);
+        filledDates.forEach(({ date, originalValues }) => {
+          next.set(date, { remarks, originalValues });
+        });
+        return next;
+      });
+      setSelectedFullMonthDates(new Set());
+      showSnackbar(
+        filledCount > 0
+          ? `Auto-filled ${filledCount} day(s). Click Save to persist.`
+          : 'No rows were auto-filled.',
+        filledCount > 0 ? 'info' : 'warning',
+      );
     } else {
       const record = fullRecords[index]; if (!record) return;
       const originalValues = {};
@@ -2242,7 +2417,8 @@ const AttendanceSearch = () => {
       showSnackbar(`Auto-filled times for ${record.date}. Click Save to persist.`, 'info');
     }
     setPendingAutoFill(null);
-  }, [pendingAutoFill, records, fullRecords]);
+    setPendingAutoFillBulkCount(0);
+  }, [pendingAutoFill, records, fullRecords, showSnackbar]);
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
@@ -2274,6 +2450,7 @@ const AttendanceSearch = () => {
     setLoadedTabs(new Set()); setRecordsVisibleCount(INITIAL_VISIBLE_ROWS); setFullVisibleCount(INITIAL_VISIBLE_ROWS);
     setSubmittedID(''); setHasSearched(false); setLoading(false);
     setAutoFilledRecordsRows(new Map()); setAutoFilledFullRows(new Map());
+    setSelectedFullMonthDates(new Set());
     recordsCacheRef.current.clear(); fullCacheRef.current.clear();
     recordsControllerRef.current?.abort(); fullControllerRef.current?.abort();
   };
@@ -2384,12 +2561,12 @@ const AttendanceSearch = () => {
     }
 
     const recordsColumns = ['EMP #', 'DATE', 'DAY', 'TIME IN', 'BRK IN', 'BRK OUT', 'TIME OUT', 'FILL REMARKS', 'EDIT REMARKS'];
-    const fullColumns    = ['STATUS', 'DATE', 'DAY', 'TIME IN', 'BRK IN', 'BRK OUT', 'TIME OUT', 'FILL REMARKS', 'EDIT REMARKS'];
+    const fullColumns    = ['', 'STATUS', 'DATE', 'DAY', 'TIME IN', 'BRK IN', 'BRK OUT', 'TIME OUT', 'FILL REMARKS', 'EDIT REMARKS'];
 
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
         {/* Tab bar */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, px: 2, pt: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, px: 2, pt: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0, minWidth: 0 }}>
           <TabBtn active={activeTab === 'records'} icon={TableRows} label="Device Records" badge={recordsCount > 0 ? recordsCount : null} onClick={() => handleTabSwitch('records')} />
           <TabBtn active={activeTab === 'fullMonth'} icon={EventNote} label="Full Month Records" badge={fullDaysCount > 0 ? fullDaysCount : null} onClick={() => handleTabSwitch('fullMonth')} />
           {activeTab === 'fullMonth' && missingCount > 0 && (
@@ -2398,20 +2575,22 @@ const AttendanceSearch = () => {
               <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: '#b45309', fontFamily: T.font }}>{missingCount} missing {missingCount === 1 ? 'day' : 'days'}</Typography>
             </Box>
           )}
-          <Box sx={{ ml: 'auto', mb: 0.5, display: 'flex', alignItems: 'center' }}>
-            <HeaderActionBtn
-              variant="contained"
-              icon={<AccessTime sx={{ fontSize: 15 }} />}
-              label="Go to DTR Overall"
-              onClick={handleGoToOverallDTR}
-              disabled={!personID || !startDate || !endDate}
-            />
-          </Box>
+          {!embedded && (
+            <Box sx={{ ml: 'auto', mb: 0.5, display: 'flex', alignItems: 'center' }}>
+              <HeaderActionBtn
+                variant="contained"
+                icon={<AccessTime sx={{ fontSize: 15 }} />}
+                label="Go to DTR Overall"
+                onClick={handleGoToOverallDTR}
+                disabled={!personID || !startDate || !endDate}
+              />
+            </Box>
+          )}
         </Box>
 
         {/* ── Records-only tab ── */}
         {activeTab === 'records' && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
             {recordsCount > 0 && (
               <Box sx={{ px: 2.5, py: 0.75, bgcolor: '#fafafa', borderBottom: `1px solid ${T.divider}`, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
                 {[{ color: '#e65100', label: 'Unsaved' }, { color: '#2e7d32', label: 'Saved mod' }, { color: '#7b1fa2', label: 'Admin added' }, { color: T.accent, label: 'Auto-filled' }].map(({ color, label }) => (
@@ -2425,7 +2604,7 @@ const AttendanceSearch = () => {
                 </Typography>
               </Box>
             )}
-            <Box ref={resultsRef} sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+            <Box ref={resultsRef} sx={{ flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
               {recordsCount > 0 && (
                 <Box sx={{
                   display: 'grid',
@@ -2491,8 +2670,8 @@ const AttendanceSearch = () => {
 
         {/* ── Full Month tab ── */}
         {activeTab === 'fullMonth' && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
-            <Box sx={{ px: 2.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+            <Box sx={{ px: 2.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                 <EventNote sx={{ fontSize: 14, color: T.accent }} />
                 <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, fontFamily: T.font }}>Full Month</Typography>
@@ -2507,6 +2686,57 @@ const AttendanceSearch = () => {
                   </Box>
                 )}
               </Box>
+              {fullDaysCount > 0 && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                  <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontFamily: T.font }}>
+                    {selectedFillableCount > 0
+                      ? `${selectedFillableCount} selected`
+                      : `${fillableFullMonthDates.length} fillable`}
+                  </Typography>
+                  {selectedFillableCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFullMonthDates(new Set())}
+                      style={{
+                        background: 'transparent',
+                        border: `1px solid ${T.accentBorder}`,
+                        borderRadius: '6px',
+                        padding: '4px 10px',
+                        cursor: 'pointer',
+                        color: T.accent,
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        fontFamily: T.font,
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleBulkAutoFillClickFull}
+                    disabled={selectedFillableCount === 0}
+                    style={{
+                      background: selectedFillableCount > 0 ? T.accent : T.accentFaint,
+                      border: `1px solid ${selectedFillableCount > 0 ? T.accent : T.accentBorder}`,
+                      borderRadius: '6px',
+                      padding: '5px 12px',
+                      cursor: selectedFillableCount > 0 ? 'pointer' : 'not-allowed',
+                      color: selectedFillableCount > 0 ? '#FEF9E1' : T.accentMid,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                      opacity: selectedFillableCount > 0 ? 1 : 0.65,
+                    }}
+                  >
+                    <EventAvailable sx={{ fontSize: 14 }} />
+                    Fill Selected ({selectedFillableCount})
+                  </button>
+                </Box>
+              )}
             </Box>
 
             {fullDaysCount > 0 && (
@@ -2518,11 +2748,11 @@ const AttendanceSearch = () => {
                   </Box>
                 ))}
                 <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                  Fill = auto-fill · Fill Break = quick 12PM–1PM break · "was:" = original DB value · "orig:" = before auto-fill · Click remarks to expand
+                  Select rows for bulk fill (PVP / leave with pay) · Fill = auto-fill · Fill Break = quick 12PM–1PM break
                 </Typography>
               </Box>
             )}
-            <Box ref={fullResultsRef} sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+            <Box ref={fullResultsRef} sx={{ flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
               {fullDaysCount > 0 && (
                 <Box sx={{
                   display: 'grid',
@@ -2537,7 +2767,38 @@ const AttendanceSearch = () => {
                   zIndex: 2,
                 }}>
                   {fullColumns.map((col, i) => (
-                    <Typography key={col} sx={{ color: i >= 7 ? (i === 7 ? '#ffd080' : '#a0e8b0') : '#FEF9E1', fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.07em', fontFamily: T.font }}>{col}</Typography>
+                    i === 0 ? (
+                      <Box key="select-all" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Tooltip title="Select all fillable days" placement="top">
+                          <Checkbox
+                            size="small"
+                            checked={allFillableSelected}
+                            indeterminate={someFillableSelected}
+                            disabled={fillableFullMonthDates.length === 0}
+                            onChange={handleSelectAllFillableFullMonth}
+                            sx={{
+                              p: 0,
+                              color: 'rgba(254,249,225,0.55)',
+                              '&.Mui-checked': { color: '#FEF9E1' },
+                              '&.MuiCheckbox-indeterminate': { color: '#FEF9E1' },
+                            }}
+                          />
+                        </Tooltip>
+                      </Box>
+                    ) : (
+                      <Typography
+                        key={col}
+                        sx={{
+                          color: i >= 8 ? (i === 8 ? '#ffd080' : '#a0e8b0') : '#FEF9E1',
+                          fontSize: '0.58rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.07em',
+                          fontFamily: T.font,
+                        }}
+                      >
+                        {col}
+                      </Typography>
+                    )
                   ))}
                 </Box>
               )}
@@ -2560,6 +2821,9 @@ const AttendanceSearch = () => {
                     autoFilledRows={autoFilledFullRows}
                     onAutoFill={handleAutoFillClickFull}
                     onFillBreak={handleFillBreakFull}
+                    selected={selectedFullMonthDates.has(record.date)}
+                    onToggleSelect={handleToggleFullMonthSelect}
+                    canSelectForFill={canFullMonthAutoFill(record, autoFilledFullRows)}
                   />
                 ))
               )}
@@ -2577,7 +2841,7 @@ const AttendanceSearch = () => {
               <Box sx={{ px: 2.5, py: 1, bgcolor: T.accentFaint, borderTop: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
                 <AddCircleOutline sx={{ fontSize: 12, color: T.accentMid }} />
                 <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontFamily: T.font }}>
-                  Type times into any <strong style={{ color: '#92400e' }}>NO REC</strong> row, or click <strong style={{ color: '#1565c0' }}>Auto-Fill</strong> to auto-populate from the official schedule.
+                  Select multiple <strong style={{ color: '#92400e' }}>NO REC</strong> or existing rows, then use <strong style={{ color: T.accent }}>Fill Selected</strong> for PVP / leave-with-pay batches. Individual rows still have <strong style={{ color: '#1565c0' }}>Fill Schd.</strong>
                 </Typography>
               </Box>
             )}
@@ -2601,17 +2865,37 @@ const AttendanceSearch = () => {
   };
 
   // ─── Render ────────────────────────────────────────────────────────────
-  return (
-    <Fade in timeout={400}>
-      <Box sx={{ fontFamily: T.font }}>
+  const root = (
+      <Box
+        sx={{
+          fontFamily: T.font,
+          ...(embedded
+            ? {
+                height: '100%',
+                width: '100%',
+                minWidth: 0,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                bgcolor: '#f7f8fa',
+              }
+            : {}),
+        }}
+      >
         <style>{shimmerKf}</style>
 
         <RemarksDialog
           open={remarksDialogOpen}
-          onClose={() => { setRemarksDialogOpen(false); setPendingAutoFill(null); }}
+          onClose={() => {
+            setRemarksDialogOpen(false);
+            setPendingAutoFill(null);
+            setPendingAutoFillBulkCount(0);
+          }}
           onConfirm={handleAutoFillConfirm}
           date={pendingAutoFillDate}
           isNew={pendingIsNew}
+          bulkCount={pendingAutoFillBulkCount}
         />
 
         <AuthorizationDialog
@@ -2639,20 +2923,113 @@ const AttendanceSearch = () => {
 
         <LoadingOverlay open={loading} message={activeTab === 'fullMonth' ? 'Loading full month attendance…' : 'Loading attendance records…'} />
 
-        <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+        <Box
+          sx={
+            embedded
+              ? {
+                  height: '100%',
+                  width: '100%',
+                  maxWidth: '100%',
+                  p: 1.75,
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  minHeight: 0,
+                }
+              : ATTENDANCE_COMPACT_PAGE_SX
+          }
+        >
           {/* Page Header */}
-          <SectionCard sx={{ mb: 2 }}>
-            <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
-              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
-                <Edit sx={{ fontSize: 30, color: T.accent }} />
-                <Box>
-                  <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25, fontFamily: T.font }}>Attendance Management</Typography>
-                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>Admin Portal · Review and manage attendance records</Typography>
+          {embedded ? (
+            <Box
+              sx={{
+                flexShrink: 0,
+                mb: 1.25,
+                px: 1.75,
+                py: 1.1,
+                borderRadius: '10px',
+                border: `1px solid ${T.accentBorder}`,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1,
+                minWidth: 0,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                <Edit sx={{ fontSize: 20, color: T.accent, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15, fontFamily: T.font }}>
+                    Attendance Modification
+                  </Typography>
+                  <Typography noWrap sx={{ fontSize: '0.68rem', color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>
+                    Edit records without leaving DTR
+                  </Typography>
                 </Box>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative', zIndex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+                <HeaderActionBtn
+                  variant="outlined"
+                  icon={<Refresh sx={{ fontSize: 15 }} />}
+                  label="Refresh"
+                  onClick={handleRefresh}
+                  disabled={!personID || !startDate || !endDate}
+                />
+                {typeof onClose === 'function' && (
+                  <Tooltip title="Close panel">
+                    <IconButton
+                      onClick={onClose}
+                      aria-label="Close modification panel"
+                      sx={{
+                        color: '#fff',
+                        bgcolor: T.accent,
+                        width: 34,
+                        height: 34,
+                        border: `1px solid ${T.accentDark}`,
+                        boxShadow: `0 2px 6px ${alpha(T.accent, 0.35)}`,
+                        '&:hover': {
+                          bgcolor: T.accentDark,
+                          boxShadow: `0 3px 10px ${alpha(T.accent, 0.45)}`,
+                        },
+                      }}
+                    >
+                      <Close sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+            </Box>
+          ) : (
+          <SectionCard sx={{ mb: 2, flexShrink: 0 }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+                gap: 1.5,
+              }}
+            >
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1, minWidth: 0 }}>
+                <Edit sx={{ fontSize: 30, color: T.accent, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25, fontFamily: T.font }}>
+                    Attendance Management
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>
+                    Admin Portal · Review and manage attendance records
+                  </Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative', zIndex: 1, flexShrink: 0 }}>
                 <AttendanceWorkflowNav
                   inline
                   prevStep={prevStep}
@@ -2676,35 +3053,88 @@ const AttendanceSearch = () => {
               </Box>
             </Box>
           </SectionCard>
+          )}
 
           <Collapse in={!!error}>
-            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font }}>{error}</Alert>
+            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font, flexShrink: 0 }}>{error}</Alert>
           </Collapse>
           <Collapse in={!!success}>
-            <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font }}>{success}</Alert>
+            <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font, flexShrink: 0 }}>{success}</Alert>
           </Collapse>
 
-          <Grid container spacing={2}>
-            <Grid item xs={12} lg={3}>
-              <SectionCard sx={filterSidebarCardSx}>
+          {embedded ? (
+            <Box
+              sx={{
+                flex: 1,
+                minHeight: 0,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                gap: 1.5,
+                overflow: 'hidden',
+              }}
+            >
+              <SectionCard
+                sx={{
+                  width: { xs: '100%', md: 300 },
+                  flex: { xs: '0 0 auto', md: '0 0 300px' },
+                  flexShrink: 0,
+                  maxHeight: { xs: 240, md: '100%' },
+                  height: { xs: 'auto', md: '100%' },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
                 <AttendanceFilterHeader />
                 {renderLeftPanel()}
               </SectionCard>
-            </Grid>
-            <Grid item xs={12} lg={9}>
-              <SectionCard sx={{ ...attendanceMainPanelHeightSx, display: 'flex', flexDirection: 'column' }}>
+              <SectionCard
+                sx={{
+                  flex: '1 1 0%',
+                  minWidth: 0,
+                  minHeight: 0,
+                  height: { xs: 'auto', md: '100%' },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
                 {renderRightPanel()}
               </SectionCard>
+            </Box>
+          ) : (
+            <Grid container spacing={2}>
+              <Grid item xs={12} lg={3}>
+                <SectionCard sx={filterSidebarCardSx}>
+                  <AttendanceFilterHeader />
+                  {renderLeftPanel()}
+                </SectionCard>
+              </Grid>
+              <Grid item xs={12} lg={9}>
+                <SectionCard sx={{ ...attendanceMainPanelHeightSx, display: 'flex', flexDirection: 'column' }}>
+                  {renderRightPanel()}
+                </SectionCard>
+              </Grid>
             </Grid>
-          </Grid>
+          )}
         </Box>
 
-        <Zoom in={showScrollTop}>
-          <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <KeyboardArrowUp />
-          </Fab>
-        </Zoom>
+        {!embedded && (
+          <Zoom in={showScrollTop}>
+            <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+              <KeyboardArrowUp />
+            </Fab>
+          </Zoom>
+        )}
       </Box>
+  );
+
+  if (embedded) return root;
+
+  return (
+    <Fade in timeout={400}>
+      {root}
     </Fade>
   );
 };

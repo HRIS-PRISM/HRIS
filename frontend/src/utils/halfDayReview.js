@@ -948,7 +948,7 @@ export function getRowHalfDayUiStatus(row, reviewByDate, moduleType, calendarMap
 
 /** Matches ON LEAVE / SUSPENSION watermark shape on DTR punch cells. */
 export function getDtrHalfDayIndicator(halfUi) {
-  if (halfUi === 'approved') {
+  if (halfUi === 'approved' || halfUi === 'suggested') {
     return {
       type: 'halfDay',
       label: 'HALF DAY',
@@ -969,16 +969,77 @@ export function getDtrHalfDayIndicator(halfUi) {
   return null;
 }
 
-/** Holiday / leave / suspension wins over half-day watermark. */
+/** Absent row — same palette as attendance modules (T.absent). */
+export function getDtrAbsentIndicator() {
+  return {
+    type: 'absent',
+    label: 'ABSENT',
+    bgColor: 'rgba(183, 28, 28, 0.2)',
+    textColor: '#000',
+    borderColor: '#b71c1c',
+  };
+}
+
+/**
+ * Scheduled work day with no punches (matches attendance module absent rows).
+ * Uses `isNotScheduledDay` from Official Time Form — DTR punch rows often lack
+ * officialTimeIN/OUT on the record itself.
+ */
+export function isDtrAbsentRow({
+  record,
+  dateIndicator,
+  isNotScheduledDay,
+  moduleType = MODULE_TYPES.NON_TEACHING,
+}) {
+  if (dateIndicator || isNotScheduledDay) return false;
+  const row = record || {};
+  return moduleType === MODULE_TYPES.NON_TEACHING
+    ? hasNoPunches(row)
+    : hasNoPunchesTimeInOutOnly(row);
+}
+
+/** Holiday / leave / suspension wins over absent / half-day watermark. */
 export function mergeDtrDateAndHalfDayIndicators(dateIndicator, halfDayIndicator) {
   if (dateIndicator) return dateIndicator;
   return halfDayIndicator;
+}
+
+/** Calendar / leave / suspension → absent → half-day watermark. */
+export function resolveDtrRowIndicator(
+  dateIndicator,
+  { absentIndicator, halfDayIndicator } = {},
+) {
+  if (dateIndicator) return dateIndicator;
+  if (absentIndicator) return absentIndicator;
+  return halfDayIndicator || null;
 }
 
 /** Subtle row tint — same pattern as getDateIndicator bg on DTR rows. */
 export function getDtrHalfDayRowTint(halfDayIndicator, fallback = 'transparent') {
   if (!halfDayIndicator?.bgColor) return fallback;
   return String(halfDayIndicator.bgColor).replace(/,\s*[\d.]+\)$/i, ', 0.08)');
+}
+
+export function getDtrAbsentRowTint(absentIndicator, fallback = 'transparent') {
+  if (!absentIndicator?.bgColor) return fallback;
+  return String(absentIndicator.bgColor).replace(/,\s*[\d.]+\)$/i, ', 0.08)');
+}
+
+/** Row background priority: calendar → absent → half-day (suggested uses lighter tint). */
+export function resolveDtrRowTint(
+  dateIndicator,
+  { absentIndicator, halfDayIndicator, suggestedHalfDay = false } = {},
+) {
+  if (dateIndicator?.bgColor) {
+    return String(dateIndicator.bgColor).replace(/,\s*[\d.]+\)$/i, ', 0.08)');
+  }
+  if (absentIndicator) return getDtrAbsentRowTint(absentIndicator);
+  if (halfDayIndicator) {
+    return suggestedHalfDay
+      ? 'rgba(106, 27, 154, 0.06)'
+      : getDtrHalfDayRowTint(halfDayIndicator);
+  }
+  return 'transparent';
 }
 
 /** Subtitle under Late / Undertime columns on DTR (approved half-day policy). */

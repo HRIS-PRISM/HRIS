@@ -313,6 +313,10 @@ export default function OverallAttendanceCompareModal({
       onClose={onClose}
       maxWidth="lg"
       fullWidth
+      sx={{ zIndex: 21000 }}
+      slotProps={{
+        backdrop: { sx: { zIndex: 21000 } },
+      }}
       PaperProps={{
         sx: {
           maxHeight: 'min(90vh, 720px)',

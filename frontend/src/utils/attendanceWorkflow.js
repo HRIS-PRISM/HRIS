@@ -107,7 +107,7 @@ const monthIndexFromIso = (iso) => {
   return { year: parts[0], month: parts[1] - 1 };
 };
 
-export const buildWorkflowNavState = (ctx, { direction } = {}) => ({
+export const buildWorkflowNavState = (ctx, { direction, extraState } = {}) => ({
   employeeNumber: ctx.employeeNumber || '',
   personID: ctx.employeeNumber || '',
   fullName: ctx.fullName || '',
@@ -115,6 +115,10 @@ export const buildWorkflowNavState = (ctx, { direction } = {}) => ({
   endDate: ctx.endDate || '',
   fromAttendanceWorkflow: true,
   fromDevice: ctx.flowType === ATTENDANCE_FLOW_COMPUTATION,
+  ...(ctx.computationModule
+    ? { openComputationModule: ctx.computationModule }
+    : {}),
+  ...(extraState && typeof extraState === 'object' ? extraState : {}),
   ...(direction === 'back' ? { workflowNavDirection: 'back' } : {}),
 });
 
@@ -247,14 +251,13 @@ export const registerWorkflowVisit = (moduleId, { isBack = false } = {}) => {
 
 export const getWorkflowSteps = (ctx = readAttendanceWorkflow()) => {
   if (ctx.flowType === ATTENDANCE_FLOW_COMPUTATION) {
-    const moduleId = ctx.computationModule || 'non_teaching';
-    return ['device', moduleId, 'summary'];
+    return ['device', 'dtr', 'summary'];
   }
 
   if (ctx.correctionOrder === 'modification-first') {
-    return ['device', 'state', 'modification', 'dtr'];
+    return ['device', 'state', 'dtr', 'summary'];
   }
-  return ['device', 'state', 'dtr', 'modification'];
+  return ['device', 'state', 'dtr', 'summary'];
 };
 
 export const getWorkflowPreviousModule = (currentModuleId, ctx = readAttendanceWorkflow()) => {
@@ -350,10 +353,12 @@ export const navigateWorkflowBack = (navigate, targetModuleId, fields = {}) => {
   navigate(mod.path, { state: buildWorkflowNavState(ctx, { direction: 'back' }) });
 };
 
-export const navigateAttendanceWorkflow = (navigate, targetModuleId, fields = {}) => {
+export const navigateAttendanceWorkflow = (navigate, targetModuleId, fields = {}, extraState = {}) => {
   const mod = getModuleById(targetModuleId);
   if (!mod) return;
   prepareWorkflowNavigation(targetModuleId, fields);
   const ctx = readAttendanceWorkflow();
-  navigate(mod.path, { state: buildWorkflowNavState(ctx) });
+  navigate(mod.path, {
+    state: buildWorkflowNavState(ctx, { extraState }),
+  });
 };

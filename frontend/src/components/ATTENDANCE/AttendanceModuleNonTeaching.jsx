@@ -61,11 +61,17 @@ import {
   RestartAlt,
   UnfoldMore,
   UnfoldLess,
+  Close,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import {
+  ATTENDANCE_EMBEDDED_ROOT_SX,
+  seedEmbeddedModuleContext,
+  notifyModuleSaveSuccess,
+} from '../../utils/attendanceModuleEmbedded';
 import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
@@ -652,7 +658,7 @@ const StatusChip = ({ label }) => {
 };
 
 // ─── Floating Totals / Save Bar ───────────────────────────────────────────
-const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate }) => {
+const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate, showSaveButton = true }) => {
   const [expanded, setExpanded] = useState(true);
   if (!visible) return null;
 
@@ -699,19 +705,34 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
             )}
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box onClick={(e) => { e.stopPropagation(); if (!saving) onSave(); }}
+            {showSaveButton && (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={(e) => { e.stopPropagation(); if (!saving) onSave(); }}
+              disabled={saving}
+              startIcon={
+                saving
+                  ? <CircularProgress size={14} thickness={5} sx={{ color: '#fff' }} />
+                  : <SaveAs sx={{ fontSize: '15px !important' }} />
+              }
               sx={{
-                display: 'flex', alignItems: 'center', gap: 0.75,
-                px: 1.5, py: 0.6, borderRadius: '8px',
-                border: `1px solid ${T.accentBorder}`, bgcolor: '#fff',
-                cursor: saving ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
-                '&:hover': saving ? {} : { bgcolor: T.accentFaint, borderColor: T.accent },
-              }}>
-              {saving ? <CircularProgress size={14} thickness={5} sx={{ color: T.accent }} /> : <SaveAs sx={{ color: T.accent, fontSize: 16 }} />}
-              <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent }}>
-                {saving ? 'Saving…' : 'Save to summary'}
-              </Typography>
-            </Box>
+                height: 32,
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                px: 1.5,
+                borderRadius: '8px',
+                textTransform: 'none',
+                bgcolor: T.accent,
+                color: '#fff',
+                boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                '&:hover': { bgcolor: T.accentDark },
+                '&.Mui-disabled': { opacity: 0.7, color: '#fff' },
+              }}
+            >
+              {saving ? 'Saving…' : 'Save to Summary'}
+            </Button>
+            )}
             {expanded ? <ExpandMore sx={{ fontSize: 16, color: T.muted }} /> : <ExpandLess sx={{ fontSize: 16, color: T.muted }} />}
           </Box>
         </Box>
@@ -854,13 +875,24 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
-const AttendanceModuleNonTeachingStaff = () => {
+const AttendanceModuleNonTeachingStaff = ({
+  embedded = false,
+  initialContext = null,
+  onClose,
+  onSavedToSummary,
+  saveSignal = 0,
+} = {}) => {
+  const seedEmp = String(initialContext?.employeeNumber || '').trim();
+  const seedStart = initialContext?.startDate || '';
+  const seedEnd = initialContext?.endDate || '';
   const { settings }          = useSystemSettings();
-  const [employeeNumber, setEmployeeNumber] = useState('');
-  const [employeeDisplayName, setEmployeeDisplayName] = useState('');
+  const [employeeNumber, setEmployeeNumber] = useState(seedEmp);
+  const [employeeDisplayName, setEmployeeDisplayName] = useState(
+    initialContext?.fullName || initialContext?.employee?.fullName || '',
+  );
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
-  const [startDate, setStartDate]           = useState('');
-  const [endDate, setEndDate]               = useState('');
+  const [startDate, setStartDate]           = useState(seedStart);
+  const [endDate, setEndDate]               = useState(seedEnd);
   const [attendanceData, setAttendanceData] = useState([]);
   const [loading, setLoading]               = useState(false);
   const [saving, setSaving]                 = useState(false);
@@ -910,8 +942,12 @@ const AttendanceModuleNonTeachingStaff = () => {
 
   const currentYear  = new Date().getFullYear();
   const months       = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(
+    initialContext?.selectedMonth ?? null,
+  );
+  const [selectedYear, setSelectedYear]   = useState(
+    initialContext?.selectedYear ?? new Date().getFullYear(),
+  );
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   const [snackbar, setSnackbar]                   = useState({ open: false, message: '', severity: 'success' });
@@ -1345,12 +1381,16 @@ if (rawRows.length === 0) {
   }, [halfDayReviewByDate, attendanceData, employeeNumber, startDate, endDate]);
 
   const navigateToOverallAttendanceSummary = useCallback(() => {
+    if (embedded && typeof onSavedToSummary === 'function') {
+      onSavedToSummary();
+      return;
+    }
     navigateAttendanceWorkflow(navigate, 'summary', {
       employeeNumber,
       startDate,
       endDate,
     });
-  }, [employeeNumber, startDate, endDate, navigate]);
+  }, [embedded, onSavedToSummary, employeeNumber, startDate, endDate, navigate]);
 
   const buildOverallRecordPayload = () => {
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
@@ -1401,7 +1441,7 @@ if (rawRows.length === 0) {
 
   const putMergedOverall = async (mergedPayload, recordId) => {
     await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${recordId}`, mergedPayload, getAuthHeaders());
-    showSnackbar('Attendance summary updated from your choices.', 'success');
+    notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary updated from your choices.');
     navigateToOverallAttendanceSummary();
   };
 
@@ -1415,7 +1455,7 @@ if (rawRows.length === 0) {
       const { action, existing } = classifyOverallSave(existingList, startDate, endDate, record);
       if (action === 'fill-stub' && existing?.id) {
         await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
-        showSnackbar('Attendance summary saved.', 'success');
+        notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary saved.');
         await persistDailyLateUndertimeFromModule({
           personID: employeeNumber,
           startDate,
@@ -1429,13 +1469,34 @@ if (rawRows.length === 0) {
         return;
       }
       if (action === 'duplicate-info') {
+        if (embedded) {
+          navigateToOverallAttendanceSummary();
+          return;
+        }
+        showSnackbar('Summary already matches these totals.', 'info');
         showModal('Duplicate attendance summary', `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`, 'info',
           () => { closeModal(); if (warnUnresolvedHalfDays()) return; navigateToOverallAttendanceSummary(); }, true, 'Continue to summary');
+        return;
+      }
+      if (action === 'auto-update' && existing?.id) {
+        await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
+        notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary updated.');
+        await persistDailyLateUndertimeFromModule({
+          personID: employeeNumber,
+          startDate,
+          endDate,
+          moduleType: 'NON_TEACHING',
+          rows: record.daily_late_undertime,
+          halfDayDates: record.halfDayDates,
+          half_day_review: record.half_day_review,
+        });
+        navigateToOverallAttendanceSummary();
         return;
       }
       if (action === 'compare' && existing) {
         setPendingSavedOverall(existing);
         setPendingProposedOverall(record);
+        setLoading(false);
         setCompareOpen(true);
         return;
       }
@@ -1447,7 +1508,11 @@ if (rawRows.length === 0) {
     setSaving(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/attendance/api/overall_attendance`, record, getAuthHeaders());
-      showSnackbar(response.data.message || 'Attendance record saved successfully!', 'success');
+      notifyModuleSaveSuccess(
+        embedded,
+        showSnackbar,
+        response.data.message || 'Attendance record saved successfully!',
+      );
       await persistDailyLateUndertimeFromModule({
         personID: employeeNumber,
         startDate,
@@ -1464,8 +1529,38 @@ if (rawRows.length === 0) {
     } finally { setSaving(false); }
   };
 
+  const saveOverallAttendanceRef = useRef(saveOverallAttendance);
+  useEffect(() => {
+    saveOverallAttendanceRef.current = saveOverallAttendance;
+  });
+  const lastSaveSignalRef = useRef(saveSignal);
+  useEffect(() => {
+    if (!embedded || !saveSignal) return;
+    if (saveSignal === lastSaveSignalRef.current) return;
+    lastSaveSignalRef.current = saveSignal;
+    saveOverallAttendanceRef.current?.();
+  }, [saveSignal, embedded]);
+
   const handleSubmitRef = useRef(handleSubmit);
   useEffect(() => { handleSubmitRef.current = handleSubmit; });
+
+  const embeddedSeededRef = useRef(false);
+  useEffect(() => {
+    if (!embedded || !initialContext || embeddedSeededRef.current) return;
+    embeddedSeededRef.current = true;
+    seedEmbeddedModuleContext({
+      initialContext,
+      setEmployeeNumber,
+      setEmployeeDisplayName,
+      setStartDate,
+      setEndDate,
+      setSelectedYear,
+      setSelectedMonth,
+    });
+    setTimeout(() => {
+      handleSubmitRef.current?.();
+    }, 350);
+  }, [embedded, initialContext]);
 
   const handleWorkflowHydrate = useCallback((payload) => {
     setEmployeeNumber(payload.employeeNumber || '');
@@ -1730,7 +1825,7 @@ if (rawRows.length === 0) {
   // ─────────────────────────────────────────────────────────────────────
   return (
     <Fade in timeout={400}>
-      <Box sx={{
+      <Box sx={embedded ? ATTENDANCE_EMBEDDED_ROOT_SX : {
         py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
         pb: ATTENDANCE_PAGE_BOTTOM_PAD,
         width: '100vw', maxWidth: '100%',
@@ -1751,9 +1846,25 @@ if (rawRows.length === 0) {
           </Alert>
         </Snackbar>
 
-        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+        <LoadingOverlay open={loading && !compareOpen} message="Fetching attendance records…" />
 
-        {/* Page Header */}
+        {embedded ? (
+          <Box sx={{ flexShrink: 0, mb: 1.25, px: 1.5, py: 1, borderRadius: '10px', border: `1px solid ${T.accentBorder}`, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+              <WorkHistory sx={{ fontSize: 20, color: T.accent }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15 }}>Non-Teaching Computation</Typography>
+                <Typography sx={{ fontSize: '0.68rem', color: T.accentMid, fontWeight: 600 }}>Review tardiness, then Save to Summary</Typography>
+              </Box>
+            </Box>
+            {typeof onClose === 'function' && (
+              <IconButton onClick={onClose} size="small" sx={{ bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } }}>
+                <Close sx={{ fontSize: 18 }} />
+              </IconButton>
+            )}
+          </Box>
+        ) : (
+        /* Page Header */
         <SectionCard sx={{ mb: 2 }}>
           <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
             <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
@@ -1787,12 +1898,14 @@ if (rawRows.length === 0) {
             </Box>
           </Box>
         </SectionCard>
+        )}
 
         <Collapse in={!!error}>
           <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{error}</Alert>
         </Collapse>
 
-        {/* Controls */}
+        {/* Controls — hidden in DTR sliding drawer (context is seeded automatically) */}
+        {!embedded && (
         <SectionCard sx={{ mb: 2 }}>
           <PanelHeader icon={FilterList} title="Filter Attendance Records" />
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
@@ -1862,6 +1975,7 @@ if (rawRows.length === 0) {
             </Box>
           </Box>
         </SectionCard>
+        )}
 
         {/* Results */}
         {attendanceData.length > 0 && (

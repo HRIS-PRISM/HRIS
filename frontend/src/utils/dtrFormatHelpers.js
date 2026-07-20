@@ -1,11 +1,38 @@
 export const DTR_WIDTH_IN = '8.7in';
 
-export const DTR_CELL_WATERMARK_LABELS = ['HOLIDAY', 'ON LEAVE', 'SUSPENSION'];
+export const DTR_NON_WORKING_DAY_LABEL = 'NON-WORKING DAY';
+
+export const DTR_ABSENT_LABEL = 'ABSENT';
+
+export const DTR_CELL_WATERMARK_LABELS = [
+  'HOLIDAY',
+  'ON LEAVE',
+  'SUSPENSION',
+  DTR_ABSENT_LABEL,
+  'HALF DAY',
+  'NOT HALF DAY',
+  DTR_NON_WORKING_DAY_LABEL,
+];
 
 export const dtrTimeValueEmpty = (v) =>
   v == null || (typeof v === 'string' && v.trim() === '');
 
 /** Inline cell text — html2canvas captures plain span text reliably (no absolute overlays). */
+export const isDtrNonWorkingDayRow = ({
+  isNotScheduledDay,
+  indicator,
+  timeFields,
+}) => {
+  if (!isNotScheduledDay || indicator?.label) return false;
+  const { timeIN, breaktimeIN, breaktimeOUT, timeOUT } = timeFields || {};
+  return (
+    dtrTimeValueEmpty(timeIN) &&
+    dtrTimeValueEmpty(breaktimeIN) &&
+    dtrTimeValueEmpty(breaktimeOUT) &&
+    dtrTimeValueEmpty(timeOUT)
+  );
+};
+
 export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
   if (!dtrTimeValueEmpty(rawVal)) {
     return { text: displayText, isWatermark: false };

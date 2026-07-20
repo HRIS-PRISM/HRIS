@@ -66,6 +66,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import { seedEmbeddedModuleContext, ATTENDANCE_EMBEDDED_ROOT_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
 import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
@@ -1761,6 +1762,7 @@ const FloatingTotalsBar = ({
   startDate,
   endDate,
   officialHoursPerDay,
+  showSaveButton = true,
 }) => {
   const [expanded, setExpanded] = useState(true);
   if (!visible) return null;
@@ -1876,42 +1878,43 @@ const FloatingTotalsBar = ({
             )}
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box
+            {showSaveButton && (
+            <Button
+              variant="contained"
+              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 if (!saving) onSave();
               }}
+              disabled={saving}
+              startIcon={
+                saving ? (
+                  <CircularProgress
+                    size={14}
+                    thickness={5}
+                    sx={{ color: '#fff' }}
+                  />
+                ) : (
+                  <SaveAs sx={{ fontSize: '15px !important' }} />
+                )
+              }
               sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.75,
+                height: 32,
+                fontSize: '0.75rem',
+                fontWeight: 700,
                 px: 1.5,
-                py: 0.6,
                 borderRadius: '8px',
-                border: `1px solid ${T.accentBorder}`,
-                bgcolor: '#fff',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                transition: 'all 0.15s',
-                '&:hover': saving
-                  ? {}
-                  : { bgcolor: T.accentFaint, borderColor: T.accent },
+                textTransform: 'none',
+                bgcolor: T.accent,
+                color: '#fff',
+                boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                '&:hover': { bgcolor: T.accentDark },
+                '&.Mui-disabled': { opacity: 0.7, color: '#fff' },
               }}
             >
-              {saving ? (
-                <CircularProgress
-                  size={14}
-                  thickness={5}
-                  sx={{ color: T.accent }}
-                />
-              ) : (
-                <SaveAs sx={{ color: T.accent, fontSize: 16 }} />
-              )}
-              <Typography
-                sx={{ fontSize: '0.74rem', fontWeight: 700, color: T.accent }}
-              >
-                {saving ? 'Saving…' : 'Save to summary'}
-              </Typography>
-            </Box>
+              {saving ? 'Saving…' : 'Save to Summary'}
+            </Button>
+            )}
             {expanded ? (
               <ExpandMore sx={{ fontSize: 16, color: T.muted }} />
             ) : (
@@ -2420,13 +2423,24 @@ const StyledModal = ({
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
-const AttendanceModuleFacultyDesignated = () => {
+const AttendanceModuleFacultyDesignated = ({
+  embedded = false,
+  initialContext = null,
+  onClose,
+  onSavedToSummary,
+  saveSignal = 0,
+} = {}) => {
+  const seedEmp = String(initialContext?.employeeNumber || '').trim();
+  const seedStart = initialContext?.startDate || '';
+  const seedEnd = initialContext?.endDate || '';
   const { settings } = useSystemSettings();
-  const [employeeNumber, setEmployeeNumber] = useState('');
-  const [employeeDisplayName, setEmployeeDisplayName] = useState('');
+  const [employeeNumber, setEmployeeNumber] = useState(seedEmp);
+  const [employeeDisplayName, setEmployeeDisplayName] = useState(
+    initialContext?.fullName || initialContext?.employee?.fullName || '',
+  );
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(seedStart);
+  const [endDate, setEndDate] = useState(seedEnd);
   const [attendanceData, setAttendanceData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2510,8 +2524,12 @@ const AttendanceModuleFacultyDesignated = () => {
     'NOV',
     'DEC',
   ];
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(
+    initialContext?.selectedMonth ?? null,
+  );
+  const [selectedYear, setSelectedYear] = useState(
+    initialContext?.selectedYear ?? new Date().getFullYear(),
+  );
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   const [snackbar, setSnackbar] = useState({
@@ -3417,12 +3435,16 @@ const AttendanceModuleFacultyDesignated = () => {
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const navigateToOverallAttendanceSummary = useCallback(() => {
+    if (embedded && typeof onSavedToSummary === 'function') {
+      onSavedToSummary();
+      return;
+    }
     navigateAttendanceWorkflow(navigate, 'summary', {
       employeeNumber,
       startDate,
       endDate,
     });
-  }, [employeeNumber, startDate, endDate, navigate]);
+  }, [embedded, onSavedToSummary, employeeNumber, startDate, endDate, navigate]);
 
   const buildOverallRecordPayload = () => {
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
@@ -3482,7 +3504,7 @@ const AttendanceModuleFacultyDesignated = () => {
       mergedPayload,
       getAuthHeaders(),
     );
-    showSnackbar('Attendance summary updated from your choices.', 'success');
+    notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary updated from your choices.');
     navigateToOverallAttendanceSummary();
   };
 
@@ -3502,7 +3524,7 @@ const AttendanceModuleFacultyDesignated = () => {
       const { action, existing } = classifyOverallSave(existingList, startDate, endDate, record);
       if (action === 'fill-stub' && existing?.id) {
         await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
-        showSnackbar('Attendance summary saved.', 'success');
+        notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary saved.');
         await persistDailyLateUndertimeFromModule({
           personID: employeeNumber,
           startDate,
@@ -3516,6 +3538,11 @@ const AttendanceModuleFacultyDesignated = () => {
         return;
       }
       if (action === 'duplicate-info') {
+        if (embedded) {
+          navigateToOverallAttendanceSummary();
+          return;
+        }
+        showSnackbar('Summary already matches these totals.', 'info');
         showModal(
           'Duplicate attendance summary',
           `A summary for employee ${employeeNumber} (${startDate} to ${endDate}) already exists and matches these totals.\n\nNothing new will be saved. You can continue to Attendance Summary to review or use payroll routing.`,
@@ -3530,9 +3557,25 @@ const AttendanceModuleFacultyDesignated = () => {
         );
         return;
       }
+      if (action === 'auto-update' && existing?.id) {
+        await axios.put(`${API_BASE_URL}/attendance/api/overall_attendance_record/${existing.id}`, record, getAuthHeaders());
+        notifyModuleSaveSuccess(embedded, showSnackbar, 'Attendance summary updated.');
+        await persistDailyLateUndertimeFromModule({
+          personID: employeeNumber,
+          startDate,
+          endDate,
+          moduleType: 'DESIGNATED_40HRS',
+          rows: record.daily_late_undertime,
+          halfDayDates: record.halfDayDates,
+          half_day_review: record.half_day_review,
+        });
+        navigateToOverallAttendanceSummary();
+        return;
+      }
       if (action === 'compare' && existing) {
         setPendingSavedOverall(existing);
         setPendingProposedOverall(record);
+        setLoading(false);
         setCompareOpen(true);
         return;
       }
@@ -3555,9 +3598,10 @@ const AttendanceModuleFacultyDesignated = () => {
         record,
         getAuthHeaders(),
       );
-      showSnackbar(
+      notifyModuleSaveSuccess(
+        embedded,
+        showSnackbar,
         response.data.message || 'Attendance record saved successfully!',
-        'success',
       );
       await persistDailyLateUndertimeFromModule({
         personID: employeeNumber,
@@ -3577,10 +3621,40 @@ const AttendanceModuleFacultyDesignated = () => {
     }
   };
 
+  const saveOverallAttendanceRef = useRef(saveOverallAttendance);
+  useEffect(() => {
+    saveOverallAttendanceRef.current = saveOverallAttendance;
+  });
+  const lastSaveSignalRef = useRef(saveSignal);
+  useEffect(() => {
+    if (!embedded || !saveSignal) return;
+    if (saveSignal === lastSaveSignalRef.current) return;
+    lastSaveSignalRef.current = saveSignal;
+    saveOverallAttendanceRef.current?.();
+  }, [saveSignal, embedded]);
+
   const handleSubmitRef = useRef(handleSubmit);
   useEffect(() => {
     handleSubmitRef.current = handleSubmit;
   });
+
+  const embeddedSeededRef = useRef(false);
+  useEffect(() => {
+    if (!embedded || !initialContext || embeddedSeededRef.current) return;
+    embeddedSeededRef.current = true;
+    seedEmbeddedModuleContext({
+      initialContext,
+      setEmployeeNumber,
+      setEmployeeDisplayName,
+      setStartDate,
+      setEndDate,
+      setSelectedYear,
+      setSelectedMonth,
+    });
+    setTimeout(() => {
+      handleSubmitRef.current?.();
+    }, 350);
+  }, [embedded, initialContext]);
 
   const handleWorkflowHydrate = useCallback((payload) => {
     setEmployeeNumber(payload.employeeNumber || '');
@@ -4157,7 +4231,7 @@ const AttendanceModuleFacultyDesignated = () => {
   return (
     <Fade in timeout={400}>
       <Box
-        sx={{
+        sx={embedded ? ATTENDANCE_EMBEDDED_ROOT_SX : {
           py: { xs: 1, md: 2 },
           mt: { xs: 0, md: -2 },
           mb: 0,
@@ -4214,9 +4288,25 @@ const AttendanceModuleFacultyDesignated = () => {
           </Alert>
         </Snackbar>
 
-        <LoadingOverlay open={loading} message="Fetching attendance records…" />
+        <LoadingOverlay open={loading && !compareOpen} message="Fetching attendance records…" />
 
-        {/* Page Header */}
+        {embedded ? (
+          <Box sx={{ flexShrink: 0, mb: 1.25, px: 1.5, py: 1, borderRadius: '10px', border: `1px solid ${T.accentBorder}`, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+              <WorkHistory sx={{ fontSize: 20, color: T.accent }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15 }}>Designated Computation</Typography>
+                <Typography sx={{ fontSize: '0.68rem', color: T.accentMid, fontWeight: 600 }}>Review tardiness, then Save to Summary</Typography>
+              </Box>
+            </Box>
+            {typeof onClose === 'function' && (
+              <IconButton onClick={onClose} size="small" sx={{ bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } }}>
+                <CloseIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            )}
+          </Box>
+        ) : (
+        /* Page Header */
         <SectionCard sx={{ mb: 2 }}>
           <Box
             sx={{
@@ -4360,6 +4450,7 @@ const AttendanceModuleFacultyDesignated = () => {
             </Box>
           </Box>
         </SectionCard>
+        )}
 
         <Collapse in={!!error}>
           <Alert
@@ -4371,7 +4462,8 @@ const AttendanceModuleFacultyDesignated = () => {
           </Alert>
         </Collapse>
 
-        {/* Controls */}
+        {/* Controls — hidden in DTR sliding drawer */}
+        {!embedded && (
         <SectionCard sx={{ mb: 2 }}>
           <PanelHeader icon={FilterList} title="Filter Attendance Records" />
           <Box sx={{ px: 2.5, pt: 2, pb: 2.5 }}>
@@ -4593,6 +4685,7 @@ const AttendanceModuleFacultyDesignated = () => {
             </Box>
           </Box>
         </SectionCard>
+        )}
 
         {/* Results */}
         {attendanceData.length > 0 && (

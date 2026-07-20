@@ -10,7 +10,9 @@ import { MODULE_TYPES } from '../../utils/halfDayReview';
 import {
   DTR_WIDTH_IN,
   DTR_WM_INLINE_STYLE,
+  DTR_NON_WORKING_DAY_LABEL,
   resolveDtrAmPmCellText,
+  isDtrNonWorkingDayRow,
   toPhCalendarYmd,
   normRecordYmd,
   recordMatchesDay,
@@ -912,6 +914,46 @@ export default function DtrTablePairView({
               isPendingHalfDay,
             });
       void halfDayDatesSet;
+      const nonWorkingRowTint =
+        isNotScheduledDay && !indicator
+          ? 'rgba(128, 128, 128, 0.06)'
+          : rowTint;
+      if (
+        isDtrNonWorkingDayRow({
+          isNotScheduledDay,
+          indicator,
+          timeFields: tf,
+        })
+      ) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{DTR_NON_WORKING_DAY_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
       return (
         <tr key={i}>
           <td
