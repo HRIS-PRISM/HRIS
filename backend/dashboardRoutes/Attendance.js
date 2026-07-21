@@ -2196,8 +2196,9 @@
 
     const sql = `
       SELECT
-        PersonID,
-        COUNT(*) AS recordsCount
+        daily.PersonID,
+        COUNT(*) AS recordsCount,
+        IFNULL(raw.rawRecordCount, 0) AS rawRecordCount
       FROM (
         SELECT
           PersonID,
@@ -2206,12 +2207,45 @@
         WHERE AttendanceDateTime BETWEEN ? AND ?
         GROUP BY PersonID, dt
       ) daily
-      GROUP BY PersonID
+      LEFT JOIN (
+        SELECT PersonID, COUNT(*) AS rawRecordCount
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID
+      ) raw ON daily.PersonID = raw.PersonID
+      GROUP BY daily.PersonID, raw.rawRecordCount
     `;
 
-    db.query(sql, [startTimestamp, endTimestamp], (err, results) => {
+    db.query(sql, [startTimestamp, endTimestamp, startTimestamp, endTimestamp], (err, results) => {
       if (err) {
         console.error('Error fetching device attendance summary:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json(results);
+    });
+  });
+
+  // Modification record counts per employee from attendancerecord for a date range
+  router.post('/api/device-modification-summary', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.body || {};
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const sql = `
+      SELECT
+        personID AS PersonID,
+        COUNT(*) AS modRecordCount
+      FROM attendancerecord
+      WHERE date BETWEEN ? AND ?
+      GROUP BY personID
+    `;
+
+    db.query(sql, [startDate, endDate], (err, results) => {
+      if (err) {
+        console.error('Error fetching device modification summary:', err);
         return res.status(500).json({ error: err.message });
       }
 
