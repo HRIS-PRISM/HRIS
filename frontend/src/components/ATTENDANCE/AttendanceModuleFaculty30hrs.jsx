@@ -106,6 +106,7 @@ import API_BASE_URL from '../../apiConfig';
     getRowHalfDayUiStatus,
     getRowTotalRenderedDisplay,
     getRowTotalTardinessDisplay,
+    countSuggestedHalfDays,
   } from '../../utils/halfDayReview';
   import HalfDayReviewDialog from './HalfDayReviewDialog';
   import { buildDisplayName } from './attendanceModuleEmployeeSearch';
@@ -989,6 +990,7 @@ import API_BASE_URL from '../../apiConfig';
       { label: 'OT Rendered',         value: totals.otRendered       || '00:00:00' },
       { label: 'OT Tardiness',        value: totals.otTardiness      || '00:00:00' },
     ];
+    const halfDaysForReview = Number(totals.halfDaysForReview) || 0;
 
     return (
       <Box sx={{ width: '100%' }}>
@@ -1105,6 +1107,15 @@ import API_BASE_URL from '../../apiConfig';
                         <Typography sx={{ fontSize: '0.6rem', fontWeight: 600, color: alpha(style.color, 0.6), fontFamily: T.recordFont }}>
                           {totals.halfDayShortfallTime || '00:00:00'}
                         </Typography>
+                        {halfDaysForReview > 0 && (
+                          <Typography sx={{
+                            fontSize: '0.58rem', fontWeight: 500, color: T.tardiness.color,
+                            letterSpacing: '0.04em', textTransform: 'uppercase',
+                            fontFamily: T.recordFont, mt: 0.2,
+                          }}>
+                            {halfDaysForReview} FOR REVIEW
+                          </Typography>
+                        )}
                       </Box>
                     ) : (
                       <Typography sx={{
@@ -1924,6 +1935,12 @@ import API_BASE_URL from '../../apiConfig';
       return {
         absentDays: buckets.absentDays,
         halfDays: buckets.halfDays,
+        halfDaysForReview: countSuggestedHalfDays(
+          halfDayReviewByDate,
+          attendanceData,
+          MODULE_TYPES.FACULTY_30HRS,
+          calendarMaps,
+        ),
         absentTime: buckets.absentTime,
         halfDayShortfallTime: buckets.halfDayShortfallTime,
         lateTotalTime,

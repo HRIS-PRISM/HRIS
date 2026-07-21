@@ -28,7 +28,8 @@ let express,
   upload,
   xlsx,
   fs,
-  fillExemptAttendance;
+  fillExemptAttendance,
+  notifyAttendanceChanged;
 try {
   express = require('express');
   router = express.Router();
@@ -36,6 +37,7 @@ try {
   ({ authenticateToken, logAudit } = require('../middleware/auth'));
   ({ upload } = require('../middleware/upload'));
   ({ fillExemptAttendance } = require('../services/autoAttendanceService'));
+  ({ notifyAttendanceChanged } = require('../socket/socketService'));
   xlsx = require('xlsx');
   fs = require('fs');
 } catch (depErr) {
@@ -1157,6 +1159,12 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
         ? autoAttendance.errors
         : undefined,
     });
+    notifyAttendanceChanged('official-time-updated', {
+      scope: 'officialtime',
+      personID: employeeID,
+      startDate: normDate(startDate),
+      endDate: normDate(endDate),
+    });
   } catch (err) {
     await rollbackTransaction(conn);
     console.error('Error creating schedule version:', err);
@@ -1541,6 +1549,12 @@ router.post(
         records: processedRecords,
         warnings: allWarnings.length > 0 ? allWarnings : undefined,
       });
+      if (affectedEmployees.length > 0) {
+        notifyAttendanceChanged('official-time-updated', {
+          scope: 'officialtime',
+          personIDs: affectedEmployees,
+        });
+      }
     } catch (error) {
       console.error('Error processing Excel file:', error);
       res
@@ -2050,6 +2064,12 @@ router.post(
           ...insertWarnings,
         ],
       });
+      if (affectedEmployees.length > 0) {
+        notifyAttendanceChanged('official-time-updated', {
+          scope: 'officialtime',
+          personIDs: affectedEmployees,
+        });
+      }
     } catch (error) {
       console.error('Error processing department Excel file:', error);
       res
@@ -2503,6 +2523,12 @@ router.post(
           ...insertWarnings,
         ],
       });
+      if (affectedEmployees.length > 0) {
+        notifyAttendanceChanged('official-time-updated', {
+          scope: 'officialtime',
+          personIDs: affectedEmployees,
+        });
+      }
     } catch (error) {
       console.error('Error processing employment category Excel file:', error);
       res
@@ -2989,6 +3015,13 @@ router.post(
     }
 
     res.json({ message: 'Bulk schedules processed.', totalInserted, results });
+    const notified = normalizeEmployeeList(employeeIDs);
+    if (notified.length > 0) {
+      notifyAttendanceChanged('official-time-updated', {
+        scope: 'officialtime',
+        personIDs: notified,
+      });
+    }
   },
 );
 
@@ -3132,6 +3165,12 @@ router.put(
         warnings: autoAttendance.errors.length
           ? autoAttendance.errors
           : undefined,
+      });
+      notifyAttendanceChanged('official-time-updated', {
+        scope: 'officialtime',
+        personID: employeeID,
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
       });
     } catch (err) {
       console.error('Error updating official time:', err);

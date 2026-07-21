@@ -107,6 +107,7 @@ import {
   getRowTotalRenderedDisplay,
   getRowTotalTardinessDisplay,
   shouldZeroAmPmHalfDayColumns,
+  countSuggestedHalfDays,
 } from '../../utils/halfDayReview';
 import HalfDayReviewDialog from './HalfDayReviewDialog';
 import { EmployeeSearchField } from './attendanceModuleEmployeeSearch';
@@ -664,7 +665,17 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
 
   const allItems = [
     { label: 'Absent Days',       value: String(Number.isFinite(Number(totals.absentDays)) ? Number(totals.absentDays) : 0), subtitle: totals.absentTime || '00:00:00', style: T.absent,    accent: true },
-    { label: 'Half Days',         value: String(Number.isFinite(Number(totals.halfDays))   ? Number(totals.halfDays)   : 0), subtitle: totals.halfDayShortfallTime || '00:00:00', style: T.halfDay,   accent: true },
+    {
+      label: 'Half Days',
+      value: String(Number.isFinite(Number(totals.halfDays)) ? Number(totals.halfDays) : 0),
+      subtitle: totals.halfDayShortfallTime || '00:00:00',
+      statusLine:
+        Number(totals.halfDaysForReview) > 0
+          ? `${Number(totals.halfDaysForReview)} FOR REVIEW`
+          : null,
+      style: T.halfDay,
+      accent: true,
+    },
     { label: 'Late Total',        value: totals.lateTotalTime || '00:00:00',                                              style: T.tardiness, accent: true },
     { label: 'Overall Rendered',  value: totals.overallRendered  || '00:00:00',                                              style: T.rendered,  accent: true },
     { label: 'Overall Tardiness', value: formatTardinessAsDaysHours(totals.overallTardiness || '00:00:00'), subtitle: `${totals.overallTardiness || '00:00:00'} · Absent + Half + Late`, style: T.tardiness, accent: true },
@@ -769,7 +780,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
                 minWidth: 'min-content',
               }}
             >
-              {allItems.map(({ label, value, style, accent, subtitle }) => (
+              {allItems.map(({ label, value, style, accent, subtitle, statusLine }) => (
                 <Box key={label} sx={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                   px: 1.5, py: 0.75, borderRadius: '6px', flex: '0 0 auto',
@@ -788,6 +799,15 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
                       color: accent ? style.color : T.muted, opacity: 0.55, mt: 0.25, lineHeight: 1.2, whiteSpace: 'nowrap',
                     }}>
                       {subtitle}
+                    </Typography>
+                  )}
+                  {statusLine != null && (
+                    <Typography sx={{
+                      fontFamily: T.recordFont, fontWeight: 500, fontSize: '0.58rem',
+                      color: T.tardiness.color, letterSpacing: '0.04em',
+                      textTransform: 'uppercase', mt: 0.35, lineHeight: 1.2, whiteSpace: 'nowrap',
+                    }}>
+                      {statusLine}
                     </Typography>
                   )}
                 </Box>
@@ -1263,6 +1283,12 @@ if (rawRows.length === 0) {
     return {
       absentDays: buckets.absentDays,
       halfDays: buckets.halfDays,
+      halfDaysForReview: countSuggestedHalfDays(
+        halfDayReviewByDate,
+        attendanceData,
+        MODULE_TYPES.NON_TEACHING,
+        calendarMaps,
+      ),
       absentTime: buckets.absentTime,
       halfDayShortfallTime: buckets.halfDayShortfallTime,
       lateTotalTime,

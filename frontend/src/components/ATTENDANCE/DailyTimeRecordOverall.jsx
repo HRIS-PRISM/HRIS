@@ -1332,11 +1332,17 @@ const DailyTimeRecordFaculty = ({
     [hasOfficialTimeSchedule],
   );
 
-  const handleSavedToSummary = useCallback(() => {
+  const handleSavedToSummary = useCallback(async () => {
     setSummaryRefreshKey((k) => k + 1);
     setActiveComputationDrawer(null);
     setModuleDrawer(null);
-    if (personID) loadComputedLateForEmployee(personID);
+    if (personID) {
+      try {
+        await loadComputedLateForEmployee(personID);
+      } catch (err) {
+        console.error('Failed to refresh late/undertime after summary save:', err);
+      }
+    }
     setSnackbar({
       open: true,
       message: 'Attendance summary saved. Totals are now shown below.',
@@ -1583,22 +1589,74 @@ const DailyTimeRecordFaculty = ({
     fetchAllUsersDTRRef.current = fetchAllUsersDTR;
   });
 
+  const loadComputedLateForEmployeeRef = useRef(loadComputedLateForEmployee);
+  const loadComputedLateBatchRef = useRef(loadComputedLateBatch);
+  useEffect(() => {
+    loadComputedLateForEmployeeRef.current = loadComputedLateForEmployee;
+    loadComputedLateBatchRef.current = loadComputedLateBatch;
+  });
+
   // ─── Socket realtime ───────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !connected) return;
     let debounceTimer = null;
+
+    const matchesCurrentEmployee = (changedIDs) => {
+      const currentPersonID =
+        personID != null && personID !== '' ? String(personID) : '';
+      if (!currentPersonID || changedIDs.length === 0) return changedIDs.length === 0;
+      return changedIDs.includes(currentPersonID);
+    };
+
+    const refreshComputedLate = (changedIDs) => {
+      if (viewMode === 'single') {
+        if (!hasSearchedSingle || !personID || !startDate || !endDate) return;
+        if (changedIDs.length > 0 && !matchesCurrentEmployee(changedIDs)) return;
+        loadComputedLateForEmployeeRef.current?.(personID);
+        setSummaryRefreshKey((k) => k + 1);
+        return;
+      }
+      if (!startDate || !endDate || allUsersDTR.length === 0) return;
+      const targets =
+        changedIDs.length > 0
+          ? changedIDs
+          : allUsersDTR.map((u) => u.employeeNumber).filter(Boolean);
+      if (targets.length === 0) return;
+      loadComputedLateBatchRef.current?.(targets);
+      setSummaryRefreshKey((k) => k + 1);
+    };
+
     const handleAttendanceChanged = (payload) => {
-      if (payload?.light) return;
       const action = payload?.action;
       if (
         action === 'leaves-fetched' ||
         action === 'holidays-fetched' ||
-        action === 'suspensions-fetched' ||
-        action === 'overall-daily-late-updated' ||
-        action === 'overall-daily-late-created'
+        action === 'suspensions-fetched'
       ) {
         return;
       }
+
+      const changedIDs = Array.isArray(payload?.personIDs)
+        ? payload.personIDs.map((id) => String(id))
+        : payload?.personID != null
+          ? [String(payload.personID)]
+          : [];
+
+      // Computation modules (Non-Teaching / 30hrs / Designated) save late/UT here.
+      // Must refresh DTR late columns — do not treat as noise.
+      if (
+        action === 'overall-daily-late-updated' ||
+        action === 'overall-daily-late-created' ||
+        action === 'overall-updated' ||
+        action === 'overall-created'
+      ) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => refreshComputedLate(changedIDs), 200);
+        return;
+      }
+
+      if (payload?.light) return;
+
       if (action === 'dtr-printed') {
         const printed = Array.isArray(payload?.employeeNumbers)
           ? payload.employeeNumbers
@@ -1619,15 +1677,17 @@ const DailyTimeRecordFaculty = ({
         }
         return;
       }
-      const changedIDs = Array.isArray(payload?.personIDs)
-        ? payload.personIDs
-        : payload?.personID
-          ? [payload.personID]
-          : [];
+
       const isBulk = action === 'bulk-auto-sync';
+      const currentPersonID =
+        personID != null && personID !== '' ? String(personID) : '';
       if (viewMode === 'single') {
         if (changedIDs.length === 0 && !isBulk) return;
-        if (personID && changedIDs.length > 0 && !changedIDs.includes(personID))
+        if (
+          currentPersonID &&
+          changedIDs.length > 0 &&
+          !changedIDs.includes(currentPersonID)
+        )
           return;
         if (hasSearchedSingle && personID && startDate && endDate)
           fetchRecordsRef.current?.();
@@ -1646,6 +1706,37 @@ const DailyTimeRecordFaculty = ({
   }, [
     socket,
     connected,
+    viewMode,
+    personID,
+    startDate,
+    endDate,
+    allUsersDTR.length,
+    hasSearchedSingle,
+  ]);
+
+  // Refetch when user returns to this tab (missed socket while elsewhere)
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      // Ignore quick alt-tab flicker; only refresh after being away briefly
+      if (!hiddenAt || Date.now() - hiddenAt < 2000) return;
+      if (viewMode === 'single') {
+        if (hasSearchedSingle && personID && startDate && endDate) {
+          fetchRecordsRef.current?.();
+        }
+        return;
+      }
+      if (startDate && endDate && allUsersDTR.length > 0) {
+        fetchAllUsersDTRRef.current?.();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [
     viewMode,
     personID,
     startDate,
