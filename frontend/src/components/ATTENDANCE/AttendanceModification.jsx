@@ -151,7 +151,7 @@ const rowHasOfficialSchedule = (record) =>
   );
 
 const canFullMonthAutoFill = (record, autoFilledRows) =>
-  rowHasOfficialSchedule(record) && !autoFilledRows.has(record?.date);
+  !!record?.date && !autoFilledRows.has(record.date);
 
 /** Shown in EDIT REMARKS after force-sync from Device module */
 const DEVICE_RESTORE_REMARK_PREFIX = 'Returned data from the device';
@@ -956,9 +956,7 @@ const FullMonthRow = memo(function FullMonthRow({
             title={
               canSelectForFill
                 ? 'Select for bulk auto-fill'
-                : isAutoFilled
-                  ? 'Already auto-filled'
-                  : 'No official schedule for this day'
+                : 'Already auto-filled'
             }
             placement="top"
           >
@@ -2335,7 +2333,7 @@ const AttendanceSearch = ({
   const handleBulkAutoFillClickFull = useCallback(() => {
     const dates = fillableFullMonthDates.filter((d) => selectedFullMonthDates.has(d));
     if (!dates.length) {
-      showSnackbar('Select at least one day with an official schedule.', 'warning');
+      showSnackbar('Select at least one day.', 'warning');
       return;
     }
     setPendingAutoFill({ tab: 'fullMonth', bulk: true, dates });
@@ -2373,7 +2371,6 @@ const AttendanceSearch = ({
         const rowIndex = updated.findIndex((r) => r.date === date);
         if (rowIndex === -1) return;
         const record = updated[rowIndex];
-        if (!rowHasOfficialSchedule(record)) return;
         const originalValues = {};
         EDITABLE_FIELDS.forEach((f) => { originalValues[f] = record[f] || ''; });
         updated[rowIndex] = {
