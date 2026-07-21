@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import API_BASE_URL from '../apiConfig';
-import { getAuthHeaders } from '../utils/auth';
+import { getAuthHeaders, getUserInfo } from '../utils/auth';
+import { isPageAccessActive } from '../utils/pageAccessUtils';
 
 /**
  * Custom hook for dynamic page access checking
@@ -48,9 +49,20 @@ const usePageAccess = (componentIdentifier, options = {}) => {
     const checkAccess = async () => {
       setLoading(true);
       setError(null);
+      setHasAccess(null);
 
       try {
-        const userId = overrideEmployeeNumber || localStorage.getItem('employeeNumber');
+        const tokenUser = getUserInfo();
+        const tokenEmployeeNumber = tokenUser?.employeeNumber || '';
+        const storedEmployeeNumber = localStorage.getItem('employeeNumber') || '';
+
+        // Keep auth identity stable even if a page previously wrote a search employee number.
+        if (tokenEmployeeNumber && tokenEmployeeNumber !== storedEmployeeNumber) {
+          localStorage.setItem('employeeNumber', tokenEmployeeNumber);
+        }
+
+        const userId =
+          overrideEmployeeNumber || tokenEmployeeNumber || storedEmployeeNumber;
         
         if (!userId) {
           setHasAccess(false);
@@ -74,9 +86,12 @@ const usePageAccess = (componentIdentifier, options = {}) => {
           if (pageResponse.status === 404) {
             setError(`Page not found for identifier: ${componentIdentifier}`);
             setHasAccess(false);
+          } else if (pageResponse.status === 401 || pageResponse.status === 403) {
+            setError('Unauthorized while fetching page information');
+            setHasAccess(false);
           } else {
             setError('Failed to fetch page information');
-            setHasAccess(false);
+            setHasAccess(null);
           }
           setLoading(false);
           return;
@@ -96,8 +111,13 @@ const usePageAccess = (componentIdentifier, options = {}) => {
         );
 
         if (!accessResponse.ok) {
-          setError('Failed to fetch page access');
-          setHasAccess(false);
+          if (accessResponse.status === 401 || accessResponse.status === 403) {
+            setError('Unauthorized while fetching page access');
+            setHasAccess(false);
+          } else {
+            setError('Failed to fetch page access');
+            setHasAccess(null);
+          }
           setLoading(false);
           return;
         }
@@ -109,25 +129,31 @@ const usePageAccess = (componentIdentifier, options = {}) => {
 
         // Check if page_privilege indicates any level of access (not "0" or empty)
         // Privileges like "1", "12", "2", etc. all indicate access
-        const hasPageAccess = accessArray.some((access) => {
-          if (access.page_id === fetchedPageId) {
-            const privilege = String(access.page_privilege || '0');
-            return privilege !== '0' && privilege !== '';
-          }
-          return false;
-        });
+        const hasPageAccess = accessArray.some(
+          (access) =>
+            Number(access.page_id) === Number(fetchedPageId) &&
+            isPageAccessActive(access),
+        );
 
         setHasAccess(hasPageAccess);
       } catch (err) {
         console.error('Error checking page access:', err);
         setError('Network error occurred while checking access');
-        setHasAccess(false);
+        setHasAccess(null);
       } finally {
         setLoading(false);
       }
     };
 
     checkAccess();
+
+    const onPageAccessUpdated = () => {
+      checkAccess();
+    };
+    window.addEventListener('pageAccessUpdated', onPageAccessUpdated);
+    return () => {
+      window.removeEventListener('pageAccessUpdated', onPageAccessUpdated);
+    };
   }, [componentIdentifier, autoCheck, overrideEmployeeNumber, location.pathname]);
 
   return { hasAccess, pageId, loading, error };

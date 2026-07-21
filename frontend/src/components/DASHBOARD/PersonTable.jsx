@@ -1,5 +1,11 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  useCallback,
+} from 'react';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import axios from 'axios';
@@ -15,10 +21,6 @@ import {
   Chip,
   Modal,
   IconButton,
-  Stepper,
-  Step,
-  StepLabel,
-  StepContent,
   Paper,
   CircularProgress,
   FormHelperText,
@@ -45,6 +47,7 @@ import {
   Avatar,
   Tooltip,
   alpha,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -75,13 +78,771 @@ import AccessDenied from '../AccessDenied';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
-import {
-  createThemedCard,
-  createThemedButton,
-  createThemedTextField,
-} from '../../utils/theme';
+import DashboardModuleAuditLogs from './DashboardModuleAuditLogs';
 
+// ─── Theme tokens ────────────────────────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+  poppins: "'Poppins', sans-serif",
+};
+
+const STEP_OK = '#2e7d32';
+
+// ─── Styled primitives ────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const selectSx = {
+  borderRadius: '8px',
+  fontSize: '0.875rem',
+  bgcolor: '#fff',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: T.accent,
+    borderWidth: '1.5px',
+  },
+};
+
+// ─── Shimmer keyframes ────────────────────────────────────────
+const shimmerKeyframes = `
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+
+@keyframes ptShimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes ptPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.60; }
+}
+`;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        'linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)',
+      backgroundSize: '800px 100%',
+      animation: 'ptShimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
+const PersonTableWireframe = () => (
+  <>
+    <style>{shimmerKeyframes}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'ptPulse 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 180,
+              height: 180,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Bone w={260} h={18} sx={{ mb: 1 }} />
+              <Bone w={420} h={11} />
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.1)',
+            }}
+          />
+        </Box>
+      </Box>
+
+      <Grid container spacing={3}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={col === 0 ? 4 : 8} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                animation: `ptPulse 2s ease-in-out ${col * 0.1}s infinite`,
+                height: 'calc(100vh - 280px)',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 1.25,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 15,
+                    height: 15,
+                    borderRadius: '50%',
+                    bgcolor: 'rgba(109,35,35,0.12)',
+                  }}
+                />
+                <Bone w={col === 0 ? 180 : 240} h={13} />
+              </Box>
+              <Box
+                sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2.5 }}
+              >
+                {(col === 0
+                  ? [120, 180, 130, 155, 110, 145, 170]
+                  : [200, 120, 230, 160, 190]
+                ).map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box
+                      sx={{
+                        height: 40,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        bgcolor: '#fafafa',
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─── Field label sx (modal view mode) ────────────────────────
+const fieldLabelSx = {
+  fontSize: '0.68rem',
+  fontWeight: 700,
+  color: alpha(T.accent, 0.45),
+  textTransform: 'uppercase',
+  letterSpacing: '0.07em',
+  mb: 0.5,
+  fontFamily: T.poppins,
+};
+
+const fieldValueSx = {
+  fontSize: '0.82rem',
+  color: T.text,
+  p: '8px 12px',
+  border: `1px solid ${T.accentBorder}`,
+  borderRadius: '8px',
+  backgroundColor: T.accentFaint,
+  minHeight: 36,
+  display: 'flex',
+  alignItems: 'center',
+  lineHeight: 1.4,
+  fontFamily: T.poppins,
+};
+
+// ─── Modal Typography sx helper ──────────────────────────────
+const modalTypoSx = (overrides = {}) => ({
+  fontFamily: T.poppins,
+  ...overrides,
+});
+
+// ============================================================
+// PSGC API base URL
+// ============================================================
+const PSGC_BASE = 'https://psgc.cloud/api';
+
+const DROPDOWN_MENU_PROPS = {
+  PaperProps: { style: { maxHeight: 240, overflowY: 'auto' } },
+  anchorOrigin: { vertical: 'bottom', horizontal: 'left' },
+  transformOrigin: { vertical: 'top', horizontal: 'left' },
+  disablePortal: false,
+};
+
+// ============================================================
+// PhilippineAddressSelector Component
+// ============================================================
+const PhilippineAddressSelector = ({
+  prefix,
+  values,
+  onChange,
+  disabled = false,
+  showSameAsCheck = false,
+  residentialValues = null,
+}) => {
+  const [regions, setRegions] = useState([]);
+  const [provinces, setProvinces] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [barangays, setBarangays] = useState([]);
+
+  const [loadingRegions, setLoadingRegions] = useState(false);
+  const [loadingProvinces, setLoadingProvinces] = useState(false);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [loadingBarangays, setLoadingBarangays] = useState(false);
+
+  const [selRegionCode, setSelRegionCode] = useState('');
+  const [selProvinceCode, setSelProvinceCode] = useState('');
+  const [selCityCode, setSelCityCode] = useState('');
+  const [sameAsResidential, setSameAsResidential] = useState(false);
+
+  const barangayField =
+    prefix === 'permanent' ? `${prefix}_barangay` : `${prefix}_barangayName`;
+  const f = (name) => `${prefix}_${name}`;
+
+  useEffect(() => {
+    setLoadingRegions(true);
+    axios
+      .get(`${PSGC_BASE}/regions`)
+      .then((r) => setRegions(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setRegions([]))
+      .finally(() => setLoadingRegions(false));
+  }, []);
+
+  const handleSameAsResidential = (checked) => {
+    setSameAsResidential(checked);
+    if (checked && residentialValues) {
+      onChange(
+        'permanent_houseBlockLotNum',
+        residentialValues.residential_houseBlockLotNum || '',
+      );
+      onChange(
+        'permanent_streetName',
+        residentialValues.residential_streetName || '',
+      );
+      onChange(
+        'permanent_subdivisionOrVillage',
+        residentialValues.residential_subdivisionOrVillage || '',
+      );
+      onChange(
+        'permanent_zipcode',
+        residentialValues.residential_zipcode || '',
+      );
+      onChange(
+        'permanent_provinceName',
+        residentialValues.residential_provinceName || '',
+      );
+      onChange(
+        'permanent_cityOrMunicipality',
+        residentialValues.residential_cityOrMunicipality || '',
+      );
+      onChange(
+        'permanent_barangay',
+        residentialValues.residential_barangayName || '',
+      );
+      setSelRegionCode('');
+      setSelProvinceCode('');
+      setSelCityCode('');
+      setProvinces([]);
+      setCities([]);
+      setBarangays([]);
+    }
+  };
+
+  const handleRegionChange = async (code) => {
+    setSelRegionCode(code);
+    setSelProvinceCode('');
+    setSelCityCode('');
+    setProvinces([]);
+    setCities([]);
+    setBarangays([]);
+    onChange(f('provinceName'), '');
+    onChange(f('cityOrMunicipality'), '');
+    onChange(barangayField, '');
+    if (!code) return;
+    setLoadingProvinces(true);
+    try {
+      const r = await axios.get(`${PSGC_BASE}/regions/${code}/provinces`);
+      const data = Array.isArray(r.data) ? r.data : [];
+      if (data.length > 0) {
+        setProvinces(data);
+      } else {
+        setLoadingCities(true);
+        const r2 = await axios.get(
+          `${PSGC_BASE}/regions/${code}/cities-municipalities`,
+        );
+        setCities(Array.isArray(r2.data) ? r2.data : []);
+        setLoadingCities(false);
+      }
+    } catch {
+      try {
+        setLoadingCities(true);
+        const r2 = await axios.get(
+          `${PSGC_BASE}/regions/${code}/cities-municipalities`,
+        );
+        setCities(Array.isArray(r2.data) ? r2.data : []);
+      } catch {
+        setCities([]);
+      } finally {
+        setLoadingCities(false);
+      }
+    } finally {
+      setLoadingProvinces(false);
+    }
+  };
+
+  const handleProvinceChange = async (code, name) => {
+    setSelProvinceCode(code);
+    setSelCityCode('');
+    setCities([]);
+    setBarangays([]);
+    onChange(f('provinceName'), name);
+    onChange(f('cityOrMunicipality'), '');
+    onChange(barangayField, '');
+    if (!code) return;
+    setLoadingCities(true);
+    try {
+      const r = await axios.get(
+        `${PSGC_BASE}/provinces/${code}/cities-municipalities`,
+      );
+      setCities(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setCities([]);
+    } finally {
+      setLoadingCities(false);
+    }
+  };
+
+  const handleCityChange = async (code, name) => {
+    setSelCityCode(code);
+    setBarangays([]);
+    onChange(f('cityOrMunicipality'), name);
+    onChange(barangayField, '');
+    if (!code) return;
+    setLoadingBarangays(true);
+    try {
+      const r = await axios.get(
+        `${PSGC_BASE}/cities-municipalities/${code}/barangays`,
+      );
+      setBarangays(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setBarangays([]);
+    } finally {
+      setLoadingBarangays(false);
+    }
+  };
+
+  const handleBarangayChange = (name) => onChange(barangayField, name);
+
+  const isLocked = disabled || sameAsResidential;
+
+  const dropdownSelectSx = {
+    ...selectSx,
+    '& .MuiSelect-select': { fontSize: '0.82rem', py: '8px' },
+  };
+
+  return (
+    <Grid container spacing={2}>
+      {showSameAsCheck && (
+        <Grid item xs={12}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 1.5,
+              py: 1,
+              borderRadius: 1.5,
+              border: `1px dashed ${alpha(T.accent, 0.35)}`,
+              backgroundColor: T.accentFaint,
+              cursor: 'pointer',
+              userSelect: 'none',
+              width: 'fit-content',
+            }}
+            onClick={() => handleSameAsResidential(!sameAsResidential)}
+          >
+            <Box
+              sx={{
+                width: 16,
+                height: 16,
+                borderRadius: '4px',
+                border: `2px solid ${T.accent}`,
+                backgroundColor: sameAsResidential ? T.accent : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                transition: 'background-color 0.15s',
+              }}
+            >
+              {sameAsResidential && (
+                <Box
+                  component="span"
+                  sx={{
+                    color: '#fff',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    lineHeight: 1,
+                  }}
+                >
+                  ✓
+                </Box>
+              )}
+            </Box>
+            <Typography
+              sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent }}
+            >
+              Same as Residential Address
+            </Typography>
+          </Box>
+        </Grid>
+      )}
+
+      {[
+        { label: 'House/Block/Lot No.', field: f('houseBlockLotNum') },
+        { label: 'Street Name', field: f('streetName') },
+        { label: 'Subdivision / Village', field: f('subdivisionOrVillage') },
+        { label: 'Zip Code', field: f('zipcode') },
+      ].map(({ label, field }) => (
+        <Grid item xs={12} sm={6} key={field}>
+          <Typography
+            sx={{
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: T.accent,
+              mb: 0.75,
+            }}
+          >
+            {label}
+          </Typography>
+          <FieldInput
+            size="small"
+            fullWidth
+            disabled={isLocked}
+            value={values[field] || ''}
+            onChange={(e) => onChange(field, e.target.value)}
+          />
+        </Grid>
+      ))}
+
+      {/* Region */}
+      <Grid item xs={12} sm={6}>
+        <Typography
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: T.accent,
+            mb: 0.75,
+          }}
+        >
+          Region
+        </Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={selRegionCode}
+            onChange={(e) => handleRegionChange(e.target.value)}
+            disabled={isLocked || loadingRegions}
+            displayEmpty
+            sx={dropdownSelectSx}
+            MenuProps={DROPDOWN_MENU_PROPS}
+            renderValue={(v) => {
+              if (!v)
+                return (
+                  <em style={{ color: T.faint, fontSize: '0.82rem' }}>
+                    Select Region
+                  </em>
+                );
+              const found = regions.find((r) => r.code === v);
+              return found ? found.name : v;
+            }}
+          >
+            <MenuItem value="">
+              <em>Select Region</em>
+            </MenuItem>
+            {loadingRegions ? (
+              <MenuItem disabled>
+                <CircularProgress size={12} sx={{ mr: 1 }} />
+                Loading…
+              </MenuItem>
+            ) : (
+              regions.map((r) => (
+                <MenuItem
+                  key={r.code}
+                  value={r.code}
+                  sx={{ fontSize: '0.82rem' }}
+                >
+                  {r.name}
+                </MenuItem>
+              ))
+            )}
+          </Select>
+        </FormControl>
+      </Grid>
+
+      {/* Province */}
+      <Grid item xs={12} sm={6}>
+        <Typography
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: T.accent,
+            mb: 0.75,
+          }}
+        >
+          Province
+        </Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={selProvinceCode}
+            onChange={(e) => {
+              const found = provinces.find((p) => p.code === e.target.value);
+              handleProvinceChange(e.target.value, found ? found.name : '');
+            }}
+            disabled={isLocked || loadingProvinces || !selRegionCode}
+            displayEmpty
+            sx={dropdownSelectSx}
+            MenuProps={DROPDOWN_MENU_PROPS}
+            renderValue={(v) => {
+              if (!v) {
+                const saved = values[f('provinceName')];
+                return saved ? (
+                  <span style={{ fontSize: '0.82rem' }}>{saved}</span>
+                ) : (
+                  <em style={{ color: T.faint, fontSize: '0.82rem' }}>
+                    Select Province
+                  </em>
+                );
+              }
+              const found = provinces.find((p) => p.code === v);
+              return found ? found.name : v;
+            }}
+          >
+            <MenuItem value="">
+              <em>Select Province</em>
+            </MenuItem>
+            {loadingProvinces ? (
+              <MenuItem disabled>
+                <CircularProgress size={12} sx={{ mr: 1 }} />
+                Loading…
+              </MenuItem>
+            ) : (
+              provinces.map((p) => (
+                <MenuItem
+                  key={p.code}
+                  value={p.code}
+                  sx={{ fontSize: '0.82rem' }}
+                >
+                  {p.name}
+                </MenuItem>
+              ))
+            )}
+          </Select>
+        </FormControl>
+      </Grid>
+
+      {/* City/Municipality */}
+      <Grid item xs={12} sm={6}>
+        <Typography
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: T.accent,
+            mb: 0.75,
+          }}
+        >
+          City / Municipality
+        </Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={selCityCode}
+            onChange={(e) => {
+              const found = cities.find((c) => c.code === e.target.value);
+              handleCityChange(e.target.value, found ? found.name : '');
+            }}
+            disabled={isLocked || loadingCities || !selRegionCode}
+            displayEmpty
+            sx={dropdownSelectSx}
+            MenuProps={DROPDOWN_MENU_PROPS}
+            renderValue={(v) => {
+              if (!v) {
+                const saved = values[f('cityOrMunicipality')];
+                return saved ? (
+                  <span style={{ fontSize: '0.82rem' }}>{saved}</span>
+                ) : (
+                  <em style={{ color: T.faint, fontSize: '0.82rem' }}>
+                    Select City/Municipality
+                  </em>
+                );
+              }
+              const found = cities.find((c) => c.code === v);
+              return found ? found.name : v;
+            }}
+          >
+            <MenuItem value="">
+              <em>Select City/Municipality</em>
+            </MenuItem>
+            {loadingCities ? (
+              <MenuItem disabled>
+                <CircularProgress size={12} sx={{ mr: 1 }} />
+                Loading…
+              </MenuItem>
+            ) : (
+              cities.map((c) => (
+                <MenuItem
+                  key={c.code}
+                  value={c.code}
+                  sx={{ fontSize: '0.82rem' }}
+                >
+                  {c.name}
+                </MenuItem>
+              ))
+            )}
+          </Select>
+        </FormControl>
+      </Grid>
+
+      {/* Barangay */}
+      <Grid item xs={12} sm={6}>
+        <Typography
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            color: T.accent,
+            mb: 0.75,
+          }}
+        >
+          Barangay
+        </Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={values[barangayField] || ''}
+            onChange={(e) => handleBarangayChange(e.target.value)}
+            disabled={isLocked || loadingBarangays || !selCityCode}
+            displayEmpty
+            sx={dropdownSelectSx}
+            MenuProps={DROPDOWN_MENU_PROPS}
+            renderValue={(v) =>
+              v || (
+                <em style={{ color: T.faint, fontSize: '0.82rem' }}>
+                  Select Barangay
+                </em>
+              )
+            }
+          >
+            <MenuItem value="">
+              <em>Select Barangay</em>
+            </MenuItem>
+            {loadingBarangays ? (
+              <MenuItem disabled>
+                <CircularProgress size={12} sx={{ mr: 1 }} />
+                Loading…
+              </MenuItem>
+            ) : (
+              barangays.map((b) => (
+                <MenuItem
+                  key={b.code}
+                  value={b.name}
+                  sx={{ fontSize: '0.82rem' }}
+                >
+                  {b.name}
+                </MenuItem>
+              ))
+            )}
+          </Select>
+        </FormControl>
+      </Grid>
+    </Grid>
+  );
+};
+
+// ============================================================
 // Employee Autocomplete Component
+// ============================================================
 const EmployeeAutocomplete = ({
   value,
   onChange,
@@ -93,53 +854,63 @@ const EmployeeAutocomplete = ({
   selectedEmployee,
   onEmployeeSelect,
   dropdownDisabled = false,
-  settings = {},
 }) => {
+  const formatEmployeeName = (emp) => {
+    if (!emp) return '';
+    if (emp.name) return emp.name;
+
+    const lastName = String(emp.lastName || '').trim();
+    const firstName = String(emp.firstName || '').trim();
+    const middleName = String(emp.middleName || '').trim();
+    const nameExtension = String(emp.nameExtension || '').trim();
+    const middleInitial = middleName ? `${middleName.charAt(0).toUpperCase()}.` : '';
+
+    return [lastName, firstName, middleInitial, nameExtension]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const normalizeEmployee = (emp) => ({
+    ...emp,
+    name: formatEmployeeName(emp),
+  });
+
   const [query, setQuery] = useState('');
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-
   const debounceRef = useRef(null);
   const dropdownRef = useRef(null);
-  const inputRef = useRef(null);
 
   useEffect(() => {
-    if (value && !selectedEmployee) {
-      fetchEmployeeById(value);
-    }
-  }, [value]);
+    if (value && !selectedEmployee) fetchEmployeeById(value);
+  }, [value]); // eslint-disable-line
 
   useEffect(() => {
-    if (selectedEmployee) {
-      setQuery(selectedEmployee.name || '');
-    } else if (!value) {
-      setQuery('');
-    }
+    if (selectedEmployee) setQuery(formatEmployeeName(selectedEmployee) || '');
+    else if (!value) setQuery('');
   }, [selectedEmployee, value]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target))
         setShowDropdown(false);
-      }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const fetchEmployees = async (searchQuery) => {
+  const fetchEmployees = async (q) => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(
-          searchQuery,
-        )}`,
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
         getAuthHeaders(),
       );
-      setEmployees(response.data);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
+        setEmployees((Array.isArray(r.data) ? r.data : []).map(normalizeEmployee));
+    } catch {
       setEmployees([]);
     } finally {
       setIsLoading(false);
@@ -149,106 +920,60 @@ const EmployeeAutocomplete = ({
   const fetchAllEmployees = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
+      const r = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search`,
         getAuthHeaders(),
       );
-      setEmployees(response.data);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
+        setEmployees((Array.isArray(r.data) ? r.data : []).map(normalizeEmployee));
+    } catch {
       setEmployees([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchEmployeeById = async (employeeNumber) => {
+  const fetchEmployeeById = async (empNum) => {
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/${employeeNumber}`,
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/${empNum}`,
         getAuthHeaders(),
       );
-      const employee = response.data;
-      onEmployeeSelect(employee);
-      setQuery(employee.name || '');
-    } catch (error) {
-      console.error('Error fetching employee by ID:', error);
+        const employee = normalizeEmployee(r.data);
+        onEmployeeSelect(employee);
+        setQuery(employee.name || '');
+    } catch (err) {
+      if (err.response?.status !== 404) console.error(err);
     }
   };
 
   const handleInputChange = (e) => {
-    const inputValue = e.target.value;
-    setQuery(inputValue);
+    const v = e.target.value;
+    setQuery(v);
     setShowDropdown(true);
-
-    if (selectedEmployee && inputValue !== selectedEmployee.name) {
+    if (selectedEmployee && v !== formatEmployeeName(selectedEmployee)) {
       onEmployeeSelect(null);
       onChange('');
     }
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
+    clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      if (inputValue.trim().length >= 2) {
-        fetchEmployees(inputValue);
-      } else if (inputValue.trim().length === 0) {
-        fetchAllEmployees();
-      } else {
-        setEmployees([]);
-      }
+      if (v.trim().length >= 2) fetchEmployees(v);
+      else if (v.trim().length === 0) fetchAllEmployees();
+      else setEmployees([]);
     }, 300);
   };
 
-  const handleEmployeeSelect = (employee) => {
-    onEmployeeSelect(employee);
-    setQuery(employee.name);
-    setShowDropdown(false);
-    onChange(employee.employeeNumber);
-  };
-
-  const handleInputFocus = () => {
-    setShowDropdown(true);
-    if (employees.length === 0 && !isLoading) {
-      if (query.length >= 2) {
-        fetchEmployees(query);
-      } else {
-        fetchAllEmployees();
-      }
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Escape') {
-      setShowDropdown(false);
-    }
-  };
-
-  const handleDropdownClick = () => {
-    if (!showDropdown) {
-      setShowDropdown(true);
-      if (employees.length === 0 && !isLoading) {
-        fetchAllEmployees();
-      }
-    } else {
-      setShowDropdown(false);
-    }
-  };
-
-  const ModernTextField = useMemo(
-    () => styled(TextField)(() => createThemedTextField(settings)),
-    [settings],
-  );
-
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={dropdownRef}>
-      <ModernTextField
-        ref={inputRef}
+      <FieldInput
         value={query}
         onChange={handleInputChange}
-        onFocus={handleInputFocus}
-        onKeyDown={handleKeyDown}
+        onFocus={() => {
+          setShowDropdown(true);
+          if (!employees.length && !isLoading) {
+            query.length >= 2 ? fetchEmployees(query) : fetchAllEmployees();
+          }
+        }}
+        onKeyDown={(e) => e.key === 'Escape' && setShowDropdown(false)}
         placeholder={placeholder}
         disabled={disabled}
         required={required}
@@ -259,99 +984,122 @@ const EmployeeAutocomplete = ({
         size="small"
         InputProps={{
           startAdornment: (
-            <PersonIcon
-              sx={{
-                color:
-                  settings.textPrimaryColor ||
-                  settings.primaryColor ||
-                  '#6D2323',
-                mr: 1,
-              }}
-            />
+            <PersonIcon sx={{ color: T.muted, mr: 1, fontSize: 15 }} />
           ),
           endAdornment: (
             <IconButton
-              onClick={dropdownDisabled ? undefined : handleDropdownClick}
+              onClick={
+                dropdownDisabled
+                  ? undefined
+                  : () => {
+                      if (!showDropdown) {
+                        setShowDropdown(true);
+                        if (!employees.length && !isLoading)
+                          fetchAllEmployees();
+                      } else setShowDropdown(false);
+                    }
+              }
               size="small"
               disabled={dropdownDisabled}
-              sx={{
-                color:
-                  settings.textPrimaryColor ||
-                  settings.primaryColor ||
-                  '#6D2323',
-              }}
+              sx={{ color: T.muted }}
             >
-              {showDropdown ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              {showDropdown ? (
+                <ExpandLessIcon sx={{ fontSize: 15 }} />
+              ) : (
+                <ExpandMoreIcon sx={{ fontSize: 15 }} />
+              )}
             </IconButton>
           ),
         }}
       />
-
       {showDropdown && (
         <Paper
-          elevation={3}
+          elevation={4}
           sx={{
             position: 'absolute',
             top: '100%',
             left: 0,
             right: 0,
-            zIndex: 1000,
-            maxHeight: 300,
+            zIndex: 1300,
+            maxHeight: 280,
             overflow: 'auto',
-            mt: 1,
+            mt: 0.75,
             borderRadius: 2,
+            border: `1px solid ${T.accentBorder}`,
           }}
         >
           {isLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" sx={{ ml: 1 }}>
-                Loading...
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                p: 2,
+                gap: 1,
+              }}
+            >
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>
+                Loading…
               </Typography>
             </Box>
           ) : employees.length > 0 ? (
-            <List dense>
-              {employees.map((employee) => (
+            <List dense disablePadding>
+              {employees.map((emp) => (
                 <ListItem
-                  key={employee.employeeNumber}
+                  key={emp.employeeNumber}
                   button
-                  onClick={() => handleEmployeeSelect(employee)}
+                  onClick={() => {
+                    onEmployeeSelect(emp);
+                    setQuery(formatEmployeeName(emp));
+                    setShowDropdown(false);
+                    onChange(emp.employeeNumber);
+                  }}
                   sx={{
-                    '&:hover': {
-                      backgroundColor: alpha(
-                        settings.accentColor ||
-                          settings.backgroundColor ||
-                          '#FEF9E1',
-                        0.3,
-                      ),
-                    },
+                    py: 1,
+                    px: 1.5,
+                    '&:hover': { bgcolor: T.accentFaint },
+                    borderBottom: `1px solid ${T.divider}`,
                   }}
                 >
-                  <ListItemText
-                    primary={employee.name}
-                    secondary={`#${employee.employeeNumber}`}
-                    primaryTypographyProps={{
-                      fontWeight: 'bold',
-                      color: settings.textPrimaryColor || '#6D2323',
-                    }}
-                    secondaryTypographyProps={{
-                      color: settings.textSecondaryColor || '#666',
-                    }}
-                  />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Avatar
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        fontSize: '0.72rem',
+                        bgcolor: T.accent,
+                        color: '#fff',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {emp.name?.charAt(0)?.toUpperCase() || '?'}
+                    </Avatar>
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: '0.82rem',
+                          fontWeight: 700,
+                          color: T.text,
+                        }}
+                      >
+                          {formatEmployeeName(emp) || 'Unknown'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                        #{emp.employeeNumber}
+                      </Typography>
+                    </Box>
+                  </Box>
                 </ListItem>
               ))}
             </List>
-          ) : query.length >= 2 ? (
-            <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                No employees found matching "{query}"
-              </Typography>
-            </Box>
           ) : (
             <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
-                {employees.length === 0
-                  ? 'No employees available'
+              <Typography
+                sx={{ fontSize: '0.8rem', color: T.faint, fontStyle: 'italic' }}
+              >
+                {query.length >= 2
+                  ? `No employees found for "${query}"`
                   : 'Type to search or scroll to browse'}
               </Typography>
             </Box>
@@ -362,64 +1110,44 @@ const EmployeeAutocomplete = ({
   );
 };
 
+// ============================================================
+// Main PersonTable Component
+// ============================================================
 const PersonTable = () => {
   const { socket, connected } = useSocket();
-  // Get settings from context
   const { settings } = useSystemSettings();
 
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [page, setPage] = useState(0);
-  // CHANGED: Default rows per page to 20
-  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
   const [errors, setErrors] = useState({});
   const [stepErrors, setStepErrors] = useState({});
+  const [checkedSteps, setCheckedSteps] = useState({});
   const [viewMode, setViewMode] = useState('grid');
   const [activeStep, setActiveStep] = useState(0);
 
-  //ACCESSING
-  // Dynamic page access control using component identifier
   const navigate = useNavigate();
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('personalinfo');
-  // ACCESSING END
 
-  // Create themed styled components using system settings (memoized to avoid remount/focus loss)
-  const GlassCard = useMemo(
-    () => styled(Card)(() => createThemedCard(settings)),
-    [settings],
-  );
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
+  const showSnackbar = (message, severity = 'success') =>
+    setSnackbar({ open: true, message, severity });
 
-  const ProfessionalButton = useMemo(
-    () =>
-      styled(Button)(({ variant = 'contained' }) =>
-        createThemedButton(settings, variant),
-      ),
-    [settings],
-  );
-
-  const ModernTextField = useMemo(
-    () => styled(TextField)(() => createThemedTextField(settings)),
-    [settings],
-  );
-
-  // Color scheme from settings (for compatibility)
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark =
-    settings.secondaryColor || settings.hoverColor || '#8B3333';
-  const grayColor = settings.textSecondaryColor || '#6c757d';
-
-  // Stepper state
-  const [newPerson, setNewPerson] = useState({
+  const emptyPerson = {
     firstName: '',
     middleName: '',
     lastName: '',
@@ -484,400 +1212,64 @@ const PersonTable = () => {
     secondaryHighestAttained: '',
     secondaryYearGraduated: '',
     secondaryScholarshipAcademicHonorsReceived: '',
-  });
+  };
 
-  // Modal state for viewing/editing
+  const [newPerson, setNewPerson] = useState({ ...emptyPerson });
   const [editPerson, setEditPerson] = useState(null);
   const [originalPerson, setOriginalPerson] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
-
+  const [modalTab, setModalTab] = useState('personal');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedEditEmployee, setSelectedEditEmployee] = useState(null);
-
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success',
-  });
-
-  const showSnackbar = (message, severity = 'success') => {
-    setSnackbar({ open: true, message, severity });
-  };
 
   const fetchPersonsRef = useRef(null);
 
   useEffect(() => {
-    fetchPersons();
+    fetchPersons().finally(() => setPageLoading(false));
   }, []);
 
+  // ── Alphabetical sort by lastName ─────────────────────────
   useEffect(() => {
     const query = searchQuery.toLowerCase();
-    const filtered = data.filter(
-      (person) =>
-        person.firstName?.toLowerCase().includes(query) ||
-        person.lastName?.toLowerCase().includes(query) ||
-        person.agencyEmployeeNum?.toLowerCase().includes(query),
+    setFilteredData(
+      data
+        .filter(
+          (p) =>
+            p.firstName?.toLowerCase().includes(query) ||
+            p.lastName?.toLowerCase().includes(query) ||
+            p.agencyEmployeeNum?.toLowerCase().includes(query),
+        )
+        .sort((a, b) =>
+          (a.lastName || '').localeCompare(b.lastName || '', undefined, {
+            sensitivity: 'base',
+          }),
+        ),
     );
-    setFilteredData(filtered);
   }, [searchQuery, data]);
 
   const fetchPersons = async () => {
     try {
-      const response = await axios.get(
+      const r = await axios.get(
         `${API_BASE_URL}/personalinfo/person_table`,
         getAuthHeaders(),
       );
-      setData(response.data);
-      setFilteredData(response.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
+      setData(r.data);
+      setFilteredData(r.data);
+    } catch (e) {
+      console.error('Failed to fetch data:', e);
     }
   };
 
-  // Keep latest fetch function for Socket.IO handler
   useEffect(() => {
     fetchPersonsRef.current = fetchPersons;
   });
 
-  // Socket.IO: when anyone updates Personal Info, refresh this page
   useEffect(() => {
     if (!socket || !connected) return;
-
-    const handlePersonalInfoChanged = () => {
-      fetchPersonsRef.current?.();
-    };
-
-    socket.on('personalInfoChanged', handlePersonalInfoChanged);
-    return () => {
-      socket.off('personalInfoChanged', handlePersonalInfoChanged);
-    };
+    const handler = () => fetchPersonsRef.current?.();
+    socket.on('personalInfoChanged', handler);
+    return () => socket.off('personalInfoChanged', handler);
   }, [socket, connected]);
-
-  const validateForm = () => {
-    const newErrors = {};
-    const requiredFields = [
-      'firstName',
-      'lastName',
-      'birthDate',
-      'sex',
-      'civilStatus',
-      'citizenship',
-    ];
-
-    requiredFields.forEach((field) => {
-      if (!newPerson[field] || newPerson[field].trim() === '') {
-        newErrors[field] = 'This field is required';
-      }
-    });
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const validateCurrentStep = () => {
-    const currentStepFields = steps[activeStep].fields;
-    const requiredFields = [
-      'firstName',
-      'lastName',
-      'birthDate',
-      'sex',
-      'civilStatus',
-      'citizenship',
-      'agencyEmployeeNum',
-    ];
-    const stepRequiredFields = currentStepFields.filter((field) =>
-      requiredFields.includes(field),
-    );
-
-    const newErrors = {};
-    let hasError = false;
-
-    stepRequiredFields.forEach((field) => {
-      if (!newPerson[field] || newPerson[field].trim() === '') {
-        newErrors[field] = 'This field is required';
-        hasError = true;
-      }
-    });
-
-    if (hasError) {
-      setErrors(newErrors);
-      setStepErrors({ [activeStep]: true });
-      showSnackbar(
-        'Please fill in all required fields before proceeding',
-        'error',
-      );
-      return false;
-    }
-
-    setStepErrors((prev) => {
-      const newStepErrors = { ...prev };
-      delete newStepErrors[activeStep];
-      return newStepErrors;
-    });
-
-    return true;
-  };
-
-  const handleAdd = async () => {
-    if (!validateForm()) {
-      showSnackbar('Please fill in all required fields', 'error');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await axios.post(
-        `${API_BASE_URL}/personalinfo/person_table`,
-        newPerson,
-        getAuthHeaders(),
-      );
-      setNewPerson(
-        Object.fromEntries(Object.keys(newPerson).map((k) => [k, ''])),
-      );
-      setActiveStep(0);
-      setErrors({});
-      setStepErrors({});
-      setSelectedEmployee(null);
-      setTimeout(() => {
-        setLoading(false);
-        setSuccessAction('adding');
-        setSuccessOpen(true);
-        setTimeout(() => setSuccessOpen(false), 2000);
-      }, 300);
-      fetchPersons();
-    } catch (error) {
-      console.error('Error adding person:', error);
-      setLoading(false);
-      showSnackbar(
-        'Failed to add Personal Information. Employee Number needs to be setup. Please try again.',
-        'error',
-      );
-    }
-  };
-
-  const handleUpdate = async () => {
-    try {
-      await axios.put(
-        `${API_BASE_URL}/personalinfo/person_table/${editPerson.id}`,
-        editPerson,
-        getAuthHeaders(),
-      );
-      setEditPerson(null);
-      setOriginalPerson(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
-      fetchPersons();
-      setSuccessAction('edit');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error updating person:', error);
-      showSnackbar('Failed to update person. Please try again.', 'error');
-    }
-  };
-
-  const handleDelete = async (id) => {
-    try {
-      await axios.delete(
-        `${API_BASE_URL}/personalinfo/person_table/${id}`,
-        getAuthHeaders(),
-      );
-      setEditPerson(null);
-      setOriginalPerson(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
-      fetchPersons();
-      setSuccessAction('delete');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error deleting person:', error);
-      showSnackbar('Failed to delete person. Please try again.', 'error');
-    }
-  };
-
-  const handleChange = (field, value, isEdit = false) => {
-    if (isEdit) {
-      setEditPerson({ ...editPerson, [field]: value });
-    } else {
-      setNewPerson({ ...newPerson, [field]: value });
-      if (errors[field]) {
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors[field];
-          return newErrors;
-        });
-      }
-      if (stepErrors[activeStep]) {
-        setStepErrors((prev) => {
-          const newStepErrors = { ...prev };
-          delete newStepErrors[activeStep];
-          return newStepErrors;
-        });
-      }
-    }
-  };
-
-  const handleEmployeeChange = (employeeNumber) => {
-    setNewPerson({ ...newPerson, agencyEmployeeNum: employeeNumber });
-    setErrors((prev) => {
-      const newErrors = { ...prev };
-      delete newErrors.agencyEmployeeNum;
-      return newErrors;
-    });
-  };
-
-  const handleEmployeeSelect = (employee) => {
-    setSelectedEmployee(employee);
-  };
-
-  const handleEditEmployeeChange = (employeeNumber) => {
-    setEditPerson({ ...editPerson, agencyEmployeeNum: employeeNumber });
-  };
-
-  const handleEditEmployeeSelect = (employee) => {
-    setSelectedEditEmployee(employee);
-  };
-
-  const handleOpenModal = (person) => {
-    setEditPerson({ ...person });
-    setOriginalPerson({ ...person });
-    setSelectedEditEmployee({
-      name: `${person.firstName} ${person.lastName}`,
-      employeeNumber: person.agencyEmployeeNum,
-    });
-    setIsEditing(false);
-  };
-
-  const handleStartEdit = () => {
-    setIsEditing(true);
-  };
-
-  const handleCancelEdit = () => {
-    setEditPerson({ ...originalPerson });
-    setSelectedEditEmployee({
-      name: `${originalPerson.firstName} ${originalPerson.lastName}`,
-      employeeNumber: originalPerson.agencyEmployeeNum,
-    });
-    setIsEditing(false);
-  };
-
-  const handleCloseModal = () => {
-    setEditPerson(null);
-    setOriginalPerson(null);
-    setSelectedEditEmployee(null);
-    setIsEditing(false);
-  };
-
-  const handleNext = () => {
-    if (!validateCurrentStep()) {
-      return;
-    }
-    setActiveStep((prevActiveStep) => prevActiveStep + 1);
-  };
-
-  const handleBack = () => {
-    setActiveStep((prevActiveStep) => prevActiveStep - 1);
-  };
-
-  const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
-    }
-  };
-
-  const hasChanges = () => {
-    if (!editPerson || !originalPerson) return false;
-
-    return (
-      editPerson.firstName !== originalPerson.firstName ||
-      editPerson.middleName !== originalPerson.middleName ||
-      editPerson.lastName !== originalPerson.lastName ||
-      editPerson.nameExtension !== originalPerson.nameExtension ||
-      editPerson.birthDate !== originalPerson.birthDate ||
-      editPerson.placeOfBirth !== originalPerson.placeOfBirth ||
-      editPerson.sex !== originalPerson.sex ||
-      editPerson.civilStatus !== originalPerson.civilStatus ||
-      editPerson.citizenship !== originalPerson.citizenship ||
-      editPerson.heightCm !== originalPerson.heightCm ||
-      editPerson.weightKg !== originalPerson.weightKg ||
-      editPerson.bloodType !== originalPerson.bloodType ||
-      editPerson.gsisNum !== originalPerson.gsisNum ||
-      editPerson.pagibigNum !== originalPerson.pagibigNum ||
-      editPerson.philhealthNum !== originalPerson.philhealthNum ||
-      editPerson.sssNum !== originalPerson.sssNum ||
-      editPerson.tinNum !== originalPerson.tinNum ||
-      editPerson.agencyEmployeeNum !== originalPerson.agencyEmployeeNum ||
-      editPerson.permanent_houseBlockLotNum !==
-        originalPerson.permanent_houseBlockLotNum ||
-      editPerson.permanent_streetName !== originalPerson.permanent_streetName ||
-      editPerson.permanent_subdivisionOrVillage !==
-        originalPerson.permanent_subdivisionOrVillage ||
-      editPerson.permanent_barangay !== originalPerson.permanent_barangay ||
-      editPerson.permanent_cityOrMunicipality !==
-        originalPerson.permanent_cityOrMunicipality ||
-      editPerson.permanent_provinceName !==
-        originalPerson.permanent_provinceName ||
-      editPerson.permanent_zipcode !== originalPerson.permanent_zipcode ||
-      editPerson.residential_houseBlockLotNum !==
-        originalPerson.residential_houseBlockLotNum ||
-      editPerson.residential_streetName !==
-        originalPerson.residential_streetName ||
-      editPerson.residential_subdivisionOrVillage !==
-        originalPerson.residential_subdivisionOrVillage ||
-      editPerson.residential_barangayName !==
-        originalPerson.residential_barangayName ||
-      editPerson.residential_cityOrMunicipality !==
-        originalPerson.residential_cityOrMunicipality ||
-      editPerson.residential_provinceName !==
-        originalPerson.residential_provinceName ||
-      editPerson.residential_zipcode !== originalPerson.residential_zipcode ||
-      editPerson.telephone !== originalPerson.telephone ||
-      editPerson.mobileNum !== originalPerson.mobileNum ||
-      editPerson.emailAddress !== originalPerson.emailAddress ||
-      editPerson.spouseFirstName !== originalPerson.spouseFirstName ||
-      editPerson.spouseMiddleName !== originalPerson.spouseMiddleName ||
-      editPerson.spouseLastName !== originalPerson.spouseLastName ||
-      editPerson.spouseNameExtension !== originalPerson.spouseNameExtension ||
-      editPerson.spouseOccupation !== originalPerson.spouseOccupation ||
-      editPerson.spouseEmployerBusinessName !==
-        originalPerson.spouseEmployerBusinessName ||
-      editPerson.spouseBusinessAddress !==
-        originalPerson.spouseBusinessAddress ||
-      editPerson.spouseTelephone !== originalPerson.spouseTelephone ||
-      editPerson.fatherFirstName !== originalPerson.fatherFirstName ||
-      editPerson.fatherMiddleName !== originalPerson.fatherMiddleName ||
-      editPerson.fatherLastName !== originalPerson.fatherLastName ||
-      editPerson.fatherNameExtension !== originalPerson.fatherNameExtension ||
-      editPerson.motherMaidenFirstName !==
-        originalPerson.motherMaidenFirstName ||
-      editPerson.motherMaidenMiddleName !==
-        originalPerson.motherMaidenMiddleName ||
-      editPerson.motherMaidenLastName !== originalPerson.motherMaidenLastName ||
-      editPerson.elementaryNameOfSchool !==
-        originalPerson.elementaryNameOfSchool ||
-      editPerson.elementaryDegree !== originalPerson.elementaryDegree ||
-      editPerson.elementaryPeriodFrom !== originalPerson.elementaryPeriodFrom ||
-      editPerson.elementaryPeriodTo !== originalPerson.elementaryPeriodTo ||
-      editPerson.elementaryHighestAttained !==
-        originalPerson.elementaryHighestAttained ||
-      editPerson.elementaryYearGraduated !==
-        originalPerson.elementaryYearGraduated ||
-      editPerson.elementaryScholarshipAcademicHonorsReceived !==
-        originalPerson.elementaryScholarshipAcademicHonorsReceived ||
-      editPerson.secondaryNameOfSchool !==
-        originalPerson.secondaryNameOfSchool ||
-      editPerson.secondaryDegree !== originalPerson.secondaryDegree ||
-      editPerson.secondaryPeriodFrom !== originalPerson.secondaryPeriodFrom ||
-      editPerson.secondaryPeriodTo !== originalPerson.secondaryPeriodTo ||
-      editPerson.secondaryHighestAttained !==
-        originalPerson.secondaryHighestAttained ||
-      editPerson.secondaryYearGraduated !==
-        originalPerson.secondaryYearGraduated ||
-      editPerson.secondaryScholarshipAcademicHonorsReceived !==
-        originalPerson.secondaryScholarshipAcademicHonorsReceived
-    );
-  };
 
   const steps = [
     {
@@ -912,27 +1304,21 @@ const PersonTable = () => {
         'tinNum',
         'agencyEmployeeNum',
       ],
-      disabledFields: ['agencyEmployeeNum'],
     },
     {
-      label: 'Address Information',
-      subtitle: 'Your permanent and residential addresses',
-      fields: [
-        'permanent_houseBlockLotNum',
-        'permanent_streetName',
-        'permanent_subdivisionOrVillage',
-        'permanent_barangay',
-        'permanent_cityOrMunicipality',
-        'permanent_provinceName',
-        'permanent_zipcode',
-        'residential_houseBlockLotNum',
-        'residential_streetName',
-        'residential_subdivisionOrVillage',
-        'residential_barangayName',
-        'residential_cityOrMunicipality',
-        'residential_provinceName',
-        'residential_zipcode',
-      ],
+      label: 'Residential Address',
+      subtitle: 'Your current residential address',
+      fields: ['residential_address'],
+      isAddress: true,
+      addressPrefix: 'residential',
+    },
+    {
+      label: 'Permanent Address',
+      subtitle: 'Your permanent address — tick below if same as residential',
+      fields: ['permanent_address'],
+      isAddress: true,
+      addressPrefix: 'permanent',
+      isSameAsResidential: true,
     },
     {
       label: 'Spouse Information',
@@ -963,7 +1349,7 @@ const PersonTable = () => {
     },
     {
       label: 'Educational Background',
-      subtitle: 'Your elementary and secondary education',
+      subtitle: 'Elementary and secondary education',
       fields: [
         'elementaryNameOfSchool',
         'elementaryDegree',
@@ -983,2991 +1369,2154 @@ const PersonTable = () => {
     },
   ];
 
-  const renderStepContent = (step) => (
-    <Grid container spacing={3} sx={{ mt: 1 }}>
-      {step.fields.map((field) => {
-        const requiredFields = [
-          'firstName',
-          'lastName',
-          'birthDate',
-          'sex',
-          'civilStatus',
-          'citizenship',
-          'agencyEmployeeNum',
-        ];
-        const isRequired = requiredFields.includes(field);
-        const hasError = errors[field];
+  const fieldLabels = {
+    firstName: 'First Name',
+    middleName: 'Middle Name',
+    lastName: 'Last Name',
+    nameExtension: 'Name Extension (Jr., Sr., etc.)',
+    birthDate: 'Date of Birth',
+    placeOfBirth: 'Place of Birth',
+    sex: 'Sex',
+    civilStatus: 'Civil Status',
+    citizenship: 'Citizenship',
+    heightCm: 'Height (cm)',
+    weightKg: 'Weight (kg)',
+    bloodType: 'Blood Type',
+    gsisNum: 'GSIS Number',
+    pagibigNum: 'Pag-IBIG Number',
+    philhealthNum: 'PhilHealth Number',
+    sssNum: 'SSS Number',
+    tinNum: 'TIN Number',
+    agencyEmployeeNum: 'Employee Number',
+    telephone: 'Telephone Number',
+    mobileNum: 'Mobile Number',
+    emailAddress: 'Email Address',
+    spouseFirstName: "Spouse's First Name",
+    spouseMiddleName: "Spouse's Middle Name",
+    spouseLastName: "Spouse's Last Name",
+    spouseNameExtension: "Spouse's Name Extension",
+    spouseOccupation: "Spouse's Occupation",
+    spouseEmployerBusinessName: "Spouse's Employer/Business Name",
+    spouseBusinessAddress: "Spouse's Business Address",
+    spouseTelephone: "Spouse's Telephone",
+    fatherFirstName: "Father's First Name",
+    fatherMiddleName: "Father's Middle Name",
+    fatherLastName: "Father's Last Name",
+    fatherNameExtension: "Father's Name Extension",
+    motherMaidenFirstName: "Mother's Maiden First Name",
+    motherMaidenMiddleName: "Mother's Maiden Middle Name",
+    motherMaidenLastName: "Mother's Maiden Last Name",
+    elementaryNameOfSchool: 'Elementary School Name',
+    elementaryDegree: 'Elementary Degree',
+    elementaryPeriodFrom: 'Elementary Period From',
+    elementaryPeriodTo: 'Elementary Period To',
+    elementaryHighestAttained: 'Elementary Highest Attained',
+    elementaryYearGraduated: 'Elementary Year Graduated',
+    elementaryScholarshipAcademicHonorsReceived:
+      'Elementary Scholarship/Academic Honors',
+    secondaryNameOfSchool: 'Secondary School Name',
+    secondaryDegree: 'Secondary Degree',
+    secondaryPeriodFrom: 'Secondary Period From',
+    secondaryPeriodTo: 'Secondary Period To',
+    secondaryHighestAttained: 'Secondary Highest Attained',
+    secondaryYearGraduated: 'Secondary Year Graduated',
+    secondaryScholarshipAcademicHonorsReceived:
+      'Secondary Scholarship/Academic Honors',
+  };
 
-        // Field label mapping for user-friendly display
-        const fieldLabels = {
-          firstName: 'First Name',
-          middleName: 'Middle Name',
-          lastName: 'Last Name',
-          nameExtension: 'Name Extension (Jr., Sr., etc.)',
-          birthDate: 'Date of Birth',
-          placeOfBirth: 'Place of Birth',
-          sex: 'Sex',
-          civilStatus: 'Civil Status',
-          citizenship: 'Citizenship',
-          heightCm: 'Height (cm)',
-          weightKg: 'Weight (kg)',
-          bloodType: 'Blood Type',
-          gsisNum: 'GSIS Number',
-          pagibigNum: 'Pag-IBIG Number',
-          philhealthNum: 'PhilHealth Number',
-          sssNum: 'SSS Number',
-          tinNum: 'TIN Number',
-          agencyEmployeeNum: 'Employee Number',
-          permanent_houseBlockLotNum: 'Permanent Address - House/Block/Lot No.',
-          permanent_streetName: 'Permanent Address - Street Name',
-          permanent_subdivisionOrVillage:
-            'Permanent Address - Subdivision/Village',
-          permanent_barangay: 'Permanent Address - Barangay',
-          permanent_cityOrMunicipality: 'Permanent Address - City/Municipality',
-          permanent_provinceName: 'Permanent Address - Province',
-          permanent_zipcode: 'Permanent Address - Zip Code',
-          residential_houseBlockLotNum:
-            'Residential Address - House/Block/Lot No.',
-          residential_streetName: 'Residential Address - Street Name',
-          residential_subdivisionOrVillage:
-            'Residential Address - Subdivision/Village',
-          residential_barangayName: 'Residential Address - Barangay',
-          residential_cityOrMunicipality:
-            'Residential Address - City/Municipality',
-          residential_provinceName: 'Residential Address - Province',
-          residential_zipcode: 'Residential Address - Zip Code',
-          telephone: 'Telephone Number',
-          mobileNum: 'Mobile Number',
-          emailAddress: 'Email Address',
-          spouseFirstName: "Spouse's First Name",
-          spouseMiddleName: "Spouse's Middle Name",
-          spouseLastName: "Spouse's Last Name",
-          spouseNameExtension: "Spouse's Name Extension",
-          spouseOccupation: "Spouse's Occupation",
-          spouseEmployerBusinessName: "Spouse's Employer/Business Name",
-          spouseBusinessAddress: "Spouse's Business Address",
-          spouseTelephone: "Spouse's Telephone",
-          fatherFirstName: "Father's First Name",
-          fatherMiddleName: "Father's Middle Name",
-          fatherLastName: "Father's Last Name",
-          fatherNameExtension: "Father's Name Extension",
-          motherMaidenFirstName: "Mother's Maiden First Name",
-          motherMaidenMiddleName: "Mother's Maiden Middle Name",
-          motherMaidenLastName: "Mother's Maiden Last Name",
-          elementaryNameOfSchool: 'Elementary School Name',
-          elementaryDegree: 'Elementary Degree',
-          elementaryPeriodFrom: 'Elementary Period From',
-          elementaryPeriodTo: 'Elementary Period To',
-          elementaryHighestAttained: 'Elementary Highest Attained',
-          elementaryYearGraduated: 'Elementary Year Graduated',
-          elementaryScholarshipAcademicHonorsReceived:
-            'Elementary Scholarship/Academic Honors',
-          secondaryNameOfSchool: 'Secondary School Name',
-          secondaryDegree: 'Secondary Degree',
-          secondaryPeriodFrom: 'Secondary Period From',
-          secondaryPeriodTo: 'Secondary Period To',
-          secondaryHighestAttained: 'Secondary Highest Attained',
-          secondaryYearGraduated: 'Secondary Year Graduated',
-          secondaryScholarshipAcademicHonorsReceived:
-            'Secondary Scholarship/Academic Honors',
-        };
+  const requiredFields = [
+    'firstName',
+    'lastName',
+    'birthDate',
+    'sex',
+    'civilStatus',
+    'citizenship',
+    'agencyEmployeeNum',
+  ];
 
-        // Render dropdown for specific fields
-        if (field === 'sex') {
-          return (
-            <Grid item xs={12} sm={6} key={field}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1 }}
-              >
-                {fieldLabels[field]}
-                {isRequired && <span style={{ color: 'red' }}> *</span>}
-              </Typography>
-              <FormControl fullWidth error={!!hasError}>
-                <Select
-                  value={newPerson[field]}
-                  onChange={(e) => handleChange(field, e.target.value)}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': {
-                        borderColor: hasError ? 'red' : '#6D2323',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: hasError ? 'red' : '#6D2323',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: hasError ? 'red' : '#6D2323',
-                      },
-                    },
-                  }}
-                >
-                  <MenuItem value="">Select Sex</MenuItem>
-                  <MenuItem value="Male">Male</MenuItem>
-                  <MenuItem value="Female">Female</MenuItem>
-                  <MenuItem value="Other">Other</MenuItem>
-                </Select>
-                {hasError && <FormHelperText>{hasError}</FormHelperText>}
-              </FormControl>
-            </Grid>
-          );
-        }
+  const validateForm = () => {
+    const newErrors = {};
+    requiredFields.forEach((field) => {
+      if (!newPerson[field] || newPerson[field].trim() === '')
+        newErrors[field] = 'This field is required';
+    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
-        if (field === 'civilStatus') {
-          return (
-            <Grid item xs={12} sm={6} key={field}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1 }}
-              >
-                {fieldLabels[field]}
-                {isRequired && <span style={{ color: 'red' }}> *</span>}
-              </Typography>
-              <FormControl fullWidth error={!!hasError}>
-                <Select
-                  value={newPerson[field]}
-                  onChange={(e) => handleChange(field, e.target.value)}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': {
-                        borderColor: hasError ? 'red' : '#6D2323',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: hasError ? 'red' : '#6D2323',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: hasError ? 'red' : '#6D2323',
-                      },
-                    },
-                  }}
-                >
-                  <MenuItem value="">Select Civil Status</MenuItem>
-                  <MenuItem value="Single">Single</MenuItem>
-                  <MenuItem value="Married">Married</MenuItem>
-                  <MenuItem value="Widowed">Widowed</MenuItem>
-                  <MenuItem value="Separated">Separated</MenuItem>
-                  <MenuItem value="Divorced">Divorced</MenuItem>
-                </Select>
-                {hasError && <FormHelperText>{hasError}</FormHelperText>}
-              </FormControl>
-            </Grid>
-          );
-        }
-
-        if (field === 'bloodType') {
-          return (
-            <Grid item xs={12} sm={6} key={field}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1 }}
-              >
-                {fieldLabels[field]}
-              </Typography>
-              <FormControl fullWidth>
-                <Select
-                  value={newPerson[field]}
-                  onChange={(e) => handleChange(field, e.target.value)}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': {
-                        borderColor: '#6D2323',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: '#6D2323',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#6D2323',
-                      },
-                    },
-                  }}
-                >
-                  <MenuItem value="">Select Blood Type</MenuItem>
-                  <MenuItem value="A+">A+</MenuItem>
-                  <MenuItem value="A-">A-</MenuItem>
-                  <MenuItem value="B+">B+</MenuItem>
-                  <MenuItem value="B-">B-</MenuItem>
-                  <MenuItem value="AB+">AB+</MenuItem>
-                  <MenuItem value="AB-">AB-</MenuItem>
-                  <MenuItem value="O+">O+</MenuItem>
-                  <MenuItem value="O-">O-</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          );
-        }
-
-        // Special handling for agencyEmployeeNum field
-        if (field === 'agencyEmployeeNum') {
-          return (
-            <Grid item xs={12} sm={6} key={field}>
-              <Typography
-                variant="subtitle2"
-                sx={{ fontWeight: 'bold', mb: 1 }}
-              >
-                {fieldLabels[field]}
-                {isRequired && <span style={{ color: 'red' }}> *</span>}
-              </Typography>
-              <EmployeeAutocomplete
-                value={newPerson[field]}
-                onChange={handleEmployeeChange}
-                selectedEmployee={selectedEmployee}
-                onEmployeeSelect={handleEmployeeSelect}
-                placeholder="Search and select employee..."
-                required
-                error={!!hasError}
-                helperText={hasError || ''}
-                settings={settings}
-              />
-            </Grid>
-          );
-        }
-
-        // Default text field for other fields
-        return (
-          <Grid item xs={12} sm={6} key={field}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-              {fieldLabels[field]}
-              {isRequired && <span style={{ color: 'red' }}> *</span>}
-            </Typography>
-            <TextField
-              value={newPerson[field]}
-              onChange={(e) => handleChange(field, e.target.value)}
-              fullWidth
-              type={
-                field.includes('Date') ||
-                field.includes('From') ||
-                field.includes('To') ||
-                field.includes('Graduated')
-                  ? 'date'
-                  : 'text'
-              }
-              error={!!hasError}
-              helperText={hasError || ''}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  '& fieldset': {
-                    borderColor: hasError ? 'red' : '#6D2323',
-                  },
-                  '&:hover fieldset': {
-                    borderColor: hasError ? 'red' : '#6D2323',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: hasError ? 'red' : '#6D2323',
-                  },
-                },
-              }}
-            />
-          </Grid>
-        );
-      })}
-    </Grid>
-  );
-
-  // ACCESSING 2
-  // Loading state
-
-  // Keep pagination state valid when filters/search update the dataset size
-  useEffect(() => {
-    if (page > 0 && page * rowsPerPage >= filteredData.length) {
-      setPage(0);
+  const validateCurrentStep = () => {
+    const stepReqFields = steps[activeStep].fields.filter((f) =>
+      requiredFields.includes(f),
+    );
+    const newErrors = {};
+    let hasError = false;
+    stepReqFields.forEach((field) => {
+      if (!newPerson[field] || newPerson[field].trim() === '') {
+        newErrors[field] = 'This field is required';
+        hasError = true;
+      }
+    });
+    if (hasError) {
+      setErrors(newErrors);
+      setStepErrors({ [activeStep]: true });
+      setCheckedSteps((prev) => {
+        const n = { ...prev };
+        delete n[activeStep];
+        return n;
+      });
+      showSnackbar(
+        'Please fill in all required fields before proceeding',
+        'error',
+      );
+      return false;
     }
+    setStepErrors((prev) => {
+      const n = { ...prev };
+      delete n[activeStep];
+      return n;
+    });
+    setCheckedSteps((prev) => ({ ...prev, [activeStep]: true }));
+    return true;
+  };
+
+  const handleAdd = async () => {
+    if (!validateForm()) {
+      showSnackbar('Please fill in all required fields', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      await axios.post(
+        `${API_BASE_URL}/personalinfo/person_table`,
+        newPerson,
+        getAuthHeaders(),
+      );
+      setNewPerson({ ...emptyPerson });
+      setActiveStep(0);
+      setErrors({});
+      setStepErrors({});
+      setCheckedSteps({});
+      setSelectedEmployee(null);
+      setTimeout(() => {
+        setLoading(false);
+        setSuccessAction('adding');
+        setSuccessOpen(true);
+        setTimeout(() => setSuccessOpen(false), 2000);
+      }, 300);
+      fetchPersons();
+    } catch (error) {
+      console.error('Error adding person:', error);
+      setLoading(false);
+      showSnackbar(
+        'Failed to add Personal Information. Employee Number needs to be setup. Please try again.',
+        'error',
+      );
+    }
+  };
+
+  const handleUpdate = async () => {
+    try {
+      await axios.put(
+        `${API_BASE_URL}/personalinfo/person_table/${editPerson.id}`,
+        editPerson,
+        getAuthHeaders(),
+      );
+      setEditPerson(null);
+      setOriginalPerson(null);
+      setSelectedEditEmployee(null);
+      setIsEditing(false);
+      fetchPersons();
+      setSuccessAction('edit');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch {
+      showSnackbar('Failed to update person. Please try again.', 'error');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await axios.delete(
+        `${API_BASE_URL}/personalinfo/person_table/${id}`,
+        getAuthHeaders(),
+      );
+      setEditPerson(null);
+      setOriginalPerson(null);
+      setSelectedEditEmployee(null);
+      setIsEditing(false);
+      fetchPersons();
+      setSuccessAction('delete');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch {
+      showSnackbar('Failed to delete person. Please try again.', 'error');
+    }
+  };
+
+  const handleChange = (field, value, isEdit = false) => {
+    if (isEdit) {
+      setEditPerson((prev) => ({ ...prev, [field]: value }));
+    } else {
+      setNewPerson((prev) => ({ ...prev, [field]: value }));
+      if (errors[field])
+        setErrors((prev) => {
+          const n = { ...prev };
+          delete n[field];
+          return n;
+        });
+    }
+  };
+
+  const handleAddAddressChange = useCallback((field, value) => {
+    setNewPerson((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleEditAddressChange = useCallback((field, value) => {
+    setEditPerson((prev) => (prev ? { ...prev, [field]: value } : prev));
+  }, []);
+
+  const handleOpenModal = (person) => {
+    setEditPerson({ ...person });
+    setOriginalPerson({ ...person });
+    setModalTab('personal');
+    setSelectedEditEmployee({
+      name: `${person.firstName} ${person.lastName}`,
+      employeeNumber: person.agencyEmployeeNum,
+    });
+    setIsEditing(false);
+  };
+
+  const hasChanges = () => {
+    if (!editPerson || !originalPerson) return false;
+    return JSON.stringify(editPerson) !== JSON.stringify(originalPerson);
+  };
+
+  const getDisplayValue = (value) => {
+    const str = `${value ?? ''}`.trim();
+    return str || '—';
+  };
+
+  useEffect(() => {
+    if (page > 0 && page * rowsPerPage >= filteredData.length) setPage(0);
   }, [filteredData.length, page, rowsPerPage]);
 
-  if (hasAccess === null) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: accentColor, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: accentColor }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
-  // Access denied state - Now using the reusable component
+  if (hasAccess === null) return <PersonTableWireframe />;
   if (hasAccess === false) {
     return (
       <AccessDenied
         title="Access Denied"
-        message="You do not have permission to access Personal Information Management. Contact your administrator to request access."
+        message="You do not have permission to access Personal Information Management."
         returnPath="/admin-home"
         returnButtonText="Return to Home"
       />
     );
   }
-  //ACCESSING END2
 
-  // Pagination (to avoid lag when rendering large datasets)
-  const totalRows = filteredData.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
-  const startRow = totalRows === 0 ? 0 : page * rowsPerPage + 1;
-  const endRow = Math.min((page + 1) * rowsPerPage, totalRows);
+  if (pageLoading) return <PersonTableWireframe />;
 
-  // IMPORTANT: Avoid calling hooks after any conditional early returns.
-  // Compute the page slice directly (no extra hooks needed).
-  const paginatedData = (() => {
-    const start = page * rowsPerPage;
-    const end = start + rowsPerPage;
-    return filteredData.slice(start, end);
-  })();
+  const paginatedData = filteredData.slice(
+    page * rowsPerPage,
+    (page + 1) * rowsPerPage,
+  );
 
-  const handleRowsPerPageChange = (e) => {
-    const next = Number(e.target.value) || 20;
-    setRowsPerPage(next);
-    setPage(0);
+  // ── Render active step content ────────────────────────────
+  const renderStepContent = (step) => {
+    if (step.isAddress) {
+      return (
+        <Box sx={{ mt: 1 }}>
+          <PhilippineAddressSelector
+            prefix={step.addressPrefix}
+            values={newPerson}
+            onChange={handleAddAddressChange}
+            showSameAsCheck={!!step.isSameAsResidential}
+            residentialValues={step.isSameAsResidential ? newPerson : null}
+          />
+        </Box>
+      );
+    }
+
+    return (
+      <Grid container spacing={2}>
+        {step.fields.map((field) => {
+          const isRequired = requiredFields.includes(field);
+          const hasError = errors[field];
+
+          if (field === 'sex')
+            return (
+              <Grid item xs={12} sm={6} key={field}>
+                <Typography
+                  sx={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: T.accent,
+                    mb: 0.75,
+                  }}
+                >
+                  {fieldLabels[field]}
+                  {isRequired && <span style={{ color: '#c62828' }}> *</span>}
+                </Typography>
+                <FormControl fullWidth size="small" error={!!hasError}>
+                  <Select
+                    value={newPerson[field]}
+                    onChange={(e) => handleChange(field, e.target.value)}
+                    sx={selectSx}
+                  >
+                    <MenuItem value="">Select Sex</MenuItem>
+                    {['Male', 'Female', 'Other'].map((v) => (
+                      <MenuItem key={v} value={v} sx={{ fontSize: '0.82rem' }}>
+                        {v}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {hasError && <FormHelperText>{hasError}</FormHelperText>}
+                </FormControl>
+              </Grid>
+            );
+
+          if (field === 'civilStatus')
+            return (
+              <Grid item xs={12} sm={6} key={field}>
+                <Typography
+                  sx={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: T.accent,
+                    mb: 0.75,
+                  }}
+                >
+                  {fieldLabels[field]}
+                  {isRequired && <span style={{ color: '#c62828' }}> *</span>}
+                </Typography>
+                <FormControl fullWidth size="small" error={!!hasError}>
+                  <Select
+                    value={newPerson[field]}
+                    onChange={(e) => handleChange(field, e.target.value)}
+                    sx={selectSx}
+                  >
+                    <MenuItem value="">Select Civil Status</MenuItem>
+                    {[
+                      'Single',
+                      'Married',
+                      'Widowed',
+                      'Separated',
+                      'Divorced',
+                    ].map((v) => (
+                      <MenuItem key={v} value={v} sx={{ fontSize: '0.82rem' }}>
+                        {v}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {hasError && <FormHelperText>{hasError}</FormHelperText>}
+                </FormControl>
+              </Grid>
+            );
+
+          if (field === 'bloodType')
+            return (
+              <Grid item xs={12} sm={6} key={field}>
+                <Typography
+                  sx={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: T.accent,
+                    mb: 0.75,
+                  }}
+                >
+                  {fieldLabels[field]}
+                </Typography>
+                <FormControl fullWidth size="small">
+                  <Select
+                    value={newPerson[field]}
+                    onChange={(e) => handleChange(field, e.target.value)}
+                    sx={selectSx}
+                  >
+                    <MenuItem value="">Select Blood Type</MenuItem>
+                    {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(
+                      (bt) => (
+                        <MenuItem
+                          key={bt}
+                          value={bt}
+                          sx={{ fontSize: '0.82rem' }}
+                        >
+                          {bt}
+                        </MenuItem>
+                      ),
+                    )}
+                  </Select>
+                </FormControl>
+              </Grid>
+            );
+
+          if (field === 'agencyEmployeeNum')
+            return (
+              <Grid item xs={12} sm={6} key={field}>
+                <Typography
+                  sx={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: T.accent,
+                    mb: 0.75,
+                  }}
+                >
+                  {fieldLabels[field]}
+                  {isRequired && <span style={{ color: '#c62828' }}> *</span>}
+                </Typography>
+                <EmployeeAutocomplete
+                  value={newPerson[field]}
+                  onChange={(val) => {
+                    setNewPerson((p) => ({ ...p, agencyEmployeeNum: val }));
+                    setErrors((prev) => {
+                      const n = { ...prev };
+                      delete n.agencyEmployeeNum;
+                      return n;
+                    });
+                  }}
+                  selectedEmployee={selectedEmployee}
+                  onEmployeeSelect={setSelectedEmployee}
+                  placeholder="Search and select employee..."
+                  required
+                  error={!!hasError}
+                  helperText={hasError || ''}
+                />
+              </Grid>
+            );
+
+          return (
+            <Grid item xs={12} sm={6} key={field}>
+              <Typography
+                sx={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: T.accent,
+                  mb: 0.75,
+                }}
+              >
+                {fieldLabels[field]}
+                {isRequired && <span style={{ color: '#c62828' }}> *</span>}
+              </Typography>
+              <FieldInput
+                value={newPerson[field]}
+                onChange={(e) => handleChange(field, e.target.value)}
+                fullWidth
+                size="small"
+                type={
+                  field.includes('Date') ||
+                  field.includes('From') ||
+                  field.includes('To') ||
+                  field.includes('Graduated')
+                    ? 'date'
+                    : 'text'
+                }
+                error={!!hasError}
+                helperText={hasError || ''}
+              />
+            </Grid>
+          );
+        })}
+      </Grid>
+    );
   };
+
+  // ── renderModalField ──────────────────────────────────────
+  const renderModalField = (
+    label,
+    field,
+    { type = 'text', full = false, options = null } = {},
+  ) => {
+    const value = editPerson?.[field] ?? '';
+    return (
+      <Box sx={{ gridColumn: full ? '1 / -1' : 'auto' }}>
+        <Typography sx={fieldLabelSx}>{label}</Typography>
+        {isEditing ? (
+          options ? (
+            <FormControl fullWidth size="small">
+              <Select
+                value={value}
+                onChange={(e) => handleChange(field, e.target.value, true)}
+                sx={{
+                  ...selectSx,
+                  fontFamily: T.poppins,
+                  '& .MuiSelect-select': {
+                    fontSize: '0.82rem',
+                    py: '8px',
+                    fontFamily: T.poppins,
+                  },
+                }}
+              >
+                <MenuItem value="" sx={{ fontFamily: T.poppins }}>
+                  Select
+                </MenuItem>
+                {options.map((opt) => (
+                  <MenuItem
+                    key={opt}
+                    value={opt}
+                    sx={{ fontSize: '0.82rem', fontFamily: T.poppins }}
+                  >
+                    {opt}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          ) : (
+            <FieldInput
+              fullWidth
+              size="small"
+              type={type}
+              value={value}
+              onChange={(e) => handleChange(field, e.target.value, true)}
+              inputProps={{
+                style: { fontFamily: T.poppins, fontSize: '0.82rem' },
+              }}
+            />
+          )
+        ) : (
+          <Box sx={fieldValueSx}>{getDisplayValue(value)}</Box>
+        )}
+      </Box>
+    );
+  };
+
   return (
-    <Box
-      sx={{
-        py: { xs: 2, md: 4 },
-        mt: { xs: 0, md: -5 },
-        width: '100%',
-        maxWidth: '1600px',
-        mx: 'auto',
-        overflowX: 'hidden',
-      }}
-    >
-      <Box sx={{ px: { xs: 2, sm: 3, md: 6 } }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard>
+    <>
+      <style>{shimmerKeyframes}</style>
+      <Fade in timeout={400}>
+        <Box
+          sx={{
+            py: { xs: 1, md: 2 },
+            mt: { xs: 0, md: -2 },
+            mb: { xs: 1, md: 2 },
+            width: '100vw',
+            maxWidth: '100%',
+            position: 'relative',
+            left: '63%',
+            transform: 'translateX(-61%)',
+            px: { xs: 2, sm: 3, md: 6 },
+          }}
+        >
+          <LoadingOverlay
+            open={loading}
+            message="Processing personal information record…"
+          />
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
+          />
+
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
               <Box
                 sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: accentColor,
+                  position: 'absolute',
+                  top: -50,
+                  right: -50,
+                  width: 200,
+                  height: 200,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+                }}
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  bottom: -30,
+                  left: '30%',
+                  width: 150,
+                  height: 150,
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+                }}
+              />
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
                   position: 'relative',
-                  overflow: 'hidden',
+                  zIndex: 1,
                 }}
               >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background:
-                      'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
-                >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: 'rgba(109,35,35,0.15)',
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
-                      }}
-                    >
-                      <PersonIcon sx={{ color: accentColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: accentColor,
-                        }}
-                      >
-                        Personal Information Management
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: accentDark,
-                        }}
-                      >
-                        Add and manage personal information records
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={() => window.location.reload()}
-                        sx={{
-                          bgcolor: 'rgba(109,35,35,0.1)',
-                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                          color: accentColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh sx={{ fontSize: 24 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
+                <PersonIcon sx={{ fontSize: 32, color: T.accent }} />
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: '1.25rem',
+                      fontWeight: 900,
+                      color: T.accent,
+                      lineHeight: 1.2,
+                      mb: 0.3,
+                    }}
+                  >
+                    Personal Information Management
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.82rem',
+                      color: T.accentMid,
+                      fontWeight: 700,
+                      opacity: 0.9,
+                    }}
+                  >
+                    Administrative Panel • Add and manage personal information
+                    records
+                  </Typography>
                 </Box>
               </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{
-            color: primaryColor,
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Processing personal information record...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Main Content */}
-        <Grid container spacing={4}>
-          {/* Add New Person Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={700}>
-              <GlassCard
+              <Box
                 sx={{
-                  height: 'calc(100vh - 200px)',
                   display: 'flex',
-                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  position: 'relative',
+                  zIndex: 1,
                 }}
               >
                 <Box
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    px: 2.5,
+                    py: 0.75,
+                    borderRadius: 6,
+                    bgcolor: alpha(T.accent, 0.1),
+                    border: `1px solid ${alpha(T.accent, 0.2)}`,
                   }}
                 >
-                  <PersonIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                      Add New Personal Information
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                      Fill in the personal information details
-                    </Typography>
-                  </Box>
+                  <Typography
+                    sx={{
+                      fontSize: '0.8rem',
+                      color: T.accent,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {data.length} {data.length === 1 ? 'record' : 'records'}
+                  </Typography>
                 </Box>
+                <DashboardModuleAuditLogs tableName="person_table" moduleLabel="Personal Information" />
+                <Tooltip title="Refresh Data">
+                  <IconButton
+                    onClick={fetchPersons}
+                    sx={{
+                      bgcolor: alpha(T.accent, 0.08),
+                      color: T.accent,
+                      width: 36,
+                      height: 36,
+                      '&:hover': { bgcolor: alpha(T.accent, 0.15) },
+                    }}
+                  >
+                    <Refresh sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          </SectionCard>
 
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflowY: 'auto',
-                  }}
-                >
-                  <Stepper activeStep={activeStep} orientation="vertical">
-                    {steps.map((step, index) => (
-                      <Step key={step.label}>
-                        <StepLabel
-                          error={stepErrors[index]}
-                          sx={{
-                            '& .MuiStepLabel-iconContainer': {
-                              color: stepErrors[index] ? 'red' : undefined,
-                            },
-                          }}
-                        >
-                          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                            {step.label}
-                          </Typography>
-                          <Typography variant="body2" sx={{ color: '#666' }}>
-                            {step.subtitle}
-                          </Typography>
-                        </StepLabel>
-                        <StepContent>
-                          {renderStepContent(step)}
-                          <Box sx={{ mb: 2, mt: 3 }}>
-                            <div>
-                              {index === steps.length - 1 ? (
-                                <ProfessionalButton
-                                  variant="contained"
-                                  onClick={handleAdd}
-                                  startIcon={<AddIcon />}
-                                  sx={{
-                                    mr: 1,
-                                    backgroundColor: accentColor,
-                                    color: primaryColor,
-                                    '&:hover': { backgroundColor: accentDark },
-                                    width: '80%',
-                                  }}
-                                >
-                                  Add Person
-                                </ProfessionalButton>
-                              ) : (
-                                <ProfessionalButton
-                                  variant="contained"
-                                  onClick={handleNext}
-                                  sx={{
-                                    mr: 1,
-                                    backgroundColor: accentColor,
-                                    color: primaryColor,
-                                    '&:hover': { backgroundColor: accentDark },
-                                  }}
-                                  endIcon={<NextIcon />}
-                                >
-                                  Next
-                                </ProfessionalButton>
-                              )}
-                              <ProfessionalButton
-                                variant="outlined"
-                                disabled={index === 0}
-                                onClick={handleBack}
-                                sx={{
-                                  mr: 1,
-                                  borderColor: accentColor,
-                                  color: accentColor,
-                                }}
-                                startIcon={<PrevIcon />}
-                              >
-                                Back
-                              </ProfessionalButton>
-                            </div>
-                          </Box>
-                        </StepContent>
-                      </Step>
-                    ))}
-                  </Stepper>
-                </Box>
-              </GlassCard>
-            </Fade>
-          </Grid>
-
-          {/* Personal Information Records Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={900}>
-              <GlassCard
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
+            {/* ── LEFT: Add New Person ── */}
+            <Grid item xs={12} lg={5}>
+              <SectionCard
                 sx={{
-                  height: 'calc(100vh - 200px)',
+                  height: 'calc(100vh - 280px)',
                   display: 'flex',
                   flexDirection: 'column',
                 }}
               >
+                {/* Panel header */}
                 <Box
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
+                    px: 3.5,
+                    py: 1.25,
+                    borderBottom: `1px solid ${T.divider}`,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    gap: 1.5,
+                    bgcolor: T.accentFaint,
                     flexShrink: 0,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Reorder sx={{ fontSize: '1.8rem', mr: 2 }} />
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                        Personal Information Records
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                        View and manage existing records
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <ToggleButtonGroup
-                    value={viewMode}
-                    exclusive
-                    onChange={handleViewModeChange}
-                    aria-label="view mode"
-                    size="small"
+                  <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography
                     sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                      '& .MuiToggleButton-root': {
-                        color: accentColor,
-                        borderColor: alpha(
-                          settings.primaryColor || '#6d2323',
-                          0.5,
-                        ),
-                        padding: '4px 8px',
-                        '&.Mui-selected': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          color: accentColor,
-                        },
-                      },
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      color: T.accent,
                     }}
                   >
-                    <ToggleButton value="grid" aria-label="grid view">
-                      <ViewModuleIcon fontSize="small" />
-                    </ToggleButton>
-                    <ToggleButton value="list" aria-label="list view">
-                      <ViewListIcon fontSize="small" />
-                    </ToggleButton>
-                  </ToggleButtonGroup>
+                    Add New Personal Information
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                    <Box component="span" sx={{ color: '#c62828' }}>
+                      *
+                    </Box>{' '}
+                    required
+                  </Typography>
                 </Box>
 
+                {/* Step indicator bar */}
                 <Box
                   sx={{
-                    p: 4,
-                    flexGrow: 1,
+                    px: 2,
+                    py: 1.25,
+                    borderBottom: `1px solid ${T.divider}`,
                     display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                    pt: 2,
+                    alignItems: 'center',
+                    gap: 0,
+                    flexShrink: 0,
+                    overflowX: 'auto',
+                    '&::-webkit-scrollbar': { display: 'none' },
                   }}
                 >
-                  <Box sx={{ mb: 2, flexShrink: 0 }}>
-                    <ModernTextField
-                      size="small"
-                      variant="outlined"
-                      placeholder="Search by Employee Number or Name"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      fullWidth
-                      InputProps={{
-                        startAdornment: (
-                          <SearchIcon sx={{ color: accentColor, mr: 1 }} />
-                        ),
-                      }}
-                    />
-                  </Box>
+                  {steps.map((step, index) => {
+                    const isCompleted = index < activeStep;
+                    const isActive = index === activeStep;
+                    const hasError = stepErrors[index];
+                    const isChecked = checkedSteps[index] && !hasError;
+                    return (
+                      <React.Fragment key={step.label}>
+                        <Box
+                          onClick={() => setActiveStep(index)}
+                          sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            px: 0.75,
+                            py: 0.5,
+                            borderRadius: 1.5,
+                            transition: 'background 0.13s',
+                            flexShrink: 0,
+                            '&:hover': { bgcolor: T.accentFaint },
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: '50%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              bgcolor: hasError
+                                ? '#c62828'
+                                : isChecked
+                                  ? STEP_OK
+                                  : isActive
+                                    ? T.accent
+                                    : alpha(T.accent, 0.15),
+                              color:
+                                isChecked || isActive || hasError
+                                  ? '#fff'
+                                  : T.muted,
+                              mb: 0.4,
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {isChecked ? '✓' : index + 1}
+                          </Box>
+                          <Typography
+                            sx={{
+                              fontSize: '0.58rem',
+                              fontWeight: isActive ? 700 : 500,
+                              color: hasError
+                                ? '#c62828'
+                                : isChecked
+                                  ? STEP_OK
+                                : isActive
+                                  ? T.accent
+                                  : isCompleted
+                                    ? T.muted
+                                    : T.faint,
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.2,
+                              textAlign: 'center',
+                            }}
+                          >
+                            {step.label.split(' ')[0]}
+                          </Typography>
+                        </Box>
+                        {index < steps.length - 1 && (
+                          <Box
+                            sx={{
+                              flex: 1,
+                              height: '1px',
+                              minWidth: 4,
+                              bgcolor:
+                                checkedSteps[index]
+                                  ? STEP_OK
+                                  : index < activeStep
+                                    ? T.accent
+                                    : T.accentBorder,
+                              opacity: 0.5,
+                              mb: 1.5,
+                            }}
+                          />
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </Box>
 
-                  {/* SCROLLABLE AREA */}
-                  <Box
+                {/* Active step title */}
+                <Box sx={{ px: 3, pt: 1.5, pb: 0.25, flexShrink: 0 }}>
+                  <Typography
                     sx={{
-                      flexGrow: 1,
-                      overflowY: 'auto',
-                      pr: 1,
-                      '&::-webkit-scrollbar': {
-                        width: '6px',
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        background: '#f1f1f1',
-                        borderRadius: '3px',
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: accentColor,
-                        borderRadius: '3px',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      color: T.text,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {steps[activeStep].label}
+                  </Typography>
+                  <Typography
+                    sx={{ fontSize: '0.72rem', color: T.faint, mt: 0.2 }}
+                  >
+                    {steps[activeStep].subtitle}
+                  </Typography>
+                </Box>
+
+                {/* Scrollable form content */}
+                <Box
+                  sx={{
+                    px: 3,
+                    py: 1.5,
+                    flexGrow: 1,
+                    overflowY: 'auto',
+                    '&::-webkit-scrollbar': { width: 4 },
+                    '&::-webkit-scrollbar-thumb': {
+                      bgcolor: T.accentBorder,
+                      borderRadius: 2,
+                    },
+                  }}
+                >
+                  {renderStepContent(steps[activeStep])}
+                </Box>
+
+                {/* Navigation buttons */}
+                <Box
+                  sx={{
+                    px: 3,
+                    py: 1.5,
+                    borderTop: `1px solid ${T.divider}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    flexShrink: 0,
+                    bgcolor: T.accentFaint,
+                  }}
+                >
+                  {activeStep === steps.length - 1 ? (
+                    <AccentButton
+                      onClick={handleAdd}
+                      variant="contained"
+                      startIcon={
+                        <AddIcon sx={{ fontSize: '16px !important' }} />
+                      }
+                      sx={{
+                        height: 36,
+                        bgcolor: T.accent,
+                        color: '#fff',
+                        boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                        '&:hover': { bgcolor: T.accentDark },
+                      }}
+                    >
+                      Add Person
+                    </AccentButton>
+                  ) : (
+                    <AccentButton
+                      onClick={() => {
+                        if (validateCurrentStep()) setActiveStep((s) => s + 1);
+                      }}
+                      variant="contained"
+                      endIcon={
+                        <NextIcon sx={{ fontSize: '16px !important' }} />
+                      }
+                      sx={{
+                        height: 36,
+                        bgcolor: T.accent,
+                        color: '#fff',
+                        boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                        '&:hover': { bgcolor: T.accentDark },
+                      }}
+                    >
+                      Next
+                    </AccentButton>
+                  )}
+                  <AccentButton
+                    onClick={() => setActiveStep((s) => s - 1)}
+                    disabled={activeStep === 0}
+                    variant="outlined"
+                    startIcon={
+                      <PrevIcon sx={{ fontSize: '16px !important' }} />
+                    }
+                    sx={{
+                      height: 36,
+                      borderColor: T.accentBorder,
+                      color: T.muted,
+                      '&:hover': {
+                        bgcolor: T.accentFaint,
+                        borderColor: T.accent,
+                        color: T.accent,
                       },
                     }}
                   >
-                    {viewMode === 'grid' ? (
-                      <Grid container spacing={1.5}>
-                        {paginatedData.map((person) => (
-                          <Grid
-                            item
-                            xs={12}
-                            sm={6}
-                            md={6}
-                            lg={6}
-                            key={person.id}
-                          >
-                            <Card
-                              onClick={() => handleOpenModal(person)}
-                              sx={{
-                                cursor: 'pointer',
-                                border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.15)}`,
-                                height: '100%',
-                                borderRadius: 2,
-                                backgroundColor: '#ffffff', // STRICTLY WHITE
-                                display: 'flex',
-                                flexDirection: 'column',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                                transition: 'all 0.2s ease',
-                                '&:hover': {
-                                  borderColor: accentColor,
-                                  transform: 'translateY(-4px)',
-                                  boxShadow: '0 8px 16px rgba(109,35,35,0.1)',
-                                },
-                              }}
-                            >
-                              <CardContent
-                                sx={{
-                                  p: 1.5, // Reduced padding
-                                  flexGrow: 1,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  textAlign: 'center',
-                                  gap: 0.5, // Reduced gap
-                                }}
-                              >
-                                <Avatar
-                                  sx={{
-                                    bgcolor: alpha(accentColor, 0.1),
-                                    color: accentColor,
-                                    width: 36, // Reduced avatar size
-                                    height: 36,
-                                  }}
-                                >
-                                  <PersonIcon sx={{ fontSize: 20 }} />
-                                </Avatar>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: accentColor,
-                                    fontWeight: 'bold',
-                                    fontSize: '0.7rem',
-                                    letterSpacing: 0.5,
-                                    lineHeight: 1.2,
-                                  }}
-                                >
-                                  {person.agencyEmployeeNum}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="600"
-                                  color="#333"
-                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
-                                >
-                                  {person.firstName} {person.lastName}
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    ) : (
-                      paginatedData.map((person) => (
-                        <Card
-                          key={person.id}
-                          onClick={() => handleOpenModal(person)}
-                          sx={{
-                            cursor: 'pointer',
-                            border: '1px solid rgba(109, 35, 35, 0.1)',
-                            mb: 1,
-                            backgroundColor: '#fff',
-                            '&:hover': {
-                              borderColor: accentColor,
-                              backgroundColor: alpha(
-                                settings.accentColor ||
-                                  settings.backgroundColor ||
-                                  '#FEF9E1',
-                                0.2,
-                              ),
-                            },
-                          }}
-                        >
-                          <Box sx={{ p: 1 }}> {/* Reduced padding from 1.5 */}
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              <PersonIcon
-                                sx={{ fontSize: 18, color: accentColor, mr: 1.5 }} // Reduced icon size and margin
-                              />
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: accentColor,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold',
-                                    lineHeight: 1.1,
-                                  }}
-                                >
-                                  {person.agencyEmployeeNum}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  sx={{ lineHeight: 1.2, fontSize: '0.9rem' }}
-                                >
-                                  {person.firstName} {person.lastName}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Box>
-                        </Card>
-                      ))
-                    )}
+                    Back
+                  </AccentButton>
+                  <Box sx={{ flex: 1 }} />
+                  <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                    Step {activeStep + 1} of {steps.length}
+                  </Typography>
+                </Box>
+              </SectionCard>
+            </Grid>
 
-                    {filteredData.length === 0 && (
-                      <Box textAlign="center" py={4}>
-                        <Typography
-                          variant="h6"
-                          color={accentColor}
-                          fontWeight="bold"
-                          sx={{ mb: 1 }}
-                        >
-                          No Records Found
-                        </Typography>
-                        <Typography variant="body2" color={grayColor}>
-                          Try adjusting your search criteria
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-
-                  {/* FIXED FOOTER - Outside Scrollable Area */}
+            {/* ── RIGHT: Records Panel ── */}
+            <Grid item xs={12} lg={7}>
+              <SectionCard
+                sx={{
+                  height: 'calc(100vh - 280px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                {/* Records header / toolbar */}
+                <Box
+                  sx={{
+                    px: 3.5,
+                    py: 2,
+                    borderBottom: `1px solid ${T.divider}`,
+                    bgcolor: T.accentFaint,
+                  }}
+                >
                   <Box
                     sx={{
-                      flexShrink: 0,
-                      mt: 2,
-                      pt: 1.5,
-                      borderTop: `1px solid ${alpha(accentColor, 0.15)}`,
                       display: 'flex',
-                      justifyContent: 'flex-end',
                       alignItems: 'center',
-                      backgroundColor: '#fff', // Ensure solid bg
+                      justifyContent: 'space-between',
+                      mb: 1.5,
                     }}
                   >
                     <Box
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'flex-end',
-                        gap: 0.5,
-                      }}
+                      sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}
                     >
-                      {/* Rows per page */}
+                      <Reorder sx={{ fontSize: 17, color: T.accent }} />
+                      <Typography
+                        sx={{
+                          fontSize: '0.88rem',
+                          fontWeight: 700,
+                          color: T.text,
+                        }}
+                      >
+                        Personal Information Records
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                       <Box
                         sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.75,
+                          px: 1.5,
+                          py: 0.4,
+                          borderRadius: 6,
+                          bgcolor: alpha(T.accent, 0.08),
+                          border: `1px solid ${alpha(T.accent, 0.15)}`,
                         }}
                       >
                         <Typography
                           sx={{
-                            fontSize: '0.75rem',
-                            color: accentColor,
-                            fontWeight: 600,
+                            fontSize: '0.72rem',
+                            color: T.accent,
+                            fontWeight: 700,
                           }}
                         >
-                          Rows per page:
+                          {filteredData.length} records
                         </Typography>
-
-                        <FormControl size="small" sx={{ minWidth: 70 }}>
-                          <Select
-                            value={rowsPerPage}
-                            onChange={handleRowsPerPageChange}
-                            sx={{
-                              fontSize: '0.75rem',
-                              height: 28,
-                            }}
-                          >
-                            <MenuItem value={20}>20</MenuItem>
-                            <MenuItem value={40}>40</MenuItem>
-                            <MenuItem value={60}>60</MenuItem>
-                            <MenuItem value={80}>80</MenuItem>
-                            <MenuItem value={100}>100</MenuItem>
-                          </Select>
-                        </FormControl>
                       </Box>
-
-                      {/* Total + Pagination */}
-                      <Box
+                      <ToggleButtonGroup
+                        value={viewMode}
+                        exclusive
+                        onChange={(_, v) => v && setViewMode(v)}
+                        size="small"
                         sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.5,
+                          '& .MuiToggleButton-root': {
+                            px: 1,
+                            py: 0.35,
+                            border: `1px solid ${T.accentBorder}`,
+                            color: T.muted,
+                            '&.Mui-selected': {
+                              bgcolor: T.accentFaint,
+                              color: T.accent,
+                            },
+                          },
                         }}
                       >
-                        <Typography
-                          sx={{
-                            fontSize: '0.75rem',
-                            color: accentColor,
-                          }}
-                        >
-                          {startRow}-{endRow} of {totalRows}
-                        </Typography>
-
-                        <IconButton
-                          size="small"
-                          onClick={() => setPage((p) => Math.max(0, p - 1))}
-                          disabled={page <= 0}
-                          sx={{ color: accentColor, p: 0.5 }}
-                        >
-                          <PrevIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            setPage((p) => Math.min(totalPages - 1, p + 1))
-                          }
-                          disabled={page >= totalPages - 1}
-                          sx={{ color: accentColor, p: 0.5 }}
-                        >
-                          <NextIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Box>
+                        <ToggleButton value="grid">
+                          <ViewModuleIcon sx={{ fontSize: 14 }} />
+                        </ToggleButton>
+                        <ToggleButton value="list">
+                          <ViewListIcon sx={{ fontSize: 14 }} />
+                        </ToggleButton>
+                      </ToggleButtonGroup>
                     </Box>
                   </Box>
-                </Box>
-              </GlassCard>
-            </Fade>
-          </Grid>
-        </Grid>
-
-        <SuccessfulOverlay
-          open={successOpen}
-          action={successAction}
-          onClose={() => setSuccessOpen(false)}
-        />
-
-        {/* Edit Modal */}
-        <Modal
-          open={!!editPerson}
-          onClose={handleCloseModal}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Paper
-            sx={{
-              width: '90%',
-              maxWidth: '900px',
-              height: '85vh',
-              maxHeight: '85vh',
-              overflow: 'hidden',
-              borderRadius: 2,
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {editPerson && (
-              <>
-                {/* Modal Header */}
-                <Box
-                  sx={{
-                    background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
-                    color: settings.accentColor || '#FEF9E1',
-                    p: 3,
-                    borderRadius: '8px 8px 0 0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <PersonIcon
-                      sx={{
-                        fontSize: '1.8rem',
-                        mr: 2,
-                        color: settings.accentColor || '#FEF9E1',
-                      }}
-                    />
-                    <Box>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 'bold',
-                          color: settings.accentColor || '#FEF9E1',
-                        }}
-                      >
-                        {isEditing
-                          ? 'Edit Personal Information'
-                          : 'Personal Information Details'}
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          opacity: 0.9,
-                          color: settings.accentColor || '#FEF9E1',
-                        }}
-                      >
-                        {editPerson.firstName} {editPerson.lastName} -{' '}
-                        {editPerson.agencyEmployeeNum}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <IconButton
-                    onClick={handleCloseModal}
-                    sx={{ color: settings.accentColor || '#FEF9E1', ml: 1 }}
-                  >
-                    <Close />
-                  </IconButton>
+                  <FieldInput
+                    size="small"
+                    placeholder="Search by employee number or name…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: (
+                        <SearchIcon
+                          sx={{ fontSize: 15, color: T.muted, mr: 0.5 }}
+                        />
+                      ),
+                    }}
+                  />
                 </Box>
 
-                {/* Scrollable Content Area */}
+                {/* Records list */}
                 <Box
                   sx={{
                     flexGrow: 1,
                     overflowY: 'auto',
-                    minHeight: 0,
-                    '&::-webkit-scrollbar': {
-                      width: '8px',
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      background: '#f1f1f1',
-                      borderRadius: '4px',
-                    },
+                    p: 2,
+                    '&::-webkit-scrollbar': { width: 4 },
                     '&::-webkit-scrollbar-thumb': {
-                      background: settings.primaryColor || '#6D2323',
-                      borderRadius: '4px',
+                      bgcolor: T.accentBorder,
+                      borderRadius: 2,
                     },
                   }}
                 >
-                  <Box sx={{ p: 3 }}>
-                    {/* Personal Information Section */}
-                    <Accordion
-                      defaultExpanded
-                      sx={{
-                        mb: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        '&:before': { display: 'none' },
-                        border: '1px solid #e0e0e0',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
+                  {paginatedData.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box
                         sx={{
-                          backgroundColor: '#f8f9fa',
-                          '&:hover': { backgroundColor: '#f0f0f0' },
+                          width: 72,
+                          height: 72,
+                          borderRadius: '50%',
+                          bgcolor: T.accentFaint,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          mx: 'auto',
+                          mb: 2,
                         }}
                       >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <PersonIcon sx={{ color: '#6D2323', mr: 2 }} />
-                          <Typography
-                            variant="h6"
-                            sx={{ fontWeight: 'bold', color: '#6D2323' }}
-                          >
-                            Personal Information
-                          </Typography>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Full Name"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="First Name"
-                                      value={editPerson.firstName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'firstName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Middle Name"
-                                      value={editPerson.middleName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'middleName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Last Name"
-                                      value={editPerson.lastName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'lastName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  `${editPerson.firstName || ''} ${
-                                    editPerson.middleName || ''
-                                  } ${editPerson.lastName || ''}`
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Date of Birth"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    type="date"
-                                    value={
-                                      editPerson.birthDate?.split('T')[0] || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'birthDate',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : editPerson.birthDate ? (
-                                  new Date(
-                                    editPerson.birthDate,
-                                  ).toLocaleDateString()
-                                ) : (
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Place of Birth"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.placeOfBirth || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'placeOfBirth',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.placeOfBirth || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Sex"
-                              secondary={
-                                isEditing ? (
-                                  <FormControl
-                                    size="small"
-                                    sx={{ mt: 1, width: '100%' }}
-                                  >
-                                    <Select
-                                      value={editPerson.sex || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'sex',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                    >
-                                      <MenuItem value="">Select Sex</MenuItem>
-                                      <MenuItem value="Male">Male</MenuItem>
-                                      <MenuItem value="Female">Female</MenuItem>
-                                      <MenuItem value="Other">Other</MenuItem>
-                                    </Select>
-                                  </FormControl>
-                                ) : (
-                                  editPerson.sex || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Civil Status"
-                              secondary={
-                                isEditing ? (
-                                  <FormControl
-                                    size="small"
-                                    sx={{ mt: 1, width: '100%' }}
-                                  >
-                                    <Select
-                                      value={editPerson.civilStatus || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'civilStatus',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                    >
-                                      <MenuItem value="">
-                                        Select Civil Status
-                                      </MenuItem>
-                                      <MenuItem value="Single">Single</MenuItem>
-                                      <MenuItem value="Married">
-                                        Married
-                                      </MenuItem>
-                                      <MenuItem value="Widowed">
-                                        Widowed
-                                      </MenuItem>
-                                      <MenuItem value="Separated">
-                                        Separated
-                                      </MenuItem>
-                                      <MenuItem value="Divorced">
-                                        Divorced
-                                      </MenuItem>
-                                    </Select>
-                                  </FormControl>
-                                ) : (
-                                  editPerson.civilStatus || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Citizenship"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.citizenship || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'citizenship',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.citizenship || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Physical Attributes"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="Height (cm)"
-                                      value={editPerson.heightCm || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'heightCm',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Weight (kg)"
-                                      value={editPerson.weightKg || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'weightKg',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <FormControl size="small" sx={{ flex: 1 }}>
-                                      <Select
-                                        value={editPerson.bloodType || ''}
-                                        onChange={(e) =>
-                                          handleChange(
-                                            'bloodType',
-                                            e.target.value,
-                                            true,
-                                          )
-                                        }
-                                        displayEmpty
-                                      >
-                                        <MenuItem value="">Blood Type</MenuItem>
-                                        <MenuItem value="A+">A+</MenuItem>
-                                        <MenuItem value="A-">A-</MenuItem>
-                                        <MenuItem value="B+">B+</MenuItem>
-                                        <MenuItem value="B-">B-</MenuItem>
-                                        <MenuItem value="AB+">AB+</MenuItem>
-                                        <MenuItem value="AB-">AB-</MenuItem>
-                                        <MenuItem value="O+">O+</MenuItem>
-                                        <MenuItem value="O-">O-</MenuItem>
-                                      </Select>
-                                    </FormControl>
-                                  </Box>
-                                ) : (
-                                  `Height: ${
-                                    editPerson.heightCm || 'N/A'
-                                  } cm, Weight: ${
-                                    editPerson.weightKg || 'N/A'
-                                  } kg, Blood Type: ${
-                                    editPerson.bloodType || 'N/A'
-                                  }`
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-
-                    {/* Contact Information Section */}
-                    <Accordion
-                      sx={{
-                        mb: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        '&:before': { display: 'none' },
-                        border: '1px solid #e0e0e0',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
+                        <PersonIcon
+                          sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                        />
+                      </Box>
+                      <Typography
                         sx={{
-                          backgroundColor: '#f8f9fa',
-                          '&:hover': { backgroundColor: '#f0f0f0' },
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          color: T.muted,
+                          mb: 0.5,
                         }}
                       >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <PersonIcon sx={{ color: '#6D2323', mr: 2 }} />
-                          <Typography
-                            variant="h6"
-                            sx={{ fontWeight: 'bold', color: '#6D2323' }}
-                          >
-                            Contact Information
-                          </Typography>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Telephone Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.telephone || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'telephone',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.telephone || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Mobile Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.mobileNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'mobileNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.mobileNum || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Email Address"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    type="email"
-                                    value={editPerson.emailAddress || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'emailAddress',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.emailAddress || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-
-                    {/* Government IDs Section */}
-                    <Accordion
-                      sx={{
-                        mb: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        '&:before': { display: 'none' },
-                        border: '1px solid #e0e0e0',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{
-                          backgroundColor: '#f8f9fa',
-                          '&:hover': { backgroundColor: '#f0f0f0' },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <CreditCard sx={{ color: '#6D2323', mr: 2 }} />
-                          <Typography
-                            variant="h6"
-                            sx={{ fontWeight: 'bold', color: '#6D2323' }}
-                          >
-                            Government IDs
-                          </Typography>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Employee Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.agencyEmployeeNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'agencyEmployeeNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                    disabled
-                                    helperText="Cannot be changed"
-                                  />
-                                ) : (
-                                  <Box>
-                                    <Typography variant="body2">
-                                      {editPerson.agencyEmployeeNum ||
-                                        'Not specified'}
-                                    </Typography>
-                                    <Typography variant="caption" color="error">
-                                      Contact administrator to change
-                                    </Typography>
-                                  </Box>
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="GSIS Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.gsisNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'gsisNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.gsisNum || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Pag-IBIG Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.pagibigNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'pagibigNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.pagibigNum || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="PhilHealth Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.philhealthNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'philhealthNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.philhealthNum || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="SSS Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.sssNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'sssNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.sssNum || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="TIN Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.tinNum || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'tinNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.tinNum || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-
-                    {/* Address Information Section */}
-                    <Accordion
-                      sx={{
-                        mb: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        '&:before': { display: 'none' },
-                        border: '1px solid #e0e0e0',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{
-                          backgroundColor: '#f8f9fa',
-                          '&:hover': { backgroundColor: '#f0f0f0' },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Home sx={{ color: '#6D2323', mr: 2 }} />
-                          <Typography
-                            variant="h6"
-                            sx={{ fontWeight: 'bold', color: '#6D2323' }}
-                          >
-                            Address Information
-                          </Typography>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <Typography
-                          variant="subtitle1"
-                          sx={{ fontWeight: 'bold', mb: 2, color: '#6D2323' }}
+                        {data.length === 0
+                          ? 'No records yet'
+                          : 'No records match your search'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                        {data.length === 0
+                          ? 'Use the form on the left to add a record.'
+                          : 'Try a different search term.'}
+                      </Typography>
+                    </Box>
+                  ) : viewMode === 'grid' ? (
+                    <Grid container spacing={1.5} alignItems="stretch">
+                      {paginatedData.map((person) => (
+                        <Grid
+                          item
+                          xs={12}
+                          sm={4}
+                          md={3}
+                          key={person.id}
+                          sx={{ display: 'flex' }}
                         >
-                          Permanent Address
-                        </Typography>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="House/Block/Lot Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.permanent_houseBlockLotNum ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_houseBlockLotNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_houseBlockLotNum ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Street Name"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.permanent_streetName || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_streetName',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_streetName ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Subdivision/Village"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.permanent_subdivisionOrVillage ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_subdivisionOrVillage',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_subdivisionOrVillage ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Barangay"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.permanent_barangay || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_barangay',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_barangay ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="City/Municipality"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.permanent_cityOrMunicipality ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_cityOrMunicipality',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_cityOrMunicipality ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Province"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.permanent_provinceName || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_provinceName',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_provinceName ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Zip Code"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.permanent_zipcode || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'permanent_zipcode',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.permanent_zipcode ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-
-                        <Typography
-                          variant="subtitle1"
+                          <Box
+                            onClick={() => handleOpenModal(person)}
+                            sx={{
+                              width: '100%',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              p: 2,
+                              borderRadius: 2,
+                              cursor: 'pointer',
+                              bgcolor: '#fff',
+                              border: `1px solid ${T.accentBorder}`,
+                              transition: 'all 0.13s',
+                              '&:hover': {
+                                bgcolor: T.rowHover,
+                                borderColor: T.accent,
+                                transform: 'translateY(-2px)',
+                                boxShadow: `0 4px 14px ${alpha(T.accent, 0.1)}`,
+                              },
+                            }}
+                          >
+                            <Avatar
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                bgcolor: alpha(T.accent, 0.12),
+                                color: T.accent,
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                mb: 0.75,
+                              }}
+                            >
+                              {`${person.firstName?.[0] || ''}${person.lastName?.[0] || ''}`}
+                            </Avatar>
+                            <Typography
+                              sx={{
+                                fontSize: '0.7rem',
+                                color: T.faint,
+                                mb: 0.25,
+                              }}
+                            >
+                              #{person.agencyEmployeeNum}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                color: T.text,
+                                lineHeight: 1.2,
+                              }}
+                              noWrap
+                            >
+                              {person.firstName} {person.lastName}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  ) : (
+                    <>
+                      <Box
+                        sx={{
+                          px: 1.5,
+                          py: 1,
+                          display: 'grid',
+                          gridTemplateColumns: '110px 1fr',
+                          gap: 1,
+                          alignItems: 'center',
+                          bgcolor: alpha(T.accent, 0.04),
+                          borderRadius: 1.5,
+                          mb: 1,
+                        }}
+                      >
+                        {['Emp. No', 'Employee Name'].map((col) => (
+                          <Typography
+                            key={col}
+                            sx={{
+                              fontSize: '0.65rem',
+                              fontWeight: 700,
+                              color: T.accent,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.07em',
+                            }}
+                          >
+                            {col}
+                          </Typography>
+                        ))}
+                      </Box>
+                      {paginatedData.map((person, idx) => (
+                        <Box
+                          key={person.id}
+                          onClick={() => handleOpenModal(person)}
                           sx={{
-                            fontWeight: 'bold',
-                            mb: 2,
-                            mt: 3,
-                            color: '#6D2323',
+                            px: 1.5,
+                            py: 1.25,
+                            display: 'grid',
+                            gridTemplateColumns: '110px 1fr',
+                            gap: 1,
+                            alignItems: 'center',
+                            borderRadius: 1.5,
+                            cursor: 'pointer',
+                            bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                            border: '1px solid transparent',
+                            transition: 'background 0.13s ease',
+                            '&:hover': { bgcolor: T.rowHover },
                           }}
                         >
-                          Residential Address
-                        </Typography>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="House/Block/Lot Number"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.residential_houseBlockLotNum ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_houseBlockLotNum',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_houseBlockLotNum ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Street Name"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.residential_streetName || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_streetName',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_streetName ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Subdivision/Village"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.residential_subdivisionOrVillage ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_subdivisionOrVillage',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_subdivisionOrVillage ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Barangay"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.residential_barangayName || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_barangayName',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_barangayName ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="City/Municipality"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.residential_cityOrMunicipality ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_cityOrMunicipality',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_cityOrMunicipality ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Province"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.residential_provinceName || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_provinceName',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_provinceName ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Zip Code"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.residential_zipcode || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'residential_zipcode',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.residential_zipcode ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-
-                    {/* Family Information Section */}
-                    <Accordion
-                      sx={{
-                        mb: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        '&:before': { display: 'none' },
-                        border: '1px solid #e0e0e0',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{
-                          backgroundColor: '#f8f9fa',
-                          '&:hover': { backgroundColor: '#f0f0f0' },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <FamilyRestroom sx={{ color: '#6D2323', mr: 2 }} />
                           <Typography
-                            variant="h6"
-                            sx={{ fontWeight: 'bold', color: '#6D2323' }}
+                            sx={{ fontSize: '0.75rem', color: T.muted }}
                           >
-                            Family Information
+                            #{person.agencyEmployeeNum}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontSize: '0.82rem',
+                              fontWeight: 500,
+                              color: T.text,
+                            }}
+                            noWrap
+                          >
+                            {person.firstName} {person.lastName}
                           </Typography>
                         </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <Typography
-                          variant="subtitle1"
-                          sx={{ fontWeight: 'bold', mb: 2, color: '#6D2323' }}
-                        >
-                          Spouse Information
-                        </Typography>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Full Name"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="First Name"
-                                      value={editPerson.spouseFirstName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'spouseFirstName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Middle Name"
-                                      value={editPerson.spouseMiddleName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'spouseMiddleName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Last Name"
-                                      value={editPerson.spouseLastName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'spouseLastName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  `${editPerson.spouseFirstName || ''} ${
-                                    editPerson.spouseMiddleName || ''
-                                  } ${editPerson.spouseLastName || ''}` ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Occupation"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.spouseOccupation || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'spouseOccupation',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.spouseOccupation || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Employer/Business Name"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.spouseEmployerBusinessName ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'spouseEmployerBusinessName',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.spouseEmployerBusinessName ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Business Address"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.spouseBusinessAddress || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'spouseBusinessAddress',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.spouseBusinessAddress ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Telephone"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.spouseTelephone || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'spouseTelephone',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.spouseTelephone || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-
-                        <Typography
-                          variant="subtitle1"
-                          sx={{
-                            fontWeight: 'bold',
-                            mb: 2,
-                            mt: 3,
-                            color: '#6D2323',
-                          }}
-                        >
-                          Parents Information
-                        </Typography>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Father's Full Name"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="First Name"
-                                      value={editPerson.fatherFirstName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'fatherFirstName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Middle Name"
-                                      value={editPerson.fatherMiddleName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'fatherMiddleName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Last Name"
-                                      value={editPerson.fatherLastName || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'fatherLastName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  `${editPerson.fatherFirstName || ''} ${
-                                    editPerson.fatherMiddleName || ''
-                                  } ${editPerson.fatherLastName || ''}` ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Mother's Maiden Full Name"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="First Name"
-                                      value={
-                                        editPerson.motherMaidenFirstName || ''
-                                      }
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'motherMaidenFirstName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Middle Name"
-                                      value={
-                                        editPerson.motherMaidenMiddleName || ''
-                                      }
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'motherMaidenMiddleName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="Last Name"
-                                      value={
-                                        editPerson.motherMaidenLastName || ''
-                                      }
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'motherMaidenLastName',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  `${editPerson.motherMaidenFirstName || ''} ${
-                                    editPerson.motherMaidenMiddleName || ''
-                                  } ${editPerson.motherMaidenLastName || ''}` ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-
-                    {/* Educational Background Section */}
-                    <Accordion
-                      sx={{
-                        mb: 2,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        '&:before': { display: 'none' },
-                        border: '1px solid #e0e0e0',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{
-                          backgroundColor: '#f8f9fa',
-                          '&:hover': { backgroundColor: '#f0f0f0' },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <School sx={{ color: '#6D2323', mr: 2 }} />
-                          <Typography
-                            variant="h6"
-                            sx={{ fontWeight: 'bold', color: '#6D2323' }}
-                          >
-                            Educational Background
-                          </Typography>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <Typography
-                          variant="subtitle1"
-                          sx={{ fontWeight: 'bold', mb: 2, color: '#6D2323' }}
-                        >
-                          Elementary Education
-                        </Typography>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="School Name"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.elementaryNameOfSchool || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'elementaryNameOfSchool',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.elementaryNameOfSchool ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Degree/Course"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.elementaryDegree || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'elementaryDegree',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.elementaryDegree || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Period Attended"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="From"
-                                      type="number"
-                                      value={
-                                        editPerson.elementaryPeriodFrom || ''
-                                      }
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'elementaryPeriodFrom',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="To"
-                                      type="number"
-                                      value={
-                                        editPerson.elementaryPeriodTo || ''
-                                      }
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'elementaryPeriodTo',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  `${
-                                    editPerson.elementaryPeriodFrom || 'N/A'
-                                  } - ${editPerson.elementaryPeriodTo || 'N/A'}`
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Highest Attained"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.elementaryHighestAttained || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'elementaryHighestAttained',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.elementaryHighestAttained ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Year Graduated"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    type="number"
-                                    value={
-                                      editPerson.elementaryYearGraduated || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'elementaryYearGraduated',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.elementaryYearGraduated ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Scholarship/Academic Honors"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    multiline
-                                    rows={2}
-                                    value={
-                                      editPerson.elementaryScholarshipAcademicHonorsReceived ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'elementaryScholarshipAcademicHonorsReceived',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.elementaryScholarshipAcademicHonorsReceived ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-
-                        <Typography
-                          variant="subtitle1"
-                          sx={{
-                            fontWeight: 'bold',
-                            mb: 2,
-                            mt: 3,
-                            color: '#6D2323',
-                          }}
-                        >
-                          Secondary Education
-                        </Typography>
-                        <List dense>
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="School Name"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.secondaryNameOfSchool || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'secondaryNameOfSchool',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.secondaryNameOfSchool ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Degree/Course"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={editPerson.secondaryDegree || ''}
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'secondaryDegree',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.secondaryDegree || 'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Period Attended"
-                              secondary={
-                                isEditing ? (
-                                  <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                                    <TextField
-                                      size="small"
-                                      label="From"
-                                      type="number"
-                                      value={
-                                        editPerson.secondaryPeriodFrom || ''
-                                      }
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'secondaryPeriodFrom',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                    <TextField
-                                      size="small"
-                                      label="To"
-                                      type="number"
-                                      value={editPerson.secondaryPeriodTo || ''}
-                                      onChange={(e) =>
-                                        handleChange(
-                                          'secondaryPeriodTo',
-                                          e.target.value,
-                                          true,
-                                        )
-                                      }
-                                      sx={{ flex: 1 }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  `${editPerson.secondaryPeriodFrom || 'N/A'} - ${
-                                    editPerson.secondaryPeriodTo || 'N/A'
-                                  }`
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Highest Attained"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    value={
-                                      editPerson.secondaryHighestAttained || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'secondaryHighestAttained',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.secondaryHighestAttained ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Year Graduated"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    type="number"
-                                    value={
-                                      editPerson.secondaryYearGraduated || ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'secondaryYearGraduated',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.secondaryYearGraduated ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                          <Divider />
-                          <ListItem sx={{ py: 0.5 }}>
-                            <ListItemText
-                              primary="Scholarship/Academic Honors"
-                              secondary={
-                                isEditing ? (
-                                  <TextField
-                                    size="small"
-                                    multiline
-                                    rows={2}
-                                    value={
-                                      editPerson.secondaryScholarshipAcademicHonorsReceived ||
-                                      ''
-                                    }
-                                    onChange={(e) =>
-                                      handleChange(
-                                        'secondaryScholarshipAcademicHonorsReceived',
-                                        e.target.value,
-                                        true,
-                                      )
-                                    }
-                                    sx={{ mt: 1, width: '100%' }}
-                                  />
-                                ) : (
-                                  editPerson.secondaryScholarshipAcademicHonorsReceived ||
-                                  'Not specified'
-                                )
-                              }
-                            />
-                          </ListItem>
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-                  </Box>
+                      ))}
+                    </>
+                  )}
                 </Box>
 
-                {/* Bottom Action Bar for Edit/Delete - stays visible while scrolling */}
-                <Box
-                  sx={{
-                    borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                    backgroundColor: '#FFFFFF',
-                    px: 3,
-                    py: 2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    position: 'sticky',
-                    bottom: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    {!isEditing ? (
-                      <>
-                        <Button
+                {/* Pagination */}
+                {filteredData.length > 0 && (
+                  <Box
+                    sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}
+                  >
+                    <TablePagination
+                      component="div"
+                      count={filteredData.length}
+                      page={page}
+                      onPageChange={(_, newPage) => setPage(newPage)}
+                      rowsPerPage={rowsPerPage}
+                      onRowsPerPageChange={(e) => {
+                        setRowsPerPage(parseInt(e.target.value, 10));
+                        setPage(0);
+                      }}
+                      rowsPerPageOptions={[12, 24, 48, 96]}
+                      sx={{
+                        '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                          { fontSize: '0.78rem', fontWeight: 600 },
+                      }}
+                    />
+                  </Box>
+                )}
+              </SectionCard>
+            </Grid>
+          </Grid>
+
+          <SuccessfulOverlay
+            open={successOpen}
+            action={successAction}
+            onClose={() => setSuccessOpen(false)}
+          />
+
+          {/* ── Edit / View Modal ── */}
+          <Modal
+            open={!!editPerson}
+            onClose={() => {
+              setEditPerson(null);
+              setOriginalPerson(null);
+              setSelectedEditEmployee(null);
+              setIsEditing(false);
+              setModalTab('personal');
+            }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              p: 2,
+            }}
+          >
+            <Fade in={!!editPerson}>
+              <Box
+                sx={{
+                  width: '100%',
+                  maxWidth: 980,
+                  height: 580,
+                  maxHeight: '90vh',
+                  borderRadius: 3,
+                  overflow: 'hidden',
+                  boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+                  bgcolor: T.surface,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  fontFamily: T.poppins,
+                }}
+              >
+                {editPerson && (
+                  <>
+                    {/* LEFT SIDEBAR */}
+                    <Box
+                      sx={{
+                        width: 210,
+                        flexShrink: 0,
+                        borderRight: `1px solid ${T.divider}`,
+                        bgcolor: T.surface,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        fontFamily: T.poppins,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          p: '18px 16px 14px',
+                          borderBottom: `1px solid ${T.divider}`,
+                        }}
+                      >
+                        <Avatar
+                          sx={{
+                            width: 48,
+                            height: 48,
+                            mb: 1,
+                            bgcolor: T.accent,
+                            color: '#fff',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          {`${editPerson.firstName?.[0] || ''}${editPerson.lastName?.[0] || ''}`}
+                        </Avatar>
+                        <Typography
+                          sx={{
+                            fontSize: '0.88rem',
+                            fontWeight: 700,
+                            color: T.text,
+                            lineHeight: 1.3,
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          {`${editPerson.firstName || ''} ${editPerson.lastName || ''}`.trim() ||
+                            'Unnamed Employee'}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontSize: '0.72rem',
+                            color: T.muted,
+                            mt: 0.2,
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          {editPerson.agencyEmployeeNum || 'No Employee Number'}
+                        </Typography>
+                        <Box
+                          sx={{
+                            mt: 1,
+                            border: `1px solid ${T.accentBorder}`,
+                            borderRadius: '20px',
+                            px: 1,
+                            py: 0.3,
+                            width: 'fit-content',
+                            bgcolor: T.accentFaint,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: '0.68rem',
+                              color: '#3B6D11',
+                              fontWeight: 600,
+                              fontFamily: T.poppins,
+                            }}
+                          >
+                            Active
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
+                        {[
+                          {
+                            key: 'personal',
+                            label: 'Personal info',
+                            icon: <PersonIcon sx={{ fontSize: 14 }} />,
+                          },
+                          {
+                            key: 'govids',
+                            label: 'Government IDs',
+                            icon: <CreditCard sx={{ fontSize: 14 }} />,
+                          },
+                          {
+                            key: 'address',
+                            label: 'Address',
+                            icon: <Home sx={{ fontSize: 14 }} />,
+                          },
+                          {
+                            key: 'family',
+                            label: 'Family',
+                            icon: <FamilyRestroom sx={{ fontSize: 14 }} />,
+                          },
+                          {
+                            key: 'education',
+                            label: 'Education',
+                            icon: <School sx={{ fontSize: 14 }} />,
+                          },
+                        ].map((item) => (
+                          <Box
+                            key={item.key}
+                            onClick={() => {
+                              setModalTab(item.key);
+                              setIsEditing(false);
+                            }}
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1.2,
+                              px: 2,
+                              py: 0.9,
+                              cursor: 'pointer',
+                              color: modalTab === item.key ? T.accent : T.muted,
+                              borderLeft:
+                                modalTab === item.key
+                                  ? `2px solid ${T.accent}`
+                                  : '2px solid transparent',
+                              bgcolor:
+                                modalTab === item.key
+                                  ? T.accentFaint
+                                  : 'transparent',
+                              fontWeight: modalTab === item.key ? 700 : 400,
+                              transition: 'all 0.12s',
+                              '&:hover': {
+                                bgcolor: T.accentFaint,
+                                color: T.accent,
+                              },
+                            }}
+                          >
+                            {item.icon}
+                            <Typography
+                              sx={{
+                                fontSize: '0.8rem',
+                                fontWeight: 'inherit',
+                                color: 'inherit',
+                                fontFamily: T.poppins,
+                              }}
+                            >
+                              {item.label}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+
+                      <Box sx={{ p: 1.5, borderTop: `1px solid ${T.divider}` }}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.68rem',
+                            color: T.faint,
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          Last updated
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontSize: '0.72rem',
+                            color: T.muted,
+                            fontFamily: T.poppins,
+                          }}
+                        >
+                          {new Date().toLocaleDateString('en-US', {
+                            month: 'long',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* RIGHT CONTENT AREA */}
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minWidth: 0,
+                        bgcolor: T.surface,
+                        fontFamily: T.poppins,
+                      }}
+                    >
+                      {/* Content header */}
+                      <Box
+                        sx={{
+                          px: 3.5,
+                          py: 2.5,
+                          background: T.headerGrad,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          position: 'relative',
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: -40,
+                            right: -30,
+                            width: 140,
+                            height: 140,
+                            borderRadius: '50%',
+                            bgcolor: 'rgba(255,255,255,0.04)',
+                          }}
+                        />
+                        <Box sx={{ position: 'relative', zIndex: 1 }}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.95rem',
+                              fontWeight: 700,
+                              color: '#fff',
+                              lineHeight: 1.2,
+                              mb: 0.3,
+                              fontFamily: T.poppins,
+                            }}
+                          >
+                            {modalTab === 'personal' && 'Personal information'}
+                            {modalTab === 'govids' && 'Government IDs'}
+                            {modalTab === 'address' && 'Address'}
+                            {modalTab === 'family' && 'Family'}
+                            {modalTab === 'education' && 'Education'}
+                          </Typography>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.75,
+                            }}
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: '0.72rem',
+                                color: 'rgba(255,255,255,0.68)',
+                                fontFamily: T.poppins,
+                              }}
+                            >
+                              {modalTab === 'personal' &&
+                                'Basic details and contact'}
+                              {modalTab === 'govids' &&
+                                'Identification numbers'}
+                              {modalTab === 'address' &&
+                                'Residential and permanent'}
+                              {modalTab === 'family' && 'Spouse and parents'}
+                              {modalTab === 'education' &&
+                                'Elementary and secondary'}
+                            </Typography>
+                            {!isEditing && (
+                              <Chip
+                                label="View mode"
+                                size="small"
+                                sx={{
+                                  height: 16,
+                                  fontSize: '0.62rem',
+                                  bgcolor: 'rgba(255,255,255,0.1)',
+                                  color: 'rgba(255,255,255,0.7)',
+                                  fontWeight: 500,
+                                  fontFamily: T.poppins,
+                                }}
+                              />
+                            )}
+                            {isEditing && (
+                              <Chip
+                                label="Editing"
+                                size="small"
+                                sx={{
+                                  height: 16,
+                                  fontSize: '0.62rem',
+                                  bgcolor: 'rgba(255,200,0,0.22)',
+                                  color: '#ffe082',
+                                  fontWeight: 600,
+                                  fontFamily: T.poppins,
+                                }}
+                              />
+                            )}
+                          </Box>
+                        </Box>
+                        <IconButton
+                          onClick={() => {
+                            setEditPerson(null);
+                            setOriginalPerson(null);
+                            setSelectedEditEmployee(null);
+                            setIsEditing(false);
+                            setModalTab('personal');
+                          }}
+                          size="small"
+                          sx={{
+                            color: 'rgba(255,255,255,0.75)',
+                            position: 'relative',
+                            zIndex: 1,
+                            '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+                          }}
+                        >
+                          <Close sx={{ fontSize: 17 }} />
+                        </IconButton>
+                      </Box>
+
+                      {/* Scrollable content */}
+                      <Box
+                        sx={{
+                          flex: 1,
+                          overflowY: 'auto',
+                          p: '20px 24px',
+                          fontFamily: T.poppins,
+                          '&::-webkit-scrollbar': { width: 4 },
+                          '&::-webkit-scrollbar-thumb': {
+                            bgcolor: T.accentBorder,
+                            borderRadius: 2,
+                          },
+                        }}
+                      >
+                        {modalTab === 'personal' && (
+                          <Box
+                            sx={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: 2,
+                            }}
+                          >
+                            {renderModalField('First name', 'firstName')}
+                            {renderModalField('Last name', 'lastName')}
+                            {renderModalField('Middle name', 'middleName')}
+                            {renderModalField(
+                              'Name extension',
+                              'nameExtension',
+                            )}
+                            {renderModalField('Date of birth', 'birthDate', {
+                              type: 'date',
+                            })}
+                            {renderModalField('Place of birth', 'placeOfBirth')}
+                            {renderModalField('Sex', 'sex', {
+                              options: ['Male', 'Female', 'Other'],
+                            })}
+                            {renderModalField('Civil status', 'civilStatus', {
+                              options: [
+                                'Single',
+                                'Married',
+                                'Widowed',
+                                'Separated',
+                                'Divorced',
+                              ],
+                            })}
+                            {renderModalField('Citizenship', 'citizenship')}
+                            {renderModalField('Blood type', 'bloodType', {
+                              options: [
+                                'A+',
+                                'A-',
+                                'B+',
+                                'B-',
+                                'AB+',
+                                'AB-',
+                                'O+',
+                                'O-',
+                              ],
+                            })}
+                            {renderModalField('Mobile number', 'mobileNum')}
+                            {renderModalField('Telephone', 'telephone')}
+                            {renderModalField('Email address', 'emailAddress', {
+                              full: true,
+                            })}
+                            {renderModalField('Height (cm)', 'heightCm')}
+                            {renderModalField('Weight (kg)', 'weightKg')}
+                          </Box>
+                        )}
+
+                        {modalTab === 'govids' && (
+                          <Box>
+                            {[
+                              ['Employee number', 'agencyEmployeeNum'],
+                              ['GSIS', 'gsisNum'],
+                              ['Pag-IBIG', 'pagibigNum'],
+                              ['PhilHealth', 'philhealthNum'],
+                              ['SSS', 'sssNum'],
+                              ['TIN', 'tinNum'],
+                            ].map(([label, field]) => (
+                              <Box
+                                key={field}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  p: '8px 12px',
+                                  border: `1px solid ${T.accentBorder}`,
+                                  borderRadius: '8px',
+                                  mb: 1,
+                                  bgcolor: T.accentFaint,
+                                  gap: 2,
+                                }}
+                              >
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    color: T.muted,
+                                    fontWeight: 700,
+                                    fontFamily: T.poppins,
+                                  }}
+                                >
+                                  {label}
+                                </Typography>
+                                {isEditing && field !== 'agencyEmployeeNum' ? (
+                                  <FieldInput
+                                    size="small"
+                                    value={editPerson[field] || ''}
+                                    onChange={(e) =>
+                                      handleChange(field, e.target.value, true)
+                                    }
+                                    sx={{ minWidth: 220 }}
+                                    inputProps={{
+                                      style: {
+                                        fontFamily: T.poppins,
+                                        fontSize: '0.82rem',
+                                      },
+                                    }}
+                                  />
+                                ) : (
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.82rem',
+                                      color: T.text,
+                                      fontWeight:
+                                        field === 'agencyEmployeeNum'
+                                          ? 700
+                                          : 400,
+                                      fontFamily: T.poppins,
+                                    }}
+                                  >
+                                    {getDisplayValue(editPerson[field])}
+                                  </Typography>
+                                )}
+                              </Box>
+                            ))}
+                            <Box
+                              sx={{
+                                mt: 1.5,
+                                p: '8px 12px',
+                                border: `1px solid ${T.accentBorder}`,
+                                borderRadius: '8px',
+                                bgcolor: T.accentFaint,
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: '0.72rem',
+                                  color: T.faint,
+                                  fontFamily: T.poppins,
+                                }}
+                              >
+                                Employee number cannot be changed. Contact
+                                administrator for corrections.
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+
+                        {modalTab === 'address' && (
+                          <Box>
+                            <Box
+                              sx={{
+                                mb: 1.5,
+                                p: '14px 16px',
+                                border: `1px solid ${T.accentBorder}`,
+                                borderRadius: '10px',
+                                bgcolor: T.accentFaint,
+                              }}
+                            >
+                              <Typography sx={{ ...fieldLabelSx, mb: 1 }}>
+                                Residential address
+                              </Typography>
+                              {isEditing ? (
+                                <PhilippineAddressSelector
+                                  prefix="residential"
+                                  values={editPerson}
+                                  onChange={handleEditAddressChange}
+                                />
+                              ) : (
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.82rem',
+                                    color: T.text,
+                                    lineHeight: 1.7,
+                                    fontFamily: T.poppins,
+                                  }}
+                                >
+                                  {`${getDisplayValue(editPerson.residential_houseBlockLotNum)} ${getDisplayValue(editPerson.residential_streetName)}`}
+                                  <br />
+                                  {`${getDisplayValue(editPerson.residential_subdivisionOrVillage)}, ${getDisplayValue(editPerson.residential_barangayName)}`}
+                                  <br />
+                                  {`${getDisplayValue(editPerson.residential_cityOrMunicipality)}, ${getDisplayValue(editPerson.residential_provinceName)}`}
+                                  <br />
+                                  {`ZIP ${getDisplayValue(editPerson.residential_zipcode)}`}
+                                </Typography>
+                              )}
+                            </Box>
+                            <Box
+                              sx={{
+                                p: '14px 16px',
+                                border: `1px solid ${T.accentBorder}`,
+                                borderRadius: '10px',
+                                bgcolor: T.accentFaint,
+                              }}
+                            >
+                              <Typography sx={{ ...fieldLabelSx, mb: 1 }}>
+                                Permanent address
+                              </Typography>
+                              {isEditing ? (
+                                <PhilippineAddressSelector
+                                  prefix="permanent"
+                                  values={editPerson}
+                                  onChange={handleEditAddressChange}
+                                  showSameAsCheck
+                                  residentialValues={editPerson}
+                                />
+                              ) : (
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.82rem',
+                                    color: T.text,
+                                    lineHeight: 1.7,
+                                    fontFamily: T.poppins,
+                                  }}
+                                >
+                                  {`${getDisplayValue(editPerson.permanent_houseBlockLotNum)} ${getDisplayValue(editPerson.permanent_streetName)}`}
+                                  <br />
+                                  {`${getDisplayValue(editPerson.permanent_subdivisionOrVillage)}, ${getDisplayValue(editPerson.permanent_barangay)}`}
+                                  <br />
+                                  {`${getDisplayValue(editPerson.permanent_cityOrMunicipality)}, ${getDisplayValue(editPerson.permanent_provinceName)}`}
+                                  <br />
+                                  {`ZIP ${getDisplayValue(editPerson.permanent_zipcode)}`}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Box>
+                        )}
+
+                        {modalTab === 'family' && (
+                          <Box>
+                            {[
+                              {
+                                title: 'Spouse',
+                                fields: [
+                                  ['First name', 'spouseFirstName'],
+                                  ['Last name', 'spouseLastName'],
+                                  ['Middle name', 'spouseMiddleName'],
+                                  ['Name extension', 'spouseNameExtension'],
+                                  ['Occupation', 'spouseOccupation'],
+                                  ['Employer', 'spouseEmployerBusinessName'],
+                                  {
+                                    label: 'Business address',
+                                    field: 'spouseBusinessAddress',
+                                    full: true,
+                                  },
+                                  {
+                                    label: 'Telephone',
+                                    field: 'spouseTelephone',
+                                    full: true,
+                                  },
+                                ],
+                              },
+                              {
+                                title: 'Father',
+                                fields: [
+                                  ['First name', 'fatherFirstName'],
+                                  ['Last name', 'fatherLastName'],
+                                  ['Middle name', 'fatherMiddleName'],
+                                  ['Name extension', 'fatherNameExtension'],
+                                ],
+                              },
+                              {
+                                title: 'Mother',
+                                fields: [
+                                  [
+                                    'Maiden first name',
+                                    'motherMaidenFirstName',
+                                  ],
+                                  ['Maiden last name', 'motherMaidenLastName'],
+                                  {
+                                    label: 'Maiden middle name',
+                                    field: 'motherMaidenMiddleName',
+                                    full: true,
+                                  },
+                                ],
+                              },
+                            ].map(({ title, fields }) => (
+                              <Box key={title} sx={{ mb: 2.5 }}>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                    mb: 1.5,
+                                  }}
+                                >
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      color: T.accent,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.07em',
+                                      fontFamily: T.poppins,
+                                    }}
+                                  >
+                                    {title}
+                                  </Typography>
+                                  <Box
+                                    sx={{
+                                      height: 1,
+                                      flex: 1,
+                                      bgcolor: T.divider,
+                                    }}
+                                  />
+                                </Box>
+                                <Box
+                                  sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: 2,
+                                  }}
+                                >
+                                  {fields.map((f) => {
+                                    if (Array.isArray(f))
+                                      return renderModalField(f[0], f[1]);
+                                    return renderModalField(f.label, f.field, {
+                                      full: f.full,
+                                    });
+                                  })}
+                                </Box>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
+
+                        {modalTab === 'education' && (
+                          <Box>
+                            {[
+                              {
+                                title: 'Elementary',
+                                fields: [
+                                  {
+                                    label: 'School name',
+                                    field: 'elementaryNameOfSchool',
+                                    full: true,
+                                  },
+                                  ['Period from', 'elementaryPeriodFrom'],
+                                  ['Period to', 'elementaryPeriodTo'],
+                                  ['Year graduated', 'elementaryYearGraduated'],
+                                  {
+                                    label: 'Honors received',
+                                    field:
+                                      'elementaryScholarshipAcademicHonorsReceived',
+                                    full: true,
+                                  },
+                                ],
+                              },
+                              {
+                                title: 'Secondary',
+                                fields: [
+                                  {
+                                    label: 'School name',
+                                    field: 'secondaryNameOfSchool',
+                                    full: true,
+                                  },
+                                  ['Period from', 'secondaryPeriodFrom'],
+                                  ['Period to', 'secondaryPeriodTo'],
+                                  ['Year graduated', 'secondaryYearGraduated'],
+                                  {
+                                    label: 'Honors received',
+                                    field:
+                                      'secondaryScholarshipAcademicHonorsReceived',
+                                    full: true,
+                                  },
+                                ],
+                              },
+                            ].map(({ title, fields }) => (
+                              <Box key={title} sx={{ mb: 2.5 }}>
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                    mb: 1.5,
+                                  }}
+                                >
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      color: T.accent,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.07em',
+                                      fontFamily: T.poppins,
+                                    }}
+                                  >
+                                    {title}
+                                  </Typography>
+                                  <Box
+                                    sx={{
+                                      height: 1,
+                                      flex: 1,
+                                      bgcolor: T.divider,
+                                    }}
+                                  />
+                                </Box>
+                                <Box
+                                  sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: 2,
+                                  }}
+                                >
+                                  {fields.map((f) => {
+                                    if (Array.isArray(f))
+                                      return renderModalField(f[0], f[1]);
+                                    return renderModalField(f.label, f.field, {
+                                      full: f.full,
+                                    });
+                                  })}
+                                </Box>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
+                      </Box>
+
+                      {/* ACTION BAR */}
+                      <Box
+                        sx={{
+                          px: 3.5,
+                          py: 2,
+                          borderTop: `1px solid ${T.divider}`,
+                          bgcolor: '#f9f9f9',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          flexShrink: 0,
+                          fontFamily: T.poppins,
+                        }}
+                      >
+                        <AccentButton
                           onClick={() => handleDelete(editPerson.id)}
                           variant="outlined"
-                          startIcon={<DeleteIcon />}
+                          startIcon={
+                            <DeleteIcon sx={{ fontSize: '14px !important' }} />
+                          }
                           sx={{
-                            borderColor:
-                              settings.deleteButtonColor ||
-                              settings.primaryColor ||
-                              '#6d2323',
-                            color:
-                              settings.deleteButtonColor ||
-                              settings.primaryColor ||
-                              '#6d2323',
-                            minWidth: '120px',
+                            fontSize: '0.8rem',
+                            fontFamily: T.poppins,
+                            borderColor: '#e57373',
+                            color: '#c62828',
                             '&:hover': {
-                              backgroundColor: alpha(
-                                settings.deleteButtonColor ||
-                                  settings.primaryColor ||
-                                  '#6d2323',
-                                0.1,
-                              ),
-                              borderColor:
-                                settings.deleteButtonHoverColor ||
-                                settings.hoverColor ||
-                                '#a31d1d',
-                              color:
-                                settings.deleteButtonHoverColor ||
-                                settings.hoverColor ||
-                                '#a31d1d',
+                              bgcolor: 'rgba(198,40,40,0.04)',
+                              borderColor: '#c62828',
+                              transform: 'none',
                             },
                           }}
                         >
-                          Delete
-                        </Button>
-                        <Button
-                          onClick={handleStartEdit}
-                          variant="contained"
-                          startIcon={<EditIcon />}
-                          sx={{
-                            backgroundColor:
-                              settings.updateButtonColor ||
-                              settings.primaryColor ||
-                              '#6d2323',
-                            color: settings.accentColor || '#FEF9E1',
-                            minWidth: '120px',
-                            '&:hover': {
-                              backgroundColor:
-                                settings.updateButtonHoverColor ||
-                                settings.hoverColor ||
-                                '#a31d1d',
-                            },
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          onClick={handleCancelEdit}
-                          variant="outlined"
-                          startIcon={<CancelIcon />}
-                          sx={{
-                            borderColor:
-                              settings.cancelButtonColor || '#6c757d',
-                            color: settings.cancelButtonColor || '#6c757d',
-                            minWidth: '120px',
-                            '&:hover': {
-                              backgroundColor: alpha(
-                                settings.cancelButtonColor || '#6c757d',
-                                0.1,
-                              ),
-                              borderColor:
-                                settings.cancelButtonHoverColor || '#5a6268',
-                              color:
-                                settings.cancelButtonHoverColor || '#5a6268',
-                            },
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleUpdate}
-                          variant="contained"
-                          startIcon={<SaveIcon />}
-                          disabled={!hasChanges()}
-                          sx={{
-                            backgroundColor: hasChanges()
-                              ? settings.updateButtonColor ||
-                                settings.primaryColor ||
-                                '#6d2323'
-                              : alpha(settings.primaryColor || '#6d2323', 0.5),
-                            color: settings.accentColor || '#FEF9E1',
-                            minWidth: '120px',
-                            '&:hover': {
-                              backgroundColor: hasChanges()
-                                ? settings.updateButtonHoverColor ||
-                                  settings.hoverColor ||
-                                  '#a31d1d'
-                                : alpha(
-                                    settings.primaryColor || '#6d2323',
-                                    0.5,
-                                  ),
-                            },
-                            '&:disabled': {
-                              color: alpha(
-                                settings.accentColor || '#FEF9E1',
-                                0.5,
-                              ),
-                            },
-                          }}
-                        >
-                          Save Changes
-                        </Button>
-                      </>
-                    )}
-                  </Box>
-                </Box>
-              </>
-            )}
-          </Paper>
-        </Modal>
+                          Delete record
+                        </AccentButton>
 
-        {/* Snackbar */}
-        <Snackbar
-          open={snackbar.open}
-          autoHideDuration={3000}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          {isEditing && (
+                            <AccentButton
+                              onClick={() => {
+                                setEditPerson({ ...originalPerson });
+                                setSelectedEditEmployee({
+                                  name: `${originalPerson.firstName} ${originalPerson.lastName}`,
+                                  employeeNumber:
+                                    originalPerson.agencyEmployeeNum,
+                                });
+                                setIsEditing(false);
+                              }}
+                              variant="outlined"
+                              startIcon={
+                                <CancelIcon
+                                  sx={{ fontSize: '14px !important' }}
+                                />
+                              }
+                              sx={{
+                                fontSize: '0.8rem',
+                                fontFamily: T.poppins,
+                                borderColor: T.accentBorder,
+                                color: T.muted,
+                                '&:hover': {
+                                  bgcolor: T.accentFaint,
+                                  borderColor: T.accent,
+                                  color: T.accent,
+                                },
+                              }}
+                            >
+                              Cancel
+                            </AccentButton>
+                          )}
+                          {!isEditing ? (
+                            <AccentButton
+                              onClick={() => setIsEditing(true)}
+                              variant="contained"
+                              startIcon={
+                                <EditIcon
+                                  sx={{ fontSize: '14px !important' }}
+                                />
+                              }
+                              sx={{
+                                fontSize: '0.8rem',
+                                fontFamily: T.poppins,
+                                bgcolor: T.accent,
+                                color: '#fff',
+                                boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                                '&:hover': { bgcolor: T.accentDark },
+                              }}
+                            >
+                              Edit
+                            </AccentButton>
+                          ) : (
+                            <AccentButton
+                              onClick={handleUpdate}
+                              disabled={!hasChanges()}
+                              variant="contained"
+                              startIcon={
+                                <SaveIcon
+                                  sx={{ fontSize: '14px !important' }}
+                                />
+                              }
+                              sx={{
+                                fontSize: '0.8rem',
+                                fontFamily: T.poppins,
+                                bgcolor: '#639922',
+                                color: '#fff',
+                                boxShadow: '0 2px 10px rgba(99,153,34,0.32)',
+                                '&:hover': { bgcolor: '#3B6D11' },
+                                '&:disabled': {
+                                  bgcolor: '#b9c7a5 !important',
+                                  color: '#fff !important',
+                                },
+                              }}
+                            >
+                              Save changes
+                            </AccentButton>
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </>
+                )}
+              </Box>
+            </Fade>
+          </Modal>
+
+          {/* Snackbar */}
+          <Snackbar
+            open={snackbar.open}
+            autoHideDuration={3000}
             onClose={() => setSnackbar({ ...snackbar, open: false })}
-            severity={snackbar.severity}
-            sx={{ width: '100%' }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
           >
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
-      </Box>
-    </Box>
+            <Alert
+              onClose={() => setSnackbar({ ...snackbar, open: false })}
+              severity={snackbar.severity}
+              sx={{ width: '100%', borderRadius: 2 }}
+            >
+              {snackbar.message}
+            </Alert>
+          </Snackbar>
+        </Box>
+      </Fade>
+    </>
   );
 };
 

@@ -1,5 +1,6 @@
 import API_BASE_URL from "../apiConfig";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   Alert,
   TextField,
@@ -16,6 +17,9 @@ import {
   Dialog,
   Checkbox,
   FormControlLabel,
+  Stepper,
+  Step,
+  StepLabel,
 } from "@mui/material";
 import {
   BadgeOutlined,
@@ -24,40 +28,22 @@ import {
   CheckCircleOutline,
   ErrorOutline,
   VerifiedUserOutlined,
-  Visibility,
-  VisibilityOff,
   KeyboardArrowDown,
   Announcement as AnnouncementIcon,
-  ArrowBackIosNew as ArrowBackIosNewIcon,
-  ArrowForwardIos as ArrowForwardIosIcon,
-  Campaign as CampaignIcon,
-  Pause,
   AccessTime as AccessTimeIcon,
   Close as CloseIcon,
   Event as EventIcon,
   Block as BlockIcon,
+  ArrowBack,
+  MarkEmailReadOutlined,
+  EmailOutlined,
+  LockResetOutlined,
 } from "@mui/icons-material";
 import LoadingOverlay from "../components/LoadingOverlay";
-import logo from "../assets/logo.PNG";
 import bg from "../assets/EaristBG.PNG";
+import logo from "../assets/logo.PNG";
 
 // ─── Expiry helpers ───────────────────────────────────────────────────────────
-// For HOLIDAYS: true only if today falls within [date_start, date_end].
-const isHolidayActive = (date_start, date_end, fallbackDate) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = date_start || fallbackDate;
-  const end = date_end || fallbackDate;
-  const s = start ? new Date(start) : null;
-  const e = end ? new Date(end) : null;
-  if (s) s.setHours(0, 0, 0, 0);
-  if (e) e.setHours(0, 0, 0, 0);
-  if (e && today > e) return false;
-  if (s && today < s) return false;
-  return true;
-};
-
-// For ANNOUNCEMENTS / SUSPENSIONS: show unless date_end is explicitly set and already past.
 const isNotExpired = (date_end) => {
   if (!date_end) return true;
   const today = new Date();
@@ -71,7 +57,7 @@ const isNotExpired = (date_end) => {
 const buildCarouselItems = (announcements = [], suspensions = [], rawHolidays = []) => {
   const holidayItems = rawHolidays
     .filter((h) => (h.status || "").toLowerCase() === "active")
-.filter((h) => isNotExpired(h.date_end || h.date))
+    .filter((h) => isNotExpired(h.date_end || h.date))
     .map((h) => ({
       id: `holiday-${h.id}`,
       type: "HOLIDAY",
@@ -117,8 +103,399 @@ const getTypeLabel = (type) => {
   return "Announcement";
 };
 
+// ─── Forgot Password Sub-Component (inline) ──────────────────────────────────
+const ForgotPasswordInline = ({ onBack, crimson, crimsonDark }) => {
+  const [fpStep, setFpStep] = useState(0);
+  const [fpData, setFpData] = useState({ email: "", verificationCode: "", newPassword: "", confirmPassword: "" });
+  const [fpError, setFpError] = useState("");
+  const [fpLoading, setFpLoading] = useState(false);
+  const [showPasswords, setShowPasswords] = useState({ new: false, confirm: false });
+  const [passwordConfirmed, setPasswordConfirmed] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const recaptchaRef = useRef(null);
+  const [recaptchaToken, setRecaptchaToken] = useState("");
+
+  const steps = ["Enter Email", "Verify Code", "New Password"];
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFpData((prev) => ({ ...prev, [name]: value }));
+    if (fpError) setFpError("");
+  };
+
+  const handleSubmitEmail = async (e) => {
+    e.preventDefault();
+    if (!fpData.email) { setFpError("Please enter your email address."); return; }
+    if (!recaptchaToken) { setFpError("Please verify that you are not a robot."); return; }
+    setFpLoading(true); setFpError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fpData.email, recaptchaToken }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFpStep(1);
+        setShowVerificationModal(true);
+        recaptchaRef.current?.reset();
+        setRecaptchaToken("");
+      } else {
+        setFpError(data.error || "Failed to send verification code.");
+      }
+    } catch { setFpError("Something went wrong. Please try again."); }
+    finally { setFpLoading(false); }
+  };
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault();
+    if (!fpData.verificationCode) { setFpError("Please enter the verification code."); return; }
+    setFpLoading(true); setFpError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/verify-reset-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fpData.email, code: fpData.verificationCode }),
+      });
+      const data = await res.json();
+      if (res.ok) setFpStep(2);
+      else setFpError(data.error || "Invalid verification code.");
+    } catch { setFpError("Something went wrong. Please try again."); }
+    finally { setFpLoading(false); }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (!fpData.newPassword || !fpData.confirmPassword) { setFpError("Please fill in both password fields."); return; }
+    if (fpData.newPassword !== fpData.confirmPassword) { setFpError("Passwords do not match."); return; }
+    if (fpData.newPassword.length < 6) { setFpError("Password must be at least 6 characters long."); return; }
+    if (!passwordConfirmed) { setFpError("Please confirm that you want to change your password."); return; }
+    setFpLoading(true); setFpError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fpData.email, newPassword: fpData.newPassword, confirmPassword: fpData.confirmPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) setShowSuccessModal(true);
+      else setFpError(data.error || "Failed to reset password.");
+    } catch { setFpError("Something went wrong. Please try again."); }
+    finally { setFpLoading(false); }
+  };
+
+  const inputSx = {
+    mb: 2,
+    "& .MuiOutlinedInput-root": {
+      borderRadius: 2,
+      background: "rgba(255,255,255,0.8)",
+      "& fieldset": { borderColor: "rgba(128,0,32,0.25)" },
+      "&:hover fieldset": { borderColor: "rgba(128,0,32,0.45)" },
+      "&.Mui-focused fieldset": { borderColor: crimson },
+      "& input": { color: crimsonDark, fontSize: "0.9rem" },
+    },
+    "& .MuiInputLabel-root": { color: "rgba(128,0,32,0.55)" },
+    "& .MuiInputLabel-root.Mui-focused": { color: crimson },
+  };
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Header */}
+      <Box sx={{ mb: 3, textAlign: "center" }}>
+        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.22em", color: "rgba(128,0,32,0.55)", textTransform: "uppercase", mb: 0.75 }}>
+          Account Recovery
+        </Typography>
+        <Typography sx={{ fontSize: "1.45rem", fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em" }}>
+          Reset Password
+        </Typography>
+        <Box sx={{ width: 44, height: 3, background: "linear-gradient(90deg, #800020, #e84a4a)", borderRadius: "2px", mx: "auto", mt: 1.5 }} />
+      </Box>
+
+      {/* Stepper */}
+      <Stepper activeStep={fpStep} sx={{ mb: 3 }} alternativeLabel>
+        {steps.map((label) => (
+          <Step key={label}>
+            <StepLabel
+              StepIconProps={{
+                sx: {
+                  "&.Mui-active": { color: crimson },
+                  "&.Mui-completed": { color: crimson },
+                  color: "rgba(128,0,32,0.25)",
+                },
+              }}
+              sx={{ "& .MuiStepLabel-label": { fontSize: "0.7rem", color: "rgba(75,0,0,0.55)", fontWeight: 600 } }}
+            >
+              {label}
+            </StepLabel>
+          </Step>
+        ))}
+      </Stepper>
+
+      {/* Error */}
+      {fpError && (
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: "10px 14px", borderRadius: "10px", bgcolor: "rgba(200,30,30,0.04)", border: "1px solid rgba(200,30,30,0.12)", color: "#8a2020", fontSize: "0.8rem", mb: 2 }}>
+          <ErrorOutline sx={{ fontSize: 16, flexShrink: 0, mt: "1px" }} />
+          <Box>{fpError}</Box>
+        </Box>
+      )}
+
+      {/* Step 0: Email */}
+      {fpStep === 0 && (
+        <Box component="form" onSubmit={handleSubmitEmail} sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <Typography sx={{ mb: 2.5, color: "rgba(128,0,32,0.6)", fontSize: "0.82rem", textAlign: "center", lineHeight: 1.5 }}>
+            Enter your email address and we'll send you a verification code.
+          </Typography>
+          <TextField
+            type="email"
+            name="email"
+            label="Email Address"
+            fullWidth
+            value={fpData.email}
+            onChange={handleChange}
+            sx={inputSx}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><EmailOutlined sx={{ color: "rgba(128,0,32,0.45)", fontSize: 18 }} /></InputAdornment>,
+            }}
+            required
+          />
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 2.5, transform: "scale(0.88)", transformOrigin: "center" }}>
+            <ReCAPTCHA
+              sitekey="6LczLdwrAAAAADm2hy8vJDkvKc05KJNDY8TQgagG"
+              onChange={(token) => setRecaptchaToken(token)}
+              ref={recaptchaRef}
+              theme="light"
+              size="normal"
+            />
+          </Box>
+          <Box sx={{ mt: "auto" }}>
+            <Box
+              component="button"
+              type="submit"
+              disabled={fpLoading || !recaptchaToken}
+              sx={{
+                width: "100%", height: 50, background: !recaptchaToken ? "rgba(128,0,32,0.15)" : "#800020",
+                border: "none", borderRadius: "12px", color: "#fff", fontSize: "0.9rem", fontWeight: 600,
+                cursor: !recaptchaToken ? "not-allowed" : "pointer", opacity: !recaptchaToken ? 0.55 : 1,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                transition: "background 0.2s", fontFamily: "inherit",
+                "&:hover:not(:disabled)": { background: "#6a001a" },
+              }}
+            >
+              <MarkEmailReadOutlined sx={{ fontSize: 18 }} />
+              {fpLoading ? "Sending..." : "Send Verification Code"}
+            </Box>
+            <Box sx={{ mt: 2.5, textAlign: "center" }}>
+              <Link component="button" type="button" onClick={onBack} underline="hover" sx={{ fontSize: "0.8rem", color: crimson, display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+                <ArrowBack sx={{ fontSize: 14 }} /> Back to Sign In
+              </Link>
+            </Box>
+          </Box>
+        </Box>
+      )}
+
+      {/* Step 1: Verify Code */}
+      {fpStep === 1 && (
+        <Box component="form" onSubmit={handleVerifyCode} sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <Typography sx={{ mb: 2.5, color: "rgba(128,0,32,0.6)", fontSize: "0.82rem", textAlign: "center", lineHeight: 1.5 }}>
+            Enter the 6-digit code sent to <Box component="span" sx={{ fontWeight: 600, color: crimsonDark }}>{fpData.email}</Box>
+          </Typography>
+          <TextField
+            type="text"
+            name="verificationCode"
+            placeholder="• • • • • •"
+            fullWidth
+            value={fpData.verificationCode}
+            onChange={handleChange}
+            inputProps={{ maxLength: 6, style: { textAlign: "center", fontSize: "1.8rem", letterSpacing: "0.8rem", color: crimsonDark } }}
+            sx={{ ...inputSx, mb: 3 }}
+            required
+          />
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: "flex", gap: 1.5 }}>
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setFpStep(0)}
+              sx={{
+                flex: 1, height: 50, background: "transparent", border: "1px solid rgba(128,0,32,0.3)",
+                borderRadius: "12px", color: crimson, fontSize: "0.88rem", fontWeight: 600,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                transition: "background 0.2s", fontFamily: "inherit",
+                "&:hover": { background: "rgba(128,0,32,0.05)" },
+              }}
+            >
+              <ArrowBack sx={{ fontSize: 16 }} /> Back
+            </Box>
+            <Box
+              component="button"
+              type="submit"
+              disabled={fpLoading}
+              sx={{
+                flex: 1, height: 50, background: "#800020", border: "none", borderRadius: "12px",
+                color: "#fff", fontSize: "0.88rem", fontWeight: 600, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                transition: "background 0.2s", fontFamily: "inherit",
+                "&:hover": { background: "#6a001a" },
+                "&:disabled": { opacity: 0.55, cursor: "not-allowed" },
+              }}
+            >
+              <VerifiedUserOutlined sx={{ fontSize: 16 }} />
+              {fpLoading ? "Verifying..." : "Verify Code"}
+            </Box>
+          </Box>
+        </Box>
+      )}
+
+      {/* Step 2: New Password */}
+      {fpStep === 2 && (
+        <Box component="form" onSubmit={handleResetPassword} sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <Typography sx={{ mb: 2.5, color: "rgba(128,0,32,0.6)", fontSize: "0.82rem", textAlign: "center", lineHeight: 1.5 }}>
+            Create a new password for your account.
+          </Typography>
+          <TextField
+            type={showPasswords.new ? "text" : "password"}
+            name="newPassword"
+            label="New Password"
+            fullWidth
+            value={fpData.newPassword}
+            onChange={handleChange}
+            sx={inputSx}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><LockOutlined sx={{ color: "rgba(128,0,32,0.45)", fontSize: 18 }} /></InputAdornment>,
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowPasswords((p) => ({ ...p, new: !p.new }))} size="small" sx={{ color: "rgba(128,0,32,0.4)" }}>
+                    {showPasswords.new ? <VerifiedUserOutlined sx={{ fontSize: 17 }} /> : <LockOutlined sx={{ fontSize: 17 }} />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            required
+          />
+          <TextField
+            type={showPasswords.confirm ? "text" : "password"}
+            name="confirmPassword"
+            label="Confirm New Password"
+            fullWidth
+            value={fpData.confirmPassword}
+            onChange={handleChange}
+            sx={{ ...inputSx, mb: 1.5 }}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><LockOutlined sx={{ color: "rgba(128,0,32,0.45)", fontSize: 18 }} /></InputAdornment>,
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowPasswords((p) => ({ ...p, confirm: !p.confirm }))} size="small" sx={{ color: "rgba(128,0,32,0.4)" }}>
+                    {showPasswords.confirm ? <VerifiedUserOutlined sx={{ fontSize: 17 }} /> : <LockOutlined sx={{ fontSize: 17 }} />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            required
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={passwordConfirmed}
+                onChange={(e) => setPasswordConfirmed(e.target.checked)}
+                sx={{ color: crimson, "&.Mui-checked": { color: crimson }, transform: "scale(0.85)" }}
+              />
+            }
+            label={<Typography sx={{ fontSize: "0.78rem", color: crimsonDark }}>I confirm that I want to change my password</Typography>}
+            sx={{ mb: 2.5, ml: 0 }}
+          />
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: "flex", gap: 1.5 }}>
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setFpStep(1)}
+              sx={{
+                flex: 1, height: 50, background: "transparent", border: "1px solid rgba(128,0,32,0.3)",
+                borderRadius: "12px", color: crimson, fontSize: "0.88rem", fontWeight: 600,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                transition: "background 0.2s", fontFamily: "inherit",
+                "&:hover": { background: "rgba(128,0,32,0.05)" },
+              }}
+            >
+              <ArrowBack sx={{ fontSize: 16 }} /> Back
+            </Box>
+            <Box
+              component="button"
+              type="submit"
+              disabled={fpLoading || !passwordConfirmed}
+              sx={{
+                flex: 1, height: 50, background: "#800020", border: "none", borderRadius: "12px",
+                color: "#fff", fontSize: "0.88rem", fontWeight: 600, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                transition: "background 0.2s", fontFamily: "inherit",
+                "&:hover:not(:disabled)": { background: "#6a001a" },
+                "&:disabled": { opacity: 0.55, cursor: "not-allowed" },
+              }}
+            >
+              <LockResetOutlined sx={{ fontSize: 16 }} />
+              {fpLoading ? "Updating..." : "Update Password"}
+            </Box>
+          </Box>
+        </Box>
+      )}
+
+      {/* Verification sent overlay */}
+      {showVerificationModal && (
+        <Box sx={{ position: "absolute", inset: 0, bgcolor: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "24px", zIndex: 20 }}>
+          <Box sx={{ width: "85%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 3.5, textAlign: "center", border: "1px solid rgba(128,0,32,0.15)" }}>
+            <MarkEmailReadOutlined sx={{ fontSize: 56, color: crimson, mb: 1.5 }} />
+            <Typography sx={{ fontWeight: 700, mb: 1, color: crimsonDark, fontSize: "1.1rem" }}>Verification Code Sent</Typography>
+            <Typography sx={{ color: crimson, mb: 2.5, fontSize: "0.83rem", lineHeight: 1.6 }}>
+              A code was sent to <Box component="span" sx={{ fontWeight: 600 }}>{fpData.email}</Box>. Check your inbox and enter it below.
+            </Typography>
+            <Box
+              component="button"
+              onClick={() => setShowVerificationModal(false)}
+              sx={{ width: "100%", height: 46, background: "#800020", border: "none", borderRadius: "10px", color: "#fff", fontSize: "0.9rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", "&:hover": { background: "#6a001a" } }}
+            >
+              Okay
+            </Box>
+          </Box>
+        </Box>
+      )}
+
+      {/* Success overlay */}
+      {showSuccessModal && (
+        <Box sx={{ position: "absolute", inset: 0, bgcolor: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "24px", zIndex: 20 }}>
+          <Box sx={{ width: "85%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 3.5, textAlign: "center", border: "1px solid rgba(128,0,32,0.15)" }}>
+            <CheckCircleOutline sx={{ fontSize: 56, color: "#4caf50", mb: 1.5 }} />
+            <Typography sx={{ fontWeight: 700, mb: 1, color: crimsonDark, fontSize: "1.1rem" }}>Password Updated!</Typography>
+            <Typography sx={{ color: crimson, mb: 2.5, fontSize: "0.83rem", lineHeight: 1.6 }}>
+              Your password has been updated successfully. You can now sign in with your new password.
+            </Typography>
+            <Box
+              component="button"
+              onClick={onBack}
+              sx={{ width: "100%", height: 46, background: "#800020", border: "none", borderRadius: "10px", color: "#fff", fontSize: "0.9rem", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", mx: "auto", "&:hover": { background: "#6a001a" } }}
+            >
+              <LockOutlined sx={{ fontSize: 16 }} /> Back to Sign In
+            </Box>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+// ─── Main Login Component ─────────────────────────────────────────────────────
 const Login = () => {
+  const OTP_LENGTH = 6;
+  const OTP_RESEND_SECONDS = 3 * 60;
+
+  // Fixed card height — both panels will be constrained to this
+  const CARD_HEIGHT = 560;
+
+  // ── Carousel card width (px) — must match the card width in the JSX below
+  const CARD_W = 720;
+
   const [showIntro, setShowIntro] = useState(true);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [resolvedEmployeeNumber, setResolvedEmployeeNumber] = useState("");
@@ -126,28 +503,24 @@ const Login = () => {
   const [errMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [show2FA, setShow2FA] = useState(false);
-  const [pin, setPin] = useState("");
+  const [pinDigits, setPinDigits] = useState(Array(OTP_LENGTH).fill(""));
   const [twoFactorError, setTwoFactorError] = useState("");
   const [success, setSuccess] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [attempts, setAttempts] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [lockTimer, setLockTimer] = useState(0);
-  const [codeTimer, setCodeTimer] = useState(0);
+  const [codeExpireTimer, setCodeExpireTimer] = useState(0);
+  const [resendTimer, setResendTimer] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const pinInputRefs = useRef([]);
 
-  // ── Carousel data ──────────────────────────────────────────────────────────
   const [announcements, setAnnouncements] = useState([]);
   const [rawHolidays, setRawHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
 
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [calendarDate, setCalendarDate] = useState(new Date());
-  const year = calendarDate.getFullYear();
-  const month = calendarDate.getMonth();
-  const [hoveredCard, setHoveredCard] = useState(null);
-  const [autoPlay, setAutoPlay] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [openPolicy, setOpenPolicy] = useState(false);
   const [openFAQ, setOpenFAQ] = useState(false);
@@ -157,25 +530,42 @@ const Login = () => {
   const [dashWarning, setDashWarning] = useState("");
   const [dontRemindToday, setDontRemindToday] = useState(false);
 
-  // Login attempt tracking
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isLoginLocked, setIsLoginLocked] = useState(false);
   const [loginLockTimer, setLoginLockTimer] = useState(0);
 
-  const primaryGradient = "linear-gradient(135deg, #800020, #A52A2A)";
-  const primaryHoverGradient = "linear-gradient(135deg, #A52A2A, #800020)";
-  const lightText = "#FFF8E7";
-  const darkText = "#4B0000";
-  const mediumText = "#800020";
-  const placeholderGray = "rgba(0, 0, 0, 0.45)";
+  const crimson = "#800020";
+  const crimsonDark = "#4B0000";
+  const crimsonDeep = "#A52A2A";
+  const cream = "#FFF8E7";
 
-  // ── Combined carousel items (Announcements + Holidays + Suspensions) ───────
+  // ── Build carousel items (deduplicated by id) ──────────────────────────────
   const carouselItems = useMemo(
     () => buildCarouselItems(announcements, suspensions, rawHolidays),
     [announcements, suspensions, rawHolidays]
   );
 
-  // Lock scroll
+  // ── FIX: Only duplicate when there are 2+ items so a single item never
+  //         appears twice side-by-side. The seamless CSS marquee only needs
+  //         the duplication when the strip is long enough to loop.
+  const carouselDuped = useMemo(() => {
+    if (carouselItems.length <= 1) {
+      // Single (or zero) items — no clone, no looping needed
+      return carouselItems.map((item) => ({ ...item, _key: `orig-${item.id}` }));
+    }
+    return [
+      ...carouselItems.map((item) => ({ ...item, _key: `orig-${item.id}` })),
+      ...carouselItems.map((item) => ({ ...item, _key: `clone-${item.id}` })),
+    ];
+  }, [carouselItems]);
+
+  // Total scroll distance = one full set of original items (half the duplicated strip)
+  const scrollPx = carouselItems.length * (CARD_W + 16); // 16px = MUI gap:2
+  const animDuration = Math.max(carouselItems.length * 5, 15);
+
+  // Whether to animate at all (only when 2+ items)
+  const shouldAnimate = carouselItems.length > 1;
+
   useEffect(() => {
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
@@ -185,7 +575,6 @@ const Login = () => {
     };
   }, []);
 
-  // ── Dismiss intro slide on Space or Enter key ──────────────────────────────
   useEffect(() => {
     if (!showIntro) return;
     const handleKeyDown = (e) => {
@@ -205,12 +594,13 @@ const Login = () => {
     [resolvedEmployeeNumber, employeeNumber]
   );
 
+  const pin = useMemo(() => pinDigits.join(""), [pinDigits]);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Check for existing login lock on mount
   useEffect(() => {
     const lockData = localStorage.getItem("loginLockData");
     if (lockData) {
@@ -223,7 +613,6 @@ const Login = () => {
         localStorage.removeItem("loginLockData");
       }
     }
-
     const reminderData = localStorage.getItem("passwordReminderSkipped");
     if (reminderData) {
       try {
@@ -240,7 +629,6 @@ const Login = () => {
     }
   }, []);
 
-  // ── Fetch Announcements, Holidays, and Suspensions ────────────────────────
   useEffect(() => {
     const fetchAll = async () => {
       try {
@@ -249,49 +637,24 @@ const Login = () => {
           fetch(`${API_BASE_URL}/holiday`).then((r) => r.json()),
           fetch(`${API_BASE_URL}/api/suspensions`).then((r) => r.json()),
         ]);
-
-        if (annRes.status === "fulfilled" && Array.isArray(annRes.value)) {
-          setAnnouncements(annRes.value);
-        }
-        if (holidayRes.status === "fulfilled" && Array.isArray(holidayRes.value)) {
-          setRawHolidays(holidayRes.value);
-        }
-        if (suspRes.status === "fulfilled" && Array.isArray(suspRes.value)) {
-          setSuspensions(suspRes.value);
-        }
+        if (annRes.status === "fulfilled" && Array.isArray(annRes.value)) setAnnouncements(annRes.value);
+        if (holidayRes.status === "fulfilled" && Array.isArray(holidayRes.value)) setRawHolidays(holidayRes.value);
+        if (suspRes.status === "fulfilled" && Array.isArray(suspRes.value)) setSuspensions(suspRes.value);
       } catch (error) {
         console.error("Error fetching carousel data:", error);
       }
     };
-
     fetchAll();
-
-    // Poll every 60 seconds so new items / expirations reflect without page refresh
     const interval = setInterval(fetchAll, 60_000);
     return () => clearInterval(interval);
   }, []);
 
-  // Slideshow auto-play
-  useEffect(() => {
-    if (carouselItems.length === 0) return;
-    const interval = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % carouselItems.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [carouselItems.length]);
-
-  // 2FA Lock timer
   useEffect(() => {
     let interval;
     if (isLocked && lockTimer > 0) {
       interval = setInterval(() => {
         setLockTimer((prev) => {
-          if (prev <= 1) {
-            setIsLocked(false);
-            setAttempts(0);
-            setTwoFactorError("");
-            return 0;
-          }
+          if (prev <= 1) { setIsLocked(false); setAttempts(0); setTwoFactorError(""); return 0; }
           return prev - 1;
         });
       }, 1000);
@@ -299,17 +662,14 @@ const Login = () => {
     return () => clearInterval(interval);
   }, [isLocked, lockTimer]);
 
-  // Login lock timer
   useEffect(() => {
     let interval;
     if (isLoginLocked && loginLockTimer > 0) {
       interval = setInterval(() => {
         setLoginLockTimer((prev) => {
           if (prev <= 1) {
-            setIsLoginLocked(false);
-            setLoginAttempts(0);
-            localStorage.removeItem("loginLockData");
-            setErrorMessage("");
+            setIsLoginLocked(false); setLoginAttempts(0);
+            localStorage.removeItem("loginLockData"); setErrorMessage("");
             return 0;
           }
           return prev - 1;
@@ -319,40 +679,45 @@ const Login = () => {
     return () => clearInterval(interval);
   }, [isLoginLocked, loginLockTimer]);
 
-  // Code timer
   useEffect(() => {
     let interval;
-    if (codeTimer > 0) interval = setInterval(() => setCodeTimer((prev) => prev - 1), 1000);
+    if (codeExpireTimer > 0) {
+      interval = setInterval(() => setCodeExpireTimer((prev) => (prev <= 1 ? 0 : prev - 1)), 1000);
+    }
     return () => clearInterval(interval);
-  }, [codeTimer]);
+  }, [codeExpireTimer]);
 
-  // Auto-hide login error after 3 seconds
+  useEffect(() => {
+    let interval;
+    if (resendTimer > 0) {
+      interval = setInterval(() => setResendTimer((prev) => (prev <= 1 ? 0 : prev - 1)), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [resendTimer]);
+
+  useEffect(() => {
+    if (!show2FA) return;
+    setPinDigits(Array(OTP_LENGTH).fill(""));
+    setTimeout(() => pinInputRefs.current[0]?.focus(), 120);
+  }, [show2FA]);
+
   useEffect(() => {
     if (errMessage && !isLoginLocked) {
-      const timer = setTimeout(() => setErrorMessage(""), 3000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setErrorMessage(""), 3000);
+      return () => clearTimeout(t);
     }
   }, [errMessage, isLoginLocked]);
 
   useEffect(() => {
-    if (twoFactorError) {
-      const timer = setTimeout(() => setTwoFactorError(""), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (twoFactorError) { const t = setTimeout(() => setTwoFactorError(""), 3000); return () => clearTimeout(t); }
   }, [twoFactorError]);
 
   useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => setSuccess(""), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (success) { const t = setTimeout(() => setSuccess(""), 3000); return () => clearTimeout(t); }
   }, [success]);
 
   useEffect(() => {
-    if (dashWarning) {
-      const timer = setTimeout(() => setDashWarning(""), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (dashWarning) { const t = setTimeout(() => setDashWarning(""), 3000); return () => clearTimeout(t); }
   }, [dashWarning]);
 
   const handleChanges = (e) => {
@@ -372,7 +737,8 @@ const Login = () => {
     setResolvedEmployeeNumber("");
   };
 
-  const send2FACode = async (email, empNumber) => {
+  const send2FACode = async (email, empNumber, options = {}) => {
+    const { isResend = false } = options;
     setResendLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/send-2fa-code`, {
@@ -383,10 +749,10 @@ const Login = () => {
       const data = await res.json();
       if (res.ok) {
         setSuccess("Verification code sent to your email.");
-        setCodeTimer(2 * 60);
-        setAttempts(0);
-        setIsLocked(false);
-        setTwoFactorError("");
+        setCodeExpireTimer(OTP_RESEND_SECONDS);
+        if (isResend) setResendTimer(OTP_RESEND_SECONDS);
+        setAttempts(0); setIsLocked(false); setTwoFactorError("");
+        setPinDigits(Array(OTP_LENGTH).fill(""));
       } else {
         setTwoFactorError(data.error || "Failed to send code.");
       }
@@ -435,7 +801,6 @@ const Login = () => {
     const decoded = JSON.parse(atob(loginData.token.split(".")[1]));
     localStorage.setItem("employeeNumber", decoded.employeeNumber || "");
     localStorage.setItem("role", decoded.role || "");
-
     if (loginData.isDefaultPassword) {
       if (shouldSkipPasswordReminder(decoded.employeeNumber)) {
         navigateToDashboard(decoded.role);
@@ -450,9 +815,9 @@ const Login = () => {
   };
 
   const verify2FACode = async () => {
-    if (!pin.trim()) { setTwoFactorError("Please enter the verification code"); return; }
+    if (!pin.trim()) { setTwoFactorError("Please enter all 6 digits."); return; }
+    if (codeExpireTimer <= 0) { setTwoFactorError("Code expired. Please resend a new code."); return; }
     if (isLocked) { setTwoFactorError(`Too many failed attempts. Wait ${formatTime(lockTimer)}.`); return; }
-
     setTwoFactorLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/verify-2fa-code`, {
@@ -461,7 +826,6 @@ const Login = () => {
         body: JSON.stringify({ email: userEmail, code: pin }),
       });
       const data = await res.json();
-
       if (res.ok && data.verified) {
         const loginRes = await fetch(`${API_BASE_URL}/complete-2fa-login`, {
           method: "POST",
@@ -469,20 +833,19 @@ const Login = () => {
           body: JSON.stringify({ email: userEmail, employeeNumber: employeeNumberForRequests }),
         });
         const loginData = await loginRes.json();
-        if (loginRes.ok) {
-          handlePostLoginFlow(loginData);
-        } else {
-          setTwoFactorError(loginData.error || "Login completion failed.");
-        }
+        if (loginRes.ok) handlePostLoginFlow(loginData);
+        else setTwoFactorError(loginData.error || "Login completion failed.");
       } else {
         const newAttempts = attempts + 1;
         setAttempts(newAttempts);
         if (newAttempts >= 3) {
-          setIsLocked(true);
-          setLockTimer(60);
+          setIsLocked(true); setLockTimer(60);
           setTwoFactorError("Too many failed attempts. Locked for 1 min.");
+          setPinDigits(Array(OTP_LENGTH).fill(""));
         } else {
           setTwoFactorError(data.error || "Invalid verification code. Try again.");
+          setPinDigits(Array(OTP_LENGTH).fill(""));
+          setTimeout(() => pinInputRefs.current[0]?.focus(), 80);
         }
       }
     } catch {
@@ -498,59 +861,99 @@ const Login = () => {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  const maskEmail = (email) => {
+    const val = String(email || "").trim();
+    if (!val.includes("@")) return val;
+    const [local, domain] = val.split("@");
+    if (!local) return val;
+    return `${local.slice(0, 1)}${"*".repeat(Math.max(local.length - 1, 4))}@${domain}`;
+  };
+
+  const handlePinChange = (index, rawValue) => {
+    if (isLocked) return;
+    const numeric = String(rawValue || "").replace(/\D/g, "");
+    const next = [...pinDigits];
+    if (!numeric) { next[index] = ""; setPinDigits(next); return; }
+    if (numeric.length > 1) {
+      numeric.slice(0, OTP_LENGTH - index).split("").forEach((char, offset) => { next[index + offset] = char; });
+      setPinDigits(next);
+      pinInputRefs.current[Math.min(index + numeric.length, OTP_LENGTH - 1)]?.focus();
+      return;
+    }
+    next[index] = numeric;
+    setPinDigits(next);
+    if (index < OTP_LENGTH - 1) pinInputRefs.current[index + 1]?.focus();
+  };
+
+  const handlePinKeyDown = (index, e) => {
+    if (e.key === "Backspace") {
+      if (pinDigits[index]) {
+        const next = [...pinDigits]; next[index] = ""; setPinDigits(next);
+      } else if (index > 0) {
+        const next = [...pinDigits]; next[index - 1] = ""; setPinDigits(next);
+        pinInputRefs.current[index - 1]?.focus();
+      }
+      e.preventDefault();
+    }
+  };
+
+  const handlePinPaste = (e) => {
+    e.preventDefault();
+    if (isLocked) return;
+    const pasted = (e.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, OTP_LENGTH);
+    if (!pasted) return;
+    const next = Array(OTP_LENGTH).fill("");
+    pasted.split("").forEach((char, index) => { next[index] = char; });
+    setPinDigits(next);
+    pinInputRefs.current[Math.min(pasted.length, OTP_LENGTH) - 1]?.focus();
+  };
+
+  const attemptMessage = useMemo(() => {
+    if (isLocked) return "Account locked";
+    if (attempts > 0 && attempts < 3) {
+      const remaining = 3 - attempts;
+      return `${remaining} attempt${remaining !== 1 ? "s" : ""} left`;
+    }
+    return "";
+  }, [attempts, isLocked]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
-
     if (isLoginLocked) {
       setErrorMessage(`Too many failed login attempts. Please wait ${formatTime(loginLockTimer)} before trying again.`);
       return;
     }
-    if (!employeeNumber.trim() || !formData.password) {
-      setErrorMessage("Please fill all credentials");
-      return;
-    }
-
-    setLoading(true);
-    setErrorMessage("");
+    if (!employeeNumber.trim() || !formData.password) { setErrorMessage("Please fill all credentials"); return; }
+    setLoading(true); setErrorMessage("");
     try {
-      const payload = { employeeNumber, password: formData.password };
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ employeeNumber, password: formData.password }),
       });
       const data = await response.json();
-
       if (response.ok) {
-        setLoginAttempts(0);
-        localStorage.removeItem("loginLockData");
-
+        setLoginAttempts(0); localStorage.removeItem("loginLockData");
         const canonicalEmp = data.employeeNumber || employeeNumber;
-        setResolvedEmployeeNumber(canonicalEmp);
-        setUserEmail(data.email);
-
+        setResolvedEmployeeNumber(canonicalEmp); setUserEmail(data.email);
         try {
-          let globalMfaEnabled = false;
+          let globalMfaEnabled = true;
           try {
             const globalMfaResponse = await fetch(`${API_BASE_URL}/api/system-settings/global_mfa_enabled`);
             if (globalMfaResponse.ok) {
               const globalMfaData = await globalMfaResponse.json();
-              globalMfaEnabled = globalMfaData.setting_value === "true" || globalMfaData.setting_value === true;
+              const globalRaw = globalMfaData.setting_value;
+              globalMfaEnabled = globalRaw === "true" || globalRaw === true || globalRaw === "1" || globalRaw === 1;
             }
           } catch {}
-
           if (!globalMfaEnabled) {
             const loginRes = await fetch(`${API_BASE_URL}/complete-2fa-login`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
+              method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ email: data.email, employeeNumber: canonicalEmp }),
             });
             const loginData = await loginRes.json();
-            if (loginRes.ok) {
-              handlePostLoginFlow(loginData);
-            } else {
-              setErrorMessage(loginData.error || "Login completion failed.");
-            }
+            if (loginRes.ok) handlePostLoginFlow(loginData);
+            else setErrorMessage(loginData.error || "Login completion failed.");
           } else {
             const prefResponse = await fetch(`${API_BASE_URL}/api/user-preferences/${canonicalEmp}`);
             let mfaEnabled = true;
@@ -558,43 +961,31 @@ const Login = () => {
               const prefData = await prefResponse.json();
               mfaEnabled = !(prefData.enable_mfa === 0 || prefData.enable_mfa === false);
             }
-
             if (mfaEnabled) {
-              await send2FACode(data.email, canonicalEmp);
-              setShow2FA(true);
+              await send2FACode(data.email, canonicalEmp); setShow2FA(true);
             } else {
               const loginRes = await fetch(`${API_BASE_URL}/complete-2fa-login`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
+                method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email: data.email, employeeNumber: canonicalEmp }),
               });
               const loginData = await loginRes.json();
-              if (loginRes.ok) {
-                handlePostLoginFlow(loginData);
-              } else {
-                setErrorMessage(loginData.error || "Login completion failed.");
-              }
+              if (loginRes.ok) handlePostLoginFlow(loginData);
+              else setErrorMessage(loginData.error || "Login completion failed.");
             }
           }
         } catch {
-          await send2FACode(data.email, canonicalEmp);
-          setShow2FA(true);
+          await send2FACode(data.email, canonicalEmp); setShow2FA(true);
         }
       } else {
         const newLoginAttempts = loginAttempts + 1;
         setLoginAttempts(newLoginAttempts);
-
         if (newLoginAttempts >= 3) {
-          setIsLoginLocked(true);
-          setLoginLockTimer(5 * 60);
-          const lockUntil = Date.now() + 5 * 60 * 1000;
-          localStorage.setItem("loginLockData", JSON.stringify({ lockUntil }));
-          setErrorMessage("Too many failed login attempts. Your account is locked for 5 minutes.");
+          setIsLoginLocked(true); setLoginLockTimer(2 * 60);
+          localStorage.setItem("loginLockData", JSON.stringify({ lockUntil: Date.now() + 2 * 60 * 1000 }));
+          setErrorMessage("Too many failed login attempts. Your account is locked for 2 minutes.");
         } else {
           const remaining = 3 - newLoginAttempts;
-          setErrorMessage(
-            `${data.error || data.message || "Invalid credentials"}. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`
-          );
+          setErrorMessage(`${data.error || data.message || "Invalid credentials"}. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`);
         }
       }
     } catch {
@@ -605,14 +996,10 @@ const Login = () => {
   };
 
   const blobPositions = React.useMemo(
-    () =>
-      Array.from({ length: 6 }).map((_, i) => ({
-        size: 60 + i * 20,
-        top: Math.random() * 70,
-        left: Math.random() * 70,
-        delay: i * 0.3,
-        duration: 1 + i * 2,
-      })),
+    () => Array.from({ length: 6 }).map((_, i) => ({
+      size: 60 + i * 20, top: Math.random() * 70, left: Math.random() * 70,
+      delay: i * 0.3, duration: 1 + i * 2,
+    })),
     []
   );
 
@@ -620,14 +1007,9 @@ const Login = () => {
     <Box
       key={i}
       sx={{
-        position: "absolute",
-        width: blob.size,
-        height: blob.size,
-        borderRadius: "50%",
-        background: primaryGradient,
-        opacity: 0.15 + i * 0.1,
-        top: `${blob.top}%`,
-        left: `${blob.left}%`,
+        position: "absolute", width: blob.size, height: blob.size,
+        borderRadius: "50%", background: "linear-gradient(135deg, #800020, #A52A2A)",
+        opacity: 0.15 + i * 0.1, top: `${blob.top}%`, left: `${blob.left}%`,
         animation: `float${i} ${blob.duration}s ease-in-out ${blob.delay}s infinite`,
         [`@keyframes float${i}`]: {
           "0%,100%": { transform: "translate(0,0)" },
@@ -639,285 +1021,317 @@ const Login = () => {
 
   return (
     <>
-      <Box
-        sx={{
-          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-          backgroundImage: `url(${bg})`, backgroundSize: "cover",
-          backgroundPosition: "center", backgroundRepeat: "no-repeat",
-          animation: "zoomPulse 20s ease-in-out infinite",
-          "@keyframes zoomPulse": {
-            "0%, 100%": { transform: "scale(1)" },
-            "50%": { transform: "scale(1.05)" },
-          },
-        }}
-      />
-      <Box
-        sx={{
-          position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-          backgroundColor: "rgba(0, 0, 0, 0.9)",
-          animation: "subtlePulse 8s ease-in-out infinite",
-          "@keyframes subtlePulse": {
-            "0%, 100%": { opacity: 0.75 },
-            "50%": { opacity: 0.7 },
-          },
-        }}
-      />
+      <Box sx={{ position: "fixed", inset: 0, backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center", animation: "zoomPulse 20s ease-in-out infinite", "@keyframes zoomPulse": { "0%,100%": { transform: "scale(1)" }, "50%": { transform: "scale(1.05)" } } }} />
+      <Box sx={{ position: "fixed", inset: 0, background: "linear-gradient(135deg, rgba(75,0,0,0.84) 0%, rgba(0,0,0,0.90) 100%)" }} />
 
-      <Box sx={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", overflow: "hidden", zIndex: 10 }}>
+      <Box sx={{ position: "fixed", inset: 0, zIndex: 10, overflow: "hidden" }}>
         <LoadingOverlay open={loading} message="Please wait..." />
 
-        <Box sx={{ height: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <Box sx={{ height: "100vh", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", gap: "140px", px: "250px", boxSizing: "border-box" }}>
 
-          {/* ── LEFT SIDE — Combined Carousel (Announcements + Holidays + Suspensions) ── */}
-          <Box sx={{ width: "100%", maxWidth: 800, mx: "auto", py: 2, overflow: "hidden", position: "relative" }}>
+          {/* ── LEFT — Carousel ─────────────────────────────────────────────── */}
+          <Box
+            sx={{
+              flex: "0 0 55%",
+              maxWidth: "55%",
+              overflow: "hidden",
+              position: "relative",
+              py: 0,
+              minWidth: 0,
+              alignSelf: "center",
+              // Center content when there's only one item (no marquee)
+              display: "flex",
+              justifyContent: shouldAnimate ? "flex-start" : "center",
+              // Mask fade edges so the seamless loop looks polished
+              maskImage: shouldAnimate
+                ? "linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%)"
+                : "none",
+              WebkitMaskImage: shouldAnimate
+                ? "linear-gradient(to right, transparent 0%, black 6%, black 94%, transparent 100%)"
+                : "none",
+            }}
+          >
             {carouselItems.length > 0 ? (
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 2,
-                  width: "max-content",
-                  animation: `slide ${Math.max(carouselItems.length * 5, 15)}s linear infinite`,
-                  "&:hover": { animationPlayState: "paused" },
-                }}
-              >
-                {/* Duplicate for seamless looping */}
-                {[...carouselItems, ...carouselItems].map((item, idx) => (
-                  <Box
-                    key={`${item.id}-${idx}`}
-                    sx={{
-                      flex: "0 0 650px",
-                      borderRadius: 3,
-                      overflow: "hidden",
-                      cursor: "pointer",
-                      position: "relative",
-                      boxShadow: "0 8px 20px rgba(0,0,0,0.3)",
-                      transition: "transform 0.3s, box-shadow 0.3s",
-                      "&:hover": {
-                        transform: "scale(1.05)",
-                        boxShadow: "0 12px 30px rgba(0,0,0,0.5)",
-                      },
-                    }}
-                  >
+              <>
+                {/* Inject animation keyframes — only when 2+ items */}
+                <style>{`
+                  @keyframes marqueeScroll {
+                    0%   { transform: translateX(0); }
+                    100% { transform: translateX(-${scrollPx}px); }
+                  }
+                  .carousel-track {
+                    display: flex;
+                    gap: 16px;
+                    width: max-content;
+                    ${shouldAnimate
+                      ? `animation: marqueeScroll ${animDuration}s linear infinite;`
+                      : ""}
+                  }
+                  .carousel-track:hover {
+                    animation-play-state: paused;
+                  }
+                `}</style>
+                <Box className="carousel-track">
+                  {carouselDuped.map((item) => (
                     <Box
-                      component="img"
-                      src={item.image ? `${API_BASE_URL}${item.image}` : "/api/placeholder/350/300"}
-                      alt={item.title || item.type}
+                      key={item._key}
                       sx={{
-                        width: "100%",
-                        height: 560,
-                        objectFit: "cover",
-                        borderRadius: 2,
-                        filter: "brightness(0.65)",
-                        transition: "transform 0.3s, filter 0.3s",
-                        "&:hover": { filter: "brightness(0.55)" },
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        position: "absolute",
-                        bottom: 0,
-                        width: "100%",
-                        bgcolor: "rgba(0,0,0,0.55)",
-                        color: "#fff",
-                        p: 2,
-                        textAlign: "left",
+                        flex: `0 0 ${CARD_W}px`,
+                        borderRadius: "16px",
+                        overflow: "hidden",
+                        position: "relative",
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                        transition: "transform 0.3s",
+                        "&:hover": { transform: "scale(1.03)" },
                       }}
                     >
-                      {/* Type badge */}
-                      <Box sx={{ mb: 0.5 }}>
+                      <Box
+                        component="img"
+                        src={item.image ? `${API_BASE_URL}${item.image}` : "/api/placeholder/620/540"}
+                        alt={item.title || item.type}
+                        sx={{
+                          width: "100%",
+                          // ── FIX: Match the login card height exactly ──
+                          height: CARD_HEIGHT,
+                          objectFit: "cover",
+                          display: "block",
+                          filter: "brightness(0.6)",
+                          transition: "filter 0.3s",
+                          "&:hover": { filter: "brightness(0.5)" },
+                        }}
+                      />
+                      <Box sx={{ position: "absolute", bottom: 0, width: "100%", background: "linear-gradient(0deg, rgba(0,0,0,0.78) 0%, transparent 100%)", p: "28px 20px 20px" }}>
                         <Chip
                           size="small"
                           label={getTypeLabel(item.type)}
                           icon={
-                            item.type === "HOLIDAY" ? (
-                              <EventIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
-                            ) : item.type === "SUSPENSION" ? (
-                              <BlockIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
-                            ) : (
-                              <AnnouncementIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />
-                            )
+                            item.type === "HOLIDAY"
+                              ? <EventIcon sx={{ fontSize: "13px !important", color: "#fff !important" }} />
+                              : item.type === "SUSPENSION"
+                              ? <BlockIcon sx={{ fontSize: "13px !important", color: "#fff !important" }} />
+                              : <AnnouncementIcon sx={{ fontSize: "13px !important", color: "#fff !important" }} />
                           }
                           sx={{
+                            mb: 1,
                             bgcolor:
                               item.type === "HOLIDAY"
-                                ? "rgba(237,108,2,0.8)"
+                                ? "rgba(237,108,2,0.85)"
                                 : item.type === "SUSPENSION"
-                                ? "rgba(211,47,47,0.8)"
-                                : "rgba(128,0,32,0.8)",
+                                ? "rgba(211,47,47,0.85)"
+                                : "rgba(128,0,32,0.85)",
                             color: "#fff",
                             fontWeight: 700,
-                            fontSize: "0.65rem",
-                            height: 22,
-                            backdropFilter: "blur(4px)",
+                            fontSize: "0.62rem",
+                            height: 20,
                             "& .MuiChip-icon": { color: "#fff" },
                           }}
                         />
+                        <Typography variant="subtitle1" sx={{ color: "#fff", fontWeight: 700, lineHeight: 1.3, mb: 0.25 }}>
+                          {item.title}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.7)", fontSize: "0.78rem" }}>
+                          {item.date ? new Date(item.date).toDateString() : ""}
+                        </Typography>
                       </Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3 }}>
-                        {item.title}
-                      </Typography>
-                      <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                        {item.date ? new Date(item.date).toDateString() : ""}
-                      </Typography>
                     </Box>
-                  </Box>
-                ))}
-              </Box>
+                  ))}
+                </Box>
+              </>
             ) : (
-              <Typography variant="h6" sx={{ color: "rgba(255,255,255,0.5)", textAlign: "center", py: 4 }}>
+              <Typography sx={{ color: "rgba(255,255,255,0.4)", textAlign: "center" }}>
                 No announcements, holidays, or suspensions available
               </Typography>
             )}
-            <style>{`
-              @keyframes slide {
-                0%   { transform: translateX(0); }
-                100% { transform: translateX(-50%); }
-              }
-            `}</style>
           </Box>
 
-          {/* ── RIGHT SIDE — Login Form ── */}
-          <Container maxWidth="sm" sx={{ position: "relative" }}>
-            <Paper
-              elevation={24}
+          {/* ── RIGHT — Login / Forgot Password Card ────────────────────────── */}
+          <Box sx={{ width: 420, flexShrink: 0, minWidth: 420 }}>
+            <Box
               sx={{
-                padding: { xs: 3, md: 3 },
-                borderRadius: 4,
-                textAlign: "center",
-                background: "rgba(255,248,231,0.85)",
-                backdropFilter: "blur(15px)",
-                boxShadow: "0 15px 40px rgba(128,0,32,0.2)",
-                border: "1px solid rgba(128,0,32,0.15)",
-                transition: "transform 0.6s ease, box-shadow 0.6s ease",
-                "&:hover": {
-                  transform: "scale(1.03)",
-                  boxShadow: "0 25px 50px rgba(128,0,32,0.35)",
-                },
+                background: "rgba(255, 255, 255, 0.93)",
+                backdropFilter: "blur(24px)",
+                WebkitBackdropFilter: "blur(24px)",
+                border: "1px solid rgba(200,180,180,0.35)",
+                borderRadius: "24px",
+                p: "36px 36px 36px",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+                position: "relative",
+                overflow: "hidden",
+                height: CARD_HEIGHT,
+                boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
               }}
             >
-              <Box sx={{ width: 100, height: 100, margin: "0 auto 20px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <img src={logo} alt="Logo" style={{ width: "90%", height: "90%", objectFit: "contain" }} />
-              </Box>
-
-              <Typography variant="h4" sx={{ color: darkText, fontWeight: 800, mb: 1 }}>
-                Human Resources Information System
-              </Typography>
-              <Typography sx={{ mb: 3, color: mediumText }}>Sign in to access your account</Typography>
-
-              <form onSubmit={handleLogin}>
-                <TextField
-                  name="employeeNumber"
-                  placeholder="Employee Number"
-                  fullWidth
-                  value={employeeNumber}
-                  inputProps={{ maxLength: 20 }}
-                  disabled={isLoginLocked}
-                  sx={{
-                    mb: 3,
-                    "& .MuiInputBase-input": { color: "#000" },
-                    "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      background: "#fff",
-                      "& fieldset": { borderColor: placeholderGray },
-                      "&.Mui-focused fieldset": { borderColor: placeholderGray },
-                    },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <BadgeOutlined sx={{ color: "#a31d1d", mr: 0.75 }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  onChange={handleEmployeeNumberChange}
-                />
-                <TextField
-                  name="password"
-                  placeholder="Password"
-                  fullWidth
-                  type={showPassword ? "text" : "password"}
-                  disabled={isLoginLocked}
-                  sx={{
-                    mb: 1,
-                    "& .MuiInputBase-input": { color: "#000" },
-                    "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      background: "#fff",
-                      "& fieldset": { borderColor: placeholderGray },
-                      "&.Mui-focused fieldset": { borderColor: placeholderGray },
-                    },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <LockOutlined sx={{ color: "#a31d1d" }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  onChange={handleChanges}
-                />
-                
-                {/* ── Conditional Password Tip (Subtle) ── */}
-                <Typography
-                  variant="caption"
-                  display="block"
-                  sx={{ 
-                    textAlign: "left", 
-                    color: "rgba(128, 0, 32, 0.6)", 
-                    mb: 2, 
-                    pl: 1,
-                    fontSize: "0.75rem", 
-                    fontStyle: "italic",
-                    opacity: 0.8
-                  }}
-                >
-                 If using the default password, enter it in ALL CAPS with NO SPACES.
-                </Typography>
-
-                <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", mb: 2 }}>
-                  <Link href="/forgot-password" underline="hover" sx={{ color: mediumText, flexShrink: 0 }}>
-                    Forgot password?
-                  </Link>
+              {/* ── Login Panel ── */}
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: "36px",
+                  display: "flex",
+                  flexDirection: "column",
+                  transition: "opacity 0.25s ease, transform 0.25s ease",
+                  opacity: showForgotPassword ? 0 : 1,
+                  transform: showForgotPassword ? "translateX(-24px)" : "translateX(0)",
+                  pointerEvents: showForgotPassword ? "none" : "auto",
+                }}
+              >
+                {/* Header */}
+                <Box sx={{ mb: 4, textAlign: "center" }}>
+                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.22em", color: "rgba(128,0,32,0.55)", textTransform: "uppercase", mb: 0.75 }}>
+                    Welcome Back
+                  </Typography>
+                  <Typography sx={{ fontSize: "1.5rem", fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em" }}>
+                    Human Resources
+                  </Typography>
+                  <Typography sx={{ fontSize: "1.5rem", fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em", mb: 0.5 }}>
+                    Information System
+                  </Typography>
+                  <Box sx={{ width: 44, height: 3, background: "linear-gradient(90deg, #800020, #e84a4a)", borderRadius: "2px", mx: "auto", mt: 1.5 }} />
                 </Box>
 
-                {errMessage && <Alert severity="error" sx={{ mb: 2 }}>{errMessage}</Alert>}
+                <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                  <Box sx={{ mb: 2.5 }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "rgba(75,0,0,0.55)", letterSpacing: "0.1em", textTransform: "uppercase", mb: 0.75 }}>
+                      Employee Number
+                    </Typography>
+                    <Box sx={{ position: "relative", display: "flex", alignItems: "center" }}>
+                      <BadgeOutlined sx={{ position: "absolute", left: 14, color: "rgba(128,0,32,0.45)", fontSize: 18, zIndex: 1, pointerEvents: "none" }} />
+                      <Box
+                        component="input"
+                        placeholder="Enter your employee number"
+                        value={employeeNumber}
+                        maxLength={20}
+                        disabled={isLoginLocked}
+                        onChange={handleEmployeeNumberChange}
+                        sx={{ width: "100%", height: 50, pl: "44px", pr: "16px", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(128,0,32,0.18)", borderRadius: "12px", color: crimsonDark, fontSize: "0.9rem", outline: "none", transition: "border-color 0.2s, background 0.2s", fontFamily: "inherit", "&::placeholder": { color: "rgba(75,0,0,0.3)" }, "&:focus": { borderColor: "rgba(128,0,32,0.45)", background: "#fff" }, "&:disabled": { opacity: 0.45, cursor: "not-allowed" }, boxSizing: "border-box" }}
+                      />
+                    </Box>
+                  </Box>
 
-                {isLoginLocked && (
-                  <Alert severity="warning" icon={<AccessTimeIcon />} sx={{ mb: 2 }}>
-                    Too many attempts. Try again in {formatTime(loginLockTimer)}
-                  </Alert>
-                )}
+      <Box sx={{ mb: 1 }}>
+  <Typography
+    sx={{
+      fontSize: "0.7rem",
+      fontWeight: 600,
+      color: "rgba(75,0,0,0.55)",
+      letterSpacing: "0.1em",
+      textTransform: "uppercase",
+      mb: 0.75,
+    }}
+  >
+    Password
+  </Typography>
 
-                {dashWarning && (
-                  <Alert severity="warning" sx={{ mb: 3, py: 0.5, fontSize: "0.8rem" }}>
-                    {dashWarning}
-                  </Alert>
-                )}
+  <Box sx={{ position: "relative", display: "flex", alignItems: "center" }}>
+    <LockOutlined
+      sx={{
+        position: "absolute",
+        left: 14,
+        color: "rgba(128,0,32,0.45)",
+        fontSize: 18,
+        zIndex: 1,
+        pointerEvents: "none",
+      }}
+    />
 
-                <Button
-                  type="submit"
-                  fullWidth
-                  variant="contained"
-                  disabled={isLoginLocked}
-                  startIcon={<LoginOutlined />}
-                  sx={{
-                    py: 1.8,
-                    mb: 1,
-                    background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryGradient,
-                    "&:hover": { background: isLoginLocked ? "rgba(128,0,32,0.3)" : primaryHoverGradient },
-                    opacity: isLoginLocked ? 0.6 : 1,
-                  }}
-                >
-                  {isLoginLocked ? `Locked (${formatTime(loginLockTimer)})` : loading ? "Signing in..." : "Sign In"}
-                </Button>
-              </form>
-            </Paper>
-          </Container>
+    <Box
+      component="input"
+      type="password"
+      placeholder="Enter your password"
+      name="password"
+      disabled={isLoginLocked}
+      onChange={handleChanges}
+      sx={{
+        width: "100%",
+        height: 50,
+        pl: "44px",
+        pr: "14px", // adjusted since right icon is removed
+        background: "rgba(255,255,255,0.8)",
+        border: "1px solid rgba(128,0,32,0.18)",
+        borderRadius: "12px",
+        color: crimsonDark,
+        fontSize: "0.9rem",
+        outline: "none",
+        transition: "border-color 0.2s, background 0.2s",
+        fontFamily: "inherit",
+        "&::placeholder": {
+          color: "rgba(75,0,0,0.3)",
+        },
+        "&:focus": {
+          borderColor: "rgba(128,0,32,0.45)",
+          background: "#fff",
+        },
+        "&:disabled": {
+          opacity: 0.45,
+          cursor: "not-allowed",
+        },
+        boxSizing: "border-box",
+      }}
+    />
+  </Box>
+</Box>
+                  <Typography sx={{ fontSize: "0.71rem", color: "rgba(128,0,32,0.45)", fontStyle: "italic", mb: 2.5, pl: 0.5 }}>
+                    Default password must be entered in ALL CAPS with NO SPACES.
+                  </Typography>
+
+                  <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2.5 }}>
+                    <Link
+                      component="button"
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      underline="none"
+                      sx={{ fontSize: "0.78rem", color: crimson, fontWeight: 500, transition: "color 0.2s", "&:hover": { color: crimsonDark }, background: "none", border: "none", cursor: "pointer" }}
+                    >
+                      Forgot password?
+                    </Link>
+                  </Box>
+
+                  {(errMessage || dashWarning) && (
+                    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: "10px 14px", borderRadius: "10px", bgcolor: "rgba(200,30,30,0.04)", border: "1px solid rgba(200,30,30,0.12)", color: "#8a2020", fontSize: "0.8rem", mb: 2 }}>
+                      <ErrorOutline sx={{ fontSize: 16, flexShrink: 0, mt: "1px" }} />
+                      <Box>{errMessage || dashWarning}</Box>
+                    </Box>
+                  )}
+
+                  <Box sx={{ flex: 1 }} />
+
+                  <Box
+                    component="button"
+                    type="submit"
+                    disabled={isLoginLocked}
+                    sx={{ width: "100%", height: 52, background: isLoginLocked ? "rgba(128,0,32,0.15)" : "#800020", border: "none", borderRadius: "12px", color: "#fff", fontSize: "0.92rem", fontWeight: 600, letterSpacing: "0.05em", cursor: isLoginLocked ? "not-allowed" : "pointer", opacity: isLoginLocked ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "background 0.2s, opacity 0.2s", boxShadow: "none", fontFamily: "inherit", "&:hover:not(:disabled)": { background: "#6a001a", opacity: 0.92 }, "&:active:not(:disabled)": { background: "#5a0016" } }}
+                  >
+                    <LoginOutlined sx={{ fontSize: 18 }} />
+                    {isLoginLocked ? `Locked (${formatTime(loginLockTimer)})` : loading ? "Signing in…" : "Sign In"}
+                  </Box>
+                </form>
+              </Box>
+
+              {/* ── Forgot Password Panel ── */}
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: "36px",
+                  display: "flex",
+                  flexDirection: "column",
+                  transition: "opacity 0.25s ease, transform 0.25s ease",
+                  opacity: showForgotPassword ? 1 : 0,
+                  transform: showForgotPassword ? "translateX(0)" : "translateX(24px)",
+                  pointerEvents: showForgotPassword ? "auto" : "none",
+                }}
+              >
+                <ForgotPasswordInline
+                  onBack={() => setShowForgotPassword(false)}
+                  crimson={crimson}
+                  crimsonDark={crimsonDark}
+                />
+              </Box>
+            </Box>
+          </Box>
         </Box>
 
-        {/* ── Glassy Intro Slide ── */}
+        {/* ── Intro Slide ─────────────────────────────────────────────────────── */}
         {showIntro && (
           <Box
             id="introSlide"
@@ -925,71 +1339,35 @@ const Login = () => {
               document.getElementById("introSlide").style.transform = "translateY(-100%)";
               setTimeout(() => setShowIntro(false), 800);
             }}
-            sx={{
-              position: "fixed", top: 0, left: 0, width: "100%", height: "100%",
-              zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center",
-              background: "rgba(0, 0, 0, 0.35)", backdropFilter: "blur(15px)",
-              borderRadius: 2, overflow: "hidden", transform: "translateY(0%)",
-              transition: "transform 0.8s ease-in-out", cursor: "pointer", flexDirection: "column",
-            }}
+            sx={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 9999, display: "flex", justifyContent: "center", alignItems: "center", background: "rgba(0, 0, 0, 0.35)", backdropFilter: "blur(15px)", borderRadius: 2, overflow: "hidden", transform: "translateY(0%)", transition: "transform 0.8s ease-in-out", cursor: "pointer", flexDirection: "column" }}
           >
             {blobs}
-
             <Box sx={{ textAlign: "center", px: 3, mb: 2 }} onClick={(e) => e.stopPropagation()}>
-              <Typography
-                variant="h1"
-                sx={{
-                  fontWeight: 900, mb: 2,
-                  background: "linear-gradient(90deg, #bd7486ff, #e84a72ff)",
-                  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                  textShadow: "2px 2px 8px rgba(35, 1, 1, 0.7)",
-                }}
-              >
-                H R I S
-              </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: "#FFFFFF", textShadow: "1px 1px 5px rgba(0,0,0,0.5)" }}>
-                Human Resources Information System
-              </Typography>
+              <Typography variant="h1" sx={{ fontWeight: 900, mb: 2, background: "linear-gradient(90deg, #bd7486ff, #e84a72ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", textShadow: "2px 2px 8px rgba(35, 1, 1, 0.7)" }}>H R I S</Typography>
+              <Typography variant="h5" sx={{ fontWeight: 600, mb: 2, color: "#FFFFFF", textShadow: "1px 1px 5px rgba(0,0,0,0.5)" }}>Human Resources Information System</Typography>
             </Box>
-
             <Box sx={{ position: "absolute", bottom: 80, right: 16, textAlign: "right", color: "#FFF8E7" }} onClick={(e) => e.stopPropagation()}>
-              <Typography sx={{ fontSize: "2.2rem", fontWeight: 500 }}>
-                {currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-              </Typography>
-              <Typography sx={{ fontSize: "1rem", fontWeight: 500 }}>
-                {currentTime.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-              </Typography>
+              <Typography sx={{ fontSize: "2.2rem", fontWeight: 500 }}>{currentTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</Typography>
+              <Typography sx={{ fontSize: "1rem", fontWeight: 500 }}>{currentTime.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</Typography>
             </Box>
-
             <Box sx={{ position: "absolute", bottom: 55, right: 16, display: "flex", justifyContent: "space-between", width: "181px", color: "#FFF8E7", fontSize: "0.9rem" }}>
-              <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenPolicy(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>
-                Privacy Policy
-              </Link>
-              <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenFAQ(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>
-                FAQs
-              </Link>
+              <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenPolicy(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>Privacy Policy</Link>
+              <Link component="button" onClick={(e) => { e.stopPropagation(); setOpenFAQ(true); }} underline="hover" sx={{ color: "#FFF8E7", fontWeight: 500 }}>FAQs</Link>
             </Box>
-
             <Dialog open={openPolicy} onClose={() => setOpenPolicy(false)} fullWidth maxWidth="md">
               <Box p={3} position="relative">
-                <IconButton onClick={(e) => { e.stopPropagation(); setOpenPolicy(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}>
-                  <CloseIcon />
-                </IconButton>
+                <IconButton onClick={(e) => { e.stopPropagation(); setOpenPolicy(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}><CloseIcon /></IconButton>
                 <Typography variant="h6" gutterBottom>Privacy Policy</Typography>
                 <Typography variant="body2">This is the Privacy Policy content.</Typography>
               </Box>
             </Dialog>
-
             <Dialog open={openFAQ} onClose={() => setOpenFAQ(false)} fullWidth maxWidth="md">
               <Box p={3} position="relative">
-                <IconButton onClick={(e) => { e.stopPropagation(); setOpenFAQ(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}>
-                  <CloseIcon />
-                </IconButton>
+                <IconButton onClick={(e) => { e.stopPropagation(); setOpenFAQ(false); }} sx={{ position: "absolute", top: 8, right: 8, color: "#6d2323" }}><CloseIcon /></IconButton>
                 <Typography variant="h6" gutterBottom>FAQs</Typography>
                 <Typography variant="body2">This is the FAQs content.</Typography>
               </Box>
             </Dialog>
-
             <IconButton
               onClick={() => {
                 document.getElementById("introSlide").style.transform = "translateY(-100%)";
@@ -999,107 +1377,150 @@ const Login = () => {
             >
               <KeyboardArrowDown fontSize="inherit" />
             </IconButton>
-
             <style>{`@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(15px); } }`}</style>
           </Box>
         )}
 
-        {/* ── 2FA Modal ── */}
+        {/* ── 2FA Modal ───────────────────────────────────────────────────────── */}
         <Modal open={show2FA} onClose={() => setShow2FA(false)}>
-          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 480, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.85)", borderRadius: 4, p: 5, textAlign: "center", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.3)" }}>
-            <Typography variant="h5" sx={{ color: darkText, fontWeight: "bold", mb: 3 }}>Email Verification</Typography>
-            <Typography sx={{ mb: 3, color: mediumText }}>Verification code sent to <b>{userEmail}</b></Typography>
-            {success && <Alert icon={<CheckCircleOutline />} severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-            {twoFactorError && <Alert icon={<ErrorOutline />} severity="error" sx={{ mb: 2 }}>{twoFactorError}</Alert>}
-            <TextField
-              fullWidth
-              placeholder="••••••"
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              inputProps={{ maxLength: 6, style: { letterSpacing: "0.15rem", fontSize: "1.6rem", textAlign: "center" } }}
-              sx={{
-                mb: 2,
-                "& .MuiInputBase-input": { color: "#000" },
-                "& .MuiInputBase-input::placeholder": { color: placeholderGray, opacity: 1 },
-                "& .MuiOutlinedInput-root": { borderRadius: 2, background: "#fff", "& fieldset": { borderColor: placeholderGray } },
-              }}
-            />
-            <Button fullWidth variant="contained" sx={{ mb: 2, py: 1.8, background: primaryGradient, "&:hover": { background: primaryHoverGradient, transform: "scale(1.05)" }, transition: "transform 0.2s ease-in-out" }} onClick={verify2FACode} startIcon={<VerifiedUserOutlined sx={{ fontSize: 28, color: "#FFF8E7" }} />}>
-              {twoFactorLoading ? "Verifying..." : "Verify"}
-            </Button>
-            <Button fullWidth variant="outlined" sx={{ py: 1.8, color: "#000", borderColor: "#000", "&:hover": { backgroundColor: "rgba(0,0,0,0.05)", borderColor: "#000" } }} onClick={() => send2FACode(userEmail, employeeNumberForRequests)} disabled={resendLoading || codeTimer > 0}>
-              {codeTimer > 0 ? `Resend in ${formatTime(codeTimer)}` : resendLoading ? "Sending..." : "Resend Code"}
-            </Button>
+          <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", p: 3, bgcolor: "rgba(0,0,0,0.6)" }}>
+            <Box sx={{ width: "100%", maxWidth: 400, bgcolor: cream, borderRadius: "20px", px: { xs: 2.5, sm: 5 }, pt: 4.5, pb: 4, border: "0.5px solid rgba(128,0,32,0.15)", textAlign: "center" }}>
+              <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: "rgba(128,0,32,0.08)", display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
+                <VerifiedUserOutlined sx={{ color: crimson, fontSize: 26 }} />
+              </Box>
+              <Typography sx={{ fontSize: 18, fontWeight: 500, color: crimsonDark, mb: 0.75 }}>Email verification</Typography>
+              <Typography sx={{ fontSize: 13, color: crimson, lineHeight: 1.5, mb: 3 }}>
+                We sent a 6-digit code to<br />
+                <Box component="span" sx={{ fontWeight: 500, color: crimsonDark }}>{maskEmail(userEmail)}</Box>
+              </Typography>
+              {success && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, textAlign: "left", p: "10px 12px", borderRadius: "8px", bgcolor: "#EAF3DE", border: "0.5px solid #9FE1CB", color: "#27500A", fontSize: 13, mb: 1.75 }}>
+                  <CheckCircleOutline sx={{ fontSize: 16 }} />{success}
+                </Box>
+              )}
+              {twoFactorError && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, textAlign: "left", p: "10px 12px", borderRadius: "8px", bgcolor: "#FCEBEB", border: "0.5px solid #F7C1C1", color: "#791F1F", fontSize: 13, mb: 1.75 }}>
+                  <ErrorOutline sx={{ fontSize: 16 }} />{twoFactorError}
+                </Box>
+              )}
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 1.25, mb: 1.25 }}>
+                {pinDigits.map((digit, index) => (
+                  <Box
+                    key={`pin-${index}`}
+                    component="input"
+                    ref={(el) => { pinInputRefs.current[index] = el; }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    disabled={isLocked}
+                    onChange={(e) => handlePinChange(index, e.target.value)}
+                    onKeyDown={(e) => handlePinKeyDown(index, e)}
+                    onPaste={handlePinPaste}
+                    onFocus={(e) => e.target.select()}
+                    sx={{ width: { xs: 42, sm: 52 }, height: { xs: 52, sm: 60 }, border: `1.5px solid ${digit ? crimson : "rgba(128,0,32,0.3)"}`, borderRadius: "10px", bgcolor: digit ? "rgba(128,0,32,0.04)" : "#fff", textAlign: "center", fontSize: { xs: 20, sm: 24 }, fontWeight: 500, color: crimsonDark, outline: "none", caretColor: crimson, transition: "border-color 0.15s, box-shadow 0.15s", fontFamily: "monospace", "&:focus": { borderColor: crimson, boxShadow: "0 0 0 3px rgba(128,0,32,0.12)" }, "&:disabled": { bgcolor: "rgba(128,0,32,0.04)", color: "rgba(75,0,0,0.45)", borderColor: "rgba(128,0,32,0.2)", cursor: "not-allowed" } }}
+                  />
+                ))}
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mb: 2 }}>
+                {pinDigits.map((digit, index) => (
+                  <Box key={`dot-${index}`} sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: digit ? crimson : "rgba(128,0,32,0.18)", transition: "background 0.15s" }} />
+                ))}
+              </Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2.5, px: 0.25 }}>
+                <Typography sx={{ fontSize: 12, color: "#A32D2D" }}>{attemptMessage}</Typography>
+                <Typography sx={{ fontSize: 12, color: codeExpireTimer <= 30 ? "#A32D2D" : crimson, fontWeight: 500 }}>
+                  {codeExpireTimer > 0 ? `Code expires in ${formatTime(codeExpireTimer)}` : "Code expired"}
+                </Typography>
+              </Box>
+              <Button fullWidth onClick={verify2FACode} disabled={twoFactorLoading || isLocked || codeExpireTimer <= 0 || pin.length < OTP_LENGTH}
+                sx={{ mb: 1.5, py: 1.4, borderRadius: "10px", bgcolor: crimson, color: cream, textTransform: "none", fontSize: 14, fontWeight: 500, gap: 1, "&:hover": { bgcolor: crimsonDeep }, "&:disabled": { opacity: 0.45, color: cream } }}>
+                <VerifiedUserOutlined sx={{ fontSize: 16 }} />
+                {twoFactorLoading ? "Verifying..." : "Verify code"}
+              </Button>
+              <Button fullWidth variant="outlined" onClick={() => send2FACode(userEmail, employeeNumberForRequests, { isResend: true })} disabled={resendLoading || resendTimer > 0}
+                sx={{ py: 1.2, px: 1.5, borderRadius: "10px", textTransform: "none", borderColor: "rgba(128,0,32,0.3)", color: crimson, fontSize: 13, gap: 1, "&:hover": { borderColor: "rgba(128,0,32,0.3)", bgcolor: "rgba(128,0,32,0.05)" }, "&:disabled": { bgcolor: "rgba(128,0,32,0.04)", borderColor: "rgba(128,0,32,0.15)", color: "rgba(128,0,32,0.4)" } }}>
+                <AccessTimeIcon sx={{ fontSize: 14 }} />
+                {resendLoading ? "Sending..." : resendTimer > 0 ? "Resend available in" : "Resend code"}
+                {resendTimer > 0 && (
+                  <Box component="span" sx={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 44, height: 22, px: 0.9, borderRadius: "20px", bgcolor: "rgba(128,0,32,0.1)", fontSize: 12, fontWeight: 500, fontFamily: "monospace" }}>
+                    {formatTime(resendTimer)}
+                  </Box>
+                )}
+              </Button>
+              {resendTimer > 0 && (
+                <Box sx={{ width: "100%", height: 3, bgcolor: "rgba(128,0,32,0.1)", borderRadius: "2px", mt: 0.8, overflow: "hidden" }}>
+                  <Box sx={{ height: "100%", bgcolor: crimson, borderRadius: "2px", width: `${(resendTimer / OTP_RESEND_SECONDS) * 100}%`, transition: "width 1s linear" }} />
+                </Box>
+              )}
+            </Box>
           </Box>
         </Modal>
 
-        {/* ── Change Default Password Prompt ── */}
+        {/* ── Change Default Password Prompt ──────────────────────────────────── */}
         <Modal open={showPasswordPrompt} onClose={() => {}}>
-          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 560, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, textAlign: "left", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
+          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 560, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
             <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
-              <Box sx={{ width: 48, height: 48, borderRadius: 2, background: primaryGradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <LockOutlined sx={{ fontSize: 28, color: lightText }} />
+              <Box sx={{ width: 48, height: 48, borderRadius: 2, background: "linear-gradient(135deg,#800020,#A52A2A)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <LockOutlined sx={{ fontSize: 28, color: cream }} />
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>Password Security Notice</Typography>
-                <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
-                  Your account is currently using a default password. To protect the security and integrity of your account, you are required to create a new, unique password.
-                </Typography>
+                <Typography variant="h6" sx={{ color: crimsonDark, fontWeight: 700, mb: 1 }}>Password Security Notice</Typography>
+                <Typography variant="body2" sx={{ color: crimson, lineHeight: 1.6 }}>Your account is currently using a default password. To protect the security and integrity of your account, you are required to create a new, unique password.</Typography>
               </Box>
             </Box>
-            <Box sx={{ bgcolor: "rgba(255, 152, 0, 0.08)", border: "1px solid rgba(255, 152, 0, 0.3)", borderRadius: 2, p: 2.5, mb: 3 }}>
+            <Box sx={{ bgcolor: "rgba(255,152,0,0.08)", border: "1px solid rgba(255,152,0,0.3)", borderRadius: 2, p: 2.5, mb: 3 }}>
               <Typography variant="subtitle2" sx={{ color: "#e65100", fontWeight: 600, mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
                 <LockOutlined sx={{ fontSize: 18 }} /> Password Requirements
               </Typography>
               <Typography variant="body2" sx={{ color: "#5d4037", lineHeight: 1.7, fontSize: "0.9rem" }}>
-                • Must be at least 8 characters in long<br />
+                • Must be at least 8 characters long<br />
                 • Must include both uppercase and lowercase letters<br />
                 • Must contain at least one number and one special character<br />
                 • Must not contain common words or personal information
               </Typography>
             </Box>
             <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
-              <Button fullWidth variant="contained" sx={{ py: 1.5, background: primaryGradient, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { background: primaryHoverGradient } }} onClick={() => { window.location.href = "/settings?tab=security"; }} startIcon={<LockOutlined />}>
+              <Button fullWidth variant="contained" sx={{ py: 1.5, background: "linear-gradient(135deg,#800020,#A52A2A)", fontWeight: 600, textTransform: "none", "&:hover": { background: "linear-gradient(135deg,#A52A2A,#800020)" } }} onClick={() => { window.location.href = "/settings?tab=security"; }} startIcon={<LockOutlined />}>
                 Update Password Now
               </Button>
-              <Button fullWidth variant="outlined" sx={{ py: 1.5, color: mediumText, borderColor: mediumText, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { backgroundColor: "rgba(128,0,32,0.05)", borderColor: mediumText } }} onClick={() => { setShowPasswordPrompt(false); setShowLaterModal(true); }}>
+              <Button fullWidth variant="outlined" sx={{ py: 1.5, color: crimson, borderColor: crimson, fontWeight: 600, textTransform: "none", "&:hover": { backgroundColor: "rgba(128,0,32,0.05)", borderColor: crimson } }} onClick={() => { setShowPasswordPrompt(false); setShowLaterModal(true); }}>
                 Remind Me Later
               </Button>
             </Box>
-            <Typography variant="caption" sx={{ display: "block", color: "rgba(0,0,0,0.6)", fontSize: "0.75rem", textAlign: "center" }}>
+            <Typography variant="caption" sx={{ display: "block", color: "rgba(0,0,0,0.5)", fontSize: "0.75rem", textAlign: "center" }}>
               You can update your password at any time via Settings → Security → Change Password.
             </Typography>
           </Box>
         </Modal>
 
-        {/* ── Later Modal ── */}
+        {/* ── Later Modal ─────────────────────────────────────────────────────── */}
         <Modal open={showLaterModal} onClose={() => {}}>
-          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 520, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, textAlign: "left", backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
+          <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 520, maxWidth: "90%", bgcolor: "rgba(255,248,231,0.98)", borderRadius: 3, p: 4, backdropFilter: "blur(10px)", boxShadow: "0 20px 50px rgba(128,0,32,0.25)", border: "1px solid rgba(128,0,32,0.15)" }}>
             <Box sx={{ mb: 3, display: "flex", alignItems: "flex-start", gap: 2 }}>
-              <Box sx={{ width: 48, height: 48, borderRadius: 2, background: primaryGradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <LockOutlined sx={{ fontSize: 28, color: lightText }} />
+              <Box sx={{ width: 48, height: 48, borderRadius: 2, background: "linear-gradient(135deg,#800020,#A52A2A)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <LockOutlined sx={{ fontSize: 28, color: cream }} />
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="h6" sx={{ color: darkText, fontWeight: 700, mb: 1 }}>Password Update Reminder</Typography>
-                <Typography variant="body2" sx={{ color: mediumText, lineHeight: 1.6 }}>
-                  For security purposes, please update your password as soon as possible.
-                </Typography>
+                <Typography variant="h6" sx={{ color: crimsonDark, fontWeight: 700, mb: 1 }}>Password Update Reminder</Typography>
+                <Typography variant="body2" sx={{ color: crimson, lineHeight: 1.6 }}>For security purposes, please update your password as soon as possible.</Typography>
               </Box>
             </Box>
             <Box sx={{ bgcolor: "rgba(128,0,32,0.05)", borderRadius: 2, p: 2.5, mb: 3, border: "1px solid rgba(128,0,32,0.1)" }}>
-              <Typography variant="body2" sx={{ color: mediumText, fontWeight: 600, mb: 0.5 }}>You can update your password at:</Typography>
-              <Typography variant="body2" sx={{ color: darkText, fontWeight: 600 }}>Settings → Security → Change Password</Typography>
+              <Typography variant="body2" sx={{ color: crimson, fontWeight: 600, mb: 0.5 }}>You can update your password at:</Typography>
+              <Typography variant="body2" sx={{ color: crimsonDark, fontWeight: 600 }}>Settings → Security → Change Password</Typography>
             </Box>
-            <Box sx={{ mb: 3, p: 2, bgcolor: "rgba(255, 152, 0, 0.05)", borderRadius: 2, border: "1px solid rgba(255, 152, 0, 0.2)" }}>
+            <Box sx={{ mb: 3, p: 2, bgcolor: "rgba(255,152,0,0.05)", borderRadius: 2, border: "1px solid rgba(255,152,0,0.15)" }}>
               <FormControlLabel
-                control={<Checkbox checked={dontRemindToday} onChange={(e) => setDontRemindToday(e.target.checked)} sx={{ color: mediumText, "&.Mui-checked": { color: mediumText } }} />}
+                control={<Checkbox checked={dontRemindToday} onChange={(e) => setDontRemindToday(e.target.checked)} sx={{ color: crimson, "&.Mui-checked": { color: crimson } }} />}
                 label="Don't remind me again today"
-                sx={{ margin: 0, "& .MuiFormControlLabel-label": { fontSize: "0.9rem", color: darkText, fontWeight: 500 } }}
+                sx={{ margin: 0, "& .MuiFormControlLabel-label": { fontSize: "0.9rem", color: crimsonDark, fontWeight: 500 } }}
               />
             </Box>
             <Button
-              fullWidth variant="contained"
-              sx={{ py: 1.5, background: primaryGradient, fontWeight: 600, textTransform: "none", fontSize: "0.95rem", "&:hover": { background: primaryHoverGradient } }}
+              fullWidth
+              variant="contained"
+              sx={{ py: 1.5, background: "linear-gradient(135deg,#800020,#A52A2A)", fontWeight: 600, textTransform: "none", "&:hover": { background: "linear-gradient(135deg,#A52A2A,#800020)" } }}
               onClick={() => {
                 const token = localStorage.getItem("token");
                 if (!token) return;

@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const jwt = require('jsonwebtoken');
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { logAudit } = require('../middleware/auth');
+const { logAudit, authenticateToken, requireAdmin } = require('../middleware/auth');
 
 const getActorEmployeeNumber = (req, fallback = null) => {
   if (req.user?.employeeNumber) return String(req.user.employeeNumber);
@@ -20,7 +20,7 @@ const getActorEmployeeNumber = (req, fallback = null) => {
 };
 
 // POST: Add PhilHealth contribution
-router.post('/api/philhealth', (req, res) => {
+router.post('/api/philhealth', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber, PhilHealthContribution } = req.body;
 
   const query =
@@ -42,7 +42,7 @@ router.post('/api/philhealth', (req, res) => {
 });
 
 // GET: Get all PhilHealth contributions
-router.get('/api/philhealth', (req, res) => {
+router.get('/api/philhealth', authenticateToken, requireAdmin, (req, res) => {
   db.query('SELECT * FROM philhealth', (err, results) => {
     if (err) {
       return res.status(500).json({ error: err.message });
@@ -52,7 +52,7 @@ router.get('/api/philhealth', (req, res) => {
 });
 
 // PUT: Update PhilHealth contribution
-router.put('/api/philhealth/:id', (req, res) => {
+router.put('/api/philhealth/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { employeeNumber, PhilHealthContribution } = req.body;
 
@@ -81,7 +81,7 @@ router.put('/api/philhealth/:id', (req, res) => {
 });
 
 // DELETE: Delete PhilHealth contribution
-router.delete('/api/philhealth/:id', (req, res) => {
+router.delete('/api/philhealth/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
 
   const query = 'DELETE FROM philhealth WHERE id = ?';

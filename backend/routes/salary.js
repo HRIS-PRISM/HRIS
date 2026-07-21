@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin } = require('../middleware/auth');
+
+router.use(authenticateToken, requireAdmin);
 
 // GET all salary grade status records
-router.get('/api/salary-grade-status', authenticateToken, (req, res) => {
+router.get('/api/salary-grade-status', (req, res) => {
   db.query('SELECT * FROM salary_grade_status', (err, result) => {
     if (err) res.status(500).send(err);
     else {
@@ -19,7 +21,7 @@ router.get('/api/salary-grade-status', authenticateToken, (req, res) => {
 });
 
 // POST: Add a new record
-router.post('/api/salary-grade-status', authenticateToken, (req, res) => {
+router.post('/api/salary-grade-status', (req, res) => {
   const { effectivityDate, step_number, status } = req.body;
 
   const sql = `
@@ -47,7 +49,7 @@ router.post('/api/salary-grade-status', authenticateToken, (req, res) => {
 });
 
 // PUT: Update a record
-router.put('/api/salary-grade-status/:id', authenticateToken, (req, res) => {
+router.put('/api/salary-grade-status/:id', (req, res) => {
   const { id } = req.params;
   const { effectivityDate, step_number, status } = req.body;
 
@@ -71,7 +73,7 @@ router.put('/api/salary-grade-status/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE: Delete a record
-router.delete('/api/salary-grade-status/:id', authenticateToken, (req, res) => {
+router.delete('/api/salary-grade-status/:id', (req, res) => {
   const { id } = req.params;
 
   db.query('DELETE FROM salary_grade_status WHERE id = ?', [id], (err) => {

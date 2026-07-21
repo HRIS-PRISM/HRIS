@@ -5,8 +5,16 @@ const xlsx = require("xlsx");
 const fs = require("fs"); // Import file system module
 const router = express.Router();
 const socketService = require("../socket/socketService");
+const authenticateToken = require("./authMiddleware");
+const { excelDateToUTCDate } = require("../utils/excelDate");
+const {
+  fetchDashboardRow,
+  logDashboardCreate,
+  logDashboardUpdate,
+  logDashboardDelete,
+} = require("./dashboardAuditHelper");
 
-
+router.use(authenticateToken);
 
 
 
@@ -41,6 +49,8 @@ router.post("/voluntary-work", (req, res) => {
       person_id,
     });
 
+    logDashboardCreate(req, "voluntary_work_table", result.insertId, req.body);
+
     res.status(201).send({ message: "Item created", id: result.insertId });
   });
 });
@@ -50,15 +60,23 @@ router.put("/voluntary-work/:id", (req, res) => {
   const { nameAndAddress, dateFrom, dateTo, numberOfHours, natureOfWork, person_id } = req.body;
   const { id } = req.params;
   const query = "UPDATE voluntary_work_table SET nameAndAddress = ?, dateFrom = ?, dateTo = ?, numberOfHours = ?, natureOfWork = ?, person_id = ?  WHERE id = ?";
-  db.query(query, [nameAndAddress, dateFrom, dateTo, numberOfHours, natureOfWork, person_id, id], (err, result) => {
-    if (err) return res.status(500).send(err);
 
-    socketService.notifyVoluntaryWorkChanged("updated", {
-      id: Number(id),
-      person_id,
+  fetchDashboardRow("voluntary_work_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send({ message: "Internal Server Error" });
+    if (!oldRow) return res.status(404).send({ message: "Item not found" });
+
+    db.query(query, [nameAndAddress, dateFrom, dateTo, numberOfHours, natureOfWork, person_id, id], (err) => {
+      if (err) return res.status(500).send(err);
+
+      logDashboardUpdate(req, "voluntary_work_table", id, oldRow, req.body);
+
+      socketService.notifyVoluntaryWorkChanged("updated", {
+        id: Number(id),
+        person_id,
+      });
+
+      res.status(200).send({ message: "Item updated" });
     });
-
-    res.status(200).send({ message: "Item updated" });
   });
 });
 
@@ -66,22 +84,24 @@ router.put("/voluntary-work/:id", (req, res) => {
 router.delete("/voluntary-work/:id", (req, res) => {
   const { id } = req.params;
   const query = "DELETE FROM voluntary_work_table WHERE id = ?";
-  db.query(query, [id], (err, result) => {
-    if (err) return res.status(500).send(err);
 
-    socketService.notifyVoluntaryWorkChanged("deleted", { id: Number(id) });
+  fetchDashboardRow("voluntary_work_table", id, (fetchErr, oldRow) => {
+    if (fetchErr) return res.status(500).send({ message: "Internal Server Error" });
+    if (!oldRow) return res.status(404).send({ message: "Item not found" });
 
-    res.status(200).send({ message: "Item deleted" });
+    db.query(query, [id], (err) => {
+      if (err) return res.status(500).send(err);
+
+      logDashboardDelete(req, "voluntary_work_table", id, oldRow);
+
+      socketService.notifyVoluntaryWorkChanged("deleted", { id: Number(id) });
+
+      res.status(200).send({ message: "Item deleted" });
+    });
   });
 });
 
 const uploads = multer({ dest: "uploads/" });
-// Convert Excel date to normalized UTC date
-function excelDateToUTCDate(excelDate) {
-  const date = new Date((excelDate - 25569) * 86400 * 1000);
-  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-}
-
 router.post("/upload_voluntary_work_table", uploads.single("file"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });

@@ -3,13 +3,13 @@ const express = require('express');
 const router = express.Router();
 const { validateFormula } = require('../services/PayrollCalculator');
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, requireSuperAdmin } = require('../middleware/auth');
 
 /**
  * GET /api/payroll-formulas
  * Get all active payroll formulas
  */
-router.get('/api/payroll-formulas', authenticateToken, (req, res) => {
+router.get('/api/payroll-formulas', authenticateToken, requireAdmin, (req, res) => {
   const { includeInactive } = req.query;
   const query = includeInactive === 'true'
     ? 'SELECT * FROM payroll_formulas ORDER BY id ASC'
@@ -40,7 +40,7 @@ router.get('/api/payroll-formulas', authenticateToken, (req, res) => {
  * GET /api/payroll-formulas/:key
  * Get a specific formula by key
  */
-router.get('/api/payroll-formulas/:key', authenticateToken, (req, res) => {
+router.get('/api/payroll-formulas/:key', authenticateToken, requireAdmin, (req, res) => {
   const { key } = req.params;
 
   db.query(
@@ -73,7 +73,7 @@ router.get('/api/payroll-formulas/:key', authenticateToken, (req, res) => {
  * POST /api/payroll-formulas
  * Create a new payroll formula
  */
-router.post('/api/payroll-formulas', authenticateToken, (req, res) => {
+router.post('/api/payroll-formulas', authenticateToken, requireSuperAdmin, (req, res) => {
   const {
     formula_key,
     formula_expression,
@@ -188,7 +188,7 @@ router.post('/api/payroll-formulas', authenticateToken, (req, res) => {
  * PUT /api/payroll-formulas/:key
  * Update an existing payroll formula
  */
-router.put('/api/payroll-formulas/:key', authenticateToken, (req, res) => {
+router.put('/api/payroll-formulas/:key', authenticateToken, requireSuperAdmin, (req, res) => {
   const { key } = req.params;
   const {
     formula_expression,
@@ -304,7 +304,7 @@ router.put('/api/payroll-formulas/:key', authenticateToken, (req, res) => {
  * DELETE /api/payroll-formulas/:key
  * Soft delete a payroll formula (set is_active = false)
  */
-router.delete('/api/payroll-formulas/:key', authenticateToken, (req, res) => {
+router.delete('/api/payroll-formulas/:key', authenticateToken, requireSuperAdmin, (req, res) => {
   const { key } = req.params;
 
   db.query(

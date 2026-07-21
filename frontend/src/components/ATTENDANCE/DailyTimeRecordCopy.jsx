@@ -1,5 +1,6 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 import {
@@ -202,6 +203,25 @@ const DailyTimeRecord = () => {
       setOfficialTimes({});
     }
   };
+
+  const fetchRecordsRef = useRef(fetchRecords);
+  useEffect(() => {
+    fetchRecordsRef.current = fetchRecords;
+  });
+
+  useAttendanceRealtimeRefresh(
+    useCallback(() => {
+      if (!personID || !startDate || !endDate) return;
+      fetchRecordsRef.current();
+    }, [personID, startDate, endDate]),
+    {
+      personId: personID,
+      startDate,
+      endDate,
+      requireDateRange: true,
+      matchMode: 'strict',
+    },
+  );
 
   // Also fetch official times when personID changes (on component mount)
   useEffect(() => {

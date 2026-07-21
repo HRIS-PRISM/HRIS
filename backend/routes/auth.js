@@ -63,8 +63,15 @@ router.post('/send-2fa-code', async (req, res) => {
       }
 
       // Check if global MFA is enabled
-      const globalMfaEnabled = globalMfaResult.length > 0 && 
-        (globalMfaResult[0].setting_value === 'true' || globalMfaResult[0].setting_value === true);
+      const globalMfaRaw = globalMfaResult.length > 0 ? globalMfaResult[0].setting_value : null;
+      // Default to enabled when the setting has not been initialized yet.
+      const globalMfaEnabled =
+        globalMfaRaw === null ||
+        globalMfaRaw === undefined ||
+        globalMfaRaw === 'true' ||
+        globalMfaRaw === true ||
+        globalMfaRaw === '1' ||
+        globalMfaRaw === 1;
 
       // If global MFA is disabled, reject immediately (no MFA for anyone)
       if (!globalMfaEnabled) {
@@ -125,8 +132,11 @@ router.post('/send-2fa-code', async (req, res) => {
           twoFACodes[email] = { code, expiresAt };
 
           try {
+            const fromEmail = process.env.GMAIL_USER;
             await transporter.sendMail({
-              from: '"EARIST HR Testing" <yourgmail@gmail.com>',
+              from: fromEmail
+                ? `"EARIST HR Testing" <${fromEmail}>`
+                : '"EARIST HR Testing" <no-reply@example.com>',
               to: email,
               subject: 'Login Verification Code',
               html: `

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import API_BASE_URL from '../apiConfig';
-import { getAuthHeaders } from '../utils/auth';
+import { getAuthHeaders, getUserInfo } from '../utils/auth';
+import { isPageAccessActive } from '../utils/pageAccessUtils';
 
 /**
  * Custom hook for checking multiple page accesses at once
@@ -27,10 +28,11 @@ import { getAuthHeaders } from '../utils/auth';
 const usePageAccesses = (componentIdentifiers = [], options = {}) => {
   const { employeeNumber: overrideEmployeeNumber } = options;
 
-  const [accessMap, setAccessMap] = useState({}); // Maps component identifier -> page ID -> hasAccess
-  const [pageIdMap, setPageIdMap] = useState({}); // Maps component identifier -> page ID
+  const [accessMap, setAccessMap] = useState({});
+  const [pageIdMap, setPageIdMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const hasLoadedOnceRef = useRef(false);
 
   useEffect(() => {
     if (!componentIdentifiers || componentIdentifiers.length === 0) {
@@ -39,12 +41,23 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
     }
 
     const fetchAccesses = async () => {
-      setLoading(true);
+      if (!hasLoadedOnceRef.current) {
+        setLoading(true);
+      }
       setError(null);
 
       try {
+        const tokenUser = getUserInfo();
+        const tokenEmployeeNumber = tokenUser?.employeeNumber || '';
+        const storedEmployeeNumber = localStorage.getItem('employeeNumber') || '';
+
+        // Keep auth identity stable even if a page previously wrote a search employee number.
+        if (tokenEmployeeNumber && tokenEmployeeNumber !== storedEmployeeNumber) {
+          localStorage.setItem('employeeNumber', tokenEmployeeNumber);
+        }
+
         const userId =
-          overrideEmployeeNumber || localStorage.getItem('employeeNumber');
+          overrideEmployeeNumber || tokenEmployeeNumber || storedEmployeeNumber;
 
         if (!userId) {
           setError('No employee number found');
@@ -54,22 +67,35 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
 
         const authHeaders = getAuthHeaders();
 
-        // Step 1: Get all pages to filter out non-existent identifiers
-        const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
+        // Step 1: Resolve component identifiers to page IDs (staff cannot GET /pages)
+        let pagesArray = [];
+        const registryResponse = await fetch(`${API_BASE_URL}/pages/access-registry`, {
           method: 'GET',
           ...authHeaders,
         });
 
-        if (!pagesResponse.ok) {
+        if (registryResponse.ok) {
+          const registryData = await registryResponse.json();
+          pagesArray = Array.isArray(registryData)
+            ? registryData
+            : registryData.data || [];
+        } else if (registryResponse.status === 404) {
+          const pagesResponse = await fetch(`${API_BASE_URL}/pages`, {
+            method: 'GET',
+            ...authHeaders,
+          });
+          if (!pagesResponse.ok) {
+            setError('Failed to fetch pages');
+            setLoading(false);
+            return;
+          }
+          const allPages = await pagesResponse.json();
+          pagesArray = Array.isArray(allPages) ? allPages : allPages.data || [];
+        } else {
           setError('Failed to fetch pages');
           setLoading(false);
           return;
         }
-
-        const allPages = await pagesResponse.json();
-        const pagesArray = Array.isArray(allPages)
-          ? allPages
-          : allPages.data || [];
 
         // Create a map of component_identifier -> page_id for existing pages
         const existingPagesMap = {};
@@ -98,7 +124,11 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
         );
 
         if (!accessResponse.ok) {
-          setError('Failed to fetch page access');
+          if (accessResponse.status === 401 || accessResponse.status === 403) {
+            setError('Unauthorized while fetching page access');
+          } else {
+            setError('Failed to fetch page access');
+          }
           setLoading(false);
           return;
         }
@@ -108,25 +138,27 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
           ? accessData
           : accessData.data || [];
 
-        // Step 4: Build access map
+        // Step 4: Build access map from grants (match by page_id → component_identifier)
         const newAccessMap = {};
+        accessArray.forEach((access) => {
+          if (!isPageAccessActive(access)) return;
+          const page = pagesArray.find(
+            (p) => Number(p.id) === Number(access.page_id),
+          );
+          if (page?.component_identifier) {
+            newAccessMap[page.component_identifier] = true;
+          }
+        });
+
+        // Mark ungranted route-mapped identifiers as false
         componentIdentifiers.forEach((identifier) => {
-          const pageId = newPageIdMap[identifier];
-          if (pageId) {
-            const hasPageAccess = accessArray.some((access) => {
-              if (access.page_id === pageId) {
-                const privilege = String(access.page_privilege || '0');
-                return privilege !== '0' && privilege !== '';
-              }
-              return false;
-            });
-            newAccessMap[identifier] = hasPageAccess;
-          } else {
+          if (newAccessMap[identifier] === undefined) {
             newAccessMap[identifier] = false;
           }
         });
 
         setAccessMap(newAccessMap);
+        hasLoadedOnceRef.current = true;
       } catch (err) {
         console.error('Error checking page accesses:', err);
         setError('Network error occurred while checking access');
@@ -136,6 +168,14 @@ const usePageAccesses = (componentIdentifiers = [], options = {}) => {
     };
 
     fetchAccesses();
+
+    const onPageAccessUpdated = () => {
+      fetchAccesses();
+    };
+    window.addEventListener('pageAccessUpdated', onPageAccessUpdated);
+    return () => {
+      window.removeEventListener('pageAccessUpdated', onPageAccessUpdated);
+    };
   }, [
     componentIdentifiers.join(','),
     overrideEmployeeNumber,

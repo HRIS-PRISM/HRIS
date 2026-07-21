@@ -21,13 +21,11 @@ import {
   Chip,
   Divider,
   Fade,
-  Backdrop,
   styled,
   alpha,
   IconButton,
   Tooltip,
   Grid,
-  LinearProgress,
   Stack,
   Badge,
 } from '@mui/material';
@@ -47,6 +45,7 @@ import axios from 'axios';
 import logo from '../../assets/logo.png';
 import hrisLogo from '../../assets/hrisLogo.png';
 import SuccessfulOverlay from '../SuccessfulOverlay';
+import LoadingOverlay from '../LoadingOverlay';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
@@ -587,17 +586,7 @@ const PayslipOverall = forwardRef(({ employee }, ref) => {
           </Box>
         </Fade>
 
-        {/* Loading Backdrop */}
-        <Backdrop sx={{ color: primaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading}>
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Initializing Payroll System...
-            </Typography>
-            <LinearProgress sx={{ width: 400, mt: 3, height: 8, borderRadius: 4,
-              backgroundColor: alpha(accentColor, 0.2) }} />
-          </Box>
-        </Backdrop>
+        <LoadingOverlay open={loading} message="Loading payroll…" />
 
         {error && (
           <Fade in timeout={400}>

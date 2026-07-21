@@ -1,5 +1,5 @@
-import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import API_BASE_URL from "../../apiConfig";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Box,
   Typography,
@@ -8,7 +8,7 @@ import {
   Button,
   Avatar,
   Chip,
-  Paper,
+  Card,
   Fade,
   Grid,
   FormControl,
@@ -20,8 +20,11 @@ import {
   styled,
   alpha,
   Divider,
-  LinearProgress,
-} from '@mui/material';
+  Select,
+  MenuItem,
+  TextField,
+  CardContent,
+} from "@mui/material";
 import {
   EventNote,
   FilterList as FilterIcon,
@@ -30,6 +33,7 @@ import {
   CalendarMonth as CalendarIcon,
   Refresh,
   AccessTime,
+  WorkHistory as SCIcon,
   CheckCircle,
   Block,
   Cancel as CancelIcon,
@@ -38,940 +42,783 @@ import {
   WarningAmber as WarningIcon,
   AccountBalanceWallet as WalletIcon,
   HistoryToggleOff,
-  Close as CloseIcon,
+  Close,
   KeyboardArrowUp,
-} from '@mui/icons-material';
-import { MenuItem, Select, TextField, Card, CardContent } from '@mui/material';
-import axios from 'axios';
-import { getAuthHeaders } from '../../utils/auth';
-import { useSocket } from '../../contexts/SocketContext';
-import { jwtDecode } from 'jwt-decode';
+  Delete as DeleteIcon,
+  ErrorOutline as ErrorOutlineIcon,
+  HelpOutline as HelpOutlineIcon,
+  Lock as LockIcon,
+  TableRows as TableRowsIcon,
+  Visibility as VisibilityIcon,
+  Description as FileTextIcon,
+  Badge as BadgeCheckIcon,
+  Label as TagIcon,
+  EventNote as CalendarEventIcon,
+  InfoOutlined as InfoCircleIcon,
+  Send as SendIcon,
+} from "@mui/icons-material";
+import axios from "axios";
+import { getAuthHeaders } from "../../utils/auth";
+import { useSocket } from "../../contexts/SocketContext";
+import { jwtDecode } from "jwt-decode";
 
-import LoadingOverlay from '../LoadingOverlay';
-import usePageAccess from '../../hooks/usePageAccess';
-import AccessDenied from '../AccessDenied';
-import SuccessfulOverlay from '../SuccessfulOverlay';
-import LeaveDatePicker from './LeaveDatePicker';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
+import usePageAccess from "../../hooks/usePageAccess";
+import AccessDenied from "../AccessDenied";
+import SuccessfulOverlay from "../SuccessfulOverlay";
+import LeaveDatePicker from "./LeaveDatePicker";
+import { useSystemSettings } from "../../hooks/useSystemSettings";
+import { getLeaveTypeStatsActive } from "./leaveAssignmentBalanceUtils";
 
-// ─── Styled components ────────────────────────────────────────────────────────
+// ─── Theme tokens ──────────────────────────────────────────────────────────────
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover: "rgba(109,35,35,0.10)",
+  headerGrad: "linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)",
+  rowEven: "#ffffff",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  surface: "#ffffff",
+  divider: "rgba(0,0,0,0.08)",
+};
 
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  boxShadow: '0 4px 24px rgba(109,35,35,0.06)',
-}));
+const toNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
 
-const ProfessionalButton = styled(Button)(() => ({
+// ─── Styled primitives ─────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
   borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8,
+    fontSize: "0.875rem",
+    backgroundColor: "#fff",
+    "& fieldset": { borderColor: T.accentBorder },
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+    "& .MuiInputBase-input.Mui-disabled": { WebkitTextFillColor: T.text },
+  },
+  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: "none",
   fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  '&:hover': { transform: 'translateY(-2px)' },
-  '&:active': { transform: 'translateY(0)' },
-}));
+  fontSize: "0.875rem",
+  letterSpacing: "0.01em",
+  transition: "all 0.18s ease",
+  "&:hover": { transform: "translateY(-1px)" },
+  "&:active": { transform: "translateY(0)" },
+});
 
-const ModernTextField = styled(TextField)(() => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255,255,255,0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      backgroundColor: '#fff',
-      boxShadow: '0 4px 20px rgba(109,35,35,0.12)',
-    },
+const ModernSelect = styled(Select)({
+  borderRadius: 8,
+  fontSize: "0.875rem",
+  backgroundColor: "#fff",
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+  "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+    borderColor: T.accent,
+    borderWidth: "1.5px",
   },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
+});
 
-const ModernSelect = styled(Select)(() => ({
-  borderRadius: 12,
-  backgroundColor: 'rgba(255,255,255,0.9)',
-  fontSize: '0.9rem',
-  transition: 'all 0.3s ease',
-  '&:hover': { backgroundColor: 'rgba(255,255,255,1)' },
-}));
-
-const RecordCard = styled(Card)(() => ({
-  borderRadius: 16,
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  border: '1px solid rgba(109,35,35,0.08)',
-  boxShadow: '0 2px 12px rgba(109,35,35,0.04)',
-  '&:hover': {
-    boxShadow: '0 8px 28px rgba(109,35,35,0.12)',
-    borderColor: 'rgba(109,35,35,0.18)',
-    transform: 'translateY(-2px)',
-  },
-}));
-
-const BalanceCard = styled(Box)(() => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '12px',
-  padding: '10px 16px',
-  borderRadius: 12,
-  background: 'rgba(255,255,255,0.85)',
-  border: '1px solid rgba(109,35,35,0.08)',
-  boxShadow: '0 2px 8px rgba(109,35,35,0.04)',
-  transition: 'all 0.25s ease',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: '0 4px 14px rgba(109,35,35,0.1)',
-    borderColor: 'rgba(109,35,35,0.18)',
-  },
-}));
-
-// ─── Shimmer / Wireframe ──────────────────────────────────────────────────────
-
-const lruShimmerKeyframes = `
+// ─── Shimmer ───────────────────────────────────────────────────────────────────
+const shimmerKf = `
 @keyframes lruShimmer {
   0%   { background-position: -800px 0; }
   100% { background-position:  800px 0; }
 }
-@keyframes lruPulse {
+@keyframes lruBlink {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.6; }
-}
-`;
+  50%       { opacity: 0.55; }
+}`;
 
-const SkeletonBox = ({
-  width = '100%',
-  height = 16,
-  borderRadius = 8,
-  sx = {},
-}) => (
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
   <Box
     sx={{
-      width,
-      height,
-      borderRadius: `${borderRadius}px`,
-      background:
-        'linear-gradient(90deg,rgba(109,35,35,0.08) 25%,rgba(109,35,35,0.18) 50%,rgba(109,35,35,0.08) 75%)',
-      backgroundSize: '800px 100%',
-      animation: 'lruShimmer 1.5s infinite linear',
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
+      backgroundSize: "800px 100%",
+      animation: "lruShimmer 1.6s infinite linear",
       flexShrink: 0,
       ...sx,
     }}
   />
 );
 
-const LeaveRequestWireframe = ({
-  accentColor = '#6d2323',
-  primaryColor = '#FEF9E1',
-  secondaryColor = '#FFF8E7',
-}) => (
+const Wireframe = () => (
   <>
-    <style>{lruShimmerKeyframes}</style>
+    <style>{shimmerKf}</style>
     <Box
       sx={{
-        py: 4,
-        mt: -5,
-        width: '100vw',
-        maxWidth: '100%',
-        position: 'relative',
-        left: '50%',
-        transform: 'translateX(-50%)',
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "49%",
+        transform: "translateX(-48%)",
+        px: { xs: 2, sm: 3, md: 6 },
       }}
     >
-      <Box sx={{ px: { xs: 2, sm: 3, md: 6 }, mx: 'auto', maxWidth: '1800px' }}>
-        {/* ── Header skeleton ── */}
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          overflow: "hidden",
+          border: `1px solid ${T.accentBorder}`,
+          animation: "lruBlink 2s ease-in-out infinite",
+        }}
+      >
         <Box
           sx={{
-            mb: 4,
-            borderRadius: '20px',
-            overflow: 'hidden',
-            border: `1px solid ${alpha(accentColor, 0.1)}`,
-            animation: 'lruPulse 2s ease-in-out infinite',
+            p: 3.5,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2.5,
           }}
         >
-          <Box
-            sx={{
-              p: 5,
-              background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
-            {/* radial decorations */}
-            <Box
-              sx={{
-                position: 'absolute',
-                top: -50,
-                right: -50,
-                width: 200,
-                height: 200,
-                borderRadius: '50%',
-                bgcolor: alpha(accentColor, 0.06),
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                bottom: -30,
-                left: '30%',
-                width: 150,
-                height: 150,
-                borderRadius: '50%',
-                bgcolor: alpha(accentColor, 0.04),
-              }}
-            />
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'relative',
-                zIndex: 1,
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.12),
-                    mr: 4,
-                    flexShrink: 0,
-                  }}
-                />
-                <Box>
-                  <SkeletonBox
-                    width={260}
-                    height={28}
-                    borderRadius={6}
-                    sx={{ mb: 1.5 }}
-                  />
-                  <SkeletonBox width={220} height={14} borderRadius={4} />
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <SkeletonBox width={120} height={24} borderRadius={12} />
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.1),
-                  }}
-                />
-                <Box
-                  sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.1),
-                  }}
-                />
-              </Box>
-            </Box>
-          </Box>
-        </Box>
-
-        {/* ── Balances skeleton — compact horizontal chips ── */}
-        <Box
-          sx={{
-            mb: 4,
-            borderRadius: '20px',
-            overflow: 'hidden',
-            border: `1px solid ${alpha(accentColor, 0.1)}`,
-            animation: 'lruPulse 2s ease-in-out 0.07s infinite',
-          }}
-        >
-          {/* section header */}
-          <Box
-            sx={{
-              p: 3,
-              pl: 4,
-              background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-              borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-            }}
-          >
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                bgcolor: alpha(accentColor, 0.12),
-                flexShrink: 0,
-              }}
-            />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ width: 44, height: 44, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)", flexShrink: 0 }} />
             <Box>
-              <SkeletonBox
-                width={150}
-                height={16}
-                borderRadius={4}
-                sx={{ mb: 0.5 }}
-              />
-              <SkeletonBox width={200} height={11} borderRadius={3} />
+              <Bone w={200} h={16} sx={{ mb: 1 }} />
+              <Bone w={280} h={10} />
             </Box>
           </Box>
-          {/* compact balance chips */}
-          <Box sx={{ p: 3, bgcolor: alpha(primaryColor, 0.4) }}>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-              {[...Array(6)].map((_, i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1.5,
-                    px: 2,
-                    py: 1,
-                    borderRadius: '10px',
-                    bgcolor: 'rgba(255,255,255,0.8)',
-                    border: `1px solid ${alpha(accentColor, 0.08)}`,
-                    animation: `lruPulse 2s ease-in-out ${i * 0.06}s infinite`,
-                    minWidth: 160,
-                  }}
-                >
-                  <Box>
-                    <SkeletonBox
-                      width={60}
-                      height={10}
-                      borderRadius={3}
-                      sx={{ mb: 0.5 }}
-                    />
-                    <SkeletonBox width={80} height={16} borderRadius={3} />
-                  </Box>
-                  <Box
-                    sx={{
-                      ml: 'auto',
-                      width: 40,
-                      height: 4,
-                      bgcolor: '#e0e0e0',
-                      borderRadius: 2,
-                      alignSelf: 'center',
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        height: '100%',
-                        width: `${40 + i * 10}%`,
-                        bgcolor: alpha('#2E7D32', 0.4),
-                        borderRadius: 2,
-                      }}
-                    />
-                  </Box>
-                </Box>
-              ))}
-            </Box>
+          <Box sx={{ display: "flex", gap: 1.5 }}>
+            <Bone w={140} h={30} r={8} />
+            <Box sx={{ width: 32, height: 32, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.1)" }} />
           </Box>
         </Box>
-
-        {/* ── Two-column skeleton ── */}
-        <Grid container spacing={4}>
-          {/* Left: Form */}
-          <Grid item xs={12} lg={6}>
-            <Box
-              sx={{
-                borderRadius: '20px',
-                overflow: 'hidden',
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                animation: 'lruPulse 2s ease-in-out 0.10s infinite',
-              }}
-            >
-              {/* panel header */}
-              <Box
-                sx={{
-                  p: 4,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                }}
-              >
-                <Box
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: '50%',
-                    bgcolor: alpha(accentColor, 0.12),
-                    flexShrink: 0,
-                  }}
-                />
-                <Box>
-                  <SkeletonBox
-                    width={200}
-                    height={16}
-                    borderRadius={4}
-                    sx={{ mb: 0.75 }}
-                  />
-                  <SkeletonBox width={175} height={11} borderRadius={3} />
-                </Box>
-              </Box>
-              {/* form fields */}
-              <Box
-                sx={{ p: 4, display: 'flex', flexDirection: 'column', gap: 3 }}
-              >
-                {[
-                  'Employee Number',
-                  'Leave Type',
-                  'Leave Date(s)',
-                  'Selected Dates',
-                ].map((_, i) => (
-                  <Box key={i}>
-                    <SkeletonBox
-                      width={i === 2 ? 100 : i === 3 ? 110 : 130}
-                      height={12}
-                      borderRadius={3}
-                      sx={{ mb: 1 }}
-                    />
-                    <Box
-                      sx={{
-                        height: i === 3 ? 56 : 44,
-                        borderRadius: '12px',
-                        border: `1px solid ${alpha(accentColor, 0.15)}`,
-                        bgcolor: 'rgba(255,255,255,0.8)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        px: 2,
-                        gap: 1,
-                      }}
-                    >
-                      {i === 2 && (
-                        <Box
-                          sx={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: '4px',
-                            bgcolor: alpha(accentColor, 0.15),
-                          }}
-                        />
-                      )}
-                      <SkeletonBox
-                        width={i === 2 ? 130 : '50%'}
-                        height={12}
-                        borderRadius={3}
-                      />
-                    </Box>
-                  </Box>
-                ))}
-                {/* Submit button */}
-                <Box
-                  sx={{
-                    height: 48,
-                    borderRadius: '12px',
-                    bgcolor: alpha(accentColor, 0.15),
-                    mt: 1,
-                  }}
-                />
-              </Box>
-            </Box>
-          </Grid>
-
-          {/* Right: Records */}
-          <Grid item xs={12} lg={6}>
-            <Box
-              sx={{
-                borderRadius: '20px',
-                overflow: 'hidden',
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                animation: 'lruPulse 2s ease-in-out 0.13s infinite',
-              }}
-            >
-              {/* panel header + filters */}
-              <Box
-                sx={{
-                  p: 4,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                }}
-              >
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 2,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box
-                      sx={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: '50%',
-                        bgcolor: alpha(accentColor, 0.12),
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Box>
-                      <SkeletonBox
-                        width={195}
-                        height={16}
-                        borderRadius={4}
-                        sx={{ mb: 0.75 }}
-                      />
-                      <SkeletonBox width={90} height={11} borderRadius={3} />
-                    </Box>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Box
-                      sx={{
-                        width: 18,
-                        height: 18,
-                        borderRadius: '4px',
-                        bgcolor: alpha(accentColor, 0.15),
-                      }}
-                    />
-                    <SkeletonBox width={35} height={12} borderRadius={3} />
-                    {[120, 130, 120].map((w, i) => (
-                      <Box
-                        key={i}
-                        sx={{
-                          width: w,
-                          height: 36,
-                          borderRadius: '12px',
-                          border: `1px solid ${alpha(accentColor, 0.15)}`,
-                          bgcolor: 'rgba(255,255,255,0.9)',
-                        }}
-                      />
-                    ))}
-                  </Box>
-                </Box>
-              </Box>
-
-              {/* Record rows — matching real card layout: type | date | submitted | status + cancel */}
-              <Box
-                sx={{ p: 4, display: 'flex', flexDirection: 'column', gap: 2 }}
-              >
-                {[...Array(3)].map((_, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      borderRadius: '16px',
-                      border: `1px solid ${alpha(accentColor, 0.08)}`,
-                      p: 3,
-                      bgcolor: 'rgba(255,255,255,0.6)',
-                      boxShadow: '0 2px 12px rgba(109,35,35,0.04)',
-                      animation: `lruPulse 2s ease-in-out ${i * 0.07}s infinite`,
-                    }}
-                  >
-                    <Grid container spacing={2} alignItems="center">
-                      {/* Leave Type col */}
-                      <Grid item xs={12} md={3}>
-                        <SkeletonBox
-                          width="55%"
-                          height={9}
-                          borderRadius={3}
-                          sx={{ mb: 0.75 }}
-                        />
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                            mb: 0.5,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              width: 16,
-                              height: 16,
-                              borderRadius: '4px',
-                              bgcolor: alpha(accentColor, 0.15),
-                            }}
-                          />
-                          <SkeletonBox
-                            width={44}
-                            height={13}
-                            borderRadius={3}
-                          />
-                        </Box>
-                        <SkeletonBox width="75%" height={9} borderRadius={3} />
-                      </Grid>
-
-                      {/* Leave Date col */}
-                      <Grid item xs={6} md={2}>
-                        <SkeletonBox
-                          width="60%"
-                          height={9}
-                          borderRadius={3}
-                          sx={{ mb: 0.75 }}
-                        />
-                        <SkeletonBox width="90%" height={13} borderRadius={3} />
-                      </Grid>
-
-                      {/* Submitted col */}
-                      <Grid item xs={6} md={3}>
-                        <SkeletonBox
-                          width="50%"
-                          height={9}
-                          borderRadius={3}
-                          sx={{ mb: 0.75 }}
-                        />
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 0.5,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              width: 13,
-                              height: 13,
-                              borderRadius: '50%',
-                              bgcolor: alpha(accentColor, 0.12),
-                            }}
-                          />
-                          <SkeletonBox
-                            width="70%"
-                            height={11}
-                            borderRadius={3}
-                          />
-                        </Box>
-                      </Grid>
-
-                      {/* Status col */}
-                      <Grid item xs={6} md={2}>
-                        <SkeletonBox
-                          width="45%"
-                          height={9}
-                          borderRadius={3}
-                          sx={{ mb: 0.75 }}
-                        />
-                        <Box
-                          sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 0.75,
-                            px: 1.5,
-                            py: 0.5,
-                            borderRadius: '8px',
-                            height: 28,
-                            bgcolor:
-                              i === 0
-                                ? '#FFF8E1'
-                                : i === 1
-                                  ? '#E3F2FD'
-                                  : '#E8F5E9',
-                            border: `1px solid ${alpha(i === 0 ? '#F57C00' : i === 1 ? '#1565C0' : '#2E7D32', 0.2)}`,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              width: 12,
-                              height: 12,
-                              borderRadius: '50%',
-                              bgcolor:
-                                i === 0
-                                  ? alpha('#F57C00', 0.4)
-                                  : i === 1
-                                    ? alpha('#1565C0', 0.4)
-                                    : alpha('#2E7D32', 0.4),
-                            }}
-                          />
-                          <SkeletonBox
-                            width={58}
-                            height={10}
-                            borderRadius={3}
-                          />
-                        </Box>
-                      </Grid>
-
-                      {/* Cancel col — only on first (pending) row */}
-                      <Grid item xs={6} md={2}>
-                        {i === 0 && (
-                          <Box
-                            sx={{
-                              width: 72,
-                              height: 32,
-                              borderRadius: '10px',
-                              border: `1.5px solid ${alpha('#C62828', 0.3)}`,
-                              bgcolor: alpha('#C62828', 0.04),
-                            }}
-                          />
-                        )}
-                      </Grid>
-                    </Grid>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </Grid>
-        </Grid>
       </Box>
+      <Box
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          border: `1px solid ${T.accentBorder}`,
+          bgcolor: "#fff",
+          overflow: "hidden",
+          animation: "lruBlink 2s ease-in-out 0.07s infinite",
+        }}
+      >
+        <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+          <Bone w={150} h={12} />
+        </Box>
+        <Box sx={{ p: 3, display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+          {[...Array(5)].map((_, i) => (
+            <Box key={i} sx={{ width: 160, height: 52, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: "#fafafa" }} />
+          ))}
+        </Box>
+      </Box>
+      <Grid container spacing={2}>
+        {[0, 1].map((col) => (
+          <Grid item xs={12} lg={6} key={col}>
+            <Box
+              sx={{
+                borderRadius: 3,
+                border: `1px solid ${T.accentBorder}`,
+                bgcolor: "#fff",
+                overflow: "hidden",
+                animation: `lruBlink 2s ease-in-out ${col * 0.1}s infinite`,
+                height: "calc(100vh - 340px)",
+              }}
+            >
+              <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Box sx={{ width: 24, height: 24, borderRadius: "50%", bgcolor: "rgba(109,35,35,0.12)" }} />
+                <Bone w={160} h={12} />
+              </Box>
+              <Box sx={{ p: 3.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+                {[100, 140, 110, 120, 100].map((w, i) => (
+                  <Box key={i}>
+                    <Bone w={w} h={10} sx={{ mb: 1 }} />
+                    <Box sx={{ height: 38, borderRadius: 2, border: `1px solid ${T.accentBorder}`, bgcolor: "#fafafa" }} />
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Grid>
+        ))}
+      </Grid>
     </Box>
   </>
 );
 
-// ─── LeaveRequestUser ─────────────────────────────────────────────────────────
+// ─── Status config ─────────────────────────────────────────────────────────────
+const allStatusOptions = [
+  { value: "0", label: "Pending", color: "#F57C00", bg: "#FFF3E0", icon: AccessTime },
+  { value: "1", label: "Supervisor Approved", color: "#1565C0", bg: "#E3F2FD", icon: CheckCircle },
+  { value: "2", label: "HR Approved", color: "#2E7D32", bg: "#E8F5E9", icon: CheckCircle },
+  { value: "3", label: "Denied", color: "#C62828", bg: "#FFEBEE", icon: Block },
+  { value: "4", label: "Cancelled", color: "#757575", bg: "#F5F5F5", icon: CancelIcon },
+];
 
+const selectSx = {
+  borderRadius: "8px",
+  fontSize: "0.875rem",
+  bgcolor: "#fff",
+  "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+  "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+  "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent, borderWidth: "1.5px" },
+};
+
+// ─── Status pill ───────────────────────────────────────────────────────────────
+const StatusPill = ({ status }) => {
+  const opt = allStatusOptions.find((o) => o.value === String(status)) || allStatusOptions[0];
+  const Icon = opt.icon;
+  return (
+    <Chip
+      size="small"
+      icon={<Icon style={{ fontSize: 11, color: opt.color }} />}
+      label={opt.label}
+      sx={{
+        height: 20,
+        fontSize: "0.7rem",
+        fontWeight: 600,
+        bgcolor: opt.bg,
+        color: opt.color,
+        border: `1px solid ${alpha(opt.color, 0.25)}`,
+        borderRadius: "4px",
+        "& .MuiChip-icon": { ml: "4px" },
+      }}
+    />
+  );
+};
+
+// ─── Generic Confirm Modal ─────────────────────────────────────────────────────
+const ConfirmModal = ({
+  open, onClose, onConfirm, title, message,
+  confirmLabel = "Confirm",
+  confirmColor = T.accent, confirmHoverColor = T.accentDark,
+  icon: Icon = HelpOutlineIcon, iconColor = T.accent, iconBg = T.accentFaint,
+  loading = false,
+}) => (
+  <Modal open={open} onClose={onClose} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}>
+    <Fade in={open}>
+      <Box sx={{ width: "100%", maxWidth: 420, borderRadius: 3, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", bgcolor: T.surface, display: "flex", flexDirection: "column" }}>
+        <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
+          <Box sx={{ position: "absolute", top: -40, right: -30, width: 140, height: 140, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon sx={{ fontSize: 17, color: "#fff" }} />
+            </Box>
+            <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.93rem" }}>{title}</Typography>
+          </Box>
+          <IconButton onClick={onClose} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        <Box sx={{ px: 3.5, py: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: iconBg, border: `1px solid ${alpha(iconColor, 0.2)}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, mt: 0.25 }}>
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Typography sx={{ fontSize: "0.875rem", color: T.text, lineHeight: 1.65, pt: 0.5, whiteSpace: "pre-line" }}>{message}</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1.25 }}>
+          <AccentButton onClick={onClose} variant="outlined" sx={{ fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>
+            Cancel
+          </AccentButton>
+          <AccentButton onClick={onConfirm} variant="contained" disabled={loading} startIcon={loading ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : null}
+            sx={{ fontSize: "0.8rem", bgcolor: confirmColor, color: "#fff", boxShadow: `0 2px 10px ${alpha(confirmColor, 0.32)}`, "&:hover": { bgcolor: confirmHoverColor }, "&:disabled": { bgcolor: "#ddd" } }}>
+            {loading ? "Processing…" : confirmLabel}
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Error Modal ───────────────────────────────────────────────────────────────
+const ErrorModal = ({
+  open, onClose, title, message,
+  icon: Icon = ErrorOutlineIcon, iconColor = "#C62828", iconBg = "#FFEBEE",
+}) => (
+  <Modal open={open} onClose={onClose} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1500 }}>
+    <Fade in={open}>
+      <Box sx={{ width: "100%", maxWidth: 420, borderRadius: 3, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", bgcolor: T.surface, display: "flex", flexDirection: "column" }}>
+        <Box sx={{ px: 3.5, py: 2.5, background: `linear-gradient(180deg,${iconColor} 0%,${alpha(iconColor, 0.82)} 100%)`, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
+          <Box sx={{ position: "absolute", top: -40, right: -30, width: 140, height: 140, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.05)" }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon sx={{ fontSize: 17, color: "#fff" }} />
+            </Box>
+            <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.93rem" }}>{title}</Typography>
+          </Box>
+          <IconButton onClick={onClose} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        <Box sx={{ px: 3.5, py: 3 }}>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: iconBg, border: `1px solid ${alpha(iconColor, 0.2)}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, mt: 0.25 }}>
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Typography sx={{ fontSize: "0.875rem", color: T.text, lineHeight: 1.65, pt: 0.5 }}>{message}</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end" }}>
+          <AccentButton onClick={onClose} variant="contained" sx={{ fontSize: "0.8rem", bgcolor: iconColor, color: "#fff", boxShadow: `0 2px 10px ${alpha(iconColor, 0.3)}`, "&:hover": { bgcolor: alpha(iconColor, 0.85) } }}>
+            Understood
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Review Modal ──────────────────────────────────────────────────────────────
+const formatDateDisplay = (dateStr) => {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  });
+};
+
+const SummaryRow = ({ icon: Icon, label, children, highlight }) => (
+  <Box
+    sx={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      px: 1.75, py: 1,
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: highlight ? "rgba(198,40,40,0.04)" : "transparent",
+      "&:last-child": { borderBottom: "none" },
+    }}
+  >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
+      <Icon sx={{ fontSize: 14, color: T.muted }} />
+      <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>{label}</Typography>
+    </Box>
+    <Box sx={{ textAlign: "right", maxWidth: 260 }}>{children}</Box>
+  </Box>
+);
+
+const ReviewModal = ({
+  open, onClose, onConfirm, loading = false,
+  personID = "", userName = "",
+  leaveCode = "", leaveDescription = "",
+  selectedDates = [],
+  remainingDays = 0, allocatedDays = 0,
+}) => {
+  const requestedDays = selectedDates.length;
+  const afterDeductionDays = remainingDays - requestedDays;
+
+  return (
+    <Modal
+      open={open}
+      onClose={loading ? undefined : onClose}
+      sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}
+    >
+      <Fade in={open}>
+        <Box sx={{ width: "100%", maxWidth: 480, borderRadius: 3, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", bgcolor: T.surface, display: "flex", flexDirection: "column" }}>
+
+          {/* Header */}
+          <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
+            <Box sx={{ position: "absolute", top: -40, right: -30, width: 140, height: 140, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)", pointerEvents: "none" }} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
+              <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <CalendarEventIcon sx={{ fontSize: 17, color: "#fff" }} />
+              </Box>
+              <Box>
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.93rem", lineHeight: 1.2 }}>
+                  Review & Submit Leave Request
+                </Typography>
+                <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.65)", mt: 0.25 }}>
+                  Please review your request before submitting
+                </Typography>
+              </Box>
+            </Box>
+            <IconButton onClick={loading ? undefined : onClose} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
+              <Close sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
+
+          {/* Preview banner */}
+          <Box sx={{ px: 2.5, py: 0.9, bgcolor: "#fff8e1", borderBottom: "1px solid #ffe082", display: "flex", alignItems: "center", gap: 1 }}>
+            <VisibilityIcon sx={{ fontSize: 13, color: "#F57C00" }} />
+            <Typography sx={{ fontSize: "0.72rem", color: "#795548", fontWeight: 600 }}>
+              Preview — confirm the details below before submitting
+            </Typography>
+          </Box>
+
+          {/* Body */}
+          <Box sx={{ px: 3, py: 2.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
+
+            {/* Summary card */}
+            <Box sx={{ border: `1px solid ${T.accentBorder}`, borderRadius: 2, overflow: "hidden" }}>
+              <Box sx={{ px: 1.75, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.accentBorder}`, display: "flex", alignItems: "center", gap: 0.75 }}>
+                <FileTextIcon sx={{ fontSize: 13, color: T.accent }} />
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent }}>Request Summary</Typography>
+              </Box>
+
+              {/* Employee */}
+              <SummaryRow icon={BadgeCheckIcon} label="Employee">
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: T.text }}>
+                  {personID}{userName ? ` — ${userName}` : ""}
+                </Typography>
+              </SummaryRow>
+
+              {/* Leave type */}
+              <SummaryRow icon={TagIcon} label="Leave Type">
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, justifyContent: "flex-end" }}>
+                  <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent }}>{leaveCode}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: "0.8rem", color: T.text, fontWeight: 500 }}>{leaveDescription}</Typography>
+                </Box>
+              </SummaryRow>
+
+              {/* Duration */}
+              <SummaryRow icon={CalendarEventIcon} label="Duration">
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, justifyContent: "flex-end" }}>
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: T.text }}>
+                    {requestedDays} day{requestedDays !== 1 ? "s" : ""}
+                  </Typography>
+                  <Chip
+                    size="small"
+                    icon={<AccessTime style={{ fontSize: 10, color: "#E65100" }} />}
+                    label="Pending"
+                    sx={{ height: 18, fontSize: "0.68rem", fontWeight: 600, bgcolor: "#FFF3E0", color: "#E65100", border: "1px solid rgba(230,81,0,0.22)", borderRadius: "4px", "& .MuiChip-icon": { ml: "3px" } }}
+                  />
+                </Box>
+              </SummaryRow>
+
+              {/* Dates */}
+              <SummaryRow icon={CalendarIcon} label="Date(s)">
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "flex-end", maxWidth: 260 }}>
+                  {selectedDates.map((d) => (
+                    <Box key={d} sx={{ px: 0.85, py: 0.3, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent }}>{formatDateDisplay(d)}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </SummaryRow>
+
+              {/* Balance (informational only — HR approves regardless of figures shown) */}
+              <SummaryRow icon={WalletIcon} label="Leave balance (reference)">
+                <Box>
+                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: T.text }}>
+                    {remainingDays.toFixed(3)}d remaining · {allocatedDays.toFixed(3)}d allocated
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.25, lineHeight: 1.45 }}>
+                    Approx. {afterDeductionDays.toFixed(3)}d after this request if deducted as shown. Final decision is with HR.
+                  </Typography>
+                </Box>
+              </SummaryRow>
+            </Box>
+
+            {/* Info notice */}
+            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, p: 1.5, bgcolor: "rgba(21,101,192,0.06)", border: "1px solid rgba(21,101,192,0.2)", borderRadius: 2 }}>
+              <InfoCircleIcon sx={{ fontSize: 16, color: "#1565C0", flexShrink: 0, mt: 0.15 }} />
+              <Typography sx={{ fontSize: "0.78rem", color: T.muted, lineHeight: 1.6 }}>
+                Your request will be sent to your supervisor for approval. You can cancel it anytime while it is still{" "}
+                <Box component="span" sx={{ fontWeight: 600, color: T.text }}>pending</Box>.
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Footer */}
+          <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1.25 }}>
+            <AccentButton
+              onClick={loading ? undefined : onClose}
+              variant="outlined"
+              disabled={loading}
+              sx={{ fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
+            >
+              Go Back
+            </AccentButton>
+            <AccentButton
+              onClick={onConfirm}
+              variant="contained"
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <SendIcon sx={{ fontSize: "14px !important" }} />}
+              sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#ddd" } }}
+            >
+              {loading ? "Submitting…" : "Submit Request"}
+            </AccentButton>
+          </Box>
+        </Box>
+      </Fade>
+    </Modal>
+  );
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 const LeaveRequestUser = () => {
-  const { hasAccess, loading: accessLoading } =
-    usePageAccess('leave-request-user');
-
+  const { hasAccess, loading: accessLoading } = usePageAccess("leave-request-user");
   const { socket, connected } = useSocket();
   const refreshRef = useRef(null);
   const fetchTransactionRef = useRef(null);
   const fetchAssignmentsRef = useRef(null);
-  const transactionOpenRef = useRef(false);
 
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [assignments, setAssignments] = useState([]);
-
-  const [newLeaveRequest, setNewLeaveRequest] = useState({
-    leave_code: '',
-    leave_date: '',
-  });
+  const [newLeaveRequest, setNewLeaveRequest] = useState({ leave_code: "", leave_date: "" });
   const [loading, setLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
-  const [monthFilter, setMonthFilter] = useState('');
-  const [leaveTypeFilter, setLeaveTypeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [personID, setPersonID] = useState('');
+  const [successAction, setSuccessAction] = useState("");
+  const [monthFilter, setMonthFilter] = useState("");
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [personID, setPersonID] = useState("");
+  const [userName, setUserName] = useState("");
   const [dateModalOpen, setDateModalOpen] = useState(false);
-  const [transactionLogsModalOpen, setTransactionLogsModalOpen] =
-    useState(false);
+  const [transactionLogsModalOpen, setTransactionLogsModalOpen] = useState(false);
   const [transactionLogs, setTransactionLogs] = useState([]);
   const [transactionLogsLoading, setTransactionLogsLoading] = useState(false);
-  const [transactionLogsError, setTransactionLogsError] = useState('');
+  const [transactionLogsError, setTransactionLogsError] = useState("");
   const [auditLogPage, setAuditLogPage] = useState(1);
   const AUDIT_LOGS_PER_PAGE = 5;
   const [selectedDates, setSelectedDates] = useState([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
-
-  const [balanceAlertOpen, setBalanceAlertOpen] = useState(false);
-  const [balanceAlertDetail, setBalanceAlertDetail] = useState('');
-  const [unavailableDatesAlertOpen, setUnavailableDatesAlertOpen] =
-    useState(false);
-  const [unavailableDatesAlertDetail, setUnavailableDatesAlertDetail] =
-    useState('');
-
   const [pageLoading, setPageLoading] = useState(true);
   const initialLoadDone = useRef(false);
 
-  const { settings } = useSystemSettings();
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
+  const [scRemainingHours, setScRemainingHours] = useState(0);
+  const [ctoRemainingHours, setCtoRemainingHours] = useState(0);
 
-  const formatDateDisplay = (dateStr) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
+  const [errorModal, setErrorModal] = useState({
+    open: false, title: "", message: "",
+    iconColor: "#C62828", iconBg: "#FFEBEE", icon: ErrorOutlineIcon,
+  });
+  const [confirmModal, setConfirmModal] = useState({
+    open: false, title: "", message: "",
+    confirmLabel: "Confirm",
+    confirmColor: T.accent, confirmHoverColor: T.accentDark,
+    icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint,
+    loading: false, onConfirm: () => {},
+  });
+
+  // ── Review modal state ────────────────────────────────────────────────────────
+  const [reviewModal, setReviewModal] = useState({
+    open: false,
+    remainingDays: 0,
+    allocatedDays: 0,
+  });
+
+  const showError = (title, message, opts = {}) =>
+    setErrorModal({ open: true, title, message, iconColor: "#C62828", iconBg: "#FFEBEE", icon: ErrorOutlineIcon, ...opts });
+  const closeError = () => setErrorModal((p) => ({ ...p, open: false }));
+  const showConfirm = (opts) =>
+    setConfirmModal({
+      open: true, title: "", message: "", confirmLabel: "Confirm",
+      confirmColor: T.accent, confirmHoverColor: T.accentDark,
+      icon: HelpOutlineIcon, iconColor: T.accent, iconBg: T.accentFaint,
+      loading: false, onConfirm: () => {}, ...opts,
     });
+  const closeConfirm = () => setConfirmModal((p) => ({ ...p, open: false, loading: false }));
+
+  const openReview = () => {
+    const balance = groupedBalances.find((b) => b.code === newLeaveRequest.leave_code);
+    const remainingDays = balance ? parseFloat(balance.totalDays) : 0;
+    const allocatedDays = balance ? parseFloat(balance.allocatedDays) : 0;
+    setReviewModal({ open: true, remainingDays, allocatedDays });
   };
+  const closeReview = () => setReviewModal((p) => ({ ...p, open: false }));
+
+  const { settings } = useSystemSettings();
+  const accentColor = settings.primaryColor || T.accent;
 
   const isSickLeave = () => {
-    const t = leaveTypes.find(
-      (x) => x.leave_code === newLeaveRequest.leave_code,
-    );
+    const t = leaveTypes.find((x) => x.leave_code === newLeaveRequest.leave_code);
     if (!t) return false;
     return (
-      (t.leave_code || '').toLowerCase().includes('sl') ||
-      (t.leave_code || '').toLowerCase().includes('sick') ||
-      (t.leave_description || '').toLowerCase().includes('sick')
+      (t.leave_code || "").toLowerCase().includes("sl") ||
+      (t.leave_description || "").toLowerCase().includes("sick")
     );
   };
 
   const groupedBalances = useMemo(() => {
-    const map = {};
+    const byCode = {};
     assignments.forEach((a) => {
       const code = a.leave_code;
-      const desc =
-        leaveTypes.find((lt) => lt.leave_code === code)?.leave_description ||
-        code;
-      if (!map[code]) map[code] = { code, description: desc, totalHours: 0 };
-      map[code].totalHours += parseFloat(a.remaining_hours || 0);
+      if (!byCode[code]) byCode[code] = [];
+      byCode[code].push(a);
     });
-    return Object.values(map).map((b) => ({
-      ...b,
-      totalDays: (b.totalHours / 8).toFixed(1),
-    }));
-  }, [assignments, leaveTypes]);
 
-  const getAllocatedRemainingDays = () => {
-    if (!newLeaveRequest.leave_code || !assignments.length) return null;
-    const allocated = assignments
-      .filter(
-        (a) =>
-          a.leave_code === newLeaveRequest.leave_code &&
-          (a.carried_forward_hours === null ||
-            Number(a.carried_forward_hours) === 0),
-      )
-      .sort((a, b) => {
-        if (b.period_year !== a.period_year)
-          return b.period_year - a.period_year;
-        const semVal = (s) => {
-          if (!s) return 0;
-          if (s.includes('2nd')) return 2;
-          if (s.includes('1st')) return 1;
-          return 0;
-        };
-        return semVal(b.period_semester) - semVal(a.period_semester);
-      })[0];
-    if (!allocated) return null;
-    return (parseFloat(allocated.remaining_hours) || 0) / 8;
-  };
+    const result = Object.entries(byCode).map(([code, rows]) => {
+      const stats = getLeaveTypeStatsActive(rows);
+      const desc =
+        leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
+      return {
+        code,
+        description: desc,
+        totalHours: stats.remainingHours,
+        allocatedHours: stats.allocatedHours,
+        totalDays: (stats.remainingHours / 8).toFixed(3),
+        allocatedDays: (stats.allocatedHours / 8).toFixed(3),
+      };
+    });
+
+    if (scRemainingHours > 1e-6) {
+      result.push({
+        code: "SC", description: "Service Credit",
+        totalHours: scRemainingHours, allocatedHours: scRemainingHours,
+        totalDays: (scRemainingHours / 8).toFixed(3),
+        allocatedDays: (scRemainingHours / 8).toFixed(3),
+      });
+    }
+    if (ctoRemainingHours > 1e-6) {
+      result.push({
+        code: "CTO", description: "Comp. Time Off",
+        totalHours: ctoRemainingHours, allocatedHours: ctoRemainingHours,
+        totalDays: (ctoRemainingHours / 8).toFixed(3),
+        allocatedDays: (ctoRemainingHours / 8).toFixed(3),
+      });
+    }
+    return result;
+  }, [assignments, leaveTypes, scRemainingHours, ctoRemainingHours]);
 
   const months = [
-    { value: '', label: 'All Months' },
-    { value: '01', label: 'January' },
-    { value: '02', label: 'February' },
-    { value: '03', label: 'March' },
-    { value: '04', label: 'April' },
-    { value: '05', label: 'May' },
-    { value: '06', label: 'June' },
-    { value: '07', label: 'July' },
-    { value: '08', label: 'August' },
-    { value: '09', label: 'September' },
-    { value: '10', label: 'October' },
-    { value: '11', label: 'November' },
-    { value: '12', label: 'December' },
+    { value: "", label: "All Months" },
+    { value: "01", label: "January" }, { value: "02", label: "February" },
+    { value: "03", label: "March" }, { value: "04", label: "April" },
+    { value: "05", label: "May" }, { value: "06", label: "June" },
+    { value: "07", label: "July" }, { value: "08", label: "August" },
+    { value: "09", label: "September" }, { value: "10", label: "October" },
+    { value: "11", label: "November" }, { value: "12", label: "December" },
   ];
 
   const statusOptions = [
-    { value: '', label: 'All Status' },
-    { value: '0', label: 'Pending' },
-    { value: '1', label: 'Immediate Supervisor Approved' },
-    { value: '2', label: 'HR Approved' },
-    { value: '3', label: 'Denied' },
-    { value: '4', label: 'Cancelled' },
+    { value: "", label: "All Status" },
+    { value: "0", label: "Pending" },
+    { value: "1", label: "Supervisor Approved" },
+    { value: "2", label: "HR Approved" },
+    { value: "3", label: "Denied" },
+    { value: "4", label: "Cancelled" },
   ];
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem("token");
     if (token) {
       try {
-        setPersonID(jwtDecode(token).employeeNumber);
-      } catch (e) {
-        console.error('Error decoding token:', e);
-      }
+        const decoded = jwtDecode(token);
+        setPersonID(decoded.employeeNumber);
+        const nameFromToken =
+          decoded.fullName ||
+          decoded.name ||
+          [decoded.firstName, decoded.lastName].filter(Boolean).join(" ") || "";
+        if (nameFromToken) setUserName(nameFromToken);
+      } catch (e) { console.error(e); }
     }
   }, []);
+
+  useEffect(() => {
+    if (!personID || userName) return;
+    const fetchName = async () => {
+      try {
+        const res = await axios.get(`${API_BASE_URL}/personalinfo/person_table/${personID}`, getAuthHeaders());
+        const name = [res.data.firstName, res.data.lastName].filter(Boolean).join(" ");
+        if (name) setUserName(name);
+      } catch (e) { console.error("Could not resolve user name", e); }
+    };
+    fetchName();
+  }, [personID, userName]); // eslint-disable-line
 
   useEffect(() => {
     if (!personID || initialLoadDone.current) return;
     initialLoadDone.current = true;
     const init = async () => {
-      await Promise.allSettled([
-        fetchLeaveRequests(),
-        fetchLeaveTypes(),
-        fetchAssignments(),
-      ]);
+      await Promise.allSettled([fetchLeaveRequests(), fetchLeaveTypes(), fetchAssignments()]);
       setTimeout(() => setPageLoading(false), 350);
     };
     init();
-  }, [personID]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [personID]); // eslint-disable-line
 
   useEffect(() => {
-    refreshRef.current = fetchLeaveRequests;
-  });
-  useEffect(() => {
-    fetchTransactionRef.current = fetchTransactionLogs;
-  });
-  useEffect(() => {
-    fetchAssignmentsRef.current = fetchAssignments;
-  });
-  useEffect(() => {
-    transactionOpenRef.current = transactionLogsModalOpen;
-  }, [transactionLogsModalOpen]);
+    if (!personID) return;
+    const fetchCreditBalances = async () => {
+      try {
+        const headers = getAuthHeaders();
+        const [scRes, ctoRes] = await Promise.allSettled([
+          axios.get(`${API_BASE_URL}/api/earnings/sc/${personID}/balance`, headers),
+          axios.get(`${API_BASE_URL}/api/earnings/cto/${personID}/balance`, headers),
+        ]);
+        setScRemainingHours(scRes.status === "fulfilled" ? toNum(scRes.value?.data?.totalRemaining) : 0);
+        setCtoRemainingHours(ctoRes.status === "fulfilled" ? toNum(ctoRes.value?.data?.totalRemaining) : 0);
+      } catch {
+        setScRemainingHours(0);
+        setCtoRemainingHours(0);
+      }
+    };
+    fetchCreditBalances();
+  }, [personID]);
+
+  useEffect(() => { refreshRef.current = fetchLeaveRequests; });
+  useEffect(() => { fetchTransactionRef.current = fetchTransactionLogs; });
+  useEffect(() => { fetchAssignmentsRef.current = fetchAssignments; });
 
   useEffect(() => {
     if (!socket || !connected) return;
-    const handleReq = () => {
-      refreshRef.current?.();
-      fetchAssignmentsRef.current?.();
-      fetchTransactionRef.current?.();
-    };
-    const handleAssign = () => {
-      fetchAssignmentsRef.current?.();
-      refreshRef.current?.();
-      fetchTransactionRef.current?.();
-    };
-    socket.on('leaveRequestChanged', handleReq);
-    socket.on('leaveAssignmentChanged', handleAssign);
-    return () => {
-      socket.off('leaveRequestChanged', handleReq);
-      socket.off('leaveAssignmentChanged', handleAssign);
-    };
+    const handleReq = () => { refreshRef.current?.(); fetchAssignmentsRef.current?.(); fetchTransactionRef.current?.(); };
+    const handleAssign = () => { fetchAssignmentsRef.current?.(); refreshRef.current?.(); fetchTransactionRef.current?.(); };
+    socket.on("leaveRequestChanged", handleReq);
+    socket.on("leaveAssignmentChanged", handleAssign);
+    return () => { socket.off("leaveRequestChanged", handleReq); socket.off("leaveAssignmentChanged", handleAssign); };
   }, [socket, connected]);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 300);
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const fetchLeaveRequests = async () => {
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_request/${personID}`,
-        getAuthHeaders(),
-      );
+      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request/${personID}`, getAuthHeaders());
       setLeaveRequests(res.data);
-    } catch (e) {
-      console.error('Error fetching leave requests:', e);
-    }
+    } catch (e) { console.error(e); }
   };
-
   const fetchLeaveTypes = async () => {
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_table`,
-        getAuthHeaders(),
-      );
+      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders());
       setLeaveTypes(res.data);
-    } catch (e) {
-      console.error('Error fetching leave types:', e);
-    }
+    } catch (e) { console.error(e); }
   };
-
   const fetchAssignments = async () => {
     if (!personID) return;
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_assignment`,
-        getAuthHeaders(),
-      );
+      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders());
       const mine = (Array.isArray(res.data) ? res.data : []).filter(
         (a) => a.employeeNumber?.toString() === personID?.toString(),
       );
       setAssignments(mine);
-    } catch (e) {
-      console.error('Error fetching assignments:', e);
-    }
+    } catch (e) { console.error(e); }
   };
-
   const fetchTransactionLogs = async () => {
     if (!personID) return;
     setTransactionLogsLoading(true);
-    setTransactionLogsError('');
+    setTransactionLogsError("");
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/leaveRoute/leave_request/transactions/${personID}`,
-        getAuthHeaders(),
-      );
+      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request/transactions/${personID}`, getAuthHeaders());
       setTransactionLogs(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
-      console.error('Error fetching transaction logs:', e);
-      setTransactionLogsError('Failed to load transaction logs.');
+      console.error(e);
+      setTransactionLogsError("Failed to load transaction logs.");
       setTransactionLogs([]);
     } finally {
       setTransactionLogsLoading(false);
@@ -980,41 +827,33 @@ const LeaveRequestUser = () => {
 
   useEffect(() => {
     if (transactionLogsModalOpen) fetchTransactionLogs();
-  }, [transactionLogsModalOpen, personID]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [transactionLogsModalOpen, personID]); // eslint-disable-line
 
+  // ── Validation only — opens review modal ─────────────────────────────────────
   const handleAdd = async () => {
     if (!newLeaveRequest.leave_code) {
-      alert('Please select a leave type.');
+      showError("Missing Fields", "Please select a leave type.", { icon: WarningIcon, iconColor: "#F57C00", iconBg: "#FFF3E0" });
       return;
     }
     if (!selectedDates.length) {
-      alert('Please pick at least one leave date.');
+      showError("Missing Fields", "Please pick at least one leave date.", { icon: WarningIcon, iconColor: "#F57C00", iconBg: "#FFF3E0" });
       return;
     }
     const unavailableDates = selectedDates.filter((date) =>
       leaveRequests.some((req) => {
-        const reqDates = (req.leave_date || '').split(',').map((s) => s.trim());
-        return reqDates.includes(date) && String(req.status) === '2';
-      }),
+        const reqDates = (req.leave_date || "").split(",").map((s) => s.trim());
+        return reqDates.includes(date) && String(req.status) === "2";
+      })
     );
     if (unavailableDates.length > 0) {
-      setUnavailableDatesAlertDetail(
-        `One or more selected dates are unavailable due to existing HR-approved leave. Please change your selection.`,
-      );
-      setUnavailableDatesAlertOpen(true);
+      showError("Unavailable Dates", "One or more selected dates conflict with existing HR-approved leave.");
       return;
     }
-    const remainingDays = getAllocatedRemainingDays();
-    if (remainingDays !== null && selectedDates.length > remainingDays) {
-      const typeName =
-        leaveTypes.find((t) => t.leave_code === newLeaveRequest.leave_code)
-          ?.leave_description || newLeaveRequest.leave_code;
-      setBalanceAlertDetail(
-        `You are requesting ${selectedDates.length} day(s) of "${typeName}" but only have ${remainingDays.toFixed(1)} allocated day(s) remaining.`,
-      );
-      setBalanceAlertOpen(true);
-      return;
-    }
+    openReview();
+  };
+
+  // ── Actual API submission — called by ReviewModal ─────────────────────────────
+  const handleSubmitConfirmed = async () => {
     setLoading(true);
     try {
       await axios.post(
@@ -1023,2264 +862,714 @@ const LeaveRequestUser = () => {
           employeeNumber: personID,
           leave_code: newLeaveRequest.leave_code,
           leave_dates: selectedDates,
-          status: '0',
+          status: "0",
         },
         getAuthHeaders(),
       );
-      setSuccessAction('Leave Request Submitted Successfully');
+      setSuccessAction("Leave Request Submitted Successfully");
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
       await fetchLeaveRequests();
       await fetchAssignments();
-      setNewLeaveRequest({ leave_code: '', leave_date: '' });
+      setNewLeaveRequest({ leave_code: "", leave_date: "" });
       setSelectedDates([]);
+      closeReview();
     } catch (err) {
-      const errMsg = err.response?.data?.error || err.message;
-      if (err.response?.status === 400) {
-        setBalanceAlertDetail(err.response?.data?.detail || errMsg);
-        setBalanceAlertOpen(true);
-      } else alert('Error submitting leave request: ' + errMsg);
+      closeReview();
+      showError("Submission Failed", err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleChange = (field, value) => {
-    setNewLeaveRequest((prev) => ({ ...prev, [field]: value }));
-    if (field === 'leave_code') setSelectedDates([]);
+  const handleCancelRequest = async (id) => {
+    showConfirm({
+      title: "Cancel Leave Request",
+      message: "Are you sure you want to cancel this leave request? This action cannot be undone.",
+      confirmLabel: "Cancel Request",
+      confirmColor: "#C62828", confirmHoverColor: "#B71C1C",
+      icon: CancelIcon, iconColor: "#C62828", iconBg: "#FFEBEE",
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        try {
+          const req = leaveRequests.find((r) => r.id === id);
+          await axios.put(
+            `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
+            { employeeNumber: req.employeeNumber, leave_code: req.leave_code, leave_date: req.leave_date, status: 4 },
+            getAuthHeaders(),
+          );
+          setSuccessAction("Request Cancelled Successfully");
+          setSuccessOpen(true);
+          setTimeout(() => setSuccessOpen(false), 2000);
+          await fetchLeaveRequests();
+          await fetchAssignments();
+        } catch (err) {
+          showError("Error", err.response?.data?.error || err.message);
+        } finally {
+          closeConfirm();
+        }
+      },
+    });
   };
-
-  const getLeaveTypeInfo = (leaveDesc) =>
-    leaveTypes.find((t) => t.leave_description === leaveDesc) || {
-      leave_description: leaveDesc,
-    };
 
   const filteredLeaveRequests = useMemo(() => {
     return leaveRequests
       .filter((request) => {
         if (monthFilter) {
-          const m = String(
-            new Date(request.leave_date).getMonth() + 1,
-          ).padStart(2, '0');
+          const m = String(new Date(request.leave_date).getMonth() + 1).padStart(2, "0");
           if (m !== monthFilter) return false;
         }
-        if (leaveTypeFilter && request.leave_code !== leaveTypeFilter)
-          return false;
-        if (statusFilter && String(request.status) !== statusFilter)
-          return false;
+        if (leaveTypeFilter && request.leave_code !== leaveTypeFilter) return false;
+        if (statusFilter && String(request.status) !== statusFilter) return false;
         return true;
       })
       .sort((a, b) => new Date(b.leave_date) - new Date(a.leave_date));
   }, [leaveRequests, monthFilter, leaveTypeFilter, statusFilter]);
 
-  const handleCancelRequest = async (id) => {
-    if (!window.confirm('Are you sure you want to cancel this leave request?'))
-      return;
-    try {
-      const req = leaveRequests.find((r) => r.id === id);
-      await axios.put(
-        `${API_BASE_URL}/leaveRoute/leave_request/${id}`,
-        {
-          employeeNumber: req.employeeNumber,
-          leave_code: req.leave_code,
-          leave_date: req.leave_date,
-          status: 4,
-        },
-        getAuthHeaders(),
-      );
-      setSuccessAction('Request Cancelled Successfully');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-      await fetchLeaveRequests();
-      await fetchAssignments();
-    } catch (err) {
-      alert(
-        'Error cancelling request: ' +
-          (err.response?.data?.error || err.message),
-      );
-    }
-  };
-
-  const getStatusInfo = (status) =>
-    ({
-      0: {
-        label: 'Pending',
-        sublabel: '',
-        color: '#F57C00',
-        bg: '#FFF8E1',
-        icon: AccessTime,
-      },
-      1: {
-        label: 'Supervisor Approved',
-        sublabel: 'Pending HR',
-        color: '#1565C0',
-        bg: '#E3F2FD',
-        icon: CheckCircle,
-      },
-      2: {
-        label: 'HR Approved',
-        sublabel: '',
-        color: '#2E7D32',
-        bg: '#E8F5E9',
-        icon: CheckCircle,
-      },
-      3: {
-        label: 'Denied',
-        sublabel: '',
-        color: '#C62828',
-        bg: '#FFEBEE',
-        icon: Block,
-      },
-      4: {
-        label: 'Cancelled',
-        sublabel: '',
-        color: '#757575',
-        bg: '#FAFAFA',
-        icon: CancelIcon,
-      },
-    })[String(status)] || {
-      label: 'Unknown',
-      sublabel: '',
-      color: '#757575',
-      bg: '#FAFAFA',
-      icon: AccessTime,
-    };
-
   const formatDate = (d) => {
-    if (!d) return 'N/A';
-    const s = Array.isArray(d) ? d[0] : d.split(',')[0].trim();
-    const [y, m, day] = s.split('-');
-    return new Date(y, m - 1, day).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    if (!d) return "N/A";
+    const s = Array.isArray(d) ? d[0] : d.split(",")[0].trim();
+    const [y, m, day] = s.split("-");
+    return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
-  const formatDateTime = (d) => {
-    if (!d) return 'N/A';
-    return new Date(d).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const formatDateDisplayLocal = (dateStr) => {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   };
 
-  const renderTransactionMessage = (message) => {
-    const safeMessage = message || 'No message';
-    const lower = safeMessage.toLowerCase();
-    const highlights = [];
-    if (lower.includes('immediate supervisor'))
-      highlights.push({ pattern: /\bapprove\b/gi, color: '#1565C0' });
-    else if (lower.includes('hr') && lower.includes('approve'))
-      highlights.push({ pattern: /\bapprove\b/gi, color: '#2E7D32' });
-    else if (lower.includes('rejected'))
-      highlights.push({ pattern: /\brejected\b/gi, color: '#C62828' });
-    else if (lower.includes('requested'))
-      highlights.push({ pattern: /\brequested\b/gi, color: '#D4A017' });
-    if (!highlights.length) return safeMessage;
-    let rendered = [safeMessage];
-    highlights.forEach(({ pattern, color }, idx) => {
-      rendered = rendered.flatMap((part, partIdx) => {
-        if (typeof part !== 'string') return [part];
-        const chunks = part.split(pattern);
-        const matches = part.match(pattern) || [];
-        if (!matches.length) return [part];
-        const out = [];
-        chunks.forEach((chunk, i) => {
-          if (chunk) out.push(chunk);
-          if (i < matches.length)
-            out.push(
-              <Box
-                component="span"
-                key={`hl-${idx}-${partIdx}-${i}`}
-                sx={{ color, fontWeight: 700 }}
-              >
-                {matches[i]}
-              </Box>,
-            );
-        });
-        return out;
-      });
-    });
-    return <>{rendered}</>;
+  const getTxKind = (log) => {
+    const lower = (log.message || "").toLowerCase();
+    if (lower.includes("deleted")) return "deleted";
+    if (lower.includes("reversed") || lower.includes("reversal")) return "reversal";
+    if (lower.includes("hr") && lower.includes("approv")) return "hr_approved";
+    if ((lower.includes("supervisor") || lower.includes("immediate")) && lower.includes("approv")) return "supervisor_approved";
+    if (lower.includes("approv")) return "approved";
+    if (lower.includes("reject") || lower.includes("denied") || lower.includes("deny")) return "denied";
+    if (lower.includes("cancel")) return "cancelled";
+    if (lower.includes("credit") && (lower.includes("added") || lower.includes("monthly"))) return "credit_added";
+    if (lower.includes("balance") && (lower.includes("remaining") || lower.includes("adjusted"))) return "balance_update";
+    if (lower.includes("assigned") && (lower.includes("leave") || lower.includes("hrs"))) return "assigned";
+    if (lower.includes("submit") || lower.includes("request") || lower.includes("filed")) return "submitted";
+    if (lower.includes("pending")) return "pending";
+    return "activity";
   };
 
-  const remainingDays = getAllocatedRemainingDays();
-  const isOverBalance =
-    remainingDays !== null && selectedDates.length > remainingDays;
+  const kindMap = {
+    submitted: { label: "Submitted", color: T.accent, bg: T.accentFaint, Icon: AddIcon },
+    pending: { label: "Pending", color: "#F57C00", bg: "#FFF8E1", Icon: AccessTime },
+    supervisor_approved: { label: "Supervisor Approved", color: "#1565C0", bg: "#E3F2FD", Icon: CheckCircle },
+    hr_approved: { label: "HR Approved", color: "#2E7D32", bg: "#E8F5E9", Icon: CheckCircle },
+    approved: { label: "Approved", color: "#2E7D32", bg: "#E8F5E9", Icon: CheckCircle },
+    denied: { label: "Denied", color: "#C62828", bg: "#FFEBEE", Icon: Block },
+    cancelled: { label: "Cancelled", color: "#757575", bg: "#F5F5F5", Icon: CancelIcon },
+    deleted: { label: "Deleted", color: "#C62828", bg: "#FFEBEE", Icon: DeleteIcon },
+    reversal: { label: "VL Reversal", color: "#B71C1C", bg: "#FFEBEE", Icon: Block },
+    credit_added: { label: "Credit Added", color: "#2E7D32", bg: "#E8F5E9", Icon: AddIcon },
+    balance_update: { label: "Balance Update", color: "#1565C0", bg: "#E3F2FD", Icon: WalletIcon },
+    assigned: { label: "Leave Assigned", color: "#1565C0", bg: "#E3F2FD", Icon: AddIcon },
+    activity: { label: "Activity", color: "#546E7A", bg: "#ECEFF1", Icon: ScheduleIcon },
+  };
 
-  const [inlineLeaveTypeError, setInlineLeaveTypeError] = React.useState('');
-  const [inlineSelectedDatesError, setInlineSelectedDatesError] =
-    React.useState('');
-
-  React.useEffect(() => {
-    setInlineLeaveTypeError('');
-    setInlineSelectedDatesError('');
-    if (newLeaveRequest.leave_code) {
-      const hasAllocation = assignments.some(
-        (a) =>
-          a.leave_code === newLeaveRequest.leave_code &&
-          parseFloat(a.allocated_hours || 0) > 0,
-      );
-      if (!hasAllocation)
-        setInlineLeaveTypeError(
-          `This request cannot be processed due to insufficient leave balance.`,
-        );
-      if (remainingDays !== null && selectedDates.length > remainingDays)
-        setInlineSelectedDatesError(
-          `You requested ${selectedDates.length} day(s) but only have ${remainingDays.toFixed(1)} allocated day(s) remaining.`,
-        );
-    }
-  }, [
-    newLeaveRequest.leave_code,
-    groupedBalances,
-    remainingDays,
-    selectedDates,
-    leaveTypes,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (accessLoading) {
-    return (
-      <LeaveRequestWireframe
-        accentColor={accentColor}
-        primaryColor={primaryColor}
-        secondaryColor={secondaryColor}
-      />
-    );
-  }
-
+  if (accessLoading || pageLoading) return <Wireframe />;
   if (!hasAccess) return <AccessDenied />;
 
-  // ── Wireframe skeleton ────────────────────────────────────────────────────
-  if (pageLoading) {
-    return (
-      <LeaveRequestWireframe
-        accentColor={accentColor}
-        primaryColor={primaryColor}
-        secondaryColor={secondaryColor}
-      />
-    );
-  }
-
   return (
-    <Fade in timeout={500}>
+    <Fade in timeout={400}>
       <Box
         sx={{
-          py: 4,
-          mt: -5,
-          width: '100vw',
-          mx: 'auto',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          position: 'relative',
-          left: '50%',
-          transform: 'translateX(-50%)',
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          mb: { xs: 1, md: 2 },
+          width: "100vw",
+          maxWidth: "100%",
+          position: "relative",
+          left: "49%",
+          transform: "translateX(-48%)",
+          px: { xs: 2, sm: 3, md: 6 },
         }}
       >
-        <Box
-          sx={{ px: { xs: 2, sm: 3, md: 6 }, mx: 'auto', maxWidth: '1800px' }}
-        >
-          <Backdrop
-            sx={{ color: primaryColor, zIndex: (t) => t.zIndex.drawer + 1 }}
-            open={loading}
+        <Backdrop sx={{ color: "#fff", zIndex: (t) => t.zIndex.drawer + 1 }} open={loading}>
+          <Box sx={{ textAlign: "center" }}>
+            <CircularProgress color="inherit" size={48} thickness={4} />
+            <Typography variant="body2" sx={{ mt: 1.5, color: "#fff" }}>Submitting…</Typography>
+          </Box>
+        </Backdrop>
+
+        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
+
+        <ErrorModal
+          open={errorModal.open} onClose={closeError}
+          title={errorModal.title} message={errorModal.message}
+          icon={errorModal.icon} iconColor={errorModal.iconColor} iconBg={errorModal.iconBg}
+        />
+        <ConfirmModal
+          open={confirmModal.open} onClose={closeConfirm} onConfirm={confirmModal.onConfirm}
+          title={confirmModal.title} message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          confirmColor={confirmModal.confirmColor} confirmHoverColor={confirmModal.confirmHoverColor}
+          icon={confirmModal.icon} iconColor={confirmModal.iconColor} iconBg={confirmModal.iconBg}
+          loading={confirmModal.loading}
+        />
+
+        {/* ── Review Modal ── */}
+        <ReviewModal
+          open={reviewModal.open}
+          onClose={closeReview}
+          onConfirm={handleSubmitConfirmed}
+          loading={loading}
+          personID={personID}
+          userName={userName}
+          leaveCode={newLeaveRequest.leave_code}
+          leaveDescription={leaveTypes.find((t) => t.leave_code === newLeaveRequest.leave_code)?.leave_description || ""}
+          selectedDates={selectedDates}
+          remainingDays={reviewModal.remainingDays}
+          allocatedDays={reviewModal.allocatedDays}
+        />
+
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box
+            sx={{
+              px: 4, py: 3,
+              background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              position: "relative", overflow: "hidden",
+            }}
           >
-            <Box sx={{ textAlign: 'center' }}>
-              <CircularProgress color="inherit" size={60} thickness={4} />
-              <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-                Submitting...
-              </Typography>
+            <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)" }} />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
+              <EventNote sx={{ fontSize: 28, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: "1.15rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                  Employee Leave Request
+                </Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600, opacity: 0.85 }}>
+                  Submit and track your leave requests
+                </Typography>
+              </Box>
             </Box>
-          </Backdrop>
-
-          <SuccessfulOverlay
-            open={successOpen}
-            action={successAction}
-            onClose={() => setSuccessOpen(false)}
-          />
-
-          {/* Snackbar: unavailable dates */}
-          <Snackbar
-            open={unavailableDatesAlertOpen}
-            onClose={() => setUnavailableDatesAlertOpen(false)}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            autoHideDuration={5000}
-            sx={{ zIndex: 9999, mb: { xs: 8, sm: 10, md: 12 } }}
-          >
-            <Alert
-              severity="error"
-              onClose={() => setUnavailableDatesAlertOpen(false)}
-              icon={<WarningIcon fontSize="inherit" />}
-              sx={{
-                width: '100%',
-                maxWidth: 420,
-                borderRadius: 3,
-                background: '#C62828',
-                color: '#fff',
-                boxShadow: '0 8px 32px rgba(198,40,40,0.18)',
-                border: '1.5px solid #C62828',
-                '& .MuiAlert-message': { width: '100%' },
-                '& .MuiTypography-root': { color: '#fff' },
-              }}
-            >
-              <Typography sx={{ fontWeight: 700, fontSize: '1rem', mb: 0.5 }}>
-                Unavailable Leave Date(s)
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.95 }}>
-                {unavailableDatesAlertDetail}
-              </Typography>
-            </Alert>
-          </Snackbar>
-
-          {/* Snackbar: balance alert */}
-          <Snackbar
-            open={balanceAlertOpen}
-            onClose={() => setBalanceAlertOpen(false)}
-            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-            sx={{ top: { xs: 32, sm: 48 }, zIndex: 9999 }}
-          >
-            <Alert
-              severity="error"
-              onClose={() => setBalanceAlertOpen(false)}
-              icon={<WarningIcon fontSize="inherit" />}
-              sx={{
-                width: '100%',
-                maxWidth: 520,
-                borderRadius: 3,
-                boxShadow: '0 8px 32px rgba(198,40,40,0.25)',
-                border: '1.5px solid rgba(198,40,40,0.3)',
-                '& .MuiAlert-message': { width: '100%' },
-              }}
-            >
-              <Typography sx={{ fontWeight: 700, fontSize: '1rem', mb: 0.5 }}>
-                Insufficient Leave Balance
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                {balanceAlertDetail}
-              </Typography>
-            </Alert>
-          </Snackbar>
-
-          {/* ── Header ── */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 4 }}>
-              <GlassCard
-                sx={{ border: `1px solid ${alpha(accentColor, 0.1)}` }}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
+              <AccentButton
+                onClick={() => { setTransactionLogsModalOpen(true); setAuditLogPage(1); }}
+                variant="contained"
+                startIcon={<HistoryToggleOff sx={{ fontSize: "15px !important" }} />}
+                sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}
               >
-                <Box
-                  sx={{
-                    p: 5,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
+                Transaction Logs
+              </AccentButton>
+              <Tooltip title="Refresh">
+                <IconButton
+                  onClick={() => window.location.reload()}
+                  size="small"
+                  sx={{ color: T.accent, bgcolor: alpha(T.accent, 0.1), "&:hover": { bgcolor: alpha(T.accent, 0.18) } }}
                 >
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: -50,
-                      right: -50,
-                      width: 200,
-                      height: 200,
-                      background:
-                        'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      bottom: -30,
-                      left: '30%',
-                      width: 150,
-                      height: 150,
-                      background:
-                        'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                    }}
-                  />
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    position="relative"
-                    zIndex={1}
-                  >
-                    <Box display="flex" alignItems="center">
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.15),
-                          mr: 4,
-                          width: 64,
-                          height: 64,
-                          boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                        }}
-                      >
-                        <EventNote sx={{ color: accentColor, fontSize: 32 }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h4"
-                          component="h1"
-                          sx={{
-                            fontWeight: 700,
-                            mb: 1,
-                            lineHeight: 1.2,
-                            color: accentColor,
-                          }}
-                        >
-                          Employee Leave Request
-                        </Typography>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            opacity: 0.8,
-                            fontWeight: 400,
-                            color: accentDark,
-                          }}
-                        >
-                          Submit and view your leave requests
+                  <Refresh sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Leave Balances ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{ px: 3.5, py: 1.5, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint }}>
+            <WalletIcon sx={{ fontSize: 15, color: T.accent }} />
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Leave Balances</Typography>
+            <Typography sx={{ fontSize: "0.72rem", color: T.faint, ml: 0.5 }}>•  &emsp;Remaining credits per type</Typography>
+          </Box>
+          <Box sx={{ p: 2 }}>
+            {groupedBalances.length === 0 ? (
+              <Typography sx={{ py: 1.5, color: T.faint, fontSize: "0.82rem", textAlign: "center" }}>
+                No balance information available.
+              </Typography>
+            ) : (
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25 }}>
+                {groupedBalances.map((balance) => {
+                  const allocatedDays = parseFloat(balance.allocatedDays || balance.totalDays);
+                  const daysRemaining = parseFloat(balance.totalDays);
+                  const pct = allocatedDays > 0 ? Math.min(100, (daysRemaining / allocatedDays) * 100) : 0;
+                  const barColor = pct > 60 ? "#2E7D32" : pct > 30 ? "#F57C00" : "#C62828";
+                  const scBlue = "#3498DB";
+                  const ctoGreen = "#2ECC71";
+                  const isSc = balance.code === "SC";
+                  const isCto = balance.code === "CTO";
+                  const cardBg = isSc ? alpha(scBlue, 0.18) : isCto ? alpha(ctoGreen, 0.18) : "#fff";
+                  const cardBorder = isSc ? `1px solid ${alpha(scBlue, 0.45)}` : isCto ? `1px solid ${alpha(ctoGreen, 0.45)}` : `1px solid ${T.accentBorder}`;
+
+                  return (
+                    <Box
+                      key={balance.code}
+                      sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 1, borderRadius: 2, bgcolor: cardBg, border: cardBorder, minWidth: 180, flex: "1 1 180px" }}
+                    >
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Chip label={balance.code} size="small" sx={{ bgcolor: T.accentFaint, color: T.accent, fontWeight: 700, fontSize: "0.75rem", height: 20, mb: 0.5 }} />
+                        <Typography sx={{ fontSize: "0.7rem", color: T.muted, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {balance.description}
                         </Typography>
                       </Box>
+                      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.4, flexShrink: 0 }}>
+                        <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.4 }}>
+                          <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.85rem", lineHeight: 1 }}>{balance.totalDays}</Typography>
+                          <Typography sx={{ color: T.faint, fontWeight: 400, fontSize: "0.7rem" }}>/ {allocatedDays.toFixed(3)}d</Typography>
+                        </Box>
+                        <Box sx={{ width: 64, height: 3, bgcolor: "#e8e8e8", borderRadius: 2 }}>
+                          <Box sx={{ height: "100%", width: `${pct}%`, bgcolor: barColor, borderRadius: 2 }} />
+                        </Box>
+                      </Box>
                     </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Button
-                        onClick={() => {
-                          setTransactionLogsModalOpen(true);
-                          setAuditLogPage(1);
-                        }}
-                        startIcon={<HistoryToggleOff />}
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                          color: accentColor,
-                          borderRadius: 3,
-                          px: 2,
-                          py: 1,
-                          fontWeight: 600,
-                          fontSize: '0.85rem',
-                          textTransform: 'none',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Transaction Logs
-                      </Button>
-                      <Tooltip title="Refresh Data">
-                        <IconButton
-                          onClick={() => window.location.reload()}
-                          sx={{
-                            bgcolor: alpha(accentColor, 0.1),
-                            '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                            color: accentColor,
-                            width: 48,
-                            height: 48,
-                          }}
-                        >
-                          <Refresh />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Box>
-          </Fade>
+                  );
+                })}
+              </Box>
+            )}
+          </Box>
+        </SectionCard>
 
-          {/* ── Leave Balances ── */}
-          <Fade in timeout={600}>
-            <GlassCard
-              sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}
-            >
+        {/* ── Two Column ── */}
+        <Grid container spacing={2} alignItems="stretch">
+
+          {/* ── LEFT: Submit Form ── */}
+          <Grid item xs={12} lg={5} sx={{ display: "flex" }}>
+            <SectionCard sx={{ width: "100%", display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint }}>
+                <PersonIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Submit New Leave Request</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>
+                  <Box component="span" sx={{ color: "#c62828" }}>*</Box> required
+                </Typography>
+              </Box>
+
               <Box
                 sx={{
-                  p: 3,
-                  pl: 4,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: accentColor,
-                  display: 'flex',
-                  alignItems: 'center',
-                  borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
+                  px: 3.5, py: 3, flexGrow: 1, overflowY: "auto",
+                  display: "flex", flexDirection: "column", gap: 2.5,
+                  "&::-webkit-scrollbar": { width: 4 },
+                  "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 },
                 }}
               >
-                <Avatar
-                  sx={{
-                    bgcolor: alpha(accentColor, 0.12),
-                    width: 36,
-                    height: 36,
-                    mr: 2,
-                  }}
-                >
-                  <WalletIcon sx={{ color: accentColor, fontSize: 20 }} />
-                </Avatar>
                 <Box>
-                  <Typography
-                    variant="h6"
-                    sx={{
-                      fontWeight: 700,
-                      color: accentColor,
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    Your Leave Balances
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{ color: accentDark, opacity: 0.8 }}
-                  >
-                    Remaining leave credits per type
-                  </Typography>
+                  <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Employee Number</Typography>
+                  <FieldInput value={personID} disabled fullWidth size="small" />
                 </Box>
-              </Box>
-              <Box sx={{ p: 3, bgcolor: alpha(primaryColor, 0.4) }}>
-                {groupedBalances.length === 0 ? (
-                  <Typography align="center" sx={{ py: 3, color: '#666' }}>
-                    No balance information available.
+
+                <Divider sx={{ borderColor: T.divider }} />
+
+                <Box>
+                  <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                    Leave Type <Box component="span" sx={{ color: "#c62828" }}>*</Box>
                   </Typography>
-                ) : (
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
-                    {groupedBalances.map((balance) => {
-                      const maxAssignment = assignments
-                        .filter((a) => a.leave_code === balance.code)
-                        .reduce((max, a) => {
-                          const days = parseFloat(a.allocated_hours || 0) / 8;
-                          return days > max ? days : max;
-                        }, 0);
-                      const pct =
-                        maxAssignment > 0
-                          ? Math.min(
-                              100,
-                              (balance.totalDays / maxAssignment) * 100,
-                            )
-                          : 0;
-                      const barColor =
-                        pct > 60 ? '#2E7D32' : pct > 30 ? '#F57C00' : '#C62828';
-                      return (
-                        <BalanceCard key={balance.code}>
-                          {/* left: code chip + description */}
-                          <Box>
-                            <Chip
-                              label={balance.code}
-                              size="small"
-                              sx={{
-                                bgcolor: alpha(accentColor, 0.1),
-                                color: accentColor,
-                                fontWeight: 700,
-                                fontSize: '0.7rem',
-                                height: 20,
-                                mb: 0.5,
-                              }}
-                            />
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                display: 'block',
-                                color: '#666',
-                                fontSize: '0.72rem',
-                                maxWidth: 110,
-                                lineHeight: 1.3,
-                              }}
-                            >
-                              {balance.description}
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={newLeaveRequest.leave_code}
+                      onChange={(e) => { setNewLeaveRequest((p) => ({ ...p, leave_code: e.target.value })); setSelectedDates([]); }}
+                      displayEmpty
+                      sx={selectSx}
+                      renderValue={(v) =>
+                        v ? (
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: T.accent }}>{v}</Typography>
+                            </Box>
+                            <Typography sx={{ fontSize: "0.875rem" }}>
+                              {leaveTypes.find((t) => t.leave_code === v)?.leave_description || ""}
                             </Typography>
                           </Box>
-                          {/* divider */}
-                          <Box
+                        ) : (
+                          <Typography sx={{ fontSize: "0.875rem", color: T.faint }}>Select leave type…</Typography>
+                        )
+                      }
+                    >
+                      <MenuItem value=""><em>Select Leave Type</em></MenuItem>
+                      {leaveTypes.map((type) => (
+                        <MenuItem key={type.id} value={type.leave_code}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: T.accent }}>{type.leave_code}</Typography>
+                            </Box>
+                            <Typography sx={{ fontSize: "0.875rem" }}>{type.leave_description}</Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+
+                <Box>
+                  <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                    Leave Date(s) <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                  </Typography>
+                  <AccentButton
+                    variant="outlined"
+                    onClick={() => setDateModalOpen(true)}
+                    fullWidth
+                    startIcon={<CalendarIcon sx={{ fontSize: "15px !important" }} />}
+                    sx={{
+                      height: 40, border: `1.5px solid ${T.accentBorder}`,
+                      color: selectedDates.length ? T.accent : T.muted,
+                      justifyContent: "flex-start", px: 1.5,
+                      bgcolor: selectedDates.length ? T.accentFaint : "#fff",
+                      "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent, transform: "none" },
+                    }}
+                  >
+                    <Typography sx={{ fontSize: "0.875rem" }}>
+                      {selectedDates.length > 0 ? `${selectedDates.length} date(s) selected` : "Pick leave dates…"}
+                    </Typography>
+                  </AccentButton>
+                  {isSickLeave() && (
+                    <Typography sx={{ fontSize: "0.68rem", color: "#1565C0", mt: 0.5, fontStyle: "italic" }}>
+                      * Past dates allowed for sick leave
+                    </Typography>
+                  )}
+                  <LeaveDatePicker
+                    open={dateModalOpen}
+                    onClose={() => { setNewLeaveRequest((p) => ({ ...p, leave_date: selectedDates.join(",") })); setDateModalOpen(false); }}
+                    selectedDates={selectedDates}
+                    setSelectedDates={setSelectedDates}
+                    accentColor={T.accent}
+                    accentDark={T.accentDark}
+                    primaryColor="#fdf5f5"
+                    secondaryColor="#f0dede"
+                    allowPastDates={isSickLeave()}
+                    leaveType={newLeaveRequest.leave_code}
+                    leaveRequests={leaveRequests}
+                    maxSelectableDates={null}
+                  />
+                </Box>
+
+                <Box>
+                  <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Selected Dates</Typography>
+                  <Box
+                    sx={{
+                      minHeight: 48, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0.75,
+                      p: 1.5, border: `1px solid ${alpha(T.accent, 0.2)}`, borderRadius: 2, bgcolor: T.accentFaint,
+                    }}
+                  >
+                    {selectedDates.length > 0 ? (
+                      selectedDates.map((date) => {
+                        const isHRApproved = leaveRequests.some(
+                          (req) =>
+                            (req.leave_date || "").split(",").map((s) => s.trim()).includes(date) &&
+                            String(req.status) === "2",
+                        );
+                        const chip = (
+                          <Chip
+                            key={date}
+                            size="small"
+                            label={formatDateDisplayLocal(date)}
+                            onDelete={isHRApproved ? undefined : () => setSelectedDates((prev) => prev.filter((d) => d !== date))}
                             sx={{
-                              width: '1px',
-                              height: 32,
-                              bgcolor: alpha(accentColor, 0.12),
-                              flexShrink: 0,
+                              bgcolor: isHRApproved ? alpha("#C62828", 0.1) : alpha("#2E7D32", 0.1),
+                              color: isHRApproved ? "#C62828" : "#2E7D32",
+                              fontWeight: 600, fontSize: "0.75rem", height: 24,
+                              border: `1px solid ${alpha(isHRApproved ? "#C62828" : "#2E7D32", 0.25)}`,
                             }}
+                            disabled={isHRApproved}
                           />
-                          {/* right: days + bar */}
-                          <Box>
-                            <Typography
-                              sx={{
-                                fontWeight: 700,
-                                color: textPrimaryColor,
-                                fontSize: '1rem',
-                                lineHeight: 1,
-                              }}
-                            >
-                              {balance.totalDays}
-                              <Typography
-                                component="span"
-                                sx={{
-                                  color: '#999',
-                                  fontWeight: 400,
-                                  fontSize: '0.75rem',
-                                  ml: 0.5,
-                                }}
-                              >
-                                / {maxAssignment.toFixed(1)} d
-                              </Typography>
-                            </Typography>
-                            <Box
-                              sx={{
-                                mt: 0.75,
-                                height: 3,
-                                width: 72,
-                                bgcolor: '#e8e8e8',
-                                borderRadius: 2,
-                              }}
-                            >
-                              <Box
-                                sx={{
-                                  height: '100%',
-                                  width: `${pct}%`,
-                                  bgcolor: barColor,
-                                  borderRadius: 2,
-                                  transition: 'width 0.6s ease',
-                                }}
-                              />
-                            </Box>
-                          </Box>
-                        </BalanceCard>
-                      );
-                    })}
-                  </Box>
-                )}
-              </Box>
-            </GlassCard>
-          </Fade>
-
-          {/* ── Two column row ── */}
-          <Grid container spacing={4}>
-            {/* Left: Submit Form */}
-            <Grid item xs={12} lg={6}>
-              <Fade in timeout={700}>
-                <GlassCard
-                  sx={{
-                    height: '100%',
-                    border: `1px solid ${alpha(accentColor, 0.1)}`,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      p: 4,
-                      background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                      color: accentColor,
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                    }}
-                  >
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.12),
-                        width: 40,
-                        height: 40,
-                        mr: 2,
-                      }}
-                    >
-                      <PersonIcon sx={{ color: accentColor, fontSize: 22 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 700,
-                          color: accentColor,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Submit New Leave Request
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: accentDark, opacity: 0.8 }}
-                      >
-                        Fill in the details to request leave
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Box sx={{ p: 4 }}>
-                    <Grid container spacing={3}>
-                      {/* Employee Number */}
-                      <Grid item xs={12}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                        >
-                          Employee Number
-                        </Typography>
-                        <ModernTextField
-                          value={personID}
-                          disabled
-                          fullWidth
-                          size="small"
-                          sx={{
-                            '& .MuiInputBase-input.Mui-disabled': {
-                              WebkitTextFillColor: '#333',
-                            },
-                          }}
-                        />
-                      </Grid>
-
-                      {/* Leave Type */}
-                      <Grid item xs={12}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                        >
-                          Leave Type{' '}
-                          <Box component="span" sx={{ color: '#C62828' }}>
-                            *
-                          </Box>
-                        </Typography>
-                        <FormControl fullWidth size="small">
-                          <ModernSelect
-                            value={newLeaveRequest.leave_code}
-                            onChange={(e) =>
-                              handleChange('leave_code', e.target.value)
-                            }
-                            displayEmpty
-                          >
-                            <MenuItem value="">
-                              <em style={{ color: '#999' }}>
-                                Select Leave Type
-                              </em>
-                            </MenuItem>
-                            {leaveTypes.map((type) => (
-                              <MenuItem key={type.id} value={type.leave_code}>
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 1,
-                                  }}
-                                >
-                                  <Chip
-                                    label={type.leave_code}
-                                    size="small"
-                                    sx={{
-                                      bgcolor: alpha(accentColor, 0.1),
-                                      color: accentColor,
-                                      fontWeight: 700,
-                                      fontSize: '0.7rem',
-                                      height: 20,
-                                    }}
-                                  />
-                                  <Typography variant="body2">
-                                    {type.leave_description}
-                                  </Typography>
-                                </Box>
-                              </MenuItem>
-                            ))}
-                          </ModernSelect>
-                        </FormControl>
-                        {inlineLeaveTypeError && (
-                          <Alert
-                            severity="error"
-                            icon={<WarningIcon fontSize="inherit" />}
-                            sx={{
-                              mt: 1,
-                              fontSize: '0.85rem',
-                              py: 0.5,
-                              px: 2,
-                              borderRadius: 2,
-                              bgcolor: 'rgba(198,40,40,0.06)',
-                              border: '1px solid rgba(198,40,40,0.2)',
-                            }}
-                          >
-                            {inlineLeaveTypeError}
-                          </Alert>
-                        )}
-                      </Grid>
-
-                      {/* Insufficient balance warning */}
-                      {newLeaveRequest.leave_code &&
-                        remainingDays !== null &&
-                        isOverBalance && (
-                          <Grid item xs={12}>
-                            <Box
-                              sx={{
-                                px: 2,
-                                py: 1.5,
-                                borderRadius: 2,
-                                bgcolor: 'rgba(198,40,40,0.06)',
-                                border: '1.5px solid rgba(198,40,40,0.25)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 1.5,
-                              }}
-                            >
-                              <WarningIcon
-                                sx={{
-                                  color: '#C62828',
-                                  fontSize: 20,
-                                  flexShrink: 0,
-                                }}
-                              />
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 600, color: '#C62828' }}
-                              >
-                                {`Insufficient balance — you have ${remainingDays.toFixed(1)} day(s) but selected ${selectedDates.length}.`}
-                              </Typography>
-                            </Box>
-                          </Grid>
-                        )}
-
-                      {/* Leave Dates */}
-                      <Grid item xs={12}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                        >
-                          Leave Date(s){' '}
-                          <Box component="span" sx={{ color: '#C62828' }}>
-                            *
-                          </Box>
-                        </Typography>
-                        <ProfessionalButton
-                          variant="outlined"
-                          onClick={() => setDateModalOpen(true)}
-                          startIcon={<CalendarIcon />}
-                          fullWidth
-                          disabled={remainingDays === 0}
-                          sx={{
-                            height: 48,
-                            border: `1.5px solid ${isOverBalance ? '#C62828' : accentColor}`,
-                            color: isOverBalance ? '#C62828' : accentColor,
-                            justifyContent: 'flex-start',
-                            bgcolor: alpha(
-                              isOverBalance ? '#C62828' : accentColor,
-                              0.04,
-                            ),
-                            '&:hover': {
-                              bgcolor: alpha(
-                                isOverBalance ? '#C62828' : accentColor,
-                                0.08,
-                              ),
-                              border: `1.5px solid ${isOverBalance ? '#C62828' : accentColor}`,
-                            },
-                          }}
-                        >
-                          {selectedDates.length > 0
-                            ? `${selectedDates.length} date(s) selected`
-                            : 'Pick Leave Dates'}
-                        </ProfessionalButton>
-                        <LeaveDatePicker
-                          open={dateModalOpen}
-                          onClose={() => {
-                            setNewLeaveRequest((prev) => ({
-                              ...prev,
-                              leave_date: selectedDates.join(','),
-                            }));
-                            setDateModalOpen(false);
-                          }}
-                          selectedDates={selectedDates}
-                          setSelectedDates={setSelectedDates}
-                          accentColor={accentColor}
-                          accentDark={accentDark}
-                          primaryColor={primaryColor}
-                          secondaryColor={secondaryColor}
-                          allowPastDates={isSickLeave()}
-                          leaveType={newLeaveRequest.leave_code}
-                          leaveRequests={leaveRequests}
-                          maxSelectableDates={remainingDays}
-                        />
-                        {isSickLeave() && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: '#1565C0',
-                              mt: 0.5,
-                              display: 'block',
-                              fontStyle: 'italic',
-                            }}
-                          >
-                            * Past dates allowed for sick leave
-                          </Typography>
-                        )}
-                      </Grid>
-
-                      {/* Selected dates display */}
-                      <Grid item xs={12}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 600, mb: 1, color: accentColor }}
-                        >
-                          Selected Dates
-                        </Typography>
-                        <Box
-                          sx={{
-                            minHeight: 56,
-                            display: 'flex',
-                            alignItems: 'center',
-                            flexWrap: 'wrap',
-                            gap: 1,
-                            p: 2,
-                            border: `1px solid ${alpha(isOverBalance ? '#C62828' : accentColor, 0.2)}`,
-                            borderRadius: 3,
-                            backgroundColor: alpha(primaryColor, 0.5),
-                          }}
-                        >
-                          {selectedDates.length > 0 ? (
-                            selectedDates.map((date) => {
-                              const isHRApproved = leaveRequests.some((req) => {
-                                const reqDates = (req.leave_date || '')
-                                  .split(',')
-                                  .map((s) => s.trim());
-                                return (
-                                  reqDates.includes(date) &&
-                                  String(req.status) === '2'
-                                );
-                              });
-                              const chip = (
-                                <Chip
-                                  key={date}
-                                  label={formatDateDisplay(date)}
-                                  onDelete={
-                                    isHRApproved
-                                      ? undefined
-                                      : () =>
-                                          setSelectedDates((prev) =>
-                                            prev.filter((d) => d !== date),
-                                          )
-                                  }
-                                  sx={{
-                                    bgcolor: isHRApproved
-                                      ? alpha('#C62828', 0.12)
-                                      : alpha('#2E7D32', 0.12),
-                                    color: isHRApproved ? '#C62828' : '#2E7D32',
-                                    fontWeight: 600,
-                                    fontSize: '0.82rem',
-                                    height: 30,
-                                    border: `1px solid ${alpha(isHRApproved ? '#C62828' : '#2E7D32', 0.25)}`,
-                                  }}
-                                  disabled={isHRApproved}
-                                />
-                              );
-                              return isHRApproved ? (
-                                <Tooltip
-                                  key={date}
-                                  title="This date is unavailable. An HR-approved leave has already been scheduled."
-                                  arrow
-                                >
-                                  <span>{chip}</span>
-                                </Tooltip>
-                              ) : (
-                                chip
-                              );
-                            })
-                          ) : (
-                            <Typography
-                              variant="body2"
-                              sx={{ color: '#aaa', fontStyle: 'italic' }}
-                            >
-                              No dates selected
-                            </Typography>
-                          )}
-                        </Box>
-                      </Grid>
-
-                      {/* Submit button */}
-                      <Grid item xs={12}>
-                        <ProfessionalButton
-                          onClick={handleAdd}
-                          variant="contained"
-                          startIcon={
-                            isOverBalance ? <WarningIcon /> : <AddIcon />
-                          }
-                          fullWidth
-                          disabled={isOverBalance || remainingDays === 0}
-                          sx={{
-                            py: 1.5,
-                            fontSize: '1rem',
-                            mt: 1,
-                            backgroundColor:
-                              isOverBalance || remainingDays === 0
-                                ? '#ccc'
-                                : accentColor,
-                            color:
-                              isOverBalance || remainingDays === 0
-                                ? '#666'
-                                : textSecondaryColor,
-                            boxShadow:
-                              isOverBalance || remainingDays === 0
-                                ? 'none'
-                                : `0 4px 14px ${alpha(accentColor, 0.35)}`,
-                            '&:hover': {
-                              backgroundColor:
-                                isOverBalance || remainingDays === 0
-                                  ? '#ccc'
-                                  : accentDark,
-                              boxShadow:
-                                isOverBalance || remainingDays === 0
-                                  ? 'none'
-                                  : `0 6px 20px ${alpha(accentColor, 0.45)}`,
-                            },
-                            '&:disabled': {
-                              backgroundColor: '#ccc !important',
-                              color: '#666 !important',
-                            },
-                          }}
-                        >
-                          {remainingDays === 0
-                            ? 'No Balance — Cannot Submit'
-                            : isOverBalance
-                              ? 'Insufficient Balance — Cannot Submit'
-                              : 'Submit Leave Request'}
-                        </ProfessionalButton>
-                      </Grid>
-                    </Grid>
-                  </Box>
-                </GlassCard>
-              </Fade>
-            </Grid>
-
-            {/* Right: Records */}
-            <Grid item xs={12} lg={6}>
-              <Fade in timeout={900}>
-                <GlassCard
-                  sx={{
-                    height: '100%',
-                    border: `1px solid ${alpha(accentColor, 0.1)}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      p: 4,
-                      background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                      borderBottom: `1px solid ${alpha(accentColor, 0.08)}`,
-                    }}
-                  >
-                    {/* Row 1 — title + subtitle */}
-                    <Box
-                      sx={{ display: 'flex', alignItems: 'center', mb: 2.5 }}
-                    >
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.12),
-                          width: 40,
-                          height: 40,
-                          mr: 2,
-                        }}
-                      >
-                        <ReorderIcon
-                          sx={{ color: accentColor, fontSize: 22 }}
-                        />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            fontWeight: 700,
-                            color: accentColor,
-                            lineHeight: 1.2,
-                          }}
-                        >
-                          My Leave Request Records
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{ color: accentDark, opacity: 0.8 }}
-                        >
-                          {filteredLeaveRequests.length} record(s) found
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    {/* Filters */}
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <Box
-                        sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
-                      >
-                        <FilterIcon sx={{ fontSize: 18, color: accentColor }} />
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontWeight: 600,
-                            color: accentColor,
-                            fontSize: '0.8rem',
-                          }}
-                        >
-                          Filter:
-                        </Typography>
-                      </Box>
-                      <FormControl size="small" sx={{ minWidth: 120 }}>
-                        <ModernSelect
-                          value={monthFilter}
-                          onChange={(e) => setMonthFilter(e.target.value)}
-                          displayEmpty
-                          renderValue={(v) =>
-                            v
-                              ? months.find((m) => m.value === v)?.label
-                              : 'Month'
-                          }
-                        >
-                          {months.map((m) => (
-                            <MenuItem key={m.value} value={m.value}>
-                              {m.label}
-                            </MenuItem>
-                          ))}
-                        </ModernSelect>
-                      </FormControl>
-                      <FormControl size="small" sx={{ minWidth: 130 }}>
-                        <ModernSelect
-                          value={leaveTypeFilter}
-                          onChange={(e) => setLeaveTypeFilter(e.target.value)}
-                          displayEmpty
-                          renderValue={(v) => v || 'Leave Type'}
-                        >
-                          <MenuItem value="">
-                            <em>All Types</em>
-                          </MenuItem>
-                          {leaveTypes.map((t) => (
-                            <MenuItem key={t.id} value={t.leave_code}>
-                              {t.leave_code}
-                            </MenuItem>
-                          ))}
-                        </ModernSelect>
-                      </FormControl>
-                      <FormControl size="small" sx={{ minWidth: 120 }}>
-                        <ModernSelect
-                          value={statusFilter}
-                          onChange={(e) => setStatusFilter(e.target.value)}
-                          displayEmpty
-                          renderValue={(v) =>
-                            v
-                              ? statusOptions.find((s) => s.value === v)?.label
-                              : 'Status'
-                          }
-                        >
-                          {statusOptions.map((s) => (
-                            <MenuItem key={s.value} value={s.value}>
-                              {s.label}
-                            </MenuItem>
-                          ))}
-                        </ModernSelect>
-                      </FormControl>
-                    </Box>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      p: 4,
-                      flexGrow: 1,
-                      maxHeight: 480,
-                      overflowY: 'auto',
-                      '&::-webkit-scrollbar': { width: 6 },
-                      '&::-webkit-scrollbar-track': {
-                        background: alpha(primaryColor, 0.5),
-                        borderRadius: 3,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: alpha(accentColor, 0.4),
-                        borderRadius: 3,
-                        '&:hover': { background: accentColor },
-                      },
-                    }}
-                  >
-                    {filteredLeaveRequests.length === 0 ? (
-                      <Box sx={{ textAlign: 'center', py: 8 }}>
-                        <EventNote
-                          sx={{
-                            fontSize: 56,
-                            color: alpha(accentColor, 0.2),
-                            mb: 2,
-                          }}
-                        />
-                        <Typography
-                          variant="h6"
-                          sx={{
-                            color: alpha(accentColor, 0.6),
-                            fontWeight: 600,
-                          }}
-                        >
-                          No Leave Requests Found
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{ color: '#999', mt: 1 }}
-                        >
-                          {monthFilter || leaveTypeFilter || statusFilter
-                            ? 'Try adjusting your filters'
-                            : 'Submit your first request using the form'}
-                        </Typography>
-                      </Box>
+                        );
+                        return isHRApproved ? (
+                          <Tooltip key={date} title="HR-approved leave already exists on this date." arrow>
+                            <span>{chip}</span>
+                          </Tooltip>
+                        ) : chip;
+                      })
                     ) : (
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 2,
-                        }}
-                      >
-                        {filteredLeaveRequests.map((leaveRequest) => {
-                          const typeInfo = getLeaveTypeInfo(
-                            leaveRequest.leave_description,
-                          );
-                          const statusInfo = getStatusInfo(leaveRequest.status);
-                          const canCancel = String(leaveRequest.status) === '0';
-                          const StatusIcon = statusInfo.icon;
-                          return (
-                            <RecordCard key={leaveRequest.id}>
-                              <CardContent
-                                sx={{ p: 3, '&:last-child': { pb: 3 } }}
-                              >
-                                <Grid container spacing={2} alignItems="center">
-                                  {/* Leave type */}
-                                  <Grid item xs={12} md={3}>
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        color: '#999',
-                                        display: 'block',
-                                        mb: 0.5,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.05em',
-                                        fontSize: '0.7rem',
-                                      }}
-                                    >
-                                      Leave Type
-                                    </Typography>
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1,
-                                        mb: 0.25,
-                                      }}
-                                    >
-                                      <EventNote
-                                        sx={{
-                                          fontSize: 16,
-                                          color: accentColor,
-                                        }}
-                                      />
-                                      <Typography
-                                        variant="body2"
-                                        sx={{
-                                          fontWeight: 700,
-                                          color: accentColor,
-                                        }}
-                                      >
-                                        {typeInfo.leave_code ||
-                                          leaveRequest.leave_code}
-                                      </Typography>
-                                    </Box>
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        color: '#777',
-                                        fontSize: '0.75rem',
-                                      }}
-                                    >
-                                      {typeInfo.leave_description}
-                                    </Typography>
-                                  </Grid>
-
-                                  {/* Leave date */}
-                                  <Grid item xs={6} md={2}>
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        color: '#999',
-                                        display: 'block',
-                                        mb: 0.5,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.05em',
-                                        fontSize: '0.7rem',
-                                      }}
-                                    >
-                                      Leave Date
-                                    </Typography>
-                                    <Typography
-                                      variant="body2"
-                                      sx={{ fontWeight: 600, color: '#333' }}
-                                    >
-                                      {formatDate(leaveRequest.leave_date)}
-                                    </Typography>
-                                  </Grid>
-
-                                  {/* Submitted */}
-                                  <Grid item xs={6} md={3}>
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        color: '#999',
-                                        display: 'block',
-                                        mb: 0.5,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.05em',
-                                        fontSize: '0.7rem',
-                                      }}
-                                    >
-                                      Submitted
-                                    </Typography>
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 0.5,
-                                      }}
-                                    >
-                                      <ScheduleIcon
-                                        sx={{ fontSize: 14, color: '#aaa' }}
-                                      />
-                                      <Typography
-                                        variant="body2"
-                                        sx={{
-                                          fontWeight: 500,
-                                          color: '#555',
-                                          fontSize: '0.82rem',
-                                        }}
-                                      >
-                                        {leaveRequest.created_at
-                                          ? new Date(
-                                              leaveRequest.created_at,
-                                            ).toLocaleDateString('en-US', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              year: 'numeric',
-                                            })
-                                          : 'N/A'}
-                                      </Typography>
-                                    </Box>
-                                  </Grid>
-
-                                  {/* Status + Cancel aligned in one row */}
-                                  <Grid item xs={12} md={4}>
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        color: '#999',
-                                        display: 'block',
-                                        mb: 0.5,
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.05em',
-                                        fontSize: '0.7rem',
-                                      }}
-                                    >
-                                      Status
-                                    </Typography>
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 1.5,
-                                        flexWrap: 'wrap',
-                                      }}
-                                    >
-                                      <Box
-                                        sx={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: 0.75,
-                                          px: 1.5,
-                                          py: 0.5,
-                                          borderRadius: 2,
-                                          bgcolor: statusInfo.bg,
-                                          border: `1px solid ${alpha(statusInfo.color, 0.2)}`,
-                                        }}
-                                      >
-                                        <StatusIcon
-                                          sx={{
-                                            fontSize: 14,
-                                            color: statusInfo.color,
-                                          }}
-                                        />
-                                        <Typography
-                                          variant="body2"
-                                          sx={{
-                                            fontWeight: 600,
-                                            color: statusInfo.color,
-                                            fontSize: '0.78rem',
-                                            whiteSpace: 'nowrap',
-                                          }}
-                                        >
-                                          {statusInfo.label}
-                                        </Typography>
-                                      </Box>
-                                      {canCancel && (
-                                        <ProfessionalButton
-                                          size="small"
-                                          variant="outlined"
-                                          onClick={() =>
-                                            handleCancelRequest(leaveRequest.id)
-                                          }
-                                          sx={{
-                                            color: '#C62828',
-                                            borderColor: alpha('#C62828', 0.3),
-                                            fontSize: '0.75rem',
-                                            py: 0.5,
-                                            px: 1.5,
-                                            minWidth: 0,
-                                            '&:hover': {
-                                              backgroundColor: alpha(
-                                                '#C62828',
-                                                0.08,
-                                              ),
-                                              borderColor: '#C62828',
-                                            },
-                                          }}
-                                        >
-                                          Cancel
-                                        </ProfessionalButton>
-                                      )}
-                                    </Box>
-                                    {statusInfo.sublabel && (
-                                      <Typography
-                                        variant="caption"
-                                        sx={{
-                                          color: '#888',
-                                          display: 'block',
-                                          mt: 0.25,
-                                        }}
-                                      >
-                                        {statusInfo.sublabel}
-                                      </Typography>
-                                    )}
-                                  </Grid>
-                                </Grid>
-                              </CardContent>
-                            </RecordCard>
-                          );
-                        })}
-                      </Box>
+                      <Typography sx={{ fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>No dates selected</Typography>
                     )}
                   </Box>
-                </GlassCard>
-              </Fade>
-            </Grid>
-          </Grid>
-
-          {/* ── Transaction Logs Modal ── */}
-          <Modal
-            open={transactionLogsModalOpen}
-            onClose={() => setTransactionLogsModalOpen(false)}
-          >
-            <Fade in={transactionLogsModalOpen}>
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: { xs: '92%', sm: '85%', md: 680 },
-                  maxHeight: '85vh',
-                  bgcolor: '#fff',
-                  border: `1px solid ${alpha(accentColor, 0.15)}`,
-                  boxShadow: `0 24px 64px ${alpha(accentColor, 0.25)}`,
-                  borderRadius: 3,
-                  overflow: 'hidden',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                {/* ── Modal Header ── */}
-                <Box
-                  sx={{
-                    p: 3,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderBottom: `1px solid ${alpha(accentColor, 0.12)}`,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.12),
-                        width: 40,
-                        height: 40,
-                      }}
-                    >
-                      <HistoryToggleOff
-                        sx={{ color: accentColor, fontSize: 22 }}
-                      />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 700,
-                          color: accentColor,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        Transaction Logs
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: accentDark, opacity: 0.75 }}
-                      >
-                        {transactionLogs.length > 0
-                          ? `${transactionLogs.length} recorded action(s)`
-                          : 'All activity on your leave requests'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    onClick={() => setTransactionLogsModalOpen(false)}
-                    sx={{
-                      color: accentColor,
-                      '&:hover': { bgcolor: alpha(accentColor, 0.08) },
-                    }}
-                  >
-                    <CloseIcon />
-                  </IconButton>
                 </Box>
 
-                {/* ── Modal Body ── */}
-                <Box
+                <Box sx={{ flexGrow: 1 }} />
+
+                <AccentButton
+                  onClick={handleAdd}
+                  variant="contained"
+                  fullWidth
+                  startIcon={<AddIcon sx={{ fontSize: "16px !important" }} />}
+                  disabled={loading}
                   sx={{
-                    p: 3,
-                    overflowY: 'auto',
-                    flexGrow: 1,
-                    bgcolor: alpha(primaryColor, 0.25),
-                    '&::-webkit-scrollbar': { width: 5 },
-                    '&::-webkit-scrollbar-track': { background: 'transparent' },
-                    '&::-webkit-scrollbar-thumb': {
-                      background: alpha(accentColor, 0.25),
-                      borderRadius: 3,
-                    },
+                    height: 42, bgcolor: T.accent, color: "#fff",
+                    boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                    "&:hover": { bgcolor: T.accentDark },
+                    "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" },
                   }}
                 >
-                  {transactionLogsLoading ? (
-                    <Box
-                      sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
-                    >
-                      {[...Array(AUDIT_LOGS_PER_PAGE)].map((_, i) => (
-                        <Box
-                          key={i}
-                          sx={{
-                            p: 2.5,
-                            borderRadius: 2,
-                            bgcolor: '#fff',
-                            border: `1px solid ${alpha(accentColor, 0.08)}`,
-                            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                            animation: 'lruPulse 1.6s ease-in-out infinite',
-                            animationDelay: `${i * 0.1}s`,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              mb: 1.25,
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                height: 20,
-                                width: 90,
-                                borderRadius: 1,
-                                bgcolor: alpha(accentColor, 0.08),
-                              }}
-                            />
-                            <Box
-                              sx={{
-                                height: 12,
-                                width: 110,
-                                borderRadius: 1,
-                                bgcolor: alpha(accentColor, 0.05),
-                              }}
-                            />
-                          </Box>
-                          <Box
-                            sx={{
-                              height: 14,
-                              width: '80%',
-                              borderRadius: 1,
-                              bgcolor: alpha(accentColor, 0.06),
-                              mb: 0.75,
-                            }}
-                          />
-                          <Box
-                            sx={{
-                              height: 14,
-                              width: '55%',
-                              borderRadius: 1,
-                              bgcolor: alpha(accentColor, 0.04),
-                            }}
-                          />
-                        </Box>
-                      ))}
+                  Submit Leave Request
+                </AccentButton>
+              </Box>
+            </SectionCard>
+          </Grid>
+
+          {/* ── RIGHT: Records ── */}
+          <Grid item xs={12} lg={7} sx={{ display: "flex" }}>
+            <SectionCard sx={{ width: "100%", display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <TableRowsIcon sx={{ fontSize: 17, color: T.accent }} />
+                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>My Leave Request Records</Typography>
+                    <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>• {filteredLeaveRequests.length} record(s)</Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                  <FilterIcon sx={{ fontSize: 15, color: T.accent }} />
+                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: T.accent }}>Filter:</Typography>
+                  <FormControl size="small" sx={{ minWidth: 110 }}>
+                    <Select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} displayEmpty sx={{ ...selectSx, fontSize: "0.78rem" }} renderValue={(v) => v ? months.find((m) => m.value === v)?.label : "Month"}>
+                      {months.map((m) => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <Select value={leaveTypeFilter} onChange={(e) => setLeaveTypeFilter(e.target.value)} displayEmpty sx={{ ...selectSx, fontSize: "0.78rem" }} renderValue={(v) => v || "Leave Type"}>
+                      <MenuItem value=""><em>All Types</em></MenuItem>
+                      {leaveTypes.map((t) => <MenuItem key={t.id} value={t.leave_code}>{t.leave_code}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 110 }}>
+                    <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} displayEmpty sx={{ ...selectSx, fontSize: "0.78rem" }} renderValue={(v) => v ? statusOptions.find((s) => s.value === v)?.label : "Status"}>
+                      {statusOptions.map((s) => <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Box>
+              </Box>
+
+              <Box sx={{ px: 3.5, py: 1.25, display: "grid", gridTemplateColumns: "120px 90px 1fr 130px 80px", gap: 1, alignItems: "center", bgcolor: alpha(T.accent, 0.04), borderBottom: `1px solid ${T.divider}` }}>
+                {["Leave Type", "Date", "Submitted", "Status", ""].map((col) => (
+                  <Typography key={col} sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    {col}
+                  </Typography>
+                ))}
+              </Box>
+
+              <Box sx={{ flexGrow: 1, overflowY: "auto", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                {filteredLeaveRequests.length === 0 ? (
+                  <Box sx={{ py: 10, textAlign: "center" }}>
+                    <Box sx={{ width: 64, height: 64, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
+                      <EventNote sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }} />
                     </Box>
-                  ) : transactionLogsError ? (
-                    <Alert severity="error" sx={{ borderRadius: 2 }}>
-                      {transactionLogsError}
-                    </Alert>
-                  ) : transactionLogs.length === 0 ? (
-                    <Box sx={{ textAlign: 'center', py: 8 }}>
-                      <HistoryToggleOff
+                    <Typography sx={{ fontSize: "0.88rem", fontWeight: 600, color: T.muted, mb: 0.5 }}>No leave requests found</Typography>
+                    <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>
+                      {monthFilter || leaveTypeFilter || statusFilter ? "Try adjusting your filters" : "Submit your first request using the form"}
+                    </Typography>
+                  </Box>
+                ) : (
+                  filteredLeaveRequests.map((req, idx) => {
+                    const canCancel = String(req.status) === "0";
+                    const typeDesc = leaveTypes.find((t) => t.leave_code === req.leave_code)?.leave_description || req.leave_code;
+                    return (
+                      <Box
+                        key={req.id}
                         sx={{
-                          fontSize: 52,
-                          color: alpha(accentColor, 0.2),
-                          mb: 2,
+                          px: 3.5, py: 1.5,
+                          display: "grid", gridTemplateColumns: "120px 90px 1fr 130px 80px",
+                          gap: 1, alignItems: "center",
+                          bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                          borderBottom: `1px solid ${T.divider}`,
+                          "&:last-child": { borderBottom: "none" },
+                          "&:hover": { bgcolor: T.rowHover },
                         }}
-                      />
-                      <Typography
-                        variant="body1"
-                        sx={{ color: '#888', fontWeight: 500 }}
                       >
-                        No activity yet.
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: '#bbb' }}>
-                        Actions on your leave requests will appear here.
-                      </Typography>
+                        <Box>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.25 }}>
+                            <Box sx={{ px: 0.75, py: 0.15, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: "0.65rem", fontWeight: 800, color: T.accent }}>{req.leave_code}</Typography>
+                            </Box>
+                          </Box>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.muted }} noWrap>{typeDesc}</Typography>
+                        </Box>
+                        <Typography sx={{ fontSize: "0.78rem", color: T.text, fontWeight: 500 }}>{formatDate(req.leave_date)}</Typography>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                          <ScheduleIcon sx={{ fontSize: 12, color: T.faint }} />
+                          <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>
+                            {req.created_at ? new Date(req.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "N/A"}
+                          </Typography>
+                        </Box>
+                        <StatusPill status={req.status} />
+                        <Box>
+                          {canCancel && (
+                            <AccentButton
+                              size="small" variant="outlined"
+                              onClick={() => handleCancelRequest(req.id)}
+                              sx={{
+                                fontSize: "0.7rem", px: 1, py: 0.35, height: 26, minWidth: 0,
+                                borderColor: alpha("#C62828", 0.3), color: "#C62828",
+                                "&:hover": { bgcolor: alpha("#C62828", 0.06), borderColor: "#C62828", transform: "none" },
+                              }}
+                            >
+                              Cancel
+                            </AccentButton>
+                          )}
+                        </Box>
+                      </Box>
+                    );
+                  })
+                )}
+              </Box>
+            </SectionCard>
+          </Grid>
+        </Grid>
+
+        {/* ── Transaction Logs Modal ── */}
+        <Modal
+          open={transactionLogsModalOpen}
+          onClose={() => setTransactionLogsModalOpen(false)}
+          sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}
+        >
+          <Fade in={transactionLogsModalOpen}>
+            <Box sx={{ width: "100%", maxWidth: 620, maxHeight: "90vh", borderRadius: 3, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", bgcolor: T.surface, display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden", flexShrink: 0 }}>
+                <Box sx={{ position: "absolute", top: -50, right: -30, width: 180, height: 180, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)" }} />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+                  <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <HistoryToggleOff sx={{ fontSize: 18, color: "#fff" }} />
+                  </Box>
+                  <Box>
+                    <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, mb: 0.3 }}>Transaction Logs</Typography>
+                    <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.68)" }}>
+                      {transactionLogs.length > 0 ? `${transactionLogs.length} recorded action(s)` : "All activity on your leave requests"}
+                    </Typography>
+                  </Box>
+                </Box>
+                <IconButton onClick={() => setTransactionLogsModalOpen(false)} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
+                  <Close sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Box>
+
+              <Box sx={{ px: 3, py: 2.5, overflowY: "auto", flexGrow: 1, bgcolor: T.accentFaint, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                {transactionLogsLoading ? (
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                    {[...Array(AUDIT_LOGS_PER_PAGE)].map((_, i) => (
+                      <Box key={i} sx={{ p: 2.5, borderRadius: 2, bgcolor: "#fff", border: `1px solid ${T.accentBorder}` }}>
+                        <Bone w={90} h={16} sx={{ mb: 1 }} />
+                        <Bone w="80%" h={12} sx={{ mb: 0.75 }} />
+                        <Bone w="55%" h={12} />
+                      </Box>
+                    ))}
+                  </Box>
+                ) : transactionLogsError ? (
+                  <Alert severity="error" sx={{ borderRadius: 2 }}>{transactionLogsError}</Alert>
+                ) : transactionLogs.length === 0 ? (
+                  <Box sx={{ py: 10, textAlign: "center" }}>
+                    <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.8)", display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
+                      <HistoryToggleOff sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                     </Box>
-                  ) : (
-                    (() => {
-                      const totalPages = Math.ceil(
-                        transactionLogs.length / AUDIT_LOGS_PER_PAGE,
-                      );
-                      const paginated = transactionLogs.slice(
-                        (auditLogPage - 1) * AUDIT_LOGS_PER_PAGE,
-                        auditLogPage * AUDIT_LOGS_PER_PAGE,
-                      );
+                    <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: T.muted }}>No activity yet.</Typography>
+                    <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>Actions on your leave requests will appear here.</Typography>
+                  </Box>
+                ) : (
+                  (() => {
+                    const totalPages = Math.ceil(transactionLogs.length / AUDIT_LOGS_PER_PAGE);
+                    const paginated = transactionLogs.slice(
+                      (auditLogPage - 1) * AUDIT_LOGS_PER_PAGE,
+                      auditLogPage * AUDIT_LOGS_PER_PAGE,
+                    );
+                    return (
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                        {paginated.map((log) => {
+                          const kind = getTxKind(log);
+                          const { label, color, bg, Icon } = kindMap[kind] || kindMap.activity;
+                          const loggedAt = log.created_at || log.createdAt || log.timestamp;
+                          const timeLabel = loggedAt
+                            ? (() => {
+                                const d = new Date(loggedAt);
+                                return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} • ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`;
+                              })()
+                            : null;
+                          const raw = (log.message || "").trim();
+                          // Redact actor name inside the message for employee-facing view.
+                          // Example: "Juan Dela Cruz (20134507) assigned ..." → "20134507 assigned ..."
+                          const redactedRaw = raw.replace(/^[^(]*\((\d+)\)\s+/g, "$1 ");
+                          const sentence =
+                            (redactedRaw.charAt(0).toUpperCase() + redactedRaw.slice(1)) +
+                            (redactedRaw.endsWith(".") ? "" : ".");
+                          // Transaction logs should show ONLY the actor employee number (no name).
+                          const logEmpNum = log.employee_id || log.employeeNumber || personID;
 
-                      return (
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 1.5,
-                          }}
-                        >
-                          {paginated.map((log) => {
-                            const loggedAt =
-                              log.created_at ||
-                              log.createdAt ||
-                              log.date_created ||
-                              log.timestamp;
-                            const raw = (log.message || '').trim();
-                            const lower = raw.toLowerCase();
-                            const actor =
-                              log.actor ||
-                              log.performed_by ||
-                              log.action_by ||
-                              null;
-                            const eventType =
-                              log.event_type || log.action || null;
-
-                            /* ── Classify ── */
-                            let kind = 'activity';
-                            if (
-                              lower.includes('hr') &&
-                              lower.includes('approv')
-                            )
-                              kind = 'hr_approved';
-                            else if (
-                              (lower.includes('immediate supervisor') ||
-                                lower.includes('supervisor')) &&
-                              lower.includes('approv')
-                            )
-                              kind = 'supervisor_approved';
-                            else if (lower.includes('approv'))
-                              kind = 'approved';
-                            else if (
-                              lower.includes('reject') ||
-                              lower.includes('denied') ||
-                              lower.includes('deny')
-                            )
-                              kind = 'denied';
-                            else if (lower.includes('cancel'))
-                              kind = 'cancelled';
-                            else if (
-                              lower.includes('deleted') ||
-                              lower.includes('delete') ||
-                              lower.includes('removed')
-                            )
-                              kind = 'deleted';
-                            else if (
-                              lower.includes('reversed') ||
-                              lower.includes('reversal') ||
-                              (lower.includes('restored') &&
-                                lower.includes('balance'))
-                            )
-                              kind = 'reversal';
-                            else if (
-                              lower.includes('tardiness') ||
-                              (lower.includes('deducted') &&
-                                lower.includes('hrs'))
-                            )
-                              kind = 'deduction';
-                            else if (
-                              lower.includes('credit') &&
-                              (lower.includes('added') ||
-                                lower.includes('monthly'))
-                            )
-                              kind = 'credit_added';
-                            else if (
-                              lower.includes('balance') &&
-                              (lower.includes('remaining') ||
-                                lower.includes('adjusted') ||
-                                lower.includes('deduction'))
-                            )
-                              kind = 'balance_update';
-                            else if (
-                              lower.includes('assigned') &&
-                              (lower.includes('leave') || lower.includes('hrs'))
-                            )
-                              kind = 'assigned';
-                            else if (
-                              lower.includes('submit') ||
-                              lower.includes('request') ||
-                              lower.includes('filed')
-                            )
-                              kind = 'submitted';
-                            else if (lower.includes('pending'))
-                              kind = 'pending';
-                            if (eventType) {
-                              const et = eventType.toLowerCase();
-                              if (et.includes('submit')) kind = 'submitted';
-                              else if (
-                                et.includes('approve') &&
-                                et.includes('hr')
-                              )
-                                kind = 'hr_approved';
-                              else if (et.includes('approve'))
-                                kind = 'approved';
-                              else if (
-                                et.includes('reject') ||
-                                et.includes('den')
-                              )
-                                kind = 'denied';
-                              else if (et.includes('cancel'))
-                                kind = 'cancelled';
-                            }
-
-                            const kindMap = {
-                              submitted: {
-                                label: 'Submitted',
-                                color: accentColor,
-                                bg: alpha(accentColor, 0.08),
-                                Icon: AddIcon,
-                              },
-                              pending: {
-                                label: 'Pending',
-                                color: '#F57C00',
-                                bg: '#FFF8E1',
-                                Icon: AccessTime,
-                              },
-                              supervisor_approved: {
-                                label: 'Supervisor Approved',
-                                color: '#1565C0',
-                                bg: '#E3F2FD',
-                                Icon: CheckCircle,
-                              },
-                              hr_approved: {
-                                label: 'HR Approved',
-                                color: '#2E7D32',
-                                bg: '#E8F5E9',
-                                Icon: CheckCircle,
-                              },
-                              approved: {
-                                label: 'Approved',
-                                color: '#2E7D32',
-                                bg: '#E8F5E9',
-                                Icon: CheckCircle,
-                              },
-                              denied: {
-                                label: 'Denied',
-                                color: '#C62828',
-                                bg: '#FFEBEE',
-                                Icon: Block,
-                              },
-                              cancelled: {
-                                label: 'Cancelled',
-                                color: '#757575',
-                                bg: '#F5F5F5',
-                                Icon: CancelIcon,
-                              },
-                              deleted: {
-                                label: 'Deleted',
-                                color: '#C62828',
-                                bg: '#FFEBEE',
-                                Icon: Block,
-                              },
-                              reversal: {
-                                label: 'VL Reversal',
-                                color: '#B71C1C',
-                                bg: '#FFEBEE',
-                                Icon: Block,
-                              },
-                              deduction: {
-                                label: 'Deduction',
-                                color: '#E65100',
-                                bg: '#FFF3E0',
-                                Icon: AccessTime,
-                              },
-                              credit_added: {
-                                label: 'Credit Added',
-                                color: '#2E7D32',
-                                bg: '#E8F5E9',
-                                Icon: AddIcon,
-                              },
-                              balance_update: {
-                                label: 'Balance Update',
-                                color: '#1565C0',
-                                bg: '#E3F2FD',
-                                Icon: WalletIcon,
-                              },
-                              assigned: {
-                                label: 'Leave Assigned',
-                                color: '#1565C0',
-                                bg: '#E3F2FD',
-                                Icon: AddIcon,
-                              },
-                              activity: {
-                                label: 'Activity',
-                                color: '#546E7A',
-                                bg: '#ECEFF1',
-                                Icon: ScheduleIcon,
-                              },
-                            };
-                            const { label, color, bg, Icon } =
-                              kindMap[kind] || kindMap.activity;
-
-                            /* ── Privacy helper: strip "Full Name (ID)" → "employee ID" ── */
-                            const stripNamesFromMessage = (text) => {
-                              if (!text) return '';
-                              return text.replace(
-                                /[A-Z][a-zA-ZÀ-ÿ'.\-]+(?:\s+[A-Z][a-zA-ZÀ-ÿ'.\-]+)+\s*\((\w+)\)/g,
-                                (_, id) => `employee ${id}`,
-                              );
-                            };
-
-                            /* Extract employee-number-only label from an actor string */
-                            const safeActorLabel = (() => {
-                              if (!actor) return null;
-                              const idInParens = actor.match(/\((\d{5,})\)/);
-                              if (idInParens)
-                                return `employee ${idInParens[1]}`;
-                              if (/^\d{5,}$/.test(actor.trim()))
-                                return actor.trim();
-                              const bareId = actor.match(/\b(\d{5,})\b/);
-                              if (bareId) return `employee ${bareId[1]}`;
-                              return null; // name-only actor — hide for privacy
-                            })();
-
-                            /* ── Sentence builder ── */
-                            const buildSentence = () => {
-                              const codeMatch = raw.match(/\b([A-Z]{2,4})\b/);
-                              const leaveCode = codeMatch
-                                ? codeMatch[1]
-                                : 'leave';
-                              const isoDate = raw.match(/\d{4}-\d{2}-\d{2}/);
-                              const dateHint = isoDate
-                                ? formatDate(isoDate[0])
-                                : null;
-                              const actorLabel = safeActorLabel
-                                ? `by ${safeActorLabel}`
-                                : kind === 'hr_approved'
-                                  ? 'by HR'
-                                  : kind === 'supervisor_approved'
-                                    ? 'by your Immediate Supervisor'
-                                    : '';
-                              switch (kind) {
-                                case 'submitted':
-                                  return dateHint
-                                    ? `You filed a ${leaveCode} request for ${dateHint}.`
-                                    : `You submitted a ${leaveCode} leave request.`;
-                                case 'supervisor_approved':
-                                  return dateHint
-                                    ? `Your ${leaveCode} request for ${dateHint} was approved by your Immediate Supervisor.`
-                                    : `Your ${leaveCode} leave request was approved by your Immediate Supervisor.`;
-                                case 'hr_approved':
-                                  return dateHint
-                                    ? `Your ${leaveCode} request for ${dateHint} was fully approved by HR.`
-                                    : `Your ${leaveCode} leave request was fully approved by HR.`;
-                                case 'approved':
-                                  return `Your ${leaveCode} leave request was approved${actorLabel ? ` ${actorLabel}` : ''}.`;
-                                case 'denied':
-                                  return dateHint
-                                    ? `Your ${leaveCode} request for ${dateHint} was denied${actorLabel ? ` ${actorLabel}` : ''}.`
-                                    : `Your ${leaveCode} leave request was denied${actorLabel ? ` ${actorLabel}` : ''}.`;
-                                case 'cancelled':
-                                  return dateHint
-                                    ? `You cancelled your ${leaveCode} request for ${dateHint}.`
-                                    : `Your ${leaveCode} leave request was cancelled.`;
-                                case 'deleted': {
-                                  if (lower.includes('payroll'))
-                                    return `A payroll record was deleted by Admin/HR. Your VL monthly credit has been reversed and your balance adjusted.`;
-                                  return dateHint
-                                    ? `Your ${leaveCode} record for ${dateHint} was deleted by Admin/HR.`
-                                    : `A record was deleted by Admin/HR.`;
-                                }
-                                case 'reversal': {
-                                  const creditMatch = raw.match(
-                                    /\+?\s*([\d.]+)\s*hrs?\s*(has been\s*)?reversed/i,
-                                  );
-                                  const fromMatch = raw.match(
-                                    /from\s+([\d.]+)\s*hrs?/i,
-                                  );
-                                  const toMatch =
-                                    raw.match(/to\s+([\d.]+)\s*hrs?/i);
-                                  const creditAmt = creditMatch
-                                    ? creditMatch[1]
-                                    : null;
-                                  if (creditAmt && fromMatch && toMatch)
-                                    return `VL credit of \u221210 hrs reversed. VL balance restored from ${fromMatch[1]} to ${toMatch[1]} hrs.`.replace(
-                                      '10',
-                                      creditAmt,
-                                    );
-                                  if (fromMatch && toMatch)
-                                    return `VL balance restored from ${fromMatch[1]} to ${toMatch[1]} hrs.`;
-                                  return `Your VL credit was reversed as a result of a payroll record deletion.`;
-                                }
-                                case 'deduction': {
-                                  const hrsMatch =
-                                    raw.match(/([\d.]+)\s*hrs?/i);
-                                  if (lower.includes('tardiness'))
-                                    return `Tardiness deduction of ${hrsMatch ? hrsMatch[1] : ''} hrs applied to your VL balance.`;
-                                  return `A deduction was applied to your leave balance.`;
-                                }
-                                case 'credit_added': {
-                                  const addHrs =
-                                    raw.match(/\+([\d.]+)\s*hrs?/i);
-                                  const fromHrs = raw.match(
-                                    /from\s+([\d.]+)\s*hrs?/i,
-                                  );
-                                  const toHrs =
-                                    raw.match(/to\s+([\d.]+)\s*hrs?/i);
-                                  if (fromHrs && toHrs)
-                                    return `Monthly VL credit of +${addHrs ? addHrs[1] : ''} hrs added. Balance updated from ${fromHrs[1]} hrs to ${toHrs[1]} hrs.`;
-                                  return `Monthly VL credit${addHrs ? ` of +${addHrs[1]} hrs` : ''} was added to your balance.`;
-                                }
-                                case 'balance_update': {
-                                  const remMatch = raw.match(
-                                    /([\d.]+)\s*hrs?\s*remaining/i,
-                                  );
-                                  if (remMatch)
-                                    return `Your VL balance after deduction is ${remMatch[1]} hrs.`;
-                                  return `Your leave balance has been updated.`;
-                                }
-                                case 'pending':
-                                  return `Your ${leaveCode} leave request is pending approval.`;
-                                case 'assigned': {
-                                  const assignMatch = raw.match(
-                                    /assigned\s+(.+?)\s*\(/i,
-                                  );
-                                  const leaveTypeName = assignMatch
-                                    ? assignMatch[1].trim()
-                                    : leaveCode;
-                                  const assignerIdMatch =
-                                    raw.match(/\((\d{5,})\)/);
-                                  const assignerId = assignerIdMatch
-                                    ? assignerIdMatch[1]
-                                    : safeActorLabel || 'HR';
-                                  return `${leaveTypeName} was credited to your account by employee ${assignerId}.`;
-                                }
-                                default: {
-                                  const sanitized = stripNamesFromMessage(raw);
-                                  return (
-                                    sanitized.charAt(0).toUpperCase() +
-                                    sanitized.slice(1) +
-                                    (sanitized.endsWith('.') ? '' : '.')
-                                  );
-                                }
-                              }
-                            };
-
-                            /* ── Timestamp ── */
-                            const timeLabel = (() => {
-                              if (!loggedAt) return null;
-                              const d = new Date(loggedAt);
-                              return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-                            })();
-
-                            return (
-                              <Box
-                                key={`log-${log.id}`}
-                                sx={{
-                                  bgcolor: '#fff',
-                                  border: `1px solid ${alpha(color, 0.18)}`,
-                                  borderLeft: `4px solid ${color}`,
-                                  borderRadius: 2,
-                                  p: 2.5,
-                                  boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
-                                  transition: 'box-shadow 0.2s ease',
-                                  '&:hover': {
-                                    boxShadow: `0 4px 16px ${alpha(color, 0.12)}`,
-                                  },
-                                }}
-                              >
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    mb: 1,
-                                    flexWrap: 'wrap',
-                                    gap: 1,
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: 0.6,
-                                      px: 1.25,
-                                      py: 0.35,
-                                      borderRadius: '6px',
-                                      bgcolor: bg,
-                                      border: `1px solid ${alpha(color, 0.2)}`,
-                                    }}
-                                  >
-                                    <Icon sx={{ fontSize: 13, color }} />
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.72rem',
-                                        fontWeight: 700,
-                                        color,
-                                        lineHeight: 1,
-                                      }}
-                                    >
-                                      {label}
-                                    </Typography>
-                                  </Box>
-                                  {timeLabel && (
-                                    <Box
-                                      sx={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 0.5,
-                                      }}
-                                    >
-                                      <ScheduleIcon
-                                        sx={{ fontSize: 12, color: '#c0c0c0' }}
-                                      />
-                                      <Typography
-                                        variant="caption"
-                                        sx={{
-                                          color: '#b0b0b0',
-                                          fontSize: '0.72rem',
-                                        }}
-                                      >
-                                        {timeLabel}
-                                      </Typography>
-                                    </Box>
-                                  )}
+                          return (
+                            <Box
+                              key={`log-${log.id}`}
+                              sx={{
+                                bgcolor: "#fff", borderRadius: 2, p: 2.5,
+                                border: `1px solid ${T.accentBorder}`,
+                                borderLeft: `4px solid ${color}`,
+                                boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                                "&:hover": { boxShadow: `0 4px 12px ${alpha(color, 0.12)}` },
+                              }}
+                            >
+                              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.25, flexWrap: "wrap", gap: 1 }}>
+                                <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6, px: 1.25, py: 0.35, borderRadius: "6px", bgcolor: bg, border: `1px solid ${alpha(color, 0.2)}` }}>
+                                  <Icon sx={{ fontSize: 12, color }} />
+                                  <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color, lineHeight: 1 }}>{label}</Typography>
                                 </Box>
-                                <Typography
-                                  sx={{
-                                    fontSize: '0.88rem',
-                                    color: '#2c2c2c',
-                                    lineHeight: 1.65,
-                                    fontWeight: 400,
-                                  }}
-                                >
-                                  {buildSentence()}
-                                </Typography>
-                                {safeActorLabel && (
-                                  <Box
-                                    sx={{
-                                      mt: 0.75,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: 0.5,
-                                    }}
-                                  >
-                                    <PersonIcon
-                                      sx={{ fontSize: 13, color: '#bbb' }}
-                                    />
-                                    <Typography
-                                      variant="caption"
-                                      sx={{
-                                        color: '#aaa',
-                                        fontSize: '0.72rem',
-                                      }}
-                                    >
-                                      Action by: {safeActorLabel}
-                                    </Typography>
+                                {timeLabel && (
+                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                    <ScheduleIcon sx={{ fontSize: 11, color: T.faint }} />
+                                    <Typography sx={{ fontSize: "0.7rem", color: T.faint }}>{timeLabel}</Typography>
                                   </Box>
                                 )}
                               </Box>
-                            );
-                          })}
-
-                          {/* ── Pagination ── */}
-                          {totalPages > 1 && (
-                            <Box
-                              sx={{
-                                mt: 1,
-                                pt: 2,
-                                borderTop: `1px solid ${alpha(accentColor, 0.1)}`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                              }}
-                            >
-                              {/* Page info */}
-                              <Typography
-                                variant="caption"
-                                sx={{ color: '#aaa', fontSize: '0.75rem' }}
-                              >
-                                Showing{' '}
-                                {(auditLogPage - 1) * AUDIT_LOGS_PER_PAGE + 1}–
-                                {Math.min(
-                                  auditLogPage * AUDIT_LOGS_PER_PAGE,
-                                  transactionLogs.length,
-                                )}{' '}
-                                of {transactionLogs.length}
-                              </Typography>
-
-                              {/* Page buttons */}
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.5,
-                                }}
-                              >
-                                {/* Prev */}
-                                <IconButton
-                                  size="small"
-                                  disabled={auditLogPage === 1}
-                                  onClick={() => setAuditLogPage((p) => p - 1)}
-                                  sx={{
-                                    width: 30,
-                                    height: 30,
-                                    borderRadius: '8px',
-                                    border: `1px solid ${alpha(accentColor, auditLogPage === 1 ? 0.1 : 0.25)}`,
-                                    color:
-                                      auditLogPage === 1 ? '#ccc' : accentColor,
-                                    '&:hover': {
-                                      bgcolor: alpha(accentColor, 0.06),
-                                    },
-                                  }}
-                                >
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      fontSize: '1rem',
-                                      lineHeight: 1,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    ‹
+                              {logEmpNum && (
+                                <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+                                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, px: 1.25, py: 0.5, bgcolor: alpha("#1565C0", 0.05), borderRadius: 1.5, border: "1px solid rgba(21,101,192,0.15)" }}>
+                                    <PersonIcon sx={{ fontSize: 13, color: "#1565C0" }} />
+                                    <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#1565C0", lineHeight: 1 }}>#{logEmpNum}</Typography>
                                   </Box>
-                                </IconButton>
-
-                                {/* Numbered pages */}
-                                {Array.from(
-                                  { length: totalPages },
-                                  (_, i) => i + 1,
-                                ).map((page) => (
-                                  <IconButton
-                                    key={page}
-                                    size="small"
-                                    onClick={() => setAuditLogPage(page)}
-                                    sx={{
-                                      width: 30,
-                                      height: 30,
-                                      borderRadius: '8px',
-                                      fontSize: '0.78rem',
-                                      fontWeight:
-                                        page === auditLogPage ? 700 : 400,
-                                      bgcolor:
-                                        page === auditLogPage
-                                          ? accentColor
-                                          : 'transparent',
-                                      color:
-                                        page === auditLogPage ? '#fff' : '#666',
-                                      border: `1px solid ${page === auditLogPage ? accentColor : alpha(accentColor, 0.15)}`,
-                                      '&:hover': {
-                                        bgcolor:
-                                          page === auditLogPage
-                                            ? accentColor
-                                            : alpha(accentColor, 0.06),
-                                      },
-                                    }}
-                                  >
-                                    {page}
-                                  </IconButton>
-                                ))}
-
-                                {/* Next */}
-                                <IconButton
-                                  size="small"
-                                  disabled={auditLogPage === totalPages}
-                                  onClick={() => setAuditLogPage((p) => p + 1)}
-                                  sx={{
-                                    width: 30,
-                                    height: 30,
-                                    borderRadius: '8px',
-                                    border: `1px solid ${alpha(accentColor, auditLogPage === totalPages ? 0.1 : 0.25)}`,
-                                    color:
-                                      auditLogPage === totalPages
-                                        ? '#ccc'
-                                        : accentColor,
-                                    '&:hover': {
-                                      bgcolor: alpha(accentColor, 0.06),
-                                    },
-                                  }}
-                                >
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      fontSize: '1rem',
-                                      lineHeight: 1,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    ›
-                                  </Box>
-                                </IconButton>
-                              </Box>
+                                </Box>
+                              )}
+                              <Typography sx={{ fontSize: "0.86rem", fontWeight: 400, color: T.text, lineHeight: 1.6 }}>{sentence}</Typography>
                             </Box>
-                          )}
-                        </Box>
-                      );
-                    })()
-                  )}
-                </Box>
-              </Box>
-            </Fade>
-          </Modal>
+                          );
+                        })}
 
-          {/* Scroll to Top FAB */}
-          <Fade in={showScrollTop}>
-            <Box
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              sx={{
-                position: 'fixed',
-                bottom: 24,
-                right: 24,
-                zIndex: 1000,
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                bgcolor: accentColor,
-                color: primaryColor,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                boxShadow: `0 4px 14px ${alpha(accentColor, 0.4)}`,
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                  bgcolor: accentDark,
-                  transform: 'translateY(-2px)',
-                  boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}`,
-                },
-              }}
-            >
-              <KeyboardArrowUp />
+                        {totalPages > 1 && (
+                          <Box sx={{ mt: 1, pt: 2, borderTop: `1px solid ${T.divider}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>
+                              Showing {(auditLogPage - 1) * AUDIT_LOGS_PER_PAGE + 1}–{Math.min(auditLogPage * AUDIT_LOGS_PER_PAGE, transactionLogs.length)} of {transactionLogs.length}
+                            </Typography>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                              <IconButton size="small" disabled={auditLogPage === 1} onClick={() => setAuditLogPage((p) => p - 1)} sx={{ width: 28, height: 28, borderRadius: 1.5, border: `1px solid ${auditLogPage === 1 ? T.divider : T.accentBorder}`, color: auditLogPage === 1 ? T.faint : T.accent }}>
+                                <Box component="span" sx={{ fontSize: "0.95rem", fontWeight: 600, lineHeight: 1 }}>‹</Box>
+                              </IconButton>
+                              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                                <IconButton key={p} size="small" onClick={() => setAuditLogPage(p)}
+                                  sx={{ width: 28, height: 28, borderRadius: 1.5, fontSize: "0.72rem", fontWeight: p === auditLogPage ? 700 : 400, bgcolor: p === auditLogPage ? T.accent : "transparent", color: p === auditLogPage ? "#fff" : T.muted, border: `1px solid ${p === auditLogPage ? T.accent : T.accentBorder}`, "&:hover": { bgcolor: p === auditLogPage ? T.accent : T.accentFaint } }}>
+                                  {p}
+                                </IconButton>
+                              ))}
+                              <IconButton size="small" disabled={auditLogPage === totalPages} onClick={() => setAuditLogPage((p) => p + 1)} sx={{ width: 28, height: 28, borderRadius: 1.5, border: `1px solid ${auditLogPage === totalPages ? T.divider : T.accentBorder}`, color: auditLogPage === totalPages ? T.faint : T.accent }}>
+                                <Box component="span" sx={{ fontSize: "0.95rem", fontWeight: 600, lineHeight: 1 }}>›</Box>
+                              </IconButton>
+                            </Box>
+                          </Box>
+                        )}
+                      </Box>
+                    );
+                  })()
+                )}
+              </Box>
             </Box>
           </Fade>
-        </Box>
+        </Modal>
+
+        {/* Scroll to Top */}
+        <Fade in={showScrollTop}>
+          <Box
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            sx={{
+              position: "fixed", bottom: 24, right: 24, zIndex: 1000,
+              width: 40, height: 40, borderRadius: "50%",
+              bgcolor: T.accent, color: "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: `0 4px 14px ${alpha(T.accent, 0.4)}`,
+              transition: "all 0.3s ease",
+              "&:hover": { bgcolor: T.accentDark, transform: "translateY(-2px)" },
+            }}
+          >
+            <KeyboardArrowUp sx={{ fontSize: 20 }} />
+          </Box>
+        </Fade>
       </Box>
     </Fade>
   );

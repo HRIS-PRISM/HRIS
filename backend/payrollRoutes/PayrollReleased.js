@@ -2,14 +2,14 @@ const db = require("../db");
 const express = require('express');
 const router = express.Router();
 const { notifyPayrollChanged } = require('../socket/socketService');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, isAdminRole } = require('../middleware/auth');
 
 
 
 
 
 // GET all released payroll records
-router.get('/released-payroll', authenticateToken, (req, res) => {
+router.get('/released-payroll', authenticateToken, requireAdmin, (req, res) => {
   const query = 'SELECT * FROM payroll_released ORDER BY dateReleased DESC';
 
 
@@ -28,17 +28,28 @@ router.get('/released-payroll', authenticateToken, (req, res) => {
 
 // GET released payroll with detailed joins (for payslip components)
 router.get('/released-payroll-detailed', authenticateToken, (req, res) => {
-  // Use CAST/CONVERT to ensure data type compatibility in JOIN
+  const scopedEmployee = isAdminRole(req.user?.role)
+    ? null
+    : String(req.user?.employeeNumber || '').trim();
+
+  if (!isAdminRole(req.user?.role) && !scopedEmployee) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const employeeClause = scopedEmployee ? 'WHERE CAST(pr.employeeNumber AS CHAR) = ?' : '';
+  const queryParams = scopedEmployee ? [scopedEmployee] : [];
+
   const query = `
     SELECT
       pr.*,
       COALESCE(ec.employmentCategory, -1) AS employmentCategory
     FROM payroll_released pr
     LEFT JOIN employment_category ec ON CAST(pr.employeeNumber AS CHAR) = CAST(ec.employeeNumber AS CHAR)
+    ${employeeClause}
     ORDER BY pr.dateReleased DESC
   `;
 
-  db.query(query, (err, results) => {
+  db.query(query, queryParams, (err, results) => {
     if (err) {
       console.error('Error fetching detailed released payroll:', err);
       console.error('Error details:', {
@@ -55,10 +66,11 @@ router.get('/released-payroll-detailed', authenticateToken, (req, res) => {
           pr.*,
           -1 AS employmentCategory
         FROM payroll_released pr
+        ${employeeClause}
         ORDER BY pr.dateReleased DESC
       `;
       
-      db.query(fallbackQuery, (fallbackErr, fallbackResults) => {
+      db.query(fallbackQuery, queryParams, (fallbackErr, fallbackResults) => {
         if (fallbackErr) {
           console.error('Fallback query also failed:', fallbackErr);
           const errorResponse = {
@@ -94,7 +106,7 @@ router.get('/released-payroll-detailed', authenticateToken, (req, res) => {
 
 // POST - Release payroll records (move from finalized to released)
 // POST - Release payroll records (copy from finalized to released, don't delete)
-router.post('/release-payroll', authenticateToken, (req, res) => {
+router.post('/release-payroll', authenticateToken, requireAdmin, (req, res) => {
   const { payrollIds, releasedBy } = req.body;
 
 
@@ -316,7 +328,7 @@ router.post('/release-payroll', authenticateToken, (req, res) => {
 
 
 // GET single released payroll record
-router.get('/released-payroll/:id', authenticateToken, (req, res) => {
+router.get('/released-payroll/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const query = 'SELECT * FROM payroll_released WHERE id = ?';
 
@@ -345,7 +357,7 @@ router.get('/released-payroll/:id', authenticateToken, (req, res) => {
 
 
 // DELETE released payroll record (if needed for admin purposes)
-router.delete('/released-payroll/:id', authenticateToken, (req, res) => {
+router.delete('/released-payroll/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
   const query = 'DELETE FROM payroll_released WHERE id = ?';
 
@@ -391,7 +403,7 @@ router.post('/log-print', authenticateToken, (req, res) => {
 });
 
 // GET released payroll statistics
-router.get('/released-payroll-stats', authenticateToken, (req, res) => {
+router.get('/released-payroll-stats', authenticateToken, requireAdmin, (req, res) => {
   const query = `
     SELECT
       COUNT(*) as totalReleased,

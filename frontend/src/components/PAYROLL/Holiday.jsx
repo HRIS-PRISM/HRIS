@@ -22,6 +22,7 @@ import {
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import SuccessfulOverlay from '../SuccessfulOverlay';
+import LoadingOverlay from '../LoadingOverlay';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 
@@ -471,13 +472,7 @@ const Holiday = () => {
           </Backdrop>
         )}
 
-        {/* Loading Backdrop - aligned with College */}
-        <Backdrop sx={{ color: accentColor, zIndex: (theme) => theme.zIndex.drawer + 1 }} open={loading && !refreshing}>
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: accentColor }}>Processing holiday...</Typography>
-          </Box>
-        </Backdrop>
+        <LoadingOverlay open={loading && !refreshing} message="Processing holiday…" />
 
         {/* Add New Holiday - GlassCard only, full width */}
         <Fade in timeout={700}>

@@ -5,6 +5,9 @@ import useProfileData from '../../hooks/useProfileData';
 import useProfileSections from '../../hooks/useProfileSections';
 import useProfileMutations from '../../hooks/useProfileMutations';
 import { getUserInfo, getAuthHeaders } from '../../utils/auth';
+import { useSocket } from '../../contexts/SocketContext';
+import LoadingOverlay from '../LoadingOverlay';
+import SuccessfulOverlay from '../SuccessfulOverlay';
 import {
   Avatar, Typography, Box, Grid, Button, Modal, TextField,
   Chip, IconButton, Tooltip, alpha, Backdrop, InputAdornment,
@@ -499,6 +502,7 @@ const Profile = () => {
   const { person, profilePicture, loading, refresh: refreshPerson } = useProfileData();
   const { sections, loading: sectionsLoading, refresh: refreshSections } = useProfileSections();
   const { saveProfile, saving } = useProfileMutations();
+  const { socket, connected } = useSocket();
   const userInfo       = getUserInfo();
   const employeeNumber = userInfo.employeeNumber || localStorage.getItem('employeeNumber');
 
@@ -509,6 +513,9 @@ const Profile = () => {
   const [editImgZoom,     setEditImgZoom]     = useState(false);
   const [eduTab,          setEduTab]          = useState(0);
   const [toast,           setToast]           = useState({ open: false, message: '', severity: 'success' });
+  const [overlayMessage,  setOverlayMessage]  = useState('');
+  const [successOpen,     setSuccessOpen]     = useState(false);
+  const [successAction,   setSuccessAction]   = useState('edit');
 
   const [childrenFD,  setChildrenFD]  = useState([]);
   const [collegesFD,  setCollegesFD]  = useState([]);
@@ -539,6 +546,57 @@ const Profile = () => {
       .then(res => setVwFD((res.data || []).filter(r => String(r.person_id) === String(employeeNumber))))
       .catch(err => console.error(err));
   }, [employeeNumber]);
+
+  // ── Realtime refresh (Socket.IO) ─────────────────────────────────────────
+  useEffect(() => {
+    if (!socket || !connected) return;
+    let debounceTimer = null;
+
+    const shouldRefresh = (payload) => {
+      const ids = [
+        payload?.personID,
+        payload?.personId,
+        payload?.person_id,
+        payload?.employeeNumber,
+        payload?.employee_number,
+      ]
+        .filter((v) => v != null)
+        .map((v) => String(v));
+
+      if (!employeeNumber) return false;
+      if (ids.length === 0) return true; // if backend didn't include a target, safest is refresh
+      return ids.includes(String(employeeNumber));
+    };
+
+    const handler = (payload) => {
+      if (!shouldRefresh(payload)) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        refreshPerson();
+        refreshSections();
+      }, 200);
+    };
+
+    // Keep aligned with section components' events
+    const events = [
+      'personalInfoChanged',
+      'childrenTableChanged',
+      'collegeTableChanged',
+      'graduateChanged',
+      'eligibilityChanged',
+      'learningChanged',
+      'otherInformationChanged',
+      'vocationalChanged',
+      'workExperienceTableChanged',
+      'voluntaryWorkChanged',
+    ];
+
+    events.forEach((evt) => socket.on(evt, handler));
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      events.forEach((evt) => socket.off(evt, handler));
+    };
+  }, [socket, connected, employeeNumber, refreshPerson, refreshSections]);
 
   useEffect(() => {
     if (person && !Object.keys(formData).length) {
@@ -588,9 +646,16 @@ const Profile = () => {
 
   const handleSave = async () => {
     try {
+      setOverlayMessage('Saving profile…');
       await saveProfile({ personalInfo: formData, children: childrenFD, colleges: collegesFD, graduates: graduatesFD, eligibilities: eligFD, learningDevelopment: ldFD, otherInformation: oiFD, vocational: vocFD, workExperiences: weFD, voluntaryWork: vwFD });
-      setEditOpen(false); notify('Profile updated successfully!'); refreshPerson(); refreshSections();
+      setEditOpen(false);
+      setSuccessAction('edit');
+      setSuccessOpen(true);
+      notify('Profile updated successfully!');
+      refreshPerson();
+      refreshSections();
     } catch (err) { notify(err.message || 'Update failed', 'error'); }
+    finally { setOverlayMessage(''); }
   };
 
   const handlePicture = async (e) => {
@@ -599,17 +664,29 @@ const Profile = () => {
     if (file.size > 5 * 1024 * 1024) { notify('Max 5MB', 'error'); return; }
     const fd = new FormData(); fd.append('profile', file);
     try {
-      notify('Uploading…', 'info');
+      setOverlayMessage('Uploading profile picture…');
       const ah = getAuthHeaders({ includeContentType: false });
       await axios.post(`${API_BASE_URL}/upload-profile-picture/${employeeNumber}`, fd, { headers: { ...ah.headers, 'Content-Type': 'multipart/form-data' }, timeout: 30000 });
-      refreshPerson(); notify('Profile picture updated!');
+      refreshPerson();
+      setSuccessAction('edit');
+      setSuccessOpen(true);
+      notify('Profile picture updated!');
     } catch (err) { notify(err.response?.data?.message || 'Upload failed', 'error'); }
+    finally { setOverlayMessage(''); }
   };
 
   const handleRemovePic = async () => {
     if (!person?.id) return;
-    try { await axios.delete(`${API_BASE_URL}/personalinfo/remove-profile-picture/${person.id}`, getAuthHeaders()); refreshPerson(); notify('Picture removed.'); }
+    try {
+      setOverlayMessage('Removing profile picture…');
+      await axios.delete(`${API_BASE_URL}/personalinfo/remove-profile-picture/${person.id}`, getAuthHeaders());
+      refreshPerson();
+      setSuccessAction('delete');
+      setSuccessOpen(true);
+      notify('Picture removed.');
+    }
     catch { notify('Failed to remove.', 'error'); }
+    finally { setOverlayMessage(''); }
   };
 
   /* ── Field renderer ── */
@@ -1049,6 +1126,16 @@ const Profile = () => {
   return (
     <Box sx={{ position: 'relative', height: '100vh', overflow: 'hidden', bgcolor: PAGE_BG }}>
       <style>{GLOBAL_CSS}</style>
+
+      <LoadingOverlay
+        open={saving || Boolean(overlayMessage)}
+        message={overlayMessage || 'Saving profile…'}
+      />
+      <SuccessfulOverlay
+        open={successOpen}
+        action={successAction}
+        onClose={() => setSuccessOpen(false)}
+      />
 
       {/* ══ MAIN CONTENT ══════════════════════════════════════════════════════ */}
       <Box sx={{

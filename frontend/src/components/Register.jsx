@@ -1,22 +1,24 @@
 import API_BASE_URL from "../apiConfig";
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Alert,
-  TextField,
-  Button,
-  Container,
-  Box,
-  Paper,
   Typography,
+  Grid,
   InputAdornment,
+  Box,
+  CircularProgress,
+  Fade,
   MenuItem,
   FormControl,
   InputLabel,
   Select,
-  Fade,
-  Grow,
-  Zoom,
+  Tooltip,
+  TextField,
+  Avatar,
+  Chip,
+  Checkbox,
+  FormControlLabel,
+  styled,
 } from "@mui/material";
 import {
   PersonOutline,
@@ -27,838 +29,427 @@ import {
   CheckCircleOutline,
   ErrorOutline,
   AdminPanelSettings,
+  InfoOutlined,
 } from "@mui/icons-material";
 import earistLogo from "../assets/earistLogo.jpg";
 
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  divider: "rgba(0,0,0,0.08)",
+};
+
+const EMPTY_FORM = {
+  firstName: "", middleName: "", lastName: "", nameExtension: "",
+  email: "", employeeNumber: "", role: "",
+};
+
 const Register = () => {
-  const [formData, setFormData] = useState({
-    firstName: "",
-    middleName: "",
-    lastName: "",
-    nameExtension: "",
-    email: "",
-    employeeNumber: "",
-    role: "",
-  });
+  const ModernTextField = useMemo(
+    () =>
+      styled(TextField)(() => ({
+        "& .MuiOutlinedInput-root": {
+          borderRadius: 8, transition: "all 0.18s ease", backgroundColor: "#fafafa",
+          "& fieldset": { borderColor: T.accentBorder },
+          "&:hover": { backgroundColor: "#fff", "& fieldset": { borderColor: T.accentMid } },
+          "&.Mui-focused": { backgroundColor: "#fff", boxShadow: "0 0 0 2px rgba(109,35,35,0.12)", "& fieldset": { borderColor: T.accent } },
+        },
+        "& .MuiInputLabel-root": { fontWeight: 500, "&.Mui-focused": { color: T.accent } },
+        "& .MuiFormHelperText-root": { marginLeft: 0, fontSize: "0.72rem" },
+        "& .MuiInputAdornment-root .MuiSvgIcon-root": { color: T.faint },
+      })),
+    [],
+  );
+
+  const selectInnerSx = {
+    borderRadius: 8, backgroundColor: "#fafafa", transition: "all 0.18s ease",
+    "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder, borderRadius: 8 },
+    "&:hover": { backgroundColor: "#fff", "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentMid } },
+    "&.Mui-focused": { backgroundColor: "#fff", boxShadow: "0 0 0 2px rgba(109,35,35,0.12)", "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accent } },
+  };
+
+  const selectControlSx = {
+    "& .MuiInputLabel-root": { fontWeight: 500, "&.Mui-focused": { color: T.accent } },
+  };
+
+  const [formData, setFormData] = useState(EMPTY_FORM);
   const [errMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [focusedField, setFocusedField] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInformationConfirmed, setIsInformationConfirmed] = useState(false);
+
+  const [fieldRequirements, setFieldRequirements] = useState({
+    firstName: true, lastName: true, email: true, employeeNumber: true,
+    password: true, middleName: false, nameExtension: false,
+  });
+
   const navigate = useNavigate();
+
+  // Ensure body is never scroll-locked on this standalone page
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  // Fetch field requirements
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const base = API_BASE_URL.includes("/api") ? API_BASE_URL : `${API_BASE_URL}/api`;
+        const res = await fetch(`${base}/system-settings/registration_field_requirements`, { headers });
+        if (res.ok) {
+          const d = await res.json();
+          if (d?.setting_value) try { setFieldRequirements(JSON.parse(d.setting_value)); } catch {}
+          return;
+        }
+        if (res.status === 404) {
+          const all = await (await fetch(`${base}/system-settings`, { headers })).json();
+          const raw = all?.registration_field_requirements;
+          if (!raw) return;
+          if (typeof raw === "string") try { setFieldRequirements(JSON.parse(raw)); } catch {}
+          else if (typeof raw === "object") setFieldRequirements(raw);
+        }
+      } catch (err) {
+        console.error("[Register] Failed to fetch field requirements:", err?.message);
+      }
+    })();
+  }, []);
 
   const handleChanges = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const isValidName = (name) => {
-    if (!name || name.trim().length === 0) return false;
-    const trimmedName = name.trim();
-    if (trimmedName.length < 2 || trimmedName.length > 50) return false;
-    if (!/^[a-zA-Z\s'-]+$/.test(trimmedName)) return false;
-    return true;
-  };
+  const isValidName = (n) =>
+    !!n && n.trim().length >= 2 && n.trim().length <= 50 && /^[a-zA-Z\s'-]+$/.test(n.trim());
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    const {
-      firstName,
-      lastName,
-      email,
-      employeeNumber,
-      role,
-    } = formData;
+    const { firstName, lastName, email, employeeNumber, role } = formData;
 
-    // Validation
-    if (!firstName || !lastName || !email || !employeeNumber) {
-      setErrorMessage("Please fill all required fields.");
-      setSuccessMessage("");
-      return;
-    }
+    const missing = [];
+    if (fieldRequirements.firstName && !firstName) missing.push("First Name");
+    if (fieldRequirements.lastName && !lastName) missing.push("Last Name");
+    if (fieldRequirements.email && !email) missing.push("Email");
+    if (fieldRequirements.employeeNumber && !employeeNumber) missing.push("Employee Number");
+    if (!role) missing.push("Role");
+    if (missing.length) { setErrorMessage(`Required fields missing: ${missing.join(", ")}.`); setSuccessMessage(""); return; }
 
-    if (role === "") {
-      setErrorMessage("Please select a role.");
-      setSuccessMessage("");
-      return;
-    }
+    if (!isValidName(firstName)) { setErrorMessage("Enter a valid first name (2–50 letters)."); setSuccessMessage(""); return; }
+    if (!isValidName(lastName)) { setErrorMessage("Enter a valid last name (2–50 letters)."); setSuccessMessage(""); return; }
+    if (formData.middleName && !isValidName(formData.middleName)) { setErrorMessage("Enter a valid middle name (2–50 letters)."); setSuccessMessage(""); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setErrorMessage("Enter a valid email address."); setSuccessMessage(""); return; }
 
-    if (!isValidName(firstName)) {
-      setErrorMessage("Please enter a valid first name (2-50 characters, letters only).");
-      setSuccessMessage("");
-      return;
-    }
-
-    if (!isValidName(lastName)) {
-      setErrorMessage("Please enter a valid last name (2-50 characters, letters only).");
-      setSuccessMessage("");
-      return;
-    }
-
-    if (formData.middleName && !isValidName(formData.middleName)) {
-      setErrorMessage("Please enter a valid middle name (2-50 characters, letters only).");
-      setSuccessMessage("");
-      return;
-    }
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setErrorMessage("Please enter a valid email address.");
-      setSuccessMessage("");
-      return;
-    }
-
-    // Auto-generate password from lastName (uppercase, no spaces)
-    const autoPassword = lastName.toUpperCase().replace(/\s+/g, '');
-
-    // Start loading
-    setIsLoading(true);
-    setErrorMessage("");
-    setSuccessMessage("");
+    const autoPassword = lastName.toUpperCase().replace(/\s+/g, "");
+    setIsLoading(true); setErrorMessage(""); setSuccessMessage("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/register`, {
+      const res = await fetch(`${API_BASE_URL}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          firstName: formData.firstName,
+          firstName,
           middleName: formData.middleName || null,
-          lastName: formData.lastName,
+          lastName,
           nameExtension: formData.nameExtension || null,
-          email: formData.email,
-          employeeNumber: formData.employeeNumber,
+          email,
+          employeeNumber,
           password: autoPassword,
-          employmentCategory: 0, // Default to Job Order - Graduate
+          employmentCategory: 0,
           department: "",
         }),
       });
 
-      if (response.ok) {
-        // Update the user's role after successful registration
-        const updateRoleResponse = await fetch(`${API_BASE_URL}/users/${formData.employeeNumber}/role`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: formData.role }),
-        });
-
-        if (!updateRoleResponse.ok) {
-          console.error("Failed to update role");
-        }
-
-        // Grant appropriate page access based on role
-        if (formData.role === 'superadmin' || formData.role === 'administrator' || formData.role === 'technical') {
-          // For admin roles, we need to grant access to all pages
-          try {
-            const allPagesResponse = await fetch(`${API_BASE_URL}/api/pages`);
-            if (allPagesResponse.ok) {
-              const allPages = await allPagesResponse.json();
-              
-              // Grant access to all pages for admin roles
-              for (const page of allPages) {
-                const grantAccessResponse = await fetch(`${API_BASE_URL}/api/page-access`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    employeeNumber: formData.employeeNumber,
-                    pageId: page.id,
-                    privilege: '1'
-                  })
-                });
-
-                if (!grantAccessResponse.ok) {
-                  console.error(`Failed to grant access to page ${page.id}`);
-                }
-              }
-            }
-          } catch (accessError) {
-            console.error('Error granting page access:', accessError);
-          }
-        }
-
+      if (res.ok) {
         setTimeout(() => {
           setIsLoading(false);
-          setSuccessMessage("Account created successfully! Redirecting to login...");
-          setErrorMessage("");
-          setTimeout(() => {
-            navigate("/");
-          }, 2000);
+          setSuccessMessage("Account created successfully! Redirecting to login…");
+          setIsInformationConfirmed(false);
+          setTimeout(() => navigate("/"), 2000);
         }, 500);
       } else {
-        const errorData = await response.json();
+        const errData = await res.json();
         setIsLoading(false);
-        setErrorMessage(errorData.error || "Registration failed. Try again.");
-        setSuccessMessage("");
+        setErrorMessage(errData.error || "Registration failed. Try again.");
       }
     } catch (err) {
       console.error("Registration Error", err);
       setIsLoading(false);
-      setErrorMessage("Something went wrong.");
-      setSuccessMessage("");
+      setErrorMessage("A network error occurred. Please try again.");
     }
   };
 
-  // Auto-hide messages after 3 seconds
-  React.useEffect(() => {
-    if (errMessage) {
-      const timer = setTimeout(() => setErrorMessage(""), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [errMessage]);
-
-  React.useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(""), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
+  const autoPassword = formData.lastName ? formData.lastName.toUpperCase().replace(/\s+/g, "") : "";
 
   return (
-    <Container
-      maxWidth="md"
-      sx={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        py: 4,
-      }}
-    >
-      <Grow in={true} timeout={600}>
-        <Paper
-          elevation={0}
-          sx={{
-            padding: { xs: 3, sm: 4, md: 5 },
-            width: "100%",
-            maxWidth: 700,
-            borderRadius: 3,
-            border: "2px solid #f5e6e6",
-            background: "linear-gradient(135deg, #ffffff 0%, #fffef9 100%)",
-            boxShadow: "0 8px 32px rgba(109, 35, 35, 0.12)",
-            position: "relative",
-            overflow: "hidden",
-            transition: "all 0.3s ease",
-            "&:hover": {
-              boxShadow: "0 12px 48px rgba(109, 35, 35, 0.18)",
-              transform: "translateY(-4px)",
-            },
-            "&::before": {
-              content: '""',
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 4,
-              background: "linear-gradient(90deg, #6d2323 0%, #8a4747 50%, #6d2323 100%)",
-            },
-          }}
-        >
-          {/* Header */}
-          <Box sx={{ textAlign: "center", mb: 4, pt: 2 }}>
-            <Zoom in={true} timeout={400}>
-              <Box
-                sx={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  mb: 2,
-                }}
-              >
-                <Box
-                  sx={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: "50%",
-                    overflow: "hidden",
-                    boxShadow: "0 4px 16px rgba(109, 35, 35, 0.2)",
-                    transition: "all 0.3s ease",
-                    "&:hover": {
-                      transform: "scale(1.05) rotate(5deg)",
-                      boxShadow: "0 8px 24px rgba(109, 35, 35, 0.3)",
-                    },
-                  }}
-                >
-                  <img
-                    src={earistLogo}
-                    alt="E.A.R.I.S.T Logo"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                </Box>
-              </Box>
-            </Zoom>
-            <Typography
-              variant="h4"
-              sx={{
-                color: "#6d2323",
-                fontWeight: 800,
-                mb: 1,
-                background: "linear-gradient(135deg, #6d2323 0%, #8a4747 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                letterSpacing: "-0.5px",
-              }}
-            >
-              Registration
-            </Typography>
-            <Typography
-              variant="body1"
-              sx={{
-                color: "#8a4747",
-                fontSize: "1rem",
-                fontWeight: 500,
-              }}
-            >
-              Create your initial account
-            </Typography>
-          </Box>
+    <>
+      {/* Fixed full-screen background */}
+      <Box sx={{ position: "fixed", inset: 0, background: "linear-gradient(135deg, rgba(75,0,0,0.82) 0%, rgba(0,0,0,0.88) 100%)" }} />
 
-          <form onSubmit={handleRegister}>
-            <Box sx={{ mb: 2.5 }}>
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2.5, mb: 2.5 }}>
-                <TextField
-                  name="firstName"
-                  label="First Name *"
-                  type="text"
-                  fullWidth
-                  value={formData.firstName}
-                  onChange={handleChanges}
-                  onFocus={() => setFocusedField("firstName")}
-                  onBlur={() => setFocusedField(null)}
-                  InputLabelProps={{
-                    required: false,
-                    sx: { fontWeight: 600 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonOutline
-                          sx={{
-                            color: focusedField === "firstName" ? "#6d2323" : "#8a4747",
-                            transition: "color 0.3s ease",
-                          }}
-                        />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      transition: "all 0.3s ease",
-                      "&:hover": {
-                        transform: "translateY(-2px)",
-                      },
-                      "&:hover fieldset": {
-                        borderColor: "#8a4747",
-                        borderWidth: 2,
-                      },
-                      "&.Mui-focused": {
-                        transform: "translateY(-2px)",
-                        boxShadow: "0 4px 12px rgba(109, 35, 35, 0.15)",
-                      },
-                      "&.Mui-focused fieldset": {
-                        borderColor: "#6d2323",
-                        borderWidth: 2,
-                      },
-                    },
-                    "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#6d2323",
-                      fontWeight: 700,
-                    },
-                  }}
-                />
-                <TextField
-                  name="middleName"
-                  label="Middle Name"
-                  type="text"
-                  fullWidth
-                  value={formData.middleName}
-                  onChange={handleChanges}
-                  onFocus={() => setFocusedField("middleName")}
-                  onBlur={() => setFocusedField(null)}
-                  InputLabelProps={{
-                    required: false,
-                    sx: { fontWeight: 600 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonOutline
-                          sx={{
-                            color: focusedField === "middleName" ? "#6d2323" : "#8a4747",
-                            transition: "color 0.3s ease",
-                          }}
-                        />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      transition: "all 0.3s ease",
-                      "&:hover": {
-                        transform: "translateY(-2px)",
-                      },
-                      "&:hover fieldset": {
-                        borderColor: "#8a4747",
-                        borderWidth: 2,
-                      },
-                      "&.Mui-focused": {
-                        transform: "translateY(-2px)",
-                        boxShadow: "0 4px 12px rgba(109, 35, 35, 0.15)",
-                      },
-                      "&.Mui-focused fieldset": {
-                        borderColor: "#6d2323",
-                        borderWidth: 2,
-                      },
-                    },
-                    "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#6d2323",
-                      fontWeight: 700,
-                    },
-                  }}
-                />
-              </Box>
-
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2.5, mb: 2.5 }}>
-                <TextField
-                  name="lastName"
-                  label="Last Name *"
-                  type="text"
-                  fullWidth
-                  value={formData.lastName}
-                  onChange={handleChanges}
-                  onFocus={() => setFocusedField("lastName")}
-                  onBlur={() => setFocusedField(null)}
-                  InputLabelProps={{
-                    required: false,
-                    sx: { fontWeight: 600 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonOutline
-                          sx={{
-                            color: focusedField === "lastName" ? "#6d2323" : "#8a4747",
-                            transition: "color 0.3s ease",
-                          }}
-                        />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      transition: "all 0.3s ease",
-                      "&:hover": {
-                        transform: "translateY(-2px)",
-                      },
-                      "&:hover fieldset": {
-                        borderColor: "#8a4747",
-                        borderWidth: 2,
-                      },
-                      "&.Mui-focused": {
-                        transform: "translateY(-2px)",
-                        boxShadow: "0 4px 12px rgba(109, 35, 35, 0.15)",
-                      },
-                      "&.Mui-focused fieldset": {
-                        borderColor: "#6d2323",
-                        borderWidth: 2,
-                      },
-                    },
-                    "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#6d2323",
-                      fontWeight: 700,
-                    },
-                  }}
-                />
-                <TextField
-                  name="nameExtension"
-                  label="Name Extension"
-                  type="text"
-                  fullWidth
-                  value={formData.nameExtension}
-                  onChange={handleChanges}
-                  onFocus={() => setFocusedField("nameExtension")}
-                  onBlur={() => setFocusedField(null)}
-                  placeholder="Jr., Sr., III, etc."
-                  InputLabelProps={{
-                    required: false,
-                    sx: { fontWeight: 600 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PersonOutline
-                          sx={{
-                            color: focusedField === "nameExtension" ? "#6d2323" : "#8a4747",
-                            transition: "color 0.3s ease",
-                          }}
-                        />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      transition: "all 0.3s ease",
-                      "&:hover": {
-                        transform: "translateY(-2px)",
-                      },
-                      "&:hover fieldset": {
-                        borderColor: "#8a4747",
-                        borderWidth: 2,
-                      },
-                      "&.Mui-focused": {
-                        transform: "translateY(-2px)",
-                        boxShadow: "0 4px 12px rgba(109, 35, 35, 0.15)",
-                      },
-                      "&.Mui-focused fieldset": {
-                        borderColor: "#6d2323",
-                        borderWidth: 2,
-                      },
-                    },
-                    "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#6d2323",
-                      fontWeight: 700,
-                    },
-                  }}
-                />
-              </Box>
-
-              <TextField
-                name="email"
-                label="Email Address *"
-                type="email"
-                fullWidth
-                value={formData.email}
-                onChange={handleChanges}
-                onFocus={() => setFocusedField("email")}
-                onBlur={() => setFocusedField(null)}
-                sx={{ mb: 2.5 }}
-                InputLabelProps={{
-                  required: false,
-                  sx: { fontWeight: 600 },
-                }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <EmailOutlined
-                        sx={{
-                          color: focusedField === "email" ? "#6d2323" : "#8a4747",
-                          transition: "color 0.3s ease",
-                        }}
-                      />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2.5 }}>
-                <TextField
-                  name="employeeNumber"
-                  label="Employee Number *"
-                  type="text"
-                  fullWidth
-                  value={formData.employeeNumber}
-                  onChange={handleChanges}
-                  onFocus={() => setFocusedField("employeeNumber")}
-                  onBlur={() => setFocusedField(null)}
-                  placeholder="e.g., 2013-4410"
-                  helperText="Alphanumeric with hyphens allowed"
-                  InputLabelProps={{
-                    required: false,
-                    sx: { fontWeight: 600 },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <BadgeOutlined
-                          sx={{
-                            color: focusedField === "employeeNumber" ? "#6d2323" : "#8a4747",
-                            transition: "color 0.3s ease",
-                          }}
-                        />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      transition: "all 0.3s ease",
-                      "&:hover": {
-                        transform: "translateY(-2px)",
-                      },
-                      "&:hover fieldset": {
-                        borderColor: "#8a4747",
-                        borderWidth: 2,
-                      },
-                      "&.Mui-focused": {
-                        transform: "translateY(-2px)",
-                        boxShadow: "0 4px 12px rgba(109, 35, 35, 0.15)",
-                      },
-                      "&.Mui-focused fieldset": {
-                        borderColor: "#6d2323",
-                        borderWidth: 2,
-                      },
-                    },
-                    "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#6d2323",
-                      fontWeight: 700,
-                    },
-                  }}
-                />
-
-                <FormControl
-                  fullWidth
-                  variant="outlined"
-                  sx={{
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      transition: "all 0.3s ease",
-                      "&:hover": {
-                        transform: "translateY(-2px)",
-                      },
-                      "&:hover fieldset": {
-                        borderColor: "#8a4747",
-                        borderWidth: 2,
-                      },
-                      "&.Mui-focused": {
-                        transform: "translateY(-2px)",
-                        boxShadow: "0 4px 12px rgba(109, 35, 35, 0.15)",
-                      },
-                      "&.Mui-focused fieldset": {
-                        borderColor: "#6d2323",
-                        borderWidth: 2,
-                      },
-                    },
-                    "& .MuiInputLabel-root.Mui-focused": {
-                      color: "#6d2323",
-                      fontWeight: 700,
-                    },
-                  }}
-                >
-                  <InputLabel id="role-label" sx={{ fontWeight: 600 }}>
-                    Role *
-                  </InputLabel>
-                  <Select
-                    labelId="role-label"
-                    name="role"
-                    value={formData.role}
-                    label="Role *"
-                    onChange={handleChanges}
-                    onFocus={() => setFocusedField("role")}
-                    onBlur={() => setFocusedField(null)}
-                    displayEmpty
-                    startAdornment={
-                      <InputAdornment position="start">
-                        <AdminPanelSettings
-                          sx={{
-                            color: focusedField === "role" ? "#6d2323" : "#8a4747",
-                            transition: "color 0.3s ease",
-                          }}
-                        />
-                      </InputAdornment>
-                    }
-                  >
-                    <MenuItem value="" disabled>
-                      <em>Select Role</em>
-                    </MenuItem>
-                    <MenuItem value="superadmin">Super Admin</MenuItem>
-                    <MenuItem value="administrator">Administrator</MenuItem>
-                    <MenuItem value="technical">Technical</MenuItem>
-                    <MenuItem value="staff">Staff</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-
-              {/* Auto-generated Password Display */}
-              <Box
-                sx={{
-                  mt: 2.5,
-                  p: 2.5,
-                  borderRadius: 2,
-                  bgcolor: "rgba(109, 35, 35, 0.05)",
-                  border: "2px solid rgba(109, 35, 35, 0.2)",
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                  <LockOutlined sx={{ color: "#6d2323", fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ color: "#6d2323", fontWeight: 700 }}>
-                    Auto-Generated Password
-                  </Typography>
-                </Box>
-                <Typography variant="body2" sx={{ color: "#666", mb: 1.5, lineHeight: 1.6 }}>
-                  Your password will be automatically set to your last name in all caps with no spaces.
-                </Typography>
-                {formData.lastName && (
-                  <Box
-                    sx={{
-                      bgcolor: "#fff8e1",
-                      border: "2px solid #ffc107",
-                      borderRadius: 1.5,
-                      p: 1.5,
-                      fontFamily: "monospace",
-                      fontSize: "1.1rem",
-                      fontWeight: 700,
-                      color: "#856404",
-                      textAlign: "center",
-                      letterSpacing: "0.1em",
-                    }}
-                  >
-                    {formData.lastName.toUpperCase().replace(/\s+/g, '')}
-                  </Box>
-                )}
-                {!formData.lastName && (
-                  <Box
-                    sx={{
-                      bgcolor: "#f5f5f5",
-                      border: "2px dashed #ccc",
-                      borderRadius: 1.5,
-                      p: 1.5,
-                      textAlign: "center",
-                      color: "#999",
-                      fontStyle: "italic",
-                    }}
-                  >
-                    Enter your last name to see your password
-                  </Box>
-                )}
-              </Box>
-            </Box>
-
-            {/* Alert Messages */}
-            {errMessage && (
-              <Fade in={true}>
-                <Alert
-                  icon={<ErrorOutline fontSize="inherit" />}
-                  sx={{
-                    mb: 2.5,
-                    backgroundColor: "#fff",
-                    color: "#d32f2f",
-                    border: "2px solid #d32f2f",
-                    borderRadius: 2,
-                    fontWeight: 500,
-                    fontSize: "0.95rem",
-                    boxShadow: "0 4px 12px rgba(211, 47, 47, 0.2)",
-                    "& .MuiAlert-icon": {
-                      color: "#d32f2f",
-                    },
-                  }}
-                  severity="error"
-                >
-                  {errMessage}
-                </Alert>
-              </Fade>
-            )}
-            {successMessage && (
-              <Fade in={true}>
-                <Alert
-                  icon={<CheckCircleOutline fontSize="inherit" />}
-                  sx={{
-                    mb: 2.5,
-                    backgroundColor: "#fff",
-                    color: "#2e7d32",
-                    border: "2px solid #2e7d32",
-                    borderRadius: 2,
-                    fontWeight: 600,
-                    fontSize: "0.95rem",
-                    boxShadow: "0 4px 12px rgba(46, 125, 50, 0.2)",
-                    "& .MuiAlert-icon": {
-                      color: "#2e7d32",
-                    },
-                  }}
-                  severity="success"
-                >
-                  {successMessage}
-                </Alert>
-              </Fade>
-            )}
-
+      {/* Fixed centered overlay */}
+      <Box sx={{ position: "fixed", inset: 0, zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", px: 2 }}>
+        <Fade in timeout={500}>
+          <Box
+            sx={{
+              width: 600,
+              maxWidth: "100%",
+              maxHeight: "calc(100vh - 32px)",
+              display: "flex",
+              flexDirection: "column",
+              background: "rgba(255,255,255,0.93)",
+              backdropFilter: "blur(24px)",
+              WebkitBackdropFilter: "blur(24px)",
+              border: "1px solid rgba(200,180,180,0.35)",
+              borderRadius: "24px",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+              overflow: "hidden",
+            }}
+          >
+            {/* ── Card header ── */}
             <Box
               sx={{
-                mt: 4,
-                pt: 3,
-                borderTop: "2px dashed rgba(109, 35, 35, 0.15)",
+                px: 3, py: 1.5, flexShrink: 0,
+                background: "linear-gradient(135deg, rgba(253,245,245,0.98) 0%, rgba(240,222,222,0.98) 100%)",
+                position: "relative", overflow: "hidden",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                borderBottom: `1px solid ${T.accentBorder}`,
               }}
             >
-              <Button
-                type="submit"
-                variant="contained"
-                fullWidth
-                disabled={isLoading}
-                startIcon={<PersonAddAlt1 sx={{ fontSize: 24 }} />}
-                sx={{
-                  bgcolor: "#6d2323",
-                  py: 2,
-                  fontSize: "1.05rem",
-                  fontWeight: 700,
-                  borderRadius: 2,
-                  textTransform: "none",
-                  boxShadow: "0 4px 20px rgba(109, 35, 35, 0.3)",
-                  position: "relative",
-                  overflow: "hidden",
-                  "&::before": {
-                    content: '""',
-                    position: "absolute",
-                    top: 0,
-                    left: "-100%",
-                    width: "100%",
-                    height: "100%",
-                    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
-                    transition: "left 0.6s ease",
-                  },
-                  "&:hover::before": {
-                    left: "100%",
-                  },
-                  "&:hover": {
-                    bgcolor: "#5a1e1e",
-                    transform: "translateY(-3px)",
-                    boxShadow: "0 8px 32px rgba(109, 35, 35, 0.45)",
-                  },
-                  "&:disabled": {
-                    bgcolor: "#999",
-                    color: "#fff",
-                    cursor: "not-allowed",
-                  },
-                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                  mb: 2,
-                }}
-              >
-                {isLoading ? "Creating Account..." : "Create Account"}
-              </Button>
+              <Box sx={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, background: `radial-gradient(circle, ${T.accentFaint} 0%, transparent 70%)` }} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+                <Avatar src={earistLogo} sx={{ width: 36, height: 36, boxShadow: "0 4px 14px rgba(109,35,35,0.18)" }} />
+                <Box>
+                  <Typography sx={{ fontWeight: 700, lineHeight: 1.2, color: T.accent, fontSize: "0.94rem" }}>Create account</Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.7, color: T.muted }}>Emergency bypass — restore access for lost admin accounts</Typography>
+                </Box>
+              </Box>
+              <Chip label="Bypass" size="small" sx={{ bgcolor: T.accentFaint, color: T.accent, fontWeight: 600, border: `1px solid ${T.accentBorder}`, position: "relative", zIndex: 1 }} />
+            </Box>
 
-              <Typography variant="body2" sx={{ textAlign: "center", color: "#666" }}>
-                Already have an account?{" "}
-                <Button
-                  onClick={() => navigate("/")}
+            {/* ── Form body ── */}
+            <Box
+              component="form"
+              onSubmit={handleRegister}
+              sx={{
+                px: 3, pt: 1.5, pb: 2,
+                flex: 1, overflowY: "auto",
+                scrollbarWidth: "thin",
+                scrollbarColor: `${T.accentBorder} transparent`,
+                "&::-webkit-scrollbar": { width: 4 },
+                "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 },
+              }}
+            >
+              {/* Personal Information */}
+              <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, mb: 0.75 }}>
+                Personal information
+              </Typography>
+              <Grid container spacing={1}>
+                <Grid item xs={3}>
+                  <ModernTextField
+                    name="firstName"
+                    label={`First name${fieldRequirements.firstName ? " *" : ""}`}
+                    fullWidth size="small" placeholder="Juan"
+                    value={formData.firstName} onChange={handleChanges}
+                    InputLabelProps={{ required: false }}
+                    InputProps={{ startAdornment: <InputAdornment position="start"><PersonOutline sx={{ fontSize: 15 }} /></InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={3}>
+                  <ModernTextField
+                    name="middleName"
+                    label={`Middle name${fieldRequirements.middleName ? " *" : ""}`}
+                    fullWidth size="small" placeholder="Santos"
+                    value={formData.middleName} onChange={handleChanges}
+                    InputLabelProps={{ required: false }}
+                    InputProps={{ startAdornment: <InputAdornment position="start"><PersonOutline sx={{ fontSize: 15 }} /></InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={4}>
+                  <ModernTextField
+                    name="lastName"
+                    label={`Last name${fieldRequirements.lastName ? " *" : ""}`}
+                    fullWidth size="small" placeholder="Dela Cruz"
+                    value={formData.lastName} onChange={handleChanges}
+                    InputLabelProps={{ required: false }}
+                    InputProps={{ startAdornment: <InputAdornment position="start"><PersonOutline sx={{ fontSize: 15 }} /></InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={2}>
+                  <FormControl fullWidth size="small" sx={selectControlSx}>
+                    <InputLabel shrink sx={{ fontWeight: 500 }}>Ext.</InputLabel>
+                    <Select
+                      name="nameExtension" value={formData.nameExtension}
+                      label="Ext." onChange={handleChanges}
+                      displayEmpty notched sx={selectInnerSx}
+                      renderValue={(val) => val || <span style={{ color: T.faint }}>None</span>}
+                    >
+                      <MenuItem value=""><em style={{ color: T.faint, fontSize: "0.85rem" }}>None</em></MenuItem>
+                      {["Jr.", "Sr.", "II", "III", "IV", "V"].map((v) => (
+                        <MenuItem key={v} value={v} sx={{ fontSize: "0.875rem" }}>{v}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <ModernTextField
+                    name="email"
+                    label={`Email address${fieldRequirements.email ? " *" : ""}`}
+                    type="email" fullWidth size="small"
+                    placeholder="jdelacruz@earist.edu.ph"
+                    value={formData.email} onChange={handleChanges}
+                    InputLabelProps={{ required: false }}
+                    InputProps={{ startAdornment: <InputAdornment position="start"><EmailOutlined sx={{ fontSize: 15 }} /></InputAdornment> }}
+                  />
+                </Grid>
+              </Grid>
+
+              <Box sx={{ borderTop: `1px dashed ${T.divider}`, my: 1.25 }} />
+
+              {/* Account Details */}
+              <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, mb: 0.75 }}>
+                Account details
+              </Typography>
+              <Grid container spacing={1}>
+                <Grid item xs={6}>
+                  <ModernTextField
+                    name="employeeNumber"
+                    label={`Employee number${fieldRequirements.employeeNumber ? " *" : ""}`}
+                    fullWidth size="small" placeholder="2013-4410"
+                    value={formData.employeeNumber} onChange={handleChanges}
+                    InputLabelProps={{ required: false }}
+                    InputProps={{ startAdornment: <InputAdornment position="start"><BadgeOutlined sx={{ fontSize: 15 }} /></InputAdornment> }}
+                  />
+                </Grid>
+                <Grid item xs={6}>
+                  <FormControl fullWidth size="small" sx={selectControlSx}>
+                    <InputLabel shrink sx={{ fontWeight: 500 }}>Role *</InputLabel>
+                    <Select
+                      name="role" value={formData.role} label="Role *"
+                      onChange={handleChanges} displayEmpty notched
+                      startAdornment={<InputAdornment position="start"><AdminPanelSettings sx={{ fontSize: 15 }} /></InputAdornment>}
+                      sx={selectInnerSx}
+                      renderValue={(val) => val || <span style={{ color: T.faint }}>Select role…</span>}
+                    >
+                      <MenuItem value="" disabled>
+                        <Typography sx={{ color: T.faint, fontSize: "0.875rem" }}>Select role…</Typography>
+                      </MenuItem>
+                      {[
+                        { value: "superadmin",    label: "Super admin" },
+                        { value: "administrator", label: "Administrator" },
+                        { value: "technical",     label: "Technical" },
+                      ].map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: "0.875rem" }}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {/* Password banner */}
+                <Grid item xs={12}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.75, py: 0.85, borderRadius: 2, border: `1px dashed ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+                    <Box sx={{ width: 26, height: 26, borderRadius: 1.5, bgcolor: "rgba(109,35,35,0.08)", border: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <LockOutlined sx={{ fontSize: 13, color: T.accent }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Password</Typography>
+                      <Typography sx={{ fontSize: "0.58rem", color: T.faint }}>From last name</Typography>
+                    </Box>
+                    <Box sx={{ width: "1px", height: 20, bgcolor: T.accentBorder, flexShrink: 0 }} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      {autoPassword ? (
+                        <Box sx={{ display: "inline-flex", alignItems: "center", px: 1, py: 0.3, borderRadius: 1, bgcolor: "rgba(46,125,50,0.10)", border: "1px solid rgba(46,125,50,0.3)" }}>
+                          <Typography sx={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: "0.78rem", fontWeight: 700, color: "#1a5e20", letterSpacing: "0.08em" }}>
+                            {autoPassword}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontStyle: "italic" }}>Enter a last name to preview…</Typography>
+                      )}
+                    </Box>
+                    <Chip
+                      icon={<CheckCircleOutline sx={{ fontSize: "11px !important" }} />}
+                      label="Auto" size="small"
+                      sx={{ bgcolor: T.accentFaint, color: T.accent, fontWeight: 700, fontSize: "0.63rem", flexShrink: 0, height: 20, border: `1px solid ${T.accentBorder}`, "& .MuiChip-icon": { color: T.accent } }}
+                    />
+                    <Tooltip title="Derived from last name — uppercase, no spaces. Can be changed after first login." placement="top" arrow>
+                      <InfoOutlined sx={{ fontSize: 14, color: T.faint, cursor: "help", flexShrink: 0 }} />
+                    </Tooltip>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              {/* Alerts */}
+              {errMessage && (
+                <Fade in>
+                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: "7px 12px", mt: 1, borderRadius: "10px", bgcolor: "rgba(200,30,30,0.04)", border: "1px solid rgba(200,30,30,0.12)" }}>
+                    <ErrorOutline sx={{ fontSize: 15, color: "#8a2020", flexShrink: 0, mt: "1px" }} />
+                    <Typography sx={{ fontSize: "0.78rem", color: "#8a2020", lineHeight: 1.4 }}>{errMessage}</Typography>
+                  </Box>
+                </Fade>
+              )}
+              {successMessage && (
+                <Fade in>
+                  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: "7px 12px", mt: 1, borderRadius: "10px", bgcolor: "rgba(46,125,50,0.05)", border: "1px solid rgba(46,125,50,0.22)" }}>
+                    <CheckCircleOutline sx={{ fontSize: 15, color: "#2E7D32", flexShrink: 0, mt: "1px" }} />
+                    <Typography sx={{ fontSize: "0.78rem", color: "#1a5e20", lineHeight: 1.4 }}>{successMessage}</Typography>
+                  </Box>
+                </Fade>
+              )}
+
+              {/* Footer */}
+              <Box sx={{ mt: 1.25, pt: 1.25, borderTop: `1px solid ${T.divider}` }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={isInformationConfirmed}
+                      onChange={(e) => setIsInformationConfirmed(e.target.checked)}
+                      disabled={isLoading} size="small"
+                      sx={{ p: 0.4, mr: 0.75, color: T.accentBorder, "&.Mui-checked": { color: T.accent } }}
+                    />
+                  }
+                  label={<Typography sx={{ fontSize: "0.74rem", color: T.muted, lineHeight: 1.4 }}>I certify that the information entered above is accurate and ready for official record.</Typography>}
+                  sx={{ ml: 0, mr: 0, alignItems: "center", mb: 1 }}
+                />
+                <Box
+                  component="button" type="submit"
+                  disabled={isLoading || !isInformationConfirmed}
                   sx={{
-                    color: "#6d2323",
-                    fontSize: "0.875rem",
-                    textTransform: "none",
-                    padding: 0,
-                    minWidth: 0,
-                    fontWeight: 700,
-                    textDecoration: "underline",
-                    "&:hover": {
-                      backgroundColor: "transparent",
-                      textDecoration: "underline",
-                    },
+                    width: "100%", height: 44,
+                    background: (isLoading || !isInformationConfirmed) ? "rgba(109,35,35,0.25)" : T.accent,
+                    border: "none", borderRadius: "12px", color: "#fff",
+                    fontSize: "0.88rem", fontWeight: 600,
+                    cursor: (isLoading || !isInformationConfirmed) ? "not-allowed" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                    transition: "background 0.2s", fontFamily: "inherit",
                   }}
                 >
-                  Login here
-                </Button>
-              </Typography>
+                  {isLoading ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <PersonAddAlt1 sx={{ fontSize: 17 }} />}
+                  {isLoading ? "Creating account…" : "Create account"}
+                </Box>
+                <Box sx={{ textAlign: "center", mt: 1 }}>
+                  <Typography component="span" sx={{ fontSize: "0.79rem", color: T.muted }}>Already have an account? </Typography>
+                  <Typography component="span" onClick={() => navigate("/")}
+                    sx={{ fontSize: "0.79rem", color: T.accent, fontWeight: 700, textDecoration: "underline", cursor: "pointer" }}>
+                    Login here
+                  </Typography>
+                </Box>
+              </Box>
             </Box>
-          </form>
-        </Paper>
-      </Grow>
-    </Container>
+          </Box>
+        </Fade>
+      </Box>
+    </>
   );
 };
 

@@ -1,133 +1,97 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Box, Typography } from "@mui/material";
-import logo from "../assets/logo.PNG";
+import { Box, Typography, alpha } from "@mui/material";
 
-const LoadingOverlay = ({ open, message }) => {
-  if (!open) return null;
+const ACCENT = "#6d2323";
+/** Above App shell (AppBar 1201, drawer, footer); portaled to body so parent `transform` cannot clip the overlay */
+const Z_FULL_VIEWPORT = 20000;
+
+const LoadingOverlay = ({
+  open,
+  message = "Processing…",
+  showDelayMs = 150,
+  minVisibleMs = 250,
+}) => {
+  const [visible, setVisible] = useState(false);
+  const showTimerRef = useRef(null);
+  const hideTimerRef = useRef(null);
+  const visibleSinceRef = useRef(0);
+
+  useEffect(() => {
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+
+    if (open) {
+      if (visible) return;
+      showTimerRef.current = setTimeout(() => {
+        visibleSinceRef.current = Date.now();
+        setVisible(true);
+      }, Math.max(0, Number(showDelayMs) || 0));
+      return;
+    }
+
+    // open = false
+    if (!visible) return;
+    const elapsed = Date.now() - (visibleSinceRef.current || 0);
+    const remaining = Math.max(0, (Number(minVisibleMs) || 0) - elapsed);
+    hideTimerRef.current = setTimeout(() => {
+      setVisible(false);
+    }, remaining);
+  }, [open, visible, showDelayMs, minVisibleMs]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [visible]);
+
+  if (typeof document === "undefined" || !visible) return null;
 
   return createPortal(
     <Box
+      role="progressbar"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label={message}
       sx={{
         position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        inset: 0,
         width: "100vw",
         height: "100vh",
-        bgcolor: "rgba(0, 0, 0, 0.6)", // dark transparent overlay
+        zIndex: Z_FULL_VIEWPORT,
+        bgcolor: "rgba(15,23,42,0.45)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 9999,
-        flexDirection: "column",
-        overflow: "hidden",
-        margin: 0,
-        padding: 0,
+        pointerEvents: "auto",
       }}
     >
-      {/* Orbiting container */}
-      <Box
-        sx={{
-          position: "relative",
-          width: 200,
-          height: 200,
-        }}
-      >
-        {/* Central Sphere */}
+      <Box sx={{ textAlign: "center" }}>
         <Box
           sx={{
-            width: 150,
-            height: 150,
+            width: 36,
+            height: 36,
+            border: `2px solid ${alpha(ACCENT, 0.2)}`,
+            borderTopColor: ACCENT,
             borderRadius: "50%",
-            background: "radial-gradient(circle at 30% 30%, #A31D1D, #700000)",
-            boxShadow: "0 0 40px rgba(163,29,29,0.7), 0 0 80px rgba(163,29,29,0.5)",
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            animation: "floatSphere 2s ease-in-out infinite alternate",
+            animation: "hris-loading-spin 0.5s linear infinite",
+            mx: "auto",
           }}
-        >
-          {/* Center Logo */}
-          <Box
-            component="img"
-            src={logo}
-            alt="E.A.R.I.S.T Logo"
-            sx={{
-              width: 70,
-              height: 70,
-              borderRadius: "50%",
-              boxShadow: "0 0 20px rgba(163,29,29,0.7)",
-              animation: "heartbeat 1.5s ease-in-out infinite",
-            }}
-          />
-        </Box>
-
-        {/* Orbiting small spheres */}
-        {[0, 1, 2, 3].map((i) => (
-          <Box
-            key={i}
-            sx={{
-              width: 20,
-              height: 20,
-              borderRadius: "50%",
-              background: "rgba(163,29,29,0.8)",
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transformOrigin: " -60px 0px",
-              animation: `orbit${i} ${3 + i}s linear infinite`,
-              boxShadow: "0 0 15px rgba(163,29,29,0.5)",
-            }}
-          />
-        ))}
+        />
+        <Typography sx={{ mt: 2, color: "#fff", fontSize: "0.8rem", fontWeight: 500 }}>
+          {message}
+        </Typography>
       </Box>
-
-      {/* Loading message */}
-      <Typography
-        variant="h6"
-        sx={{
-          mt: 4,
-          color: "#FFF8E1", // cream color for contrast
-          fontWeight: "bold",
-          animation: "pulse 1.5s infinite",
-        }}
-      >
-        {message}
-      </Typography>
-
-      {/* Keyframes */}
-      <style>
-        {`
-          @keyframes heartbeat {
-            0%,100% { transform: scale(1); }
-            25%,75% { transform: scale(1.15); }
-            50% { transform: scale(1.05); }
-          }
-
-          @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.6; }
-            100% { opacity: 1; }
-          }
-
-          @keyframes floatSphere {
-            0% { transform: translate(-50%, -50%) translateY(0); }
-            50% { transform: translate(-50%, -50%) translateY(-15px); }
-            100% { transform: translate(-50%, -50%) translateY(0); }
-          }
-
-          @keyframes orbit0 { 0% { transform: rotate(0deg) translateX(80px); } 100% { transform: rotate(360deg) translateX(80px); } }
-          @keyframes orbit1 { 0% { transform: rotate(90deg) translateX(80px); } 100% { transform: rotate(450deg) translateX(80px); } }
-          @keyframes orbit2 { 0% { transform: rotate(180deg) translateX(80px); } 100% { transform: rotate(540deg) translateX(80px); } }
-          @keyframes orbit3 { 0% { transform: rotate(270deg) translateX(80px); } 100% { transform: rotate(630deg) translateX(80px); } }
-        `}
-      </style>
+      <style>{`@keyframes hris-loading-spin { to { transform: rotate(360deg); } }`}</style>
     </Box>,
     document.body
   );

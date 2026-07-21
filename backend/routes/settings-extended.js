@@ -372,18 +372,18 @@ router.post('/api/contact-us', authenticateToken, upload.single('attachment'), (
                   return;
                 }
 
-                // Try with notification_type and action_link
+                // CHANGE 1: action_link includes ticket ID and status=new
                 db.query(
                   `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
-                   VALUES (?, ?, 0, 'contact', '/settings')`,
-                  [adminEmpNum, notificationDescription],
+                   VALUES (?, ?, 0, 'contact', ?)`,
+                  [adminEmpNum, notificationDescription, `/settings/contact/${contactId}?status=new`],
                   (notifErr) => {
                     if (notifErr) {
-                      // Fallback: try without notification_type and action_link
+                      // CHANGE 2: fallback also includes ticket ID and status
                       db.query(
-                        `INSERT INTO notifications (employeeNumber, description, read_status) 
-                         VALUES (?, ?, 0)`,
-                        [adminEmpNum, notificationDescription],
+                        `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+                         VALUES (?, ?, 0, 'contact', ?)`,
+                        [adminEmpNum, notificationDescription, `/settings/contact/${contactId}?status=new`],
                         (fallbackErr) => {
                           if (fallbackErr) {
                             console.error(`Error creating notification for admin ${adminEmpNum}:`, fallbackErr);
@@ -599,12 +599,30 @@ router.post('/api/contact-us/:id/messages', authenticateToken, upload.single('at
         }
 
         // Update status based on sender
-        const nextStatus = status || (isAdmin ? 'replied' : (currentStatus === 'resolved' ? 'on_process' : 'new'));
+        // Staff reply → on_process (waiting for admin), Admin reply → replied
+        const nextStatus = status || (isAdmin ? 'replied' : 'on_process');
         db.query('UPDATE contact_us SET status = ? WHERE id = ?', [nextStatus, id], (stErr) => {
           if (stErr) {
             console.error('Error updating contact status:', stErr);
           }
         });
+
+        // Sync ALL existing notifications for this ticket to the new status
+        // so the badge always reflects the current ticket state, not the original one
+        db.query(
+          `UPDATE notifications
+           SET action_link = ?
+           WHERE notification_type = 'contact'
+             AND (action_link LIKE ? OR action_link = ?)`,
+          [
+            `/settings/contact/${id}?status=${nextStatus}`,
+            `/settings/contact/${id}?%`,
+            `/settings/contact/${id}`,
+          ],
+          (syncErr) => {
+            if (syncErr) console.error('Error syncing notification action_links:', syncErr);
+          }
+        );
 
         // Update admin_notes for compatibility when admin replies
         if (isAdmin && message) {
@@ -628,16 +646,18 @@ router.post('/api/contact-us/:id/messages', authenticateToken, upload.single('at
                 admins.forEach((admin) => {
                   const adminEmpNum = String(admin.employeeNumber).trim();
                   if (!adminEmpNum) return;
+                  // CHANGE 3: action_link includes ticket ID and actual nextStatus
                   db.query(
                     `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
-                     VALUES (?, ?, 0, 'contact', '/settings')`,
-                    [adminEmpNum, description],
+                     VALUES (?, ?, 0, 'contact', ?)`,
+                    [adminEmpNum, description, `/settings/contact/${id}?status=${nextStatus}`],
                     (notifErr) => {
                       if (notifErr) {
+                        // CHANGE 4: fallback also includes ticket ID and actual nextStatus
                         db.query(
-                          `INSERT INTO notifications (employeeNumber, description, read_status) 
-                           VALUES (?, ?, 0)`,
-                          [adminEmpNum, description],
+                          `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+                           VALUES (?, ?, 0, 'contact', ?)`,
+                          [adminEmpNum, description, `/settings/contact/${id}?status=${nextStatus}`],
                           () => {},
                         );
                       }
@@ -649,16 +669,18 @@ router.post('/api/contact-us/:id/messages', authenticateToken, upload.single('at
           );
         } else if (owner) {
           const description = `Admin ${senderName} replied to your ticket. Click to view response.`;
+          // CHANGE 5: action_link includes ticket ID and status=replied (admin replied to staff)
           db.query(
             `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
-             VALUES (?, ?, 0, 'contact', '/settings')`,
-            [String(owner).trim(), description],
+             VALUES (?, ?, 0, 'contact', ?)`,
+            [String(owner).trim(), description, `/settings/contact/${id}?status=replied`],
             (notifErr) => {
               if (notifErr) {
+                // CHANGE 6: fallback also includes ticket ID and status
                 db.query(
-                  `INSERT INTO notifications (employeeNumber, description, read_status) 
-                   VALUES (?, ?, 0)`,
-                  [String(owner).trim(), description],
+                  `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+                   VALUES (?, ?, 0, 'contact', ?)`,
+                  [String(owner).trim(), description, `/settings/contact/${id}?status=replied`],
                   () => {},
                 );
               }
@@ -855,6 +877,25 @@ router.put('/api/contact-us/:id', authenticateToken, (req, res) => {
           employeeNumber: submitterEmployeeNumber,
         });
 
+        // Sync ALL existing notifications for this ticket to the new status
+        // so every notification badge reflects the current ticket state
+        if (status) {
+          db.query(
+            `UPDATE notifications
+             SET action_link = ?
+             WHERE notification_type = 'contact'
+               AND (action_link LIKE ? OR action_link = ?)`,
+            [
+              `/settings/contact/${id}?status=${status}`,
+              `/settings/contact/${id}?%`,
+              `/settings/contact/${id}`,
+            ],
+            (syncErr) => {
+              if (syncErr) console.error('Error syncing notification action_links:', syncErr);
+            }
+          );
+        }
+
       // If admin_notes provided, append to thread for messenger view
       if (admin_notes) {
         const senderName = req.user?.username || 'Admin';
@@ -887,19 +928,20 @@ router.put('/api/contact-us/:id', authenticateToken, (req, res) => {
 
         if (notificationDescription) {
           const submitterEmpNum = String(submitterEmployeeNumber).trim();
-          
-          // Try with notification_type and action_link
+
+          // CHANGE 7: action_link includes ticket ID and the actual new status
+          const ticketStatus = status || 'on_process';
           db.query(
             `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
-             VALUES (?, ?, 0, 'contact', '/settings')`,
-            [submitterEmpNum, notificationDescription],
+             VALUES (?, ?, 0, 'contact', ?)`,
+            [submitterEmpNum, notificationDescription, `/settings/contact/${id}?status=${ticketStatus}`],
             (notifErr) => {
               if (notifErr) {
-                // Fallback: try without notification_type and action_link
+                // CHANGE 8: fallback also includes ticket ID and status
                 db.query(
-                  `INSERT INTO notifications (employeeNumber, description, read_status) 
-                   VALUES (?, ?, 0)`,
-                  [submitterEmpNum, notificationDescription],
+                  `INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) 
+                   VALUES (?, ?, 0, 'contact', ?)`,
+                  [submitterEmpNum, notificationDescription, `/settings/contact/${id}?status=${ticketStatus}`],
                   (fallbackErr) => {
                     if (fallbackErr) {
                       console.error(`Error creating notification for staff ${submitterEmpNum}:`, fallbackErr);
@@ -1172,4 +1214,3 @@ router.delete('/api/policies/:id', authenticateToken, (req, res) => {
 });
 
 module.exports = router;
-

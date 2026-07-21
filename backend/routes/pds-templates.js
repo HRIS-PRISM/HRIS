@@ -27,7 +27,29 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// POST /pds-templates/upload
+// ─── MIME type map ────────────────────────────────────────────────────────────
+const MIME_TYPES = {
+  '.pdf':  'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc':  'application/msword',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls':  'application/vnd.ms-excel',
+};
+
+// ─── Path resolver ────────────────────────────────────────────────────────────
+// Old DB rows stored a full absolute OS path like:
+//   /home/ubuntu/app/uploads/pds-templates/1234_file.xlsx
+// New rows (after the fix) store only the generated filename like:
+//   1234_file.xlsx
+// This helper transparently handles both so old rows still work.
+const resolveFilePath = (storedPath) => {
+  if (path.isAbsolute(storedPath)) {
+    return storedPath;                        // legacy row — use as-is
+  }
+  return path.join(UPLOAD_DIR, storedPath);  // new row — reconstruct full path
+};
+
+// ─── POST /pds-templates/upload ───────────────────────────────────────────────
 router.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded.' });
@@ -45,7 +67,14 @@ router.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
   db.query(
     `INSERT INTO pds_templates (file_name, file_path, version, uploaded_by, file_size, notes, is_active)
      VALUES (?, ?, ?, ?, ?, ?, 0)`,
-    [req.file.originalname, req.file.path, version.trim(), adminId, req.file.size, notes?.trim() || null],
+    [
+      req.file.originalname,  // original display name shown to users
+      req.file.filename,      // server-generated filename only — never a local path
+      version.trim(),
+      adminId,
+      req.file.size,
+      notes?.trim() || null,
+    ],
     (err, result) => {
       if (err) {
         console.error('Upload DB error:', err);
@@ -67,7 +96,7 @@ router.post('/upload', authenticateToken, upload.single('file'), (req, res) => {
   );
 });
 
-// GET /pds-templates — list all
+// ─── GET /pds-templates — list all ───────────────────────────────────────────
 router.get('/', authenticateToken, (req, res) => {
   db.query(
     `SELECT t.id, t.file_name, t.version, t.uploaded_at, t.is_active, t.file_size, t.notes,
@@ -85,7 +114,7 @@ router.get('/', authenticateToken, (req, res) => {
   );
 });
 
-// GET /pds-templates/active
+// ─── GET /pds-templates/active ────────────────────────────────────────────────
 router.get('/active', authenticateToken, (req, res) => {
   db.query(
     `SELECT id, file_name, version, uploaded_at, file_size, notes
@@ -103,7 +132,7 @@ router.get('/active', authenticateToken, (req, res) => {
   );
 });
 
-// PUT /pds-templates/:id/activate
+// ─── PUT /pds-templates/:id/activate ─────────────────────────────────────────
 router.put('/:id/activate', authenticateToken, (req, res) => {
   const { id } = req.params;
 
@@ -127,27 +156,23 @@ router.put('/:id/activate', authenticateToken, (req, res) => {
           return res.status(500).json({ success: false, message: 'Failed to activate template.' });
         }
 
-        db.query(
-          'UPDATE pds_templates SET is_active = 1 WHERE id = ?',
-          [id],
-          (err) => {
-            if (err) {
-              console.error('Activate error:', err);
-              return res.status(500).json({ success: false, message: 'Failed to activate template.' });
-            }
-            return res.json({
-              success: true,
-              message: `Template "${template.version}" is now active.`,
-              activated: template,
-            });
+        db.query('UPDATE pds_templates SET is_active = 1 WHERE id = ?', [id], (err) => {
+          if (err) {
+            console.error('Activate error:', err);
+            return res.status(500).json({ success: false, message: 'Failed to activate template.' });
           }
-        );
+          return res.json({
+            success: true,
+            message: `Template "${template.version}" is now active.`,
+            activated: template,
+          });
+        });
       });
     }
   );
 });
 
-// DELETE /pds-templates/:id
+// ─── DELETE /pds-templates/:id ────────────────────────────────────────────────
 router.delete('/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
@@ -169,7 +194,7 @@ router.delete('/:id', authenticateToken, (req, res) => {
         });
       }
 
-      const filePath = rows[0].file_path;
+      const filePath = resolveFilePath(rows[0].file_path);
       if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
@@ -185,7 +210,7 @@ router.delete('/:id', authenticateToken, (req, res) => {
   );
 });
 
-// GET /pds-templates/:id/download
+// ─── GET /pds-templates/:id/download ─────────────────────────────────────────
 router.get('/:id/download', authenticateToken, (req, res) => {
   const { id } = req.params;
 
@@ -201,12 +226,53 @@ router.get('/:id/download', authenticateToken, (req, res) => {
         return res.status(404).json({ success: false, message: 'Template not found.' });
       }
 
-      const filePath = rows[0].file_path;
+      const filePath = resolveFilePath(rows[0].file_path);
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({ success: false, message: 'File not found on server.' });
       }
 
       res.download(filePath, rows[0].file_name);
+    }
+  );
+});
+
+// ─── GET /pds-templates/:id/preview ──────────────────────────────────────────
+// Streams the file with Content-Disposition: inline so the browser renders it
+// instead of downloading. PDFs open natively. DOCX/XLSX will still prompt a
+// save dialog — that's a browser limitation, not something we can override.
+router.get('/:id/preview', authenticateToken, (req, res) => {
+  const { id } = req.params;
+
+  db.query(
+    'SELECT file_name, file_path FROM pds_templates WHERE id = ?',
+    [id],
+    (err, rows) => {
+      if (err) {
+        console.error('Preview error:', err);
+        return res.status(500).json({ success: false, message: 'Failed to preview file.' });
+      }
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Template not found.' });
+      }
+
+      const filePath = resolveFilePath(rows[0].file_path);
+
+      if (!fs.existsSync(filePath)) {
+        console.error(`Preview 404 — stored: "${rows[0].file_path}" → resolved: "${filePath}"`);
+        return res.status(404).json({
+          success: false,
+          message: 'File not found on server. This template was uploaded before the storage fix — please re-upload it.',
+        });
+      }
+
+      const ext  = path.extname(rows[0].file_name).toLowerCase();
+      const mime = MIME_TYPES[ext] || 'application/octet-stream';
+
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `inline; filename="${rows[0].file_name}"`);
+      res.setHeader('Cache-Control', 'no-cache');
+
+      fs.createReadStream(filePath).pipe(res);
     }
   );
 });

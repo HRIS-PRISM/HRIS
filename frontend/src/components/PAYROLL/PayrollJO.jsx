@@ -12,7 +12,6 @@ import {
   TablePagination,
   Paper,
   Typography,
-  Container,
   Alert,
   Select,
   MenuItem,
@@ -27,26 +26,16 @@ import {
   Checkbox,
   CircularProgress,
   Card,
-  CardContent,
   Chip,
   IconButton,
   Tooltip,
-  Divider,
-  Backdrop,
-  AppBar,
-  Toolbar,
-  Badge,
   styled,
   alpha,
   Fade,
-  Avatar,
-  Slider,
-  Fab,
+  Slide,
   Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
   DialogActions,
+  Portal,
 } from '@mui/material';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
@@ -55,136 +44,209 @@ import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import SearchIcon from '@mui/icons-material/Search';
-import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import {
-  Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
   ExitToApp,
   Payment,
-  BusinessCenter,
-  CreditCard,
-  Compare,
-  Visibility,
-  Close,
-  EmojiPeople,
   FilterList,
   GetApp,
-  CheckCircle,
   Error,
   Warning,
   Info,
   Refresh,
-  Dashboard,
-  Assessment,
-  ZoomIn,
-  ZoomOut,
-  GridOn,
-  FindInPage,
+  Close,
+  CalendarToday,
 } from '@mui/icons-material';
 import PeopleIcon from '@mui/icons-material/People';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import ReceiptIcon from '@mui/icons-material/ReceiptLong';
-import CircleIcon from '@mui/icons-material/Circle';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import DownloadIcon from '@mui/icons-material/Download';
 import DeleteForever from '@mui/icons-material/DeleteForever';
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16
-      )}`
-    : '109, 35, 35';
+// ─── Unified Design Tokens (mirrors PayrollProcess) ───────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+  font: "'Poppins', sans-serif",
 };
 
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'boxShadow 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  position: 'relative',
-}));
+// ── Row height / sticky widths ────────────────────────────────────────────────
+const FROZEN_ROW_HEIGHT = 56;
+const STICKY_STATUS_WIDTH = 120;
+const STICKY_ACTIONS_WIDTH = 104;
 
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
-    boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
-    },
-    '&:active': {
-      transform: 'translateY(0)',
-    },
-  })
+// ─── Styled Primitives ────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+  fontFamily: T.font,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    fontFamily: T.font,
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root': { fontFamily: T.font },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  fontFamily: T.font,
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+const filterSelectSx = {
+  borderRadius: 2,
+  bgcolor: '#fafafa',
+  fontSize: '0.875rem',
+  fontFamily: T.font,
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#e5e7eb' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: T.accent,
+    borderWidth: '1.5px',
+  },
+};
+
+const globalFontSx = { '& *': { fontFamily: `${T.font} !important` } };
+
+// ── Shared sticky header/body cell helpers ─────────────────────────────────────
+const stickyStatusHeaderSx = {
+  borderBottom: `2px solid ${T.accentBorder}`,
+  borderLeft: `2px solid ${T.accentBorder}`,
+  py: 1.2,
+  px: 1.5,
+  fontSize: '0.65rem',
+  fontWeight: 800,
+  color: T.accent,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  whiteSpace: 'nowrap',
+  bgcolor: '#fff',
+  fontFamily: T.font,
+  position: 'sticky',
+  right: STICKY_ACTIONS_WIDTH,
+  zIndex: 52,
+  width: STICKY_STATUS_WIDTH,
+  minWidth: STICKY_STATUS_WIDTH,
+};
+
+const stickyActionsHeaderSx = {
+  borderBottom: `2px solid ${T.accentBorder}`,
+  borderLeft: `2px solid ${T.accentBorder}`,
+  py: 1.2,
+  px: 1.5,
+  fontSize: '0.65rem',
+  fontWeight: 800,
+  color: T.accent,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  whiteSpace: 'nowrap',
+  bgcolor: '#fff',
+  fontFamily: T.font,
+  position: 'sticky',
+  right: 0,
+  zIndex: 53,
+  boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+};
+
+const getStickyStatusBodySx = (index) => ({
+  borderBottom: 'none',
+  textAlign: 'center',
+  borderLeft: `2px solid ${T.accentBorder}`,
+  position: 'sticky',
+  right: STICKY_ACTIONS_WIDTH,
+  zIndex: 40,
+  width: STICKY_STATUS_WIDTH,
+  minWidth: STICKY_STATUS_WIDTH,
+  bgcolor: index % 2 === 0 ? '#ffffff' : '#f9f4f4',
+});
+
+const getStickyActionsBodySx = (index) => ({
+  borderBottom: 'none',
+  py: 1.05,
+  minWidth: STICKY_ACTIONS_WIDTH,
+  position: 'sticky',
+  right: 0,
+  zIndex: 41,
+  bgcolor: index % 2 === 0 ? '#ffffff' : '#f9f4f4',
+  boxShadow: `-2px 0 6px ${alpha(T.accent, 0.07)}`,
+  borderLeft: `2px solid ${T.accentBorder}`,
+});
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+const StatusChip = ({ status }) => (
+  <Chip
+    label={status === 1 || status === 'Processed' ? 'Processed' : 'Unprocessed'}
+    size="small"
+    sx={{
+      fontWeight: 700,
+      fontSize: '0.65rem',
+      fontFamily: T.font,
+      bgcolor:
+        status === 1 || status === 'Processed'
+          ? alpha('#4caf50', 0.12)
+          : alpha('#ff9800', 0.12),
+      color: status === 1 || status === 'Processed' ? '#2e7d32' : '#e65100',
+      border: `1px solid ${
+        status === 1 || status === 'Processed'
+          ? alpha('#4caf50', 0.3)
+          : alpha('#ff9800', 0.3)
+      }`,
+    }}
+  />
 );
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': { transform: 'translateY(-1px)', backgroundColor: 'rgba(255, 255, 255, 0.95)' },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
-}));
-
-const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
-  borderRadius: 16,
-  overflow: 'hidden',
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-}));
-
-const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  paddingTop: '2.1px',
-  paddingBottom: '2.1px',
-  borderBottom: isHeader
-    ? '2px solid rgba(254, 249, 225, 0.5)'
-    : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-}));
+const ExcelTableCell = ({ children, ...props }) => (
+  <TableCell
+    {...props}
+    sx={{
+      whiteSpace: 'nowrap',
+      fontSize: '0.82rem',
+      fontFamily: T.font,
+      ...props.sx,
+    }}
+  >
+    {children}
+  </TableCell>
+);
 
 const PayrollJO = () => {
   const { settings } = useSystemSettings();
 
-  const primaryColor = settings.accentColor || '#FEF9E1';
-  const secondaryColor = settings.backgroundColor || '#FFF8E7';
-  const accentColor = settings.primaryColor || '#6d2323';
-  const accentDark = settings.secondaryColor || '#8B3333';
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
-
-  const { hasAccess, loading: accessLoading, error: accessError } = usePageAccess('payroll-jo');
+  const { hasAccess, loading: accessLoading } = usePageAccess('payroll-jo');
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -206,9 +268,7 @@ const PayrollJO = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedYear, setSelectedYear] = useState(
-    new Date().getFullYear().toString()
-  );
+  const [selectedYear, setSelectedYear] = useState('');
   const [departments, setDepartments] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [summaryData, setSummaryData] = useState({
@@ -226,83 +286,17 @@ const PayrollJO = () => {
   });
   const [isUpdatingContributions, setIsUpdatingContributions] = useState(false);
   const [confirmChecked, setConfirmChecked] = useState(false);
-
-  // ─── Payroll Formulas state for tooltips ───
   const [payrollFormulasData, setPayrollFormulasData] = useState([]);
 
-  const fetchPayrollFormulasData = async () => {
-    try {
-      const res = await axios.get(`${API_BASE_URL}/api/payroll-formulas`, getAuthHeaders());
-      setPayrollFormulasData(res.data);
-    } catch (err) {
-      console.error('Error fetching payroll formulas for tooltips:', err);
-    }
-  };
-
-  // ─── Helper: get human-readable formula tooltip by key ───
-  const getFormulaTooltip = (key) => {
-    const formula = payrollFormulasData.find((f) => f.formula_key === key);
-    if (!formula) return null;
-    const expr = formula.formula_expression || '';
-    const readable = expr
-      .replace(/parseFloat\(item\.(\w+)\s*\|\|\s*0\)/g, '$1')
-      .replace(/parseFloat\(([^)]+)\)/g, '$1')
-      .replace(/item\.(\w+)/g, '$1')
-      .replace(/\s*\|\|\s*0/g, '')
-      .replace(/Math\.floor/g, 'Floor')
-      .replace(/Math\.ceil/g, 'Ceil')
-      .replace(/Math\.round/g, 'Round')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return { readable, description: formula.description || '' };
-  };
-
-  // ─── Reusable HeaderTooltip component ───
-  const HeaderTooltip = ({ fieldKey, fullName, children }) => {
-    const formulaInfo = fieldKey ? getFormulaTooltip(fieldKey) : null;
-    const tooltipContent = (
-      <Box sx={{ maxWidth: 320, p: 0.5 }}>
-        <Typography variant="body2" sx={{ fontWeight: 700, mb: formulaInfo ? 0.5 : 0 }}>
-          {fullName}
-        </Typography>
-        {formulaInfo && (
-          <>
-            <Typography
-              variant="caption"
-              sx={{
-                display: 'block',
-                fontFamily: 'monospace',
-                bgcolor: 'rgba(255,255,255,0.15)',
-                borderRadius: 1,
-                px: 1,
-                py: 0.5,
-                mt: 0.5,
-                wordBreak: 'break-all',
-              }}
-            >
-              {formulaInfo.readable}
-            </Typography>
-            {formulaInfo.description && (
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.85 }}>
-                {formulaInfo.description}
-              </Typography>
-            )}
-          </>
-        )}
-      </Box>
-    );
-    return (
-      <Tooltip title={tooltipContent} arrow placement="top">
-       <span
-  style={{
-    cursor: 'help',
-    display: 'inline-block',
-  }}
->
-          {children}
-        </span>
-      </Tooltip>
-    );
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    };
   };
 
   const monthOptions = [
@@ -322,43 +316,84 @@ const PayrollJO = () => {
   ];
 
   const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 6 }, (_, i) => ({
-    value: (currentYear - i).toString(),
-    label: (currentYear - i).toString(),
-  }));
+  const payrollYearOptions = Array.from(
+    { length: 7 },
+    (_, i) => currentYear - 3 + i,
+  );
+  const payrollMonths = [
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
+  const [selectedPayrollYear, setSelectedPayrollYear] = useState(currentYear);
+  const [selectedPayrollMonth, setSelectedPayrollMonth] = useState(null);
+  const [selectedMonthDays, setSelectedMonthDays] = useState(null);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    };
+  const computeHourDeduction = (ratePerDay, hours) =>
+    !ratePerDay || !hours ? 0 : (ratePerDay / 8) * hours;
+  const computeMinuteDeduction = (ratePerDay, minutes) =>
+    !ratePerDay || !minutes ? 0 : (ratePerDay / 8 / 60) * minutes;
+  const computeTotalDeduction = (ratePerDay, hours, minutes) =>
+    computeHourDeduction(ratePerDay, hours) +
+    computeMinuteDeduction(ratePerDay, minutes);
+  const computeNetAmount = (
+    grossAmount,
+    ratePerDay,
+    hours,
+    minutes,
+    sss,
+    pagibig,
+  ) => {
+    const totalDeduction = computeTotalDeduction(ratePerDay, hours, minutes);
+    return (
+      (parseFloat(grossAmount) || 0) -
+      totalDeduction -
+      (parseFloat(sss) || 0) -
+      (parseFloat(pagibig) || 0)
+    );
+  };
+  const formatCurrency = (amount) =>
+    !amount
+      ? '0.00'
+      : parseFloat(amount).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+  const fmt = (v, dec = 2) =>
+    (parseFloat(v) || 0).toLocaleString('en-US', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
+
+  const fetchPayrollFormulasData = async () => {
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/api/payroll-formulas`,
+        getAuthHeaders(),
+      );
+      setPayrollFormulasData(res.data);
+    } catch (err) {
+      console.error('Error fetching payroll formulas:', err);
+    }
   };
 
-  useEffect(() => {
-    fetchPayrollData();
-    fetchFinalizedPayroll();
-    fetchDepartments();
-    fetchPayrollFormulasData(); // ← added
-  }, []);
-
-  usePayrollRealtimeRefresh(() => {
-    fetchPayrollData();
-    fetchFinalizedPayroll();
-    fetchDepartments();
-    fetchPayrollFormulasData(); // ← added
-  });
-
+  // ── Data fetching ─────────────────────────────────────────────────────────────
   const fetchPayrollData = async () => {
     try {
       setLoading(true);
       const response = await axios.get(
         `${API_BASE_URL}/PayrollJORoutes/payroll-jo`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-
       let payroll = response.data;
       const officialTimeCache = {};
 
@@ -372,33 +407,24 @@ const PayrollJO = () => {
                 startDate: row.startDate,
                 endDate: row.endDate,
               },
-              getAuthHeaders()
+              getAuthHeaders(),
             );
-
             const completeAttendance = attendanceRes.data.filter(
-              (rec) => rec.timeIN && rec.timeOUT
+              (rec) => rec.timeIN && rec.timeOUT,
             );
-
             const uniqueDays = [
               ...new Set(
-                completeAttendance.map((rec) => {
-                  const dateObj = new Date(rec.date);
-                  return dateObj.getDate();
-                })
+                completeAttendance.map((rec) => new Date(rec.date).getDate()),
               ),
             ].sort((a, b) => a - b);
-
             let renderedDays = '';
             if (uniqueDays.length > 0) {
               const monthName = new Date(row.startDate).toLocaleString(
                 'en-US',
-                {
-                  month: 'short',
-                }
+                { month: 'short' },
               );
               renderedDays = `${monthName} ${uniqueDays.join(', ')}`;
             }
-
             if (!officialTimeCache[row.employeeNumber]) {
               const officialTimeRes = await axios.get(
                 `${API_BASE_URL}/PayrollJORoutes/official-time/${row.employeeNumber}`,
@@ -406,11 +432,10 @@ const PayrollJO = () => {
               );
               officialTimeCache[row.employeeNumber] = officialTimeRes.data;
             }
-
-            const { daysCovered, numberOfDays, timeRange } = officialTimeCache[row.employeeNumber];
+            const { daysCovered, numberOfDays, timeRange } =
+              officialTimeCache[row.employeeNumber];
             const ratePerDay = row.ratePerDay || 0;
             const grossAmount = (ratePerDay / 8) * row.rh;
-
             return {
               ...row,
               renderedDays,
@@ -421,7 +446,6 @@ const PayrollJO = () => {
               status: row.status || 0,
             };
           } catch (err) {
-            console.error('Error fetching data for', row.employeeNumber, err);
             return {
               ...row,
               renderedDays: '—',
@@ -440,16 +464,13 @@ const PayrollJO = () => {
       setFilteredData(updatedPayroll);
       setError('');
 
-      // Calculate summary data
       const processedCount = updatedPayroll.filter(
-        (item) => item.status === 1
+        (item) => item.status === 1,
       ).length;
-
       const totalGross = updatedPayroll.reduce(
         (sum, item) => sum + parseFloat(item.grossAmount || 0),
-        0
+        0,
       );
-
       const totalNet = updatedPayroll.reduce(
         (sum, item) =>
           sum +
@@ -460,12 +481,11 @@ const PayrollJO = () => {
               item.h,
               item.m,
               item.sssContribution,
-              item.pagibigContribution
-            ) || 0
+              item.pagibigContribution,
+            ) || 0,
           ),
         0,
       );
-
       setSummaryData({
         totalEmployees: updatedPayroll.length,
         processedEmployees: processedCount,
@@ -481,33 +501,65 @@ const PayrollJO = () => {
     }
   };
 
+  const fetchFinalizedPayroll = async () => {
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/PayrollRoute/payroll-processed`,
+        getAuthHeaders(),
+      );
+      setFinalizedPayroll(res.data);
+    } catch (err) {
+      console.error('Error fetching finalized JO payroll:', err);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/department-table`,
+        getAuthHeaders(),
+      );
+      setDepartments(response.data);
+    } catch (err) {
+      console.error('Error fetching departments:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayrollData();
+    fetchFinalizedPayroll();
+    fetchDepartments();
+    fetchPayrollFormulasData();
+  }, []);
+
+  usePayrollRealtimeRefresh(() => {
+    fetchPayrollData();
+    fetchFinalizedPayroll();
+    fetchDepartments();
+    fetchPayrollFormulasData();
+  });
+
+  // ── Filtering ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     let filtered = [...payrollData];
-
-    // Filter by department
-    if (selectedDepartment) {
+    if (selectedDepartment)
       filtered = filtered.filter(
-        (item) => item.department === selectedDepartment
+        (item) => item.department === selectedDepartment,
       );
-    }
-
-    // Filter by status
-    if (selectedStatus === 'Processed') {
+    if (selectedStatus === 'Processed')
       filtered = filtered.filter((item) => item.status === 1);
-    } else if (selectedStatus === 'Unprocessed') {
+    else if (selectedStatus === 'Unprocessed')
       filtered = filtered.filter((item) => item.status === 0);
-    }
-
-    // Filter by month and year
     if (selectedMonth || selectedYear) {
       filtered = filtered.filter((item) => {
         if (!item.startDate) return false;
         const date = new Date(item.startDate);
         const itemMonth = String(date.getMonth() + 1).padStart(2, '0');
         const itemYear = date.getFullYear().toString();
-        const monthMatch = !selectedMonth || itemMonth === selectedMonth;
-        const yearMatch = !selectedYear || itemYear === selectedYear;
-        return monthMatch && yearMatch;
+        return (
+          (!selectedMonth || itemMonth === selectedMonth) &&
+          (!selectedYear || itemYear === selectedYear)
+        );
       });
     }
     if (searchTerm.trim() !== '') {
@@ -524,18 +576,56 @@ const PayrollJO = () => {
     }
     setFilteredData(filtered);
     setPage(0);
-  }, [searchTerm, payrollData, selectedDepartment, selectedStatus, selectedMonth, selectedYear]);
+  }, [
+    searchTerm,
+    payrollData,
+    selectedDepartment,
+    selectedStatus,
+    selectedMonth,
+    selectedYear,
+  ]);
 
+  const hasActiveFilters =
+    selectedDepartment || selectedStatus || selectedMonth || selectedYear;
+
+  const getCalendarDays = (year, monthIndex1Based) =>
+    new Date(year, monthIndex1Based, 0).getDate();
+
+  const handlePayrollMonthClick = (monthIndex) => {
+    const monthValue = String(monthIndex + 1).padStart(2, '0');
+    const days = getCalendarDays(selectedPayrollYear, monthIndex + 1);
+    setSelectedPayrollMonth(monthIndex);
+    setSelectedMonthDays(days);
+    setSelectedMonth(monthValue);
+    setSelectedYear(String(selectedPayrollYear));
+  };
+
+  const handleClearPayrollMonth = () => {
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    setSelectedMonth('');
+    setSelectedYear('');
+  };
+
+  const clearAllFilters = () => {
+    setSelectedDepartment('');
+    setSelectedStatus('');
+    setSelectedMonth('');
+    setSelectedYear('');
+    setSelectedPayrollMonth(null);
+    setSelectedMonthDays(null);
+    setSelectedPayrollYear(currentYear);
+  };
+
+  // ── Actions ───────────────────────────────────────────────────────────────────
   const handleExportToFinalized = async () => {
     if (selectedRows.length === 0) return;
     setProcessing(true);
     setLoadingOverlay(true);
     try {
       const selectedData = payrollData.filter((row) =>
-        selectedRows.includes(row.id)
+        selectedRows.includes(row.id),
       );
-
-      // This single request now handles both insert AND status update
       const payload = selectedData.map((row) => {
         const grossAmount = parseFloat(row.grossAmount) || 0;
         const h = parseInt(row.h) || 0;
@@ -545,7 +635,6 @@ const PayrollJO = () => {
         const pagibigContribution = parseFloat(row.pagibigContribution) || 0;
         const rh = parseFloat(row.rh) || 0;
         const ratePerDay = parseFloat(row.ratePerDay) || 0;
-        
         return {
           employeeNumber: row.employeeNumber,
           department: row.department || '',
@@ -553,96 +642,51 @@ const PayrollJO = () => {
           endDate: row.endDate,
           name: row.name || '',
           position: row.position || '',
-          grossAmount: grossAmount,
-          grossSalary: grossAmount, // Also send as grossSalary for backend compatibility
-          h: h,
-          m: m,
-          s: s,
+          grossAmount,
+          grossSalary: grossAmount,
+          h,
+          m,
+          s,
           netSalary: computeNetAmount(
             grossAmount,
             ratePerDay,
             h,
             m,
             sssContribution,
-            pagibigContribution
+            pagibigContribution,
           ),
-          sssContribution: sssContribution,
-          sss: sssContribution, // Also send as sss for backend compatibility
-          pagibigContribution: pagibigContribution,
-          rh: rh,
+          sssContribution,
+          sss: sssContribution,
+          pagibigContribution,
+          rh,
           abs: computeTotalDeduction(ratePerDay, h, m),
         };
       });
-
       await axios.post(
         `${API_BASE_URL}/PayrollJORoutes/export-to-finalized`,
         payload,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-
-      setTimeout(() => {
-        setLoadingOverlay(false);
-        setSuccessAction('processing payroll');
-        setSuccessOpen(true);
-        fetchFinalizedPayroll();
-        setTimeout(() => {
-          setSuccessOpen(false);
-          setSelectedRows([]);
-          fetchPayrollData();
-        }, 2000);
-      }, 2000);
+      setLoadingOverlay(false);
+      setSuccessAction('processing payroll');
+      setSuccessOpen(true);
+      fetchFinalizedPayroll();
+      setSelectedRows([]);
+      fetchPayrollData();
+      setTimeout(() => setSuccessOpen(false), 1500);
     } catch (error) {
       console.error('Error exporting payroll:', error);
       setLoadingOverlay(false);
-      const errorMessage =
+      alert(
         error.response?.data?.details ||
-        error.response?.data?.error ||
-        error.message ||
-        'Failed to process payroll. Please try again.';
-      alert(`Error: ${errorMessage}`);
+          error.response?.data?.error ||
+          error.message ||
+          'Failed to process payroll. Please try again.',
+      );
     } finally {
       setProcessing(false);
       setOpenConfirm(false);
     }
-  };
-
-  const formatCurrency = (amount) => {
-    if (!amount) return '₱0.00';
-    return `${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  const computeHourDeduction = (ratePerDay, hours) => {
-    if (!ratePerDay || !hours) return 0;
-    return (ratePerDay / 8) * hours;
-  };
-
-  const computeMinuteDeduction = (ratePerDay, minutes) => {
-    if (!ratePerDay || !minutes) return 0;
-    return (ratePerDay / 8 / 60) * minutes;
-  };
-
-  const computeTotalDeduction = (ratePerDay, hours, minutes) => {
-    return computeHourDeduction(ratePerDay, hours) + computeMinuteDeduction(ratePerDay, minutes);
-  };
-
-  const computeNetAmount = (
-    grossAmount,
-    ratePerDay,
-    hours,
-    minutes,
-    sss,
-    pagibig,
-  ) => {
-    const totalDeduction = computeTotalDeduction(ratePerDay, hours, minutes);
-    const sssContribution = parseFloat(sss) || 0;
-    const pagibigContribution = parseFloat(pagibig) || 0;
-    const gross = parseFloat(grossAmount) || 0;
-    return gross - totalDeduction - sssContribution - pagibigContribution;
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
   const handleDeleteClick = (row) => {
@@ -652,16 +696,19 @@ const PayrollJO = () => {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!recordToDelete || !recordToDelete.id) return;
+    if (!recordToDelete?.id) return;
     setIsProcessingDelete(true);
     try {
+      const deletedId = recordToDelete.id;
       await axios.delete(
-        `${API_BASE_URL}/PayrollJORoutes/payroll-jo/${recordToDelete.id}`,
-        getAuthHeaders()
+        `${API_BASE_URL}/PayrollJORoutes/payroll-jo/${deletedId}`,
+        getAuthHeaders(),
       );
-      fetchPayrollData();
+      setPayrollData((prev) => prev.filter((row) => row.id !== deletedId));
+      setSelectedRows((prev) => prev.filter((id) => id !== deletedId));
       setDeleteDialogOpen(false);
       setRecordToDelete(null);
+      fetchPayrollData();
     } catch (err) {
       console.error('Error deleting record:', err);
       alert('Failed to delete record. Please try again.');
@@ -670,43 +717,50 @@ const PayrollJO = () => {
     }
   };
 
-  const handleDeleteCancel = () => {
-    setDeleteDialogOpen(false);
-    setRecordToDelete(null);
-  };
-
   const handleEditContributionsClick = (row) => {
     if (row.status === 1) return;
     setEditingRow(row);
-    setEditContributions({ sssContribution: row.sssContribution || '', pagibigContribution: row.pagibigContribution || '' });
+    setEditContributions({
+      sssContribution: row.sssContribution || '',
+      pagibigContribution: row.pagibigContribution || '',
+    });
     setEditContributionsOpen(true);
-  };
-
-  const handleEditContributionsClose = () => {
-    setEditContributionsOpen(false);
-    setEditingRow(null);
-    setEditContributions({ sssContribution: '', pagibigContribution: '' });
   };
 
   const handleUpdateContributions = async () => {
     if (!editingRow) return;
     setIsUpdatingContributions(true);
     try {
+      const updatedSSS = parseFloat(editContributions.sssContribution) || 0;
+      const updatedPagibig =
+        parseFloat(editContributions.pagibigContribution) || 0;
       await axios.put(
         `${API_BASE_URL}/PayrollJORoutes/payroll-jo/${editingRow.id}/contributions`,
         {
           employeeNumber: editingRow.employeeNumber,
-          sssContribution: parseFloat(editContributions.sssContribution) || 0,
-          pagibigContribution:
-            parseFloat(editContributions.pagibigContribution) || 0,
+          sssContribution: updatedSSS,
+          pagibigContribution: updatedPagibig,
         },
         getAuthHeaders(),
       );
-      await fetchPayrollData();
-      handleEditContributionsClose();
+      setPayrollData((prev) =>
+        prev.map((row) =>
+          row.id === editingRow.id
+            ? {
+                ...row,
+                sssContribution: updatedSSS,
+                pagibigContribution: updatedPagibig,
+              }
+            : row,
+        ),
+      );
+      setEditContributionsOpen(false);
+      setEditingRow(null);
+      setEditContributions({ sssContribution: '', pagibigContribution: '' });
       setSuccessAction('updating contributions');
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
+      fetchPayrollData();
     } catch (err) {
       console.error('Error updating contributions:', err);
       alert('Failed to update contributions. Please try again.');
@@ -715,25 +769,11 @@ const PayrollJO = () => {
     }
   };
 
-  const handleOpenConfirm = () => {
-    if (selectedRows.length === 0) return;
-    setOpenConfirm(true);
-  };
-
-  const fetchFinalizedPayroll = async () => {
-    try {
-      const res = await axios.get(
-        `${API_BASE_URL}/PayrollRoute/finalized-payroll`,
-        getAuthHeaders()
-      );
-      setFinalizedPayroll(res.data);
-    } catch (err) {
-      console.error('Error fetching finalized JO payroll:', err);
-    }
-  };
-
   const handleExportToExcel = () => {
-    if (!filteredData || filteredData.length === 0) { alert('No data to export.'); return; }
+    if (!filteredData || filteredData.length === 0) {
+      alert('No data to export.');
+      return;
+    }
     const excelData = filteredData.map((row, index) => ({
       'No.': index + 1,
       'Employee #': row.employeeNumber || '',
@@ -759,7 +799,7 @@ const PayrollJO = () => {
         row.h,
         row.m,
         row.sssContribution,
-        row.pagibigContribution
+        row.pagibigContribution,
       ),
     }));
     const worksheet = XLSX.utils.json_to_sheet(excelData);
@@ -768,43 +808,71 @@ const PayrollJO = () => {
     XLSX.writeFile(workbook, 'JobOrder_Payroll.xlsx');
   };
 
-  const fetchDepartments = async () => {
-    try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/department-table`,
-        getAuthHeaders()
-      );
-      setDepartments(response.data);
-    } catch (err) {
-      console.error('Error fetching departments:', err);
-    }
-  };
-
-  const handleDepartmentChange = (event) => { setSelectedDepartment(event.target.value); setPage(0); };
-  const handleStatusChange = (event) => { setSelectedStatus(event.target.value); setPage(0); };
-  const handleMonthChange = (event) => { setSelectedMonth(event.target.value); setPage(0); };
-  const handleYearChange = (event) => { setSelectedYear(event.target.value); setPage(0); };
-
-  const handleSearchChange = (event) => {
-    setSearchTerm(event.target.value);
-    setIsSearching(true);
-    if (window.searchTimeout) clearTimeout(window.searchTimeout);
-    window.searchTimeout = setTimeout(() => setIsSearching(false), 300);
-  };
-
   const handleChangePage = (event, newPage) => setPage(newPage);
-  const handleChangeRowsPerPage = (event) => { setRowsPerPage(parseInt(event.target.value, 10)); setPage(0); };
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
+  // ── Access loading skeleton ───────────────────────────────────────────────────
   if (accessLoading) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>Loading access information...</Typography>
-        </Box>
-      </Container>
+      <Box
+        sx={{
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          width: '100vw',
+          maxWidth: '100%',
+          position: 'relative',
+          left: '63%',
+          transform: 'translateX(-61%)',
+          px: { xs: 2, sm: 3, md: 6 },
+          fontFamily: T.font,
+        }}
+      >
+        <SectionCard sx={{ mb: 2 }}>
+          <Box
+            sx={{
+              p: 3.5,
+              background: T.headerGrad,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <Box
+              sx={{
+                width: 46,
+                height: 46,
+                borderRadius: '50%',
+                bgcolor: alpha(T.accent, 0.14),
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Box
+                sx={{
+                  width: 220,
+                  height: 16,
+                  borderRadius: 6,
+                  bgcolor: alpha(T.accent, 0.12),
+                  mb: 1,
+                }}
+              />
+              <Box
+                sx={{
+                  width: 310,
+                  height: 10,
+                  borderRadius: 6,
+                  bgcolor: alpha(T.accent, 0.08),
+                }}
+              />
+            </Box>
+          </Box>
+        </SectionCard>
+      </Box>
     );
   }
+
   if (!accessLoading && hasAccess !== true) {
     return (
       <AccessDenied
@@ -816,1219 +884,2231 @@ const PayrollJO = () => {
     );
   }
 
+  // ── Stat cards ────────────────────────────────────────────────────────────────
+  const statCards = [
+    {
+      label: 'Total Employees',
+      value: summaryData.totalEmployees,
+      icon: PeopleIcon,
+      color: T.accent,
+    },
+    {
+      label: 'Processed',
+      value: summaryData.processedEmployees,
+      icon: CheckCircleIcon,
+      color: '#2E7D32',
+    },
+    {
+      label: 'Unprocessed',
+      value: summaryData.unprocessedEmployees,
+      icon: PendingIcon,
+      color: '#E65100',
+    },
+    {
+      label: 'Total Net Amount',
+      value: `₱${summaryData.totalNetAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      icon: TrendingUpIcon,
+      color: T.accent,
+    },
+  ];
+
+  // ── Action buttons per table row ──────────────────────────────────────────────
+  const ActionButtons = ({ row }) => (
+    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+      <Tooltip
+        title={
+          row.status === 1
+            ? 'Cannot edit processed records'
+            : 'Edit Contributions'
+        }
+      >
+        <span>
+          <IconButton
+            size="small"
+            disabled={row.status === 1}
+            onClick={() => handleEditContributionsClick(row)}
+            sx={{
+              width: 28,
+              height: 28,
+              borderRadius: 1.5,
+              bgcolor: row.status === 1 ? '#f5f5f5' : T.accentFaint,
+              color: row.status === 1 ? '#ccc' : T.accent,
+              border: `1px solid ${row.status === 1 ? '#e0e0e0' : T.accentBorder}`,
+              '&:hover': { bgcolor: T.accent, color: '#fff' },
+              transition: 'all 0.15s',
+            }}
+          >
+            <EditIcon sx={{ fontSize: 13 }} />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip
+        title={
+          row.status === 1 ? 'Cannot delete processed records' : 'Delete Record'
+        }
+      >
+        <span>
+          <IconButton
+            size="small"
+            disabled={row.status === 1}
+            onClick={() => handleDeleteClick(row)}
+            sx={{
+              width: 28,
+              height: 28,
+              borderRadius: 1.5,
+              bgcolor: row.status === 1 ? '#f5f5f5' : alpha('#ef4444', 0.07),
+              color: row.status === 1 ? '#ccc' : '#ef4444',
+              border: `1px solid ${row.status === 1 ? '#e0e0e0' : 'rgba(239,68,68,0.3)'}`,
+              '&:hover': { bgcolor: '#ef4444', color: '#fff' },
+              transition: 'all 0.15s',
+            }}
+          >
+            <DeleteIcon sx={{ fontSize: 13 }} />
+          </IconButton>
+        </span>
+      </Tooltip>
+    </Box>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
-     <Box
+    <Box
+      sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+        fontFamily: T.font,
+        ...globalFontSx,
+      }}
+    >
+      {/* ── Page Header ── */}
+      <SectionCard sx={{ mb: 2 }}>
+        <Box
           sx={{
-            py: 4,
-            borderRadius: "14px",
-            width: "100%",
-            mx: "auto",
-            maxWidth: "100%",
-            overflow: "hidden",
-            position: "relative",
-            left: "50%",
-            transform: "translateX(-50%)",
+            px: 4,
+            py: 3,
+            background: T.headerGrad,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
-      {/* Wider Container */}
-     <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard sx={{ background: `rgba(${hexToRgb(primaryColor)}, 0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`, border: `1px solid ${alpha(accentColor, 0.1)}`, '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` } }}>
-              <Box sx={{ p: 5, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, color: textPrimaryColor, position: 'relative', overflow: 'hidden' }}>
-                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)' }} />
-                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, background: 'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)' }} />
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1} mb={3}>
-                  <Box display="flex" alignItems="center">
-                    <Avatar sx={{ bgcolor: 'rgba(109,35,35,0.15)', mr: 4, width: 64, height: 64, boxShadow: '0 8px 24px rgba(109,35,35,0.15)' }}>
-                      <Payment sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: textPrimaryColor }}>Job Order Payroll</Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: textPrimaryColor }}>View and manage employee job order payroll records</Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip label="Payroll Management" size="small" sx={{ bgcolor: alpha(accentColor, 0.15), color: textPrimaryColor, fontWeight: 500, '& .MuiChip-label': { px: 1 } }} />
-                    <Tooltip title="Refresh Data">
-                      <IconButton onClick={() => fetchPayrollData()} sx={{ bgcolor: alpha(accentColor, 0.1), '&:hover': { bgcolor: alpha(accentColor, 0.2) }, color: textPrimaryColor, width: 48, height: 48 }}>
-                        <Refresh />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 200,
+              height: 200,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: -30,
+              left: '30%',
+              width: 150,
+              height: 150,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+            }}
+          />
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3,
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            <Payment sx={{ fontSize: 32, color: T.accent }} />
+            <Box>
+              <Typography
+                sx={{
+                  fontSize: '1.25rem',
+                  fontWeight: 900,
+                  color: T.accent,
+                  lineHeight: 1.2,
+                  mb: 0.3,
+                  fontFamily: T.font,
+                }}
+              >
+                Job Order Payroll
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: '0.82rem',
+                  color: T.accentMid,
+                  fontWeight: 700,
+                  opacity: 0.9,
+                  fontFamily: T.font,
+                }}
+              >
+                Administrative Panel • Manage and process Job Order employee
+                payroll records
+              </Typography>
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            <Chip
+              label="Job Order"
+              size="small"
+              sx={{
+                bgcolor: alpha(T.accent, 0.12),
+                color: T.accent,
+                fontWeight: 600,
+                fontSize: '0.72rem',
+                fontFamily: T.font,
+              }}
+            />
+            <Tooltip title="Refresh Data">
+              <IconButton
+                onClick={() => fetchPayrollData()}
+                sx={{
+                  bgcolor: alpha(T.accent, 0.08),
+                  border: `1px solid ${T.accentBorder}`,
+                  color: T.accent,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 2,
+                  '&:hover': { bgcolor: T.accentFaint },
+                }}
+              >
+                <Refresh sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+      </SectionCard>
 
-                {/* Summary Cards */}
+      {/* ── Stats Strip ── */}
+      <Box
+        sx={{
+          mb: 2,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4,1fr)',
+          gap: 1.5,
+        }}
+      >
+        {statCards.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <SectionCard key={stat.label}>
+              <Box
+                sx={{
+                  px: 2.5,
+                  py: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.75,
+                }}
+              >
                 <Box
                   sx={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 2,
+                    bgcolor: alpha(stat.color, 0.1),
                     display: 'flex',
-                    gap: 2,
-                    flexWrap: 'wrap',
-                    position: 'relative',
-                    zIndex: 1,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
                   }}
                 >
-                  <Card
+                  <Icon sx={{ fontSize: 18, color: stat.color }} />
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
                     sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
+                      fontWeight: 900,
+                      fontSize:
+                        typeof stat.value === 'string' ? '1rem' : '1.35rem',
+                      color: T.text,
+                      lineHeight: 1,
+                      fontFamily: T.font,
                     }}
                   >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Total Employees
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: textPrimaryColor }}
-                          >
-                            {summaryData.totalEmployees}
-                          </Typography>
-                        </Box>
-                        <PeopleIcon sx={{ color: accentColor, fontSize: 32 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-
-                  <Card
+                    {stat.value}
+                  </Typography>
+                  <Typography
                     sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
+                      fontSize: '0.7rem',
+                      color: T.muted,
+                      mt: 0.3,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      fontFamily: T.font,
                     }}
                   >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Processed
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: '#4caf50' }}
-                          >
-                            {summaryData.processedEmployees}
-                          </Typography>
-                        </Box>
-                        <CheckCircleIcon
-                          sx={{ color: '#4caf50', fontSize: 32 }}
-                        />
-                      </Box>
-                    </CardContent>
-                  </Card>
-
-                  <Card
-                    sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Unprocessed
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: '#ff9800' }}
-                          >
-                            {summaryData.unprocessedEmployees}
-                          </Typography>
-                        </Box>
-                        <PendingIcon sx={{ color: '#ff9800', fontSize: 32 }} />
-                      </Box>
-                    </CardContent>
-                  </Card>
-
-                  <Card
-                    sx={{
-                      minWidth: 180,
-                      flex: 1,
-                      border: `1px solid ${alpha(accentColor, 0.1)}`,
-                      background: `rgba(${hexToRgb(whiteColor)}, 0.9)`,
-                      boxShadow: `0 4px 16px ${alpha(accentColor, 0.08)}`,
-                      '&:hover': {
-                        boxShadow: `0 6px 20px ${alpha(accentColor, 0.12)}`,
-                        transform: 'translateY(-2px)',
-                      },
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Box>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: textPrimaryColor,
-                              opacity: 0.7,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Total Net Amount
-                          </Typography>
-                          <Typography
-                            variant="h6"
-                            fontWeight="bold"
-                            sx={{ color: textPrimaryColor }}
-                          >
-                            ₱
-                            {summaryData.totalNetAmount.toLocaleString(
-                              'en-US',
-                              {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              }
-                            )}
-                          </Typography>
-                        </Box>
-                        <TrendingUpIcon
-                          sx={{ color: accentColor, fontSize: 32 }}
-                        />
-                      </Box>
-                    </CardContent>
-                  </Card>
+                    {stat.label}
+                  </Typography>
                 </Box>
               </Box>
-            </GlassCard>
+            </SectionCard>
+          );
+        })}
+      </Box>
+
+      {/* ── Filters ── */}
+      <SectionCard sx={{ mb: 2 }}>
+        <Box
+          sx={{
+            px: 3.5,
+            py: 1.5,
+            borderBottom: `1px solid ${T.divider}`,
+            bgcolor: T.accentFaint,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+            <FilterList sx={{ fontSize: 14, color: T.accent }} />
+            <Typography
+              sx={{
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                color: T.accent,
+                fontFamily: T.font,
+              }}
+            >
+              Search & Filter
+            </Typography>
+            {hasActiveFilters && (
+              <Box
+                sx={{
+                  px: 1,
+                  py: 0.2,
+                  bgcolor: alpha(T.accent, 0.1),
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '20px',
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    fontFamily: T.font,
+                  }}
+                >
+                  {
+                    [
+                      selectedDepartment,
+                      selectedStatus,
+                      selectedMonth,
+                      selectedYear,
+                    ].filter(Boolean).length
+                  }{' '}
+                  active
+                </Typography>
+              </Box>
+            )}
           </Box>
-        </Fade>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <AccentButton
+              size="small"
+              variant="outlined"
+              onClick={handleExportToExcel}
+              disabled={filteredData.length === 0}
+              startIcon={<GetApp sx={{ fontSize: 14 }} />}
+              sx={{
+                fontSize: '0.72rem',
+                px: 1.25,
+                py: 0.3,
+                height: 26,
+                borderColor: T.accentBorder,
+                color: T.accent,
+                '&:hover': {
+                  bgcolor: T.accentFaint,
+                  borderColor: T.accent,
+                  transform: 'none',
+                },
+              }}
+            >
+              Export Excel
+            </AccentButton>
+            {hasActiveFilters && (
+              <AccentButton
+                size="small"
+                onClick={clearAllFilters}
+                startIcon={<Close sx={{ fontSize: 13 }} />}
+                sx={{
+                  fontSize: '0.72rem',
+                  color: '#d32f2f',
+                  border: '1px solid rgba(211,47,47,0.3)',
+                  px: 1.25,
+                  py: 0.3,
+                  height: 26,
+                  '&:hover': {
+                    bgcolor: alpha('#d32f2f', 0.06),
+                    transform: 'none',
+                  },
+                }}
+              >
+                Clear all
+              </AccentButton>
+            )}
+          </Box>
+        </Box>
+        <Box sx={{ px: 3.5, py: 2.5 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              gap: 1.5,
+              flexWrap: 'wrap',
+              alignItems: 'flex-end',
+            }}
+          >
+            <FieldInput
+              size="small"
+              placeholder="Search by name, employee number, department…"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setIsSearching(true);
+                if (window.joSearchTimeout)
+                  clearTimeout(window.joSearchTimeout);
+                window.joSearchTimeout = setTimeout(
+                  () => setIsSearching(false),
+                  300,
+                );
+              }}
+              disabled={isSearching}
+              sx={{ minWidth: 220, flex: 1 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    {isSearching ? (
+                      <CircularProgress size={16} sx={{ color: T.accent }} />
+                    ) : (
+                      <SearchIcon sx={{ color: T.faint, fontSize: 18 }} />
+                    )}
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
+              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                Department
+              </InputLabel>
+              <Select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                label="Department"
+                sx={filterSelectSx}
+              >
+                <MenuItem value="">
+                  <em style={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                    All Departments
+                  </em>
+                </MenuItem>
+                {departments.map((dept) => (
+                  <MenuItem
+                    key={dept.id}
+                    value={dept.code}
+                    sx={{ fontSize: '0.82rem', fontFamily: T.font }}
+                  >
+                    {dept.description}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 130, flex: '0 0 auto' }}>
+              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                Status
+              </InputLabel>
+              <Select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                label="Status"
+                sx={filterSelectSx}
+              >
+                <MenuItem value="">
+                  <em style={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                    All Status
+                  </em>
+                </MenuItem>
+                <MenuItem
+                  value="Processed"
+                  sx={{ fontSize: '0.82rem', fontFamily: T.font }}
+                >
+                  <Box
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: '#4caf50',
+                      }}
+                    />
+                    Processed
+                  </Box>
+                </MenuItem>
+                <MenuItem
+                  value="Unprocessed"
+                  sx={{ fontSize: '0.82rem', fontFamily: T.font }}
+                >
+                  <Box
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        bgcolor: '#ff9800',
+                      }}
+                    />
+                    Unprocessed
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
 
-        {/* Filters Section */}
-        <Fade in timeout={700}>
-          <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)}, 0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`, border: `1px solid ${alpha(accentColor, 0.1)}`, '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` } }}>
-            <CardContent sx={{ p: 4 }}>
-              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <FilterList sx={{ color: textPrimaryColor, fontSize: 24 }} />
-                  <Typography variant="h6" fontWeight="bold" sx={{ color: textPrimaryColor }}>FILTERS</Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={2}>
-                  <ProfessionalButton variant="outlined" size="small" startIcon={<GetApp />} onClick={handleExportToExcel} disabled={filteredData.length === 0}
-                    sx={{ borderColor: accentColor, color: textPrimaryColor, '&:hover': { borderColor: accentDark, backgroundColor: alpha(accentColor, 0.1) }, '&:disabled': { borderColor: alpha(accentColor, 0.3), color: alpha(textPrimaryColor, 0.5) } }}>
-                    Save to Excel
-                  </ProfessionalButton>
-                </Box>
+          {/* ── Payroll Month Quick-Filter ── */}
+          <Box
+            sx={{
+              mt: 2,
+              pt: 2,
+              borderTop: `1px dashed ${alpha(T.accent, 0.15)}`,
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                mb: 1.5,
+                flexWrap: 'wrap',
+                gap: 1,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CalendarToday sx={{ fontSize: 13, color: T.accent }} />
+                <Typography
+                  sx={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    fontFamily: T.font,
+                  }}
+                >
+                  Quick Month Filter
+                </Typography>
+                {selectedPayrollMonth !== null && (
+                  <Box
+                    sx={{
+                      px: 1,
+                      py: 0.2,
+                      borderRadius: '12px',
+                      bgcolor: T.accentFaint,
+                      border: `1px solid ${T.accentBorder}`,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.62rem',
+                        fontWeight: 700,
+                        color: T.accent,
+                        fontFamily: T.font,
+                      }}
+                    >
+                      {payrollMonths[selectedPayrollMonth]}{' '}
+                      {selectedPayrollYear}
+                      {selectedMonthDays !== null &&
+                        ` · ${selectedMonthDays} days`}
+                    </Typography>
+                  </Box>
+                )}
               </Box>
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>Department</InputLabel>
-                    <Select value={selectedDepartment} onChange={handleDepartmentChange} label="Department" sx={{ color: textPrimaryColor, '& .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.3) }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.5) }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: accentColor } }}>
-                      <MenuItem value=""><em>All Departments</em></MenuItem>
-                      {departments.map((dept) => (<MenuItem key={dept.id} value={dept.code}>{dept.description}</MenuItem>))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>Status</InputLabel>
-                    <Select value={selectedStatus} onChange={handleStatusChange} label="Status" sx={{ color: textPrimaryColor, '& .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.3) }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.5) }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: accentColor } }}>
-                      <MenuItem value=""><em>All Status</em></MenuItem>
-                      <MenuItem value="Processed">Processed</MenuItem>
-                      <MenuItem value="Unprocessed">Unprocessed</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>Month</InputLabel>
-                    <Select value={selectedMonth} onChange={handleMonthChange} label="Month" sx={{ color: textPrimaryColor, '& .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.3) }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.5) }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: accentColor } }}>
-                      {monthOptions.map((opt) => (<MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: textPrimaryColor }}>Year</InputLabel>
-                    <Select value={selectedYear} onChange={handleYearChange} label="Year" sx={{ color: textPrimaryColor, '& .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.3) }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.5) }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: accentColor } }}>
-                      {yearOptions.map((opt) => (<MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2.4}>
-                  <ModernTextField fullWidth size="small" placeholder="Search employee..." value={searchTerm} onChange={handleSearchChange} disabled={isSearching}
-                    InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: textPrimaryColor }} fontSize="small" /></InputAdornment>) }}
-                    sx={{ '& .MuiOutlinedInput-root': { color: textPrimaryColor, '& .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.3) }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: alpha(accentColor, 0.5) }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: accentColor } } }}
-                  />
-                </Grid>
-              </Grid>
-            </CardContent>
-          </GlassCard>
-        </Fade>
 
-        {error && (
-          <Fade in timeout={300}>
-            <Alert severity="error" sx={{ mb: 3, borderRadius: 3, '& .MuiAlert-message': { fontWeight: 500 } }} icon={<Error />}>{error}</Alert>
-          </Fade>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <FormControl size="small" sx={{ minWidth: 90 }}>
+                  <Select
+                    value={selectedPayrollYear}
+                    onChange={(e) => {
+                      const nextYear = e.target.value;
+                      setSelectedPayrollYear(nextYear);
+                      if (selectedPayrollMonth !== null) {
+                        const days = getCalendarDays(
+                          nextYear,
+                          selectedPayrollMonth + 1,
+                        );
+                        setSelectedMonthDays(days);
+                        setSelectedYear(String(nextYear));
+                      }
+                    }}
+                    sx={{
+                      ...filterSelectSx,
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                    }}
+                  >
+                    {payrollYearOptions.map((y) => (
+                      <MenuItem
+                        key={y}
+                        value={y}
+                        sx={{ fontSize: '0.8rem', fontFamily: T.font }}
+                      >
+                        {y}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {selectedPayrollMonth !== null && (
+                  <AccentButton
+                    size="small"
+                    onClick={handleClearPayrollMonth}
+                    startIcon={<Close sx={{ fontSize: 12 }} />}
+                    sx={{
+                      fontSize: '0.7rem',
+                      color: '#d32f2f',
+                      border: '1px solid rgba(211,47,47,0.3)',
+                      px: 1,
+                      py: 0.25,
+                      height: 26,
+                      '&:hover': {
+                        bgcolor: alpha('#d32f2f', 0.06),
+                        transform: 'none',
+                      },
+                    }}
+                  >
+                    Clear month
+                  </AccentButton>
+                )}
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                p: 1.75,
+                borderRadius: 2,
+                border: `2px dashed ${T.accentBorder}`,
+                bgcolor: T.accentFaint,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 0.75,
+                justifyContent: 'center',
+              }}
+            >
+              {payrollMonths.map((month, index) => {
+                const isSelected = selectedPayrollMonth === index;
+                const days = getCalendarDays(selectedPayrollYear, index + 1);
+                return (
+                  <Box
+                    key={month}
+                    onClick={() => handlePayrollMonthClick(index)}
+                    title={`${month} ${selectedPayrollYear} — ${days} calendar days`}
+                    sx={{
+                      px: 1.5,
+                      py: 0.85,
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      bgcolor: isSelected ? T.accent : '#fff',
+                      border: `1px solid ${isSelected ? T.accent : T.accentBorder}`,
+                      color: isSelected ? '#fff' : T.accent,
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                      letterSpacing: '0.04em',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected
+                        ? `0 2px 8px ${alpha(T.accent, 0.28)}`
+                        : 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 0.2,
+                      minWidth: 46,
+                      '&:hover': {
+                        bgcolor: isSelected ? T.accentDark : T.accentFaint,
+                        borderColor: T.accent,
+                        boxShadow: `0 2px 8px ${alpha(T.accent, 0.15)}`,
+                      },
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        fontFamily: T.font,
+                        lineHeight: 1,
+                        color: 'inherit',
+                      }}
+                    >
+                      {month}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: '0.58rem',
+                        fontWeight: 600,
+                        fontFamily: T.font,
+                        lineHeight: 1,
+                        color: 'inherit',
+                        opacity: isSelected ? 0.85 : 0.5,
+                      }}
+                    >
+                      {days}d
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+
+          {/* Active filter chips */}
+          {hasActiveFilters && (
+            <Box
+              sx={{
+                display: 'flex',
+                gap: 0.75,
+                flexWrap: 'wrap',
+                mt: 1.5,
+                pt: 1.5,
+                borderTop: `1px dashed ${alpha(T.accent, 0.15)}`,
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: '0.7rem',
+                  color: alpha(T.text, 0.5),
+                  fontWeight: 600,
+                  alignSelf: 'center',
+                  mr: 0.25,
+                  fontFamily: T.font,
+                }}
+              >
+                Active:
+              </Typography>
+              {selectedDepartment && (
+                <Chip
+                  size="small"
+                  label={`Dept: ${departments.find((d) => d.code === selectedDepartment)?.description || selectedDepartment}`}
+                  onDelete={() => setSelectedDepartment('')}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    fontFamily: T.font,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+              {selectedStatus && (
+                <Chip
+                  size="small"
+                  label={`Status: ${selectedStatus}`}
+                  onDelete={() => setSelectedStatus('')}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    fontFamily: T.font,
+                    bgcolor:
+                      selectedStatus === 'Processed'
+                        ? alpha('#4caf50', 0.1)
+                        : alpha('#ff9800', 0.1),
+                    color:
+                      selectedStatus === 'Processed' ? '#2e7d32' : '#e65100',
+                    '& .MuiChip-deleteIcon': { fontSize: 14 },
+                  }}
+                />
+              )}
+              {selectedMonth && (
+                <Chip
+                  size="small"
+                  label={`Month: ${monthOptions.find((m) => m.value === selectedMonth)?.label}`}
+                  onDelete={() => setSelectedMonth('')}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    fontFamily: T.font,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+              {selectedYear && (
+                <Chip
+                  size="small"
+                  label={`Year: ${selectedYear}`}
+                  onDelete={() => setSelectedYear('')}
+                  sx={{
+                    height: 22,
+                    fontSize: '0.72rem',
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                    fontFamily: T.font,
+                    '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accent },
+                  }}
+                />
+              )}
+            </Box>
+          )}
+        </Box>
+      </SectionCard>
+
+      {/* ── Error alert ── */}
+      {error && (
+        <Alert
+          severity="error"
+          sx={{ mb: 2, borderRadius: 2, fontFamily: T.font }}
+          icon={<Error />}
+        >
+          {error}
+        </Alert>
+      )}
+
+      {/* ── Table Card ── */}
+      <SectionCard
+        sx={{
+          mb: 2,
+          overflow: 'hidden',
+          '& .MuiTableHead-root .MuiTableCell-root': {
+            fontSize: '0.65rem !important',
+            fontFamily: `${T.font} !important`,
+          },
+          '& .MuiTableBody-root .MuiTableCell-root': {
+            fontSize: '0.82rem !important',
+            fontFamily: `${T.font} !important`,
+          },
+        }}
+      >
+        {/* Table header bar */}
+        <Box
+          sx={{
+            px: 3.5,
+            py: 2,
+            borderBottom: `1px solid ${T.divider}`,
+            bgcolor: T.accentFaint,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 1.5,
+          }}
+        >
+          <Box>
+            <Typography
+              sx={{
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                color: T.text,
+                fontFamily: T.font,
+              }}
+            >
+              Job Order Payroll Data
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: '0.72rem',
+                color: T.faint,
+                mt: 0.1,
+                fontFamily: T.font,
+              }}
+            >
+              Total {filteredData.length} records · {selectedRows.length}{' '}
+              selected
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            {selectedRows.length > 0 && (
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 0.35,
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '20px',
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    fontFamily: T.font,
+                  }}
+                >
+                  {selectedRows.length} selected
+                </Typography>
+              </Box>
+            )}
+            <AccentButton
+              variant="outlined"
+              size="small"
+              startIcon={<Refresh sx={{ fontSize: 14 }} />}
+              onClick={() => fetchPayrollData()}
+              sx={{
+                fontSize: '0.72rem',
+                px: 1.25,
+                py: 0.35,
+                height: 28,
+                borderColor: T.accentBorder,
+                color: T.accent,
+                '&:hover': {
+                  bgcolor: T.accentFaint,
+                  borderColor: T.accent,
+                  transform: 'none',
+                },
+              }}
+            >
+              Refresh
+            </AccentButton>
+          </Box>
+        </Box>
+
+        {/* No records state */}
+        {filteredData.length === 0 && !loading && (
+          <Box
+            sx={{
+              mx: 3.5,
+              my: 2,
+              py: 7,
+              px: 2,
+              border: `1px solid ${T.divider}`,
+              borderRadius: 2,
+              bgcolor: '#fff',
+              textAlign: 'center',
+            }}
+          >
+            <Box
+              sx={{
+                width: 72,
+                height: 72,
+                borderRadius: '50%',
+                bgcolor: T.accentFaint,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mx: 'auto',
+                mb: 2,
+              }}
+            >
+              <Info sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+            </Box>
+            <Typography
+              sx={{
+                fontWeight: 700,
+                fontSize: '1rem',
+                color: T.muted,
+                mb: 0.5,
+                fontFamily: T.font,
+              }}
+            >
+              No Records Found
+            </Typography>
+            <Typography
+              sx={{ fontSize: '0.86rem', color: T.faint, fontFamily: T.font }}
+            >
+              {searchTerm
+                ? 'No matching records found.'
+                : 'No job order payroll records available.'}
+            </Typography>
+          </Box>
         )}
 
-        {/* Table Section */}
-        <Fade in timeout={900}>
-          <GlassCard sx={{ mb: 4, background: `rgba(${hexToRgb(primaryColor)}, 0.95)`, boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`, border: `1px solid ${alpha(accentColor, 0.1)}`, overflow: 'visible', '&:hover': { boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}` } }}>
-            {/* Table Header */}
-            <Box sx={{ p: 4, background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, color: textPrimaryColor, borderBottom: `1px solid ${alpha(accentColor, 0.1)}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: textPrimaryColor }}>Payroll Records</Typography>
-                <Typography variant="h4" sx={{ fontWeight: 600, color: textPrimaryColor }}>Job Order Payroll Data</Typography>
-              </Box>
-              <Box display="flex" gap={1} alignItems="center">
-                <Chip icon={<PeopleIcon />} label={`${selectedRows.length} Selected`} size="small" sx={{ bgcolor: alpha(accentColor, 0.15), color: textPrimaryColor, fontWeight: 500 }} />
-                <Badge badgeContent={selectedRows.length} color="primary">
-                  <ProfessionalButton variant="outlined" size="small" startIcon={<Refresh />} onClick={() => fetchPayrollData()} sx={{ borderColor: accentColor, color: textPrimaryColor, '&:hover': { borderColor: accentDark, backgroundColor: alpha(accentColor, 0.1) } }}>
-                    Refresh
-                  </ProfessionalButton>
-                </Badge>
-              </Box>
-            </Box>
-
-            {/* Table with Fixed Status and Actions Columns */}
-            <Box sx={{ display: 'flex', width: '100%', position: 'relative' }}>
-              {/* Scrollable Table Content */}
-              <Box sx={{ overflowX: 'auto', overflowY: 'visible', flex: 1, minWidth: 0, '&::-webkit-scrollbar': { height: '10px' }, '&::-webkit-scrollbar-track': { background: alpha(accentColor, 0.1), borderRadius: '4px' }, '&::-webkit-scrollbar-thumb': { background: alpha(accentColor, 0.4), borderRadius: '4px', '&:hover': { background: alpha(accentColor, 0.6) } } }}>
-                <PremiumTableContainer sx={{ maxHeight: 600, boxShadow: `0 4px 24px ${alpha(accentColor, 0.06)}`, border: `1px solid ${alpha(accentColor, 0.08)}`, overflowX: 'auto', overflowY: 'visible', width: 'max-content', minWidth: '100%' }}>
-                  <Table stickyHeader>
-                    <TableHead sx={{ bgcolor: alpha(primaryColor, 0.7) }}>
-                      <TableRow>
-                        {/* Checkbox */}
-                        <PremiumTableCell padding="checkbox" rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
-                          <Checkbox
-                            indeterminate={(() => {
-                              const currentPageRows = filteredData.slice(
-                                page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
-                              );
-                              // Filter out already finalized rows AND processed rows
-                              const selectableRows = currentPageRows.filter(
-                                (row) =>
-                                  row.status !== 1 && // Exclude processed
-                                  !finalizedPayroll.some(
-                                    (fp) =>
-                                      fp.employeeNumber ===
-                                        row.employeeNumber &&
-                                      fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
-                              );
-                              const selectedOnPage = selectedRows.filter((id) =>
-                                selectableRows.some((row) => row.id === id)
-                              );
-                              return (
-                                selectedOnPage.length > 0 &&
-                                selectedOnPage.length < selectableRows.length
-                              );
-                            })()}
-                            checked={(() => {
-                              const currentPageRows = filteredData.slice(
-                                page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
-                              );
-                              // Filter out already finalized rows AND processed rows
-                              const selectableRows = currentPageRows.filter(
-                                (row) =>
-                                  row.status !== 1 && // Exclude processed
-                                  !finalizedPayroll.some(
-                                    (fp) =>
-                                      fp.employeeNumber ===
-                                        row.employeeNumber &&
-                                      fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
-                              );
-                              if (selectableRows.length === 0) return false;
-                              return selectableRows.every((row) =>
-                                selectedRows.includes(row.id)
-                              );
-                            })()}
-                            onChange={(e) => {
-                              const currentPageRows = filteredData.slice(
-                                page * rowsPerPage,
-                                page * rowsPerPage + rowsPerPage
-                              );
-                              // Filter out already finalized rows AND processed rows
-                              const selectableRows = currentPageRows.filter(
-                                (row) =>
-                                  row.status !== 1 && // Exclude processed
-                                  !finalizedPayroll.some(
-                                    (fp) =>
-                                      fp.employeeNumber ===
-                                        row.employeeNumber &&
-                                      fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )
-                              );
-                              const currentIds = selectableRows.map(
-                                (row) => row.id
-                              );
-                              if (e.target.checked) {
-                                setSelectedRows((prev) => [...new Set([...prev, ...currentIds])]);
-                              } else {
-                                setSelectedRows((prev) =>
-                                  prev.filter((id) => !currentIds.includes(id))
-                                );
-                              }
-                            }}
-                          />
-                        </PremiumTableCell>
-
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>No.</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>Employee #</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>Name</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>Designation</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey={null} fullName="Rate Per Day — Daily rate of the employee">
-                            Rate/Day
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>Department</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>Days Covered</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>No. Of Days</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor, minWidth: 180, maxWidth: 300 }}>Official Time</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader align="center" sx={{ color: textPrimaryColor, minWidth: 200, maxWidth: 350 }}>Period</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>No. of Days</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>No. of Hours</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="grossSalary" fullName="Gross Amount — Total salary before deductions">
-                            Gross Amount
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                        <PremiumTableCell colSpan={3} isHeader align="center" sx={{ color: textPrimaryColor }}>Deduction</PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey={null} fullName="SSS — Social Security System monthly contribution">
-                            SSS
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="pagibigFundCont" fullName="PAGIBIG — Pag-IBIG Fund monthly housing contribution">
-                            PAGIBIG
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                        <PremiumTableCell rowSpan={2} isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="netSalary" fullName="Net Amount — Take-home pay after all deductions">
-                            <b>Net Amount</b>
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                      </TableRow>
-                      <TableRow>
-                        <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="h" fullName="Hours Late / Undertime">
-                            Hrs
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="m" fullName="Minutes Late / Undertime">
-                            Mins
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: textPrimaryColor }}>
-                          <HeaderTooltip fieldKey="abs" fullName="Total Deduction — Combined deduction from hours and minutes late">
-                            Total Deduction
-                          </HeaderTooltip>
-                        </PremiumTableCell>
-                      </TableRow>
-                    </TableHead>
-
-                    <TableBody>
-                      {loading ? (
-                        <TableRow>
-                          <TableCell colSpan={21} align="center" sx={{ py: 4 }}>
-                            <CircularProgress sx={{ color: accentColor }} />
-                          </TableCell>
-                        </TableRow>
-                      ) : filteredData.length > 0 ? (
-                        filteredData
-                          .slice(
-                            page * rowsPerPage,
-                            page * rowsPerPage + rowsPerPage
-                          )
-                          .map((row, index) => (
-                            <TableRow
-                              key={row.id}
-                              sx={{
-                                '&:nth-of-type(even)': {
-                                  bgcolor: alpha(primaryColor, 0.3),
-                                },
-                                '&:hover': {
-                                  backgroundColor:
-                                    alpha(accentColor, 0.05) + ' !important',
-                                },
-                                transition: 'all 0.2s ease',
-                              }}
-                            >
-                              <TableCell padding="checkbox">
-                                <Checkbox
-                                  checked={selectedRows.includes(row.id)}
-                                  disabled={finalizedPayroll.some(
-                                    (fp) =>
-                                      fp.employeeNumber ===
-                                        row.employeeNumber &&
-                                      fp.startDate === row.startDate &&
-                                      fp.endDate === row.endDate
-                                  )}
-                                  onChange={(e) => {
-                                    const isFinalized = finalizedPayroll.some(
-                                      (fp) =>
-                                        fp.employeeNumber ===
-                                          row.employeeNumber &&
-                                        fp.startDate === row.startDate &&
-                                        fp.endDate === row.endDate
-                                    );
-                                    if (isFinalized) return;
-                                    e.stopPropagation();
-                                    if (selectedRows.includes(row.id)) {
-                                      setSelectedRows((prev) =>
-                                        prev.filter((id) => id !== row.id)
-                                      );
-                                    } else {
-                                      setSelectedRows((prev) => [
-                                        ...prev,
-                                        row.id,
-                                      ]);
-                                    }
-                                  }}
-                                />
-                              </TableCell>
-                              <TableCell>
-                                {page * rowsPerPage + index + 1}
-                              </TableCell>
-                              <TableCell>{row.employeeNumber || '—'}</TableCell>
-                              <TableCell>{row.name || '—'}</TableCell>
-                              <TableCell>{row.position || '—'}</TableCell>
-                              <TableCell>
-                                {row.ratePerDay
-                                  ? formatCurrency(row.ratePerDay)
-                                  : '—'}
-                              </TableCell>
-                              <TableCell>{row.department || '—'}</TableCell>
-                              <TableCell>{row.days || '—'}</TableCell>
-                              <TableCell>{row.numberOfDays || '—'}</TableCell>
-                              <TableCell>{row.officialTime || '—'}</TableCell>
-                              <TableCell> {row.renderedDays || '—'}</TableCell>
-                              <TableCell>
-                                {row.rh
-                                  ? Math.floor(parseFloat(row.rh) / 8)
-                                  : '—'}
-                              </TableCell>
-                              <TableCell>
-                                {row.rh ? parseFloat(row.rh) % 8 : '—'}
-                              </TableCell>
-                              <TableCell>
-                                {row.grossAmount
-                                  ? formatCurrency(row.grossAmount)
-                                  : '—'}
-                              </TableCell>
-                              <TableCell>{row.h || 0}</TableCell>
-                              <TableCell>{row.m || 0}</TableCell>
-                              <TableCell
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: '#6D2323',
-                                }}
-                              >
-                                {formatCurrency(
-                                  computeTotalDeduction(
-                                    row.ratePerDay,
-                                    row.h,
-                                    row.m
-                                  )
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {row.sssContribution
-                                  ? formatCurrency(row.sssContribution)
-                                  : '—'}
-                              </TableCell>
-                              <TableCell>
-                                {row.pagibigContribution
-                                  ? formatCurrency(row.pagibigContribution)
-                                  : '—'}
-                              </TableCell>
-                              <TableCell
-                                sx={{ fontWeight: 'bold', color: '#6D2323' }}
-                              >
-                                {formatCurrency(
-                                  computeNetAmount(
-                                    row.grossAmount,
-                                    row.ratePerDay,
-                                    row.h,
-                                    row.m,
-                                    row.sssContribution,
-                                    row.pagibigContribution
-                                  )
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={22} align="center" sx={{ py: 4 }}>
-                            {searchTerm ? 'No matching records found.' : 'No payroll records available.'}
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </PremiumTableContainer>
-              </Box>
-
-              {/* Fixed Status Column */}
-              <Box sx={{ width: '130px', minWidth: '130px', borderLeft: `2px solid ${alpha(accentColor, 0.2)}`, backgroundColor: alpha(primaryColor, 0.3), position: 'sticky', right: '120px', zIndex: 1, boxShadow: `-2px 0 5px ${alpha(accentColor, 0.1)}` }}>
-                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ backgroundColor: alpha(primaryColor, 0.7), fontWeight: 'bold', textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.1)}`, padding: '18px 20px', position: 'sticky', zIndex: 2, color: textPrimaryColor }}>Status</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow>
-                        <TableCell
-                          sx={{
-                            textAlign: 'center',
-                            borderBottom: `1px solid ${alpha(
-                              accentColor,
-                              0.06
-                            )}`,
-                            padding: '16px',
-                          }}
-                        >
-                          <CircularProgress size={20} />
-                        </TableCell>
-                      </TableRow>
-                    ) : filteredData.length > 0 ? (
-                      filteredData
-                        .slice(
+        {/* Table */}
+        {(filteredData.length > 0 || loading) && (
+          <TableContainer
+            component={Paper}
+            elevation={0}
+            sx={{ overflowX: 'auto', borderRadius: 0, position: 'relative' }}
+          >
+            <Table
+              sx={{
+                minWidth: 2400,
+                tableLayout: 'auto',
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+              }}
+            >
+              <TableHead>
+                {/* Row 1 */}
+                <TableRow sx={{ bgcolor: '#fff' }}>
+                  <TableCell
+                    padding="checkbox"
+                    rowSpan={2}
+                    sx={{
+                      borderBottom: `2px solid ${T.accentBorder}`,
+                      py: 1.5,
+                      px: 2,
+                      bgcolor: alpha(T.accent, 0.03),
+                    }}
+                  >
+                    <Checkbox
+                      size="small"
+                      sx={{
+                        color: T.accentBorder,
+                        '&.Mui-checked': { color: T.accent },
+                        p: 0,
+                      }}
+                      indeterminate={(() => {
+                        const pageRows = filteredData.slice(
                           page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage
-                        )
-                        .map((row, index) => {
-                          return (
-                            <TableRow
-                              key={`status-${row.id}`}
-                              sx={{
-                                '&:nth-of-type(even)': {
-                                  bgcolor: alpha(primaryColor, 0.3),
-                                },
-                                '&:hover': {
-                                  backgroundColor:
-                                    alpha(accentColor, 0.05) + ' !important',
-                                },
-                                transition: 'all 0.2s ease',
-                              }}
-                            >
-                              <TableCell
-                                sx={{
-                                  padding: '16px',
-                                  textAlign: 'center',
-                                  borderBottom: `1px solid ${alpha(
-                                    accentColor,
-                                    0.06
-                                  )}`,
-                                }}
-                              >
-                                <Chip
-                                  label={
-                                    row.status === 1
-                                      ? 'Processed'
-                                      : 'Unprocessed'
-                                  }
-                                  size="small"
-                                  sx={{
-                                    fontWeight: 'bold',
-                                    backgroundColor:
-                                      row.status === 1 ? '#4caf50' : '#ff9800',
-                                    color: 'white',
-                                    '&:hover': {
-                                      backgroundColor:
-                                        row.status === 1
-                                          ? '#45a049'
-                                          : '#fb8c00',
-                                    },
-                                  }}
-                                />
-                              </TableCell>
-                            </TableRow>
+                          page * rowsPerPage + rowsPerPage,
+                        );
+                        const selectable = pageRows.filter(
+                          (row) =>
+                            row.status !== 1 &&
+                            !finalizedPayroll.some(
+                              (fp) =>
+                                fp.employeeNumber === row.employeeNumber &&
+                                fp.startDate === row.startDate &&
+                                fp.endDate === row.endDate,
+                            ),
+                        );
+                        const selectedOnPage = selectedRows.filter((id) =>
+                          selectable.some((row) => row.id === id),
+                        );
+                        return (
+                          selectedOnPage.length > 0 &&
+                          selectedOnPage.length < selectable.length
+                        );
+                      })()}
+                      checked={(() => {
+                        const pageRows = filteredData.slice(
+                          page * rowsPerPage,
+                          page * rowsPerPage + rowsPerPage,
+                        );
+                        const selectable = pageRows.filter(
+                          (row) =>
+                            row.status !== 1 &&
+                            !finalizedPayroll.some(
+                              (fp) =>
+                                fp.employeeNumber === row.employeeNumber &&
+                                fp.startDate === row.startDate &&
+                                fp.endDate === row.endDate,
+                            ),
+                        );
+                        if (selectable.length === 0) return false;
+                        return selectable.every((row) =>
+                          selectedRows.includes(row.id),
+                        );
+                      })()}
+                      onChange={(e) => {
+                        const pageRows = filteredData.slice(
+                          page * rowsPerPage,
+                          page * rowsPerPage + rowsPerPage,
+                        );
+                        const selectable = pageRows.filter(
+                          (row) =>
+                            row.status !== 1 &&
+                            !finalizedPayroll.some(
+                              (fp) =>
+                                fp.employeeNumber === row.employeeNumber &&
+                                fp.startDate === row.startDate &&
+                                fp.endDate === row.endDate,
+                            ),
+                        );
+                        const ids = selectable.map((row) => row.id);
+                        if (e.target.checked)
+                          setSelectedRows((prev) => [
+                            ...new Set([...prev, ...ids]),
+                          ]);
+                        else
+                          setSelectedRows((prev) =>
+                            prev.filter((id) => !ids.includes(id)),
                           );
-                        })
-                    ) : (
-                      <TableRow>
-                        <TableCell
+                      }}
+                    />
+                  </TableCell>
+                  {[
+                    ['No.', null],
+                    ['Employee #', null],
+                    ['Name', null],
+                    ['Designation', null],
+                    ['Rate/Day', null],
+                    ['Department', null],
+                    ['Days Covered', null],
+                    ['No. of Days', null],
+                    ['Official Time', null],
+                  ].map(([label]) => (
+                    <TableCell
+                      key={label}
+                      rowSpan={2}
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        py: 1.2,
+                        px: 1.5,
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        color: T.accent,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        whiteSpace: 'nowrap',
+                        bgcolor: alpha(T.accent, 0.03),
+                        fontFamily: T.font,
+                      }}
+                    >
+                      {label}
+                    </TableCell>
+                  ))}
+                  <TableCell
+                    align="center"
+                    colSpan={2}
+                    sx={{
+                      borderBottom: `2px solid ${T.accentBorder}`,
+                      borderLeft: `1px solid ${T.divider}`,
+                      py: 1.2,
+                      px: 1.5,
+                      fontSize: '0.65rem',
+                      fontWeight: 800,
+                      color: T.accent,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      whiteSpace: 'nowrap',
+                      bgcolor: alpha(T.accent, 0.03),
+                      fontFamily: T.font,
+                    }}
+                  >
+                    Period Rendered
+                  </TableCell>
+                  <TableCell
+                    rowSpan={2}
+                    sx={{
+                      borderBottom: `2px solid ${T.accentBorder}`,
+                      py: 1.2,
+                      px: 1.5,
+                      fontSize: '0.65rem',
+                      fontWeight: 800,
+                      color: T.accent,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      whiteSpace: 'nowrap',
+                      bgcolor: alpha(T.accent, 0.03),
+                      fontFamily: T.font,
+                    }}
+                  >
+                    Gross Amount
+                  </TableCell>
+                  <TableCell
+                    align="center"
+                    colSpan={3}
+                    sx={{
+                      borderBottom: `2px solid ${T.accentBorder}`,
+                      py: 1.2,
+                      px: 1.5,
+                      fontSize: '0.65rem',
+                      fontWeight: 800,
+                      color: T.accent,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      whiteSpace: 'nowrap',
+                      bgcolor: alpha(T.accent, 0.03),
+                      fontFamily: T.font,
+                    }}
+                  >
+                    Deductions
+                  </TableCell>
+                  {['SSS', 'PAGIBIG', 'Net Amount'].map((h) => (
+                    <TableCell
+                      key={h}
+                      rowSpan={2}
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        py: 1.2,
+                        px: 1.5,
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        color: T.accent,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        whiteSpace: 'nowrap',
+                        bgcolor: alpha(T.accent, 0.03),
+                        fontFamily: T.font,
+                      }}
+                    >
+                      {h}
+                    </TableCell>
+                  ))}
+                  <TableCell
+                    rowSpan={2}
+                    align="center"
+                    sx={stickyStatusHeaderSx}
+                  >
+                    Status
+                  </TableCell>
+                  <TableCell
+                    rowSpan={2}
+                    align="center"
+                    sx={stickyActionsHeaderSx}
+                  >
+                    Actions
+                  </TableCell>
+                </TableRow>
+                {/* Row 2 */}
+                <TableRow sx={{ bgcolor: '#fff' }}>
+                  {['Period', 'Date/s'].map((h) => (
+                    <TableCell
+                      key={h}
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        py: 1.1,
+                        px: 1.5,
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        color: '#334155',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        whiteSpace: 'nowrap',
+                        bgcolor: '#fff',
+                        fontFamily: T.font,
+                      }}
+                    >
+                      {h}
+                    </TableCell>
+                  ))}
+                  {['Hrs', 'Mins', 'Total Deduction'].map((h) => (
+                    <TableCell
+                      key={h}
+                      align="center"
+                      sx={{
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        py: 1.1,
+                        px: 1.5,
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        color: '#334155',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        whiteSpace: 'nowrap',
+                        bgcolor: '#fff',
+                        fontFamily: T.font,
+                      }}
+                    >
+                      {h}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={24} align="center" sx={{ py: 6 }}>
+                      <CircularProgress sx={{ color: T.accent }} />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredData
+                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                    .map((row, index) => {
+                      const isFinalized = finalizedPayroll.some(
+                        (fp) =>
+                          fp.employeeNumber === row.employeeNumber &&
+                          fp.startDate === row.startDate &&
+                          fp.endDate === row.endDate,
+                      );
+                      const totalDeduction = computeTotalDeduction(
+                        row.ratePerDay,
+                        row.h,
+                        row.m,
+                      );
+                      const netAmount = computeNetAmount(
+                        row.grossAmount,
+                        row.ratePerDay,
+                        row.h,
+                        row.m,
+                        row.sssContribution,
+                        row.pagibigContribution,
+                      );
+                      return (
+                        <TableRow
+                          key={row.id}
                           sx={{
-                            textAlign: 'center',
-                            borderBottom: `1px solid ${alpha(
-                              accentColor,
-                              0.06
-                            )}`,
-                            padding: '16px',
+                            height: FROZEN_ROW_HEIGHT,
+                            bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd,
+                            '&:hover': { bgcolor: `${T.rowHover} !important` },
+                            transition: 'background-color 0.12s',
+                            borderBottom: `1px solid ${T.divider}`,
                           }}
                         >
-                          -
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
-
-              {/* Fixed Actions Column */}
-              <Box sx={{ width: '120px', minWidth: '120px', borderLeft: `2px solid ${alpha(accentColor, 0.2)}`, backgroundColor: alpha(primaryColor, 0.3), position: 'sticky', right: 0, zIndex: 1, boxShadow: `-2px 0 5px ${alpha(accentColor, 0.1)}` }}>
-                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ backgroundColor: alpha(primaryColor, 0.7), fontWeight: 'bold', textAlign: 'center', borderBottom: `1px solid ${alpha(accentColor, 0.1)}`, padding: '18px 20px', position: 'sticky', zIndex: 2, color: textPrimaryColor }}>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow>
-                        <TableCell
-                          sx={{
-                            textAlign: 'center',
-                            borderBottom: `1px solid ${alpha(
-                              accentColor,
-                              0.06
-                            )}`,
-                            padding: '16px',
-                          }}
-                        >
-                          <CircularProgress size={20} />
-                        </TableCell>
-                      </TableRow>
-                    ) : filteredData.length > 0 ? (
-                      filteredData
-                        .slice(
-                          page * rowsPerPage,
-                          page * rowsPerPage + rowsPerPage
-                        )
-                        .map((row, index) => {
-                          return (
-                            <TableRow
-                              key={`actions-${row.id}`}
-                              sx={{
-                                '&:nth-of-type(even)': {
-                                  bgcolor: alpha(primaryColor, 0.3),
-                                },
-                                '&:hover': {
-                                  backgroundColor:
-                                    alpha(accentColor, 0.05) + ' !important',
-                                },
-                                transition: 'all 0.2s ease',
+                          <TableCell
+                            padding="checkbox"
+                            sx={{ borderBottom: 'none', py: 1.5, px: 2 }}
+                          >
+                            <Checkbox
+                              size="small"
+                              checked={selectedRows.includes(row.id)}
+                              disabled={isFinalized}
+                              onChange={(e) => {
+                                if (isFinalized) return;
+                                e.stopPropagation();
+                                if (selectedRows.includes(row.id))
+                                  setSelectedRows((prev) =>
+                                    prev.filter((id) => id !== row.id),
+                                  );
+                                else
+                                  setSelectedRows((prev) => [...prev, row.id]);
                               }}
-                            >
-                              <TableCell
-                                sx={{
-                                  padding: '16px',
-                                  textAlign: 'center',
-                                  borderBottom: `1px solid ${alpha(
-                                    accentColor,
-                                    0.06
-                                  )}`,
-                                }}
-                              >
-                                <Box
+                              sx={{
+                                color: T.accentBorder,
+                                '&.Mui-checked': { color: T.accent },
+                                p: 0,
+                              }}
+                            />
+                          </TableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', color: T.muted }}
+                          >
+                            {page * rowsPerPage + index + 1}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontFamily: 'monospace',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {row.employeeNumber || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', fontWeight: 600 }}
+                          >
+                            {row.name || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                            {row.position || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                            {row.ratePerDay
+                              ? formatCurrency(row.ratePerDay)
+                              : '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                            {row.department || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                            {row.days || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', textAlign: 'center' }}
+                          >
+                            {row.numberOfDays || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', minWidth: 160 }}
+                          >
+                            {row.officialTime || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', minWidth: 90 }}
+                          >
+                            {row.rh ? (
+                              <Box>
+                                <Typography
                                   sx={{
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    gap: 0.5,
+                                    fontSize: '0.78rem',
+                                    fontWeight: 700,
+                                    fontFamily: T.font,
+                                    lineHeight: 1.2,
                                   }}
                                 >
-                                  <Tooltip title={row.status === 1 ? "Cannot edit processed records" : "Edit Contributions"}>
-                                    <IconButton
-                                      size="small"
-                                      disabled={row.status === 1}
-                                      sx={{
-                                        color:
-                                          row.status === 1 ? '#ccc' : accentColor,
-                                        backgroundColor:
-                                          row.status === 1
-                                            ? '#f5f5f5'
-                                            : 'white',
-                                        border: `1px solid ${
-                                          row.status === 1 ? '#ccc' : accentColor
-                                        }`,
-                                        '&:hover': {
-                                          backgroundColor:
-                                            row.status === 1
-                                              ? '#f5f5f5'
-                                              : alpha(accentColor, 0.1),
-                                        },
-                                        padding: '4px',
-                                      }}
-                                      onClick={() => handleEditContributionsClick(row)}
-                                    >
-                                      <EditIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title={row.status === 1 ? "Cannot delete processed records" : "Delete"}>
-                                    <IconButton
-                                      size="small"
-                                      disabled={row.status === 1}
-                                      sx={{
-                                        color:
-                                          row.status === 1 ? '#ccc' : '#d32f2f',
-                                        backgroundColor:
-                                          row.status === 1
-                                            ? '#f5f5f5'
-                                            : 'white',
-                                        border: `1px solid ${
-                                          row.status === 1 ? '#ccc' : '#d32f2f'
-                                        }`,
-                                        '&:hover': {
-                                          backgroundColor:
-                                            row.status === 1
-                                              ? '#f5f5f5'
-                                              : 'rgba(211, 47, 47, 0.1)',
-                                        },
-                                        padding: '4px',
-                                      }}
-                                      onClick={() => handleDeleteClick(row)}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                </Box>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          sx={{
-                            textAlign: 'center',
-                            borderBottom: `1px solid ${alpha(
-                              accentColor,
-                              0.06
-                            )}`,
-                            padding: '16px',
-                          }}
-                        >
-                          No actions
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Box>
+                                  {Math.floor(parseFloat(row.rh) / 8)}d{' '}
+                                  {parseFloat(row.rh) % 8}h
+                                </Typography>
+                              </Box>
+                            ) : (
+                              '—'
+                            )}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', minWidth: 180 }}
+                          >
+                            {row.renderedDays || '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontWeight: 700,
+                              color: T.accent,
+                            }}
+                          >
+                            {row.grossAmount
+                              ? formatCurrency(row.grossAmount)
+                              : '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', textAlign: 'center' }}
+                          >
+                            {row.h || 0}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{ borderBottom: 'none', textAlign: 'center' }}
+                          >
+                            {row.m || 0}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontWeight: 700,
+                              color: '#d32f2f',
+                            }}
+                          >
+                            {fmt(totalDeduction)}
+                          </ExcelTableCell>
+                          <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                            {row.sssContribution
+                              ? formatCurrency(row.sssContribution)
+                              : '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell sx={{ borderBottom: 'none' }}>
+                            {row.pagibigContribution
+                              ? formatCurrency(row.pagibigContribution)
+                              : '—'}
+                          </ExcelTableCell>
+                          <ExcelTableCell
+                            sx={{
+                              borderBottom: 'none',
+                              fontWeight: 800,
+                              color: '#2e7d32',
+                            }}
+                          >
+                            {fmt(netAmount)}
+                          </ExcelTableCell>
+                          {/* Sticky status */}
+                          <ExcelTableCell sx={getStickyStatusBodySx(index)}>
+                            <StatusChip status={row.status} />
+                          </ExcelTableCell>
+                          {/* Sticky actions */}
+                          <ExcelTableCell sx={getStickyActionsBodySx(index)}>
+                            <ActionButtons row={row} />
+                          </ExcelTableCell>
+                        </TableRow>
+                      );
+                    })
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
 
-            {/* Table Footer */}
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: `1px solid ${alpha(accentColor, 0.1)}`, px: 4, py: 2, bgcolor: alpha(primaryColor, 0.5) }}>
-              <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-                <Typography variant="body2" sx={{ fontWeight: 'bold', color: textPrimaryColor }}>Total Records: {filteredData.length}</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 'bold', color: textPrimaryColor }}>Selected: {selectedRows.length}</Typography>
-              </Box>
-              <TablePagination
-                component="div"
-                count={filteredData.length}
-                page={page}
-                onPageChange={handleChangePage}
-                rowsPerPage={rowsPerPage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-                rowsPerPageOptions={[10, 25, 50, 100]}
-                sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { color: textPrimaryColor }, '& .MuiIconButton-root': { color: textPrimaryColor } }}
-              />
-            </Box>
-          </GlassCard>
-        </Fade>
-
-        {/* Action Buttons */}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
-          <ProfessionalButton variant="outlined" onClick={handleExportToExcel} size="large"
-            sx={{ borderColor: accentColor, color: textPrimaryColor, '&:hover': { borderColor: accentDark, backgroundColor: alpha(accentColor, 0.1) } }}
-            startIcon={<GetApp />}>
-            Save as Excel
-          </ProfessionalButton>
-
-          <ProfessionalButton
-            variant="contained"
-            onClick={handleOpenConfirm}
-            disabled={
-              processing ||
-              selectedRows.length === 0 ||
-              selectedRows.every((id) => {
-                const row = payrollData.find((r) => r.id === id);
-                return finalizedPayroll.some(
-                  (fp) =>
-                    fp.employeeNumber === row?.employeeNumber &&
-                    fp.startDate === row?.startDate &&
-                    fp.endDate === row?.endDate
-                );
-              })
-            }
-            size="large"
+        {/* Pagination */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderTop: `1px solid ${T.divider}`,
+            px: 3.5,
+            py: 0.5,
+            bgcolor: T.accentFaint,
+          }}
+        >
+          <Box sx={{ display: 'flex', gap: 3 }}>
+            <Typography
+              sx={{
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: T.text,
+                fontFamily: T.font,
+              }}
+            >
+              Total: {filteredData.length}
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: T.accent,
+                fontFamily: T.font,
+              }}
+            >
+              Selected: {selectedRows.length}
+            </Typography>
+          </Box>
+          <TablePagination
+            component="div"
+            count={filteredData.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50, 100]}
             sx={{
-              backgroundColor: accentColor,
-              color: textSecondaryColor,
-              '&:hover': { backgroundColor: accentDark },
-              '&:disabled': {
-                backgroundColor: alpha(accentColor, 0.3),
-                color: alpha(textSecondaryColor, 0.5),
-              },
+              '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows':
+                {
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  color: T.muted,
+                  fontFamily: T.font,
+                },
             }}
-            startIcon={<ExitToApp />}
+          />
+        </Box>
+      </SectionCard>
+
+      {/* ── Bottom spacing ── */}
+      <Box sx={{ mb: 12 }} />
+
+      {/* ── Floating Export Bar ── */}
+      <Portal>
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: { xs: '58px', md: '56px' },
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            zIndex: 1300,
+            pointerEvents: 'none',
+          }}
+        >
+          <Slide
+            direction="up"
+            in={selectedRows.length > 0}
+            mountOnEnter
+            unmountOnExit
           >
-            Export to Payroll Processed ({selectedRows.length})
-          </ProfessionalButton>
+            <Box
+              sx={{
+                pointerEvents: 'auto',
+                width: 'min(720px, calc(100vw - 32px))',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 1.5,
+                flexWrap: 'wrap',
+                px: 2.5,
+                py: 2,
+                borderRadius: '16px 16px 0 0',
+                border: `1px solid ${T.accentBorder}`,
+                borderBottom: 'none',
+                bgcolor: T.surface,
+                boxShadow: `0 -4px 24px ${alpha(T.accent, 0.12)}`,
+              }}
+            >
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 0.5,
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  borderRadius: '20px',
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: T.accent,
+                    fontFamily: T.font,
+                  }}
+                >
+                  Selected: {selectedRows.length}
+                </Typography>
+              </Box>
+              <Box sx={{ flex: 1 }} />
+              <AccentButton
+                variant="outlined"
+                onClick={() => setSelectedRows([])}
+                sx={{
+                  borderColor: T.accentBorder,
+                  color: T.muted,
+                  fontSize: '0.82rem',
+                  px: 2,
+                  '&:hover': {
+                    bgcolor: T.accentFaint,
+                    borderColor: T.accent,
+                    color: T.accent,
+                  },
+                }}
+              >
+                Cancel
+              </AccentButton>
+              <AccentButton
+                variant="contained"
+                onClick={() => setOpenConfirm(true)}
+                disabled={
+                  processing ||
+                  selectedRows.every((id) => {
+                    const row = payrollData.find((r) => r.id === id);
+                    return finalizedPayroll.some(
+                      (fp) =>
+                        fp.employeeNumber === row?.employeeNumber &&
+                        fp.startDate === row?.startDate &&
+                        fp.endDate === row?.endDate,
+                    );
+                  })
+                }
+                startIcon={<ExitToApp sx={{ fontSize: '16px !important' }} />}
+                sx={{
+                  bgcolor: T.accent,
+                  color: '#fff',
+                  px: 2.5,
+                  fontWeight: 700,
+                  boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
+                  '&:hover': { bgcolor: T.accentDark },
+                  '&:disabled': {
+                    bgcolor: alpha(T.accent, 0.25),
+                    color: alpha('#fff', 0.5),
+                  },
+                }}
+              >
+                Export Payroll Records
+              </AccentButton>
+            </Box>
+          </Slide>
         </Box>
+      </Portal>
 
-{/* Delete Dialog */}
-<Dialog
-  open={deleteDialogOpen}
-  onClose={handleDeleteCancel}
-  maxWidth="sm"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: '24px', overflow: 'hidden',
-      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
-      border: `1px solid ${alpha(accentColor, 0.14)}`,
-      bgcolor: primaryColor,
-    },
-  }}
->
-  {/* Header */}
-  <Box sx={{
-    px: 4, pt: 4, pb: 3.5,
-    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-    position: 'relative', overflow: 'hidden',
-  }}>
-    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha('#d32f2f', 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha('#d32f2f', 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-    <IconButton size="small" onClick={handleDeleteCancel}
-      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha('#d32f2f', 0.1) } }}>
-      <Close fontSize="small" />
-    </IconButton>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
-      <Avatar sx={{ bgcolor: alpha('#d32f2f', 0.15), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha('#d32f2f', 0.18)}`, border: `2px solid ${alpha('#d32f2f', 0.1)}` }}>
-        <DeleteForever sx={{ fontSize: 28, color: '#d32f2f' }} />
-      </Avatar>
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-            Delete Payroll Record
-          </Typography>
-          <Chip label="Irreversible" size="small" sx={{ bgcolor: alpha('#d32f2f', 0.1), color: '#d32f2f', fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha('#d32f2f', 0.2)}` }} />
+      {/* ── Edit Contributions Modal ── */}
+      <Modal
+        open={editContributionsOpen}
+        onClose={() => {
+          setEditContributionsOpen(false);
+          setEditingRow(null);
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: { xs: '90%', sm: 480 },
+            bgcolor: '#f7f8fa',
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            overflow: 'hidden',
+            border: `2px solid ${T.accentBorder}`,
+            fontFamily: T.font,
+          }}
+        >
+          <Box
+            sx={{
+              height: 4,
+              background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)`,
+            }}
+          />
+          <Box
+            sx={{
+              px: 3.5,
+              py: 2.5,
+              background: T.headerGrad,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: `1px solid ${T.divider}`,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 2,
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <EditIcon sx={{ fontSize: 18, color: T.accent }} />
+              </Box>
+              <Box>
+                <Typography
+                  sx={{
+                    fontWeight: 700,
+                    color: T.text,
+                    fontSize: '0.95rem',
+                    fontFamily: T.font,
+                  }}
+                >
+                  Edit Contributions
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.72rem',
+                    color: T.muted,
+                    mt: 0.2,
+                    fontFamily: T.font,
+                  }}
+                >
+                  {editingRow?.name} — Employee #{editingRow?.employeeNumber}
+                </Typography>
+              </Box>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setEditContributionsOpen(false);
+                setEditingRow(null);
+              }}
+              sx={{ color: T.muted }}
+            >
+              <Close sx={{ fontSize: 17 }} />
+            </IconButton>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <FieldInput
+                  fullWidth
+                  size="small"
+                  label="SSS Contribution"
+                  type="number"
+                  value={editContributions.sssContribution}
+                  onChange={(e) =>
+                    setEditContributions({
+                      ...editContributions,
+                      sssContribution: e.target.value,
+                    })
+                  }
+                  inputProps={{ step: '0.01', min: '0' }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <FieldInput
+                  fullWidth
+                  size="small"
+                  label="PAGIBIG Contribution"
+                  type="number"
+                  value={editContributions.pagibigContribution}
+                  onChange={(e) =>
+                    setEditContributions({
+                      ...editContributions,
+                      pagibigContribution: e.target.value,
+                    })
+                  }
+                  inputProps={{ step: '0.01', min: '0' }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              borderTop: `1px solid ${T.divider}`,
+              bgcolor: T.accentFaint,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 1.25,
+            }}
+          >
+            <AccentButton
+              variant="outlined"
+              onClick={() => {
+                setEditContributionsOpen(false);
+                setEditingRow(null);
+              }}
+              sx={{
+                fontSize: '0.8rem',
+                borderColor: T.accentBorder,
+                color: T.muted,
+                '&:hover': {
+                  bgcolor: T.accentFaint,
+                  borderColor: T.accent,
+                  color: T.accent,
+                },
+              }}
+            >
+              Cancel
+            </AccentButton>
+            <AccentButton
+              variant="contained"
+              onClick={handleUpdateContributions}
+              disabled={isUpdatingContributions}
+              startIcon={
+                isUpdatingContributions ? (
+                  <CircularProgress size={14} color="inherit" />
+                ) : (
+                  <SaveIcon sx={{ fontSize: '14px !important' }} />
+                )
+              }
+              sx={{
+                fontSize: '0.8rem',
+                bgcolor: T.accent,
+                color: '#fff',
+                boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                '&:hover': { bgcolor: T.accentDark },
+              }}
+            >
+              {isUpdatingContributions ? 'Saving…' : 'Save Changes'}
+            </AccentButton>
+          </Box>
         </Box>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
-          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-        </Typography>
-      </Box>
-    </Box>
-  </Box>
+      </Modal>
 
-  {/* Body */}
-  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
-    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
-      The following payroll record will be permanently removed from the system.
-    </Typography>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, py: 1.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.75)', border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: 'blur(4px)', boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
-      <Box sx={{ width: 36, height: 36, borderRadius: '8px', flexShrink: 0, bgcolor: alpha('#d32f2f', 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <DeleteForever sx={{ fontSize: 18, color: '#d32f2f' }} />
-      </Box>
-      <Box>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Employee Record</Typography>
-        <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: textPrimaryColor, lineHeight: 1.2 }}>
-          {recordToDelete?.name}
-        </Typography>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500 }}>
-          Employee #{recordToDelete?.employeeNumber}
-        </Typography>
-      </Box>
-    </Box>
-    <Box sx={{ mt: 1.5, px: 2, py: 1.5, borderRadius: '12px', bgcolor: alpha('#d32f2f', 0.06), border: `1px solid ${alpha('#d32f2f', 0.14)}`, borderLeft: `4px solid ${alpha('#d32f2f', 0.5)}`, display: 'flex', alignItems: 'flex-start', gap: 1.25 }}>
-      <Warning sx={{ fontSize: 15, color: '#d32f2f', opacity: 0.6, mt: 0.2, flexShrink: 0 }} />
-      <Typography sx={{ fontSize: '0.82rem', color: alpha(textPrimaryColor, 0.75), fontWeight: 600, lineHeight: 1.65 }}>
-        This action is permanent and cannot be undone. The record will be removed from all payroll reports.
-      </Typography>
-    </Box>
-  </Box>
-
-  {/* Footer */}
-  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
-    <ProfessionalButton onClick={handleDeleteCancel} variant="outlined"
-      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}>
-      Cancel
-    </ProfessionalButton>
-    <ProfessionalButton onClick={handleDeleteConfirm} disabled={isProcessingDelete} variant="contained"
-      sx={{ bgcolor: '#d32f2f', color: '#fff', boxShadow: `0 4px 16px ${alpha('#d32f2f', 0.4)}`, '&:hover': { bgcolor: '#c62828', boxShadow: `0 6px 20px ${alpha('#d32f2f', 0.5)}` }, '&:disabled': { bgcolor: alpha('#d32f2f', 0.25), color: 'rgba(255,255,255,0.5)' } }}
-      startIcon={isProcessingDelete ? <CircularProgress size={18} color="inherit" /> : <DeleteForever />}>
-      {isProcessingDelete ? 'Deleting…' : 'Confirm Delete'}
-    </ProfessionalButton>
-  </Box>
-</Dialog>
-
-{/* Edit Contributions Dialog */}
-<Dialog
-  open={editContributionsOpen}
-  onClose={handleEditContributionsClose}
-  maxWidth="sm"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: '24px', overflow: 'hidden',
-      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
-      border: `1px solid ${alpha(accentColor, 0.14)}`,
-      bgcolor: primaryColor,
-    },
-  }}
->
-  {/* Header */}
-  <Box sx={{
-    px: 4, pt: 4, pb: 3.5,
-    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-    position: 'relative', overflow: 'hidden',
-  }}>
-    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-    <IconButton size="small" onClick={handleEditContributionsClose}
-      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
-      <Close fontSize="small" />
-    </IconButton>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
-      <Avatar sx={{ bgcolor: alpha(accentColor, 0.14), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
-        <EditIcon sx={{ fontSize: 28, color: accentColor }} />
-      </Avatar>
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-            Edit Contributions
-          </Typography>
-          <Chip label="Editable" size="small" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha(accentColor, 0.2)}` }} />
+      {/* ── Delete Confirmation Modal ── */}
+      <Modal
+        open={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setRecordToDelete(null);
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: { xs: '90%', sm: 480 },
+            bgcolor: T.surface,
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            overflow: 'hidden',
+            border: `2px solid ${T.accentBorder}`,
+            fontFamily: T.font,
+          }}
+        >
+          <Box
+            sx={{
+              height: 4,
+              background: 'linear-gradient(90deg, #d32f2f 0%, #ef5350 100%)',
+            }}
+          />
+          <Box
+            sx={{
+              px: 3.5,
+              py: 2.5,
+              background: T.headerGrad,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: `1px solid ${T.divider}`,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 2,
+                  bgcolor: alpha('#d32f2f', 0.08),
+                  border: '1px solid rgba(211,47,47,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <DeleteForever sx={{ fontSize: 18, color: '#d32f2f' }} />
+              </Box>
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography
+                    sx={{
+                      fontWeight: 700,
+                      color: T.text,
+                      fontSize: '0.95rem',
+                      fontFamily: T.font,
+                    }}
+                  >
+                    Delete Payroll Record
+                  </Typography>
+                  <Chip
+                    label="Irreversible"
+                    size="small"
+                    sx={{
+                      bgcolor: alpha('#d32f2f', 0.1),
+                      color: '#d32f2f',
+                      fontWeight: 700,
+                      fontSize: '0.6rem',
+                      height: 18,
+                      border: '1px solid rgba(211,47,47,0.2)',
+                      fontFamily: T.font,
+                    }}
+                  />
+                </Box>
+                <Typography
+                  sx={{
+                    fontSize: '0.72rem',
+                    color: T.muted,
+                    mt: 0.2,
+                    fontFamily: T.font,
+                  }}
+                >
+                  This action cannot be undone
+                </Typography>
+              </Box>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setRecordToDelete(null);
+              }}
+              sx={{ color: T.muted }}
+            >
+              <Close sx={{ fontSize: 17 }} />
+            </IconButton>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: T.accentFaint,
+                borderRadius: 2,
+                border: `1px solid ${T.accentBorder}`,
+                mb: 2,
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: '0.68rem',
+                  color: T.faint,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  fontFamily: T.font,
+                }}
+              >
+                Employee Record
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  color: T.text,
+                  fontFamily: T.font,
+                }}
+              >
+                {recordToDelete?.name}
+              </Typography>
+              <Typography
+                sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font }}
+              >
+                Employee #{recordToDelete?.employeeNumber}
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: alpha('#d32f2f', 0.05),
+                borderRadius: 2,
+                border: '1px solid rgba(211,47,47,0.15)',
+                borderLeft: '4px solid rgba(211,47,47,0.5)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 1.25,
+              }}
+            >
+              <Warning
+                sx={{
+                  fontSize: 15,
+                  color: '#d32f2f',
+                  opacity: 0.6,
+                  mt: 0.2,
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                sx={{
+                  fontSize: '0.82rem',
+                  color: alpha(T.text, 0.75),
+                  fontWeight: 600,
+                  lineHeight: 1.65,
+                  fontFamily: T.font,
+                }}
+              >
+                This record will be permanently removed from all payroll
+                reports.
+              </Typography>
+            </Box>
+          </Box>
+          <Box
+            sx={{
+              px: 3,
+              py: 2.5,
+              borderTop: `1px solid ${T.divider}`,
+              bgcolor: T.accentFaint,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 1.25,
+            }}
+          >
+            <AccentButton
+              variant="outlined"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setRecordToDelete(null);
+              }}
+              sx={{
+                fontSize: '0.8rem',
+                borderColor: T.accentBorder,
+                color: T.muted,
+                '&:hover': {
+                  bgcolor: T.accentFaint,
+                  borderColor: T.accent,
+                  color: T.accent,
+                },
+              }}
+            >
+              Cancel
+            </AccentButton>
+            <AccentButton
+              variant="contained"
+              onClick={handleDeleteConfirm}
+              disabled={isProcessingDelete}
+              startIcon={
+                isProcessingDelete ? (
+                  <CircularProgress size={14} color="inherit" />
+                ) : (
+                  <DeleteForever sx={{ fontSize: '14px !important' }} />
+                )
+              }
+              sx={{
+                fontSize: '0.8rem',
+                bgcolor: '#d32f2f',
+                color: '#fff',
+                boxShadow: '0 2px 10px rgba(211,47,47,0.3)',
+                '&:hover': { bgcolor: '#c62828' },
+                '&:disabled': { bgcolor: alpha('#d32f2f', 0.25) },
+              }}
+            >
+              {isProcessingDelete ? 'Deleting…' : 'Confirm Delete'}
+            </AccentButton>
+          </Box>
         </Box>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
-          {editingRow?.name} — Employee #{editingRow?.employeeNumber}
-        </Typography>
-      </Box>
-    </Box>
-  </Box>
+      </Modal>
 
-  {/* Body */}
-  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
-    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2.5 }}>
-      Update the monthly government contribution amounts for this employee.
-    </Typography>
-    <Grid container spacing={2.5}>
-      <Grid item xs={12}>
-        <Typography variant="body2" sx={{ fontWeight: 600, mb: 1, color: textPrimaryColor, fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>SSS Contribution</Typography>
-        <ModernTextField type="number" fullWidth value={editContributions.sssContribution}
-          onChange={(e) => setEditContributions({ ...editContributions, sssContribution: e.target.value })}
-          inputProps={{ step: '0.01', min: '0' }} placeholder="0.00"
-          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.85)' } }} />
-      </Grid>
-      <Grid item xs={12}>
-        <Typography variant="body2" sx={{ fontWeight: 600, mb: 1, color: textPrimaryColor, fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>PAGIBIG Contribution</Typography>
-        <ModernTextField type="number" fullWidth value={editContributions.pagibigContribution}
-          onChange={(e) => setEditContributions({ ...editContributions, pagibigContribution: e.target.value })}
-          inputProps={{ step: '0.01', min: '0' }} placeholder="0.00"
-          sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.85)' } }} />
-      </Grid>
-    </Grid>
-  </Box>
-
-  {/* Footer */}
-  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
-    <ProfessionalButton onClick={handleEditContributionsClose} variant="outlined"
-      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}>
-      Cancel
-    </ProfessionalButton>
-    <ProfessionalButton onClick={handleUpdateContributions} disabled={isUpdatingContributions} variant="contained"
-      sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` }, '&:disabled': { bgcolor: alpha(accentColor, 0.25), color: alpha(primaryColor, 0.5) } }}
-      startIcon={isUpdatingContributions ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}>
-      {isUpdatingContributions ? 'Saving…' : 'Save Changes'}
-    </ProfessionalButton>
-  </Box>
-</Dialog>
-
-{/* Confirmation Dialog */}
-<Dialog
-  open={openConfirm}
-  onClose={() => { setOpenConfirm(false); setConfirmChecked(false); }}
-  maxWidth="sm"
-  fullWidth
-  PaperProps={{
-    sx: {
-      borderRadius: '24px', overflow: 'hidden',
-      boxShadow: `0 32px 80px ${alpha(accentColor, 0.25)}, 0 8px 24px ${alpha(accentColor, 0.12)}`,
-      border: `1px solid ${alpha(accentColor, 0.14)}`,
-      bgcolor: primaryColor,
-    },
-  }}
->
-  {/* Header */}
-  <Box sx={{
-    px: 4, pt: 4, pb: 3.5,
-    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-    position: 'relative', overflow: 'hidden',
-  }}>
-    <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.1)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-    <Box sx={{ position: 'absolute', bottom: -30, left: '25%', width: 150, height: 150, borderRadius: '50%', background: `radial-gradient(circle, ${alpha(accentColor, 0.07)} 0%, transparent 70%)`, pointerEvents: 'none' }} />
-    <IconButton size="small" onClick={() => { setOpenConfirm(false); setConfirmChecked(false); }}
-      sx={{ position: 'absolute', top: 16, right: 16, zIndex: 2, color: textPrimaryColor, opacity: 0.45, '&:hover': { opacity: 1, bgcolor: alpha(accentColor, 0.1) } }}>
-      <Close fontSize="small" />
-    </IconButton>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
-      <Avatar sx={{ bgcolor: alpha(accentColor, 0.14), width: 60, height: 60, boxShadow: `0 8px 24px ${alpha(accentColor, 0.18)}`, border: `2px solid ${alpha(accentColor, 0.1)}` }}>
-        <Payment sx={{ fontSize: 28, color: accentColor }} />
-      </Avatar>
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', color: textPrimaryColor, lineHeight: 1.2, letterSpacing: '-0.01em' }}>
-            Export to Payroll Processed
-          </Typography>
-          <Chip label="Confirmation" size="small" sx={{ bgcolor: alpha(accentColor, 0.1), color: accentColor, fontWeight: 700, fontSize: '0.65rem', letterSpacing: '0.07em', textTransform: 'uppercase', height: 20, borderRadius: '6px', border: `1px solid ${alpha(accentColor, 0.2)}` }} />
+      {/* ── Export Confirmation Modal ── */}
+      <Modal
+        open={openConfirm}
+        onClose={() => {
+          setOpenConfirm(false);
+          setConfirmChecked(false);
+        }}
+      >
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: { xs: '90%', sm: 480 },
+            bgcolor: T.surface,
+            borderRadius: 3,
+            boxShadow: '0 24px 80px rgba(0,0,0,0.18)',
+            overflow: 'hidden',
+            border: `2px solid ${T.accentBorder}`,
+            fontFamily: T.font,
+          }}
+        >
+          <Box
+            sx={{
+              height: 4,
+              background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)`,
+            }}
+          />
+          <Box
+            sx={{
+              px: 3.5,
+              py: 2.5,
+              background: T.headerGrad,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              borderBottom: `1px solid ${T.divider}`,
+            }}
+          >
+            <Box
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: 2,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Payment sx={{ fontSize: 18, color: T.accent }} />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  fontWeight: 700,
+                  color: T.text,
+                  fontSize: '0.95rem',
+                  lineHeight: 1.2,
+                  fontFamily: T.font,
+                }}
+              >
+                Confirm Export to Payroll Processed
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: '0.72rem',
+                  color: T.muted,
+                  mt: 0.2,
+                  fontFamily: T.font,
+                }}
+              >
+                Final confirmation required
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            <Alert
+              severity="info"
+              sx={{
+                mb: 2.5,
+                borderRadius: 2,
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                '& .MuiAlert-icon': { color: T.accent },
+              }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  mb: 0.25,
+                  color: T.text,
+                  fontFamily: T.font,
+                }}
+              >
+                Export {selectedRows.length} Payroll Record(s)
+              </Typography>
+              <Typography
+                sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font }}
+              >
+                Please review all selected records before proceeding.
+              </Typography>
+            </Alert>
+            <Box
+              onClick={() => setConfirmChecked((p) => !p)}
+              sx={{
+                p: 2.5,
+                bgcolor: T.accentFaint,
+                borderRadius: 2,
+                border: `2px solid ${confirmChecked ? T.accent : T.divider}`,
+                mb: 2.5,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 2,
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+              }}
+            >
+              <Checkbox
+                checked={confirmChecked}
+                onChange={(e) => setConfirmChecked(e.target.checked)}
+                onClick={(e) => e.stopPropagation()}
+                sx={{
+                  color: T.accentBorder,
+                  '&.Mui-checked': { color: T.accent },
+                  mt: -0.5,
+                  p: 0,
+                }}
+              />
+              <Box>
+                <Typography
+                  sx={{
+                    fontWeight: 600,
+                    color: T.text,
+                    fontSize: '0.875rem',
+                    mb: 0.5,
+                    fontFamily: T.font,
+                  }}
+                >
+                  I confirm that all selected records have been reviewed
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.78rem',
+                    color: T.muted,
+                    fontFamily: T.font,
+                  }}
+                >
+                  This will finalize and export the selected records to payroll
+                  processing and cannot be undone.
+                </Typography>
+              </Box>
+            </Box>
+            <Box
+              sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1.25 }}
+            >
+              <AccentButton
+                variant="outlined"
+                onClick={() => {
+                  setOpenConfirm(false);
+                  setConfirmChecked(false);
+                }}
+                sx={{
+                  fontSize: '0.8rem',
+                  borderColor: T.accentBorder,
+                  color: T.muted,
+                  '&:hover': {
+                    bgcolor: T.accentFaint,
+                    borderColor: T.accent,
+                    color: T.accent,
+                  },
+                }}
+              >
+                Cancel
+              </AccentButton>
+              <AccentButton
+                variant="contained"
+                disabled={!confirmChecked}
+                onClick={() => {
+                  setOpenConfirm(false);
+                  setConfirmChecked(false);
+                  handleExportToFinalized();
+                }}
+                sx={{
+                  fontSize: '0.8rem',
+                  bgcolor: T.accent,
+                  color: '#fff',
+                  boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                  '&:hover': { bgcolor: T.accentDark },
+                  '&:disabled': { bgcolor: '#e0e0e0', color: '#9e9e9e' },
+                }}
+              >
+                Confirm & Export
+              </AccentButton>
+            </Box>
+          </Box>
         </Box>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 500 }}>
-          {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-        </Typography>
-      </Box>
-    </Box>
-  </Box>
+      </Modal>
 
-  {/* Body */}
-  <Box sx={{ px: 4, py: 3, bgcolor: alpha(primaryColor, 0.6), borderTop: `1px solid ${alpha(accentColor, 0.08)}`, borderBottom: `1px solid ${alpha(accentColor, 0.08)}` }}>
-    <Typography sx={{ fontSize: '0.9rem', color: alpha(textPrimaryColor, 0.8), lineHeight: 1.8, fontWeight: 500, mb: 2 }}>
-      The following records are pending export to Payroll Processed. Verify all entries are accurate before proceeding.
-    </Typography>
-
-    {/* Record count card */}
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, py: 1.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.75)', border: `1px solid ${alpha(accentColor, 0.1)}`, backdropFilter: 'blur(4px)', boxShadow: `0 2px 8px ${alpha(accentColor, 0.06)}` }}>
-      <Box sx={{ width: 36, height: 36, borderRadius: '8px', flexShrink: 0, bgcolor: alpha(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Payment sx={{ fontSize: 18, color: accentColor }} />
-      </Box>
-      <Box>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.5), fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Records for Export</Typography>
-        <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: textPrimaryColor, lineHeight: 1.2 }}>
-          {selectedRows.length} {selectedRows.length === 1 ? 'Record' : 'Records'} — Job Order Payroll
-        </Typography>
-      </Box>
-    </Box>
-
-    {/* Confirmation checkbox */}
-    <Box sx={{
-      p: 2.5, borderRadius: '12px',
-      border: `2px solid ${confirmChecked ? accentColor : alpha(accentColor, 0.15)}`,
-      bgcolor: confirmChecked ? alpha(accentColor, 0.05) : 'rgba(255,255,255,0.5)',
-      display: 'flex', alignItems: 'flex-start', gap: 1.5,
-      transition: 'all 0.2s ease', cursor: 'pointer',
-    }} onClick={() => setConfirmChecked(p => !p)}>
-      <Checkbox
-        checked={confirmChecked}
-        onChange={(e) => setConfirmChecked(e.target.checked)}
-        onClick={(e) => e.stopPropagation()}
-        sx={{ color: alpha(accentColor, 0.4), '&.Mui-checked': { color: accentColor }, mt: -0.5, p: 0.5 }}
+      <LoadingOverlay
+        open={loadingOverlay}
+        message="Processing payroll records…"
       />
-      <Box>
-        <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: textPrimaryColor, mb: 0.4, lineHeight: 1.3 }}>
-          I confirm all records have been reviewed and are accurate.
-        </Typography>
-        <Typography sx={{ fontSize: '0.78rem', color: alpha(textPrimaryColor, 0.55), fontWeight: 500, lineHeight: 1.6 }}>
-          This action will finalize and export the selected records to payroll processing and cannot be undone.
-        </Typography>
-      </Box>
-    </Box>
-  </Box>
-
-  {/* Footer */}
-  <Box sx={{ px: 4, py: 2.5, bgcolor: alpha(primaryColor, 0.8), display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1.5 }}>
-    <ProfessionalButton onClick={() => { setOpenConfirm(false); setConfirmChecked(false); }} variant="outlined"
-      sx={{ borderColor: alpha(accentColor, 0.3), color: textPrimaryColor, bgcolor: 'rgba(255,255,255,0.6)', '&:hover': { borderColor: accentColor, bgcolor: 'rgba(255,255,255,0.9)' } }}>
-      Cancel
-    </ProfessionalButton>
-    <ProfessionalButton
-      onClick={() => { setOpenConfirm(false); setConfirmChecked(false); handleExportToFinalized(); }}
-      disabled={!confirmChecked} variant="contained"
-      sx={{ bgcolor: accentColor, color: primaryColor, boxShadow: `0 4px 16px ${alpha(accentColor, 0.4)}`, '&:hover': { bgcolor: accentDark, boxShadow: `0 6px 20px ${alpha(accentColor, 0.5)}` }, '&:disabled': { bgcolor: alpha(accentColor, 0.25), color: alpha(primaryColor, 0.5) } }}>
-      Confirm & Export
-    </ProfessionalButton>
-  </Box>
-</Dialog>
-        {/* Loading Overlay */}
-        <LoadingOverlay
-          open={loadingOverlay || isProcessingDelete || isUpdatingContributions}
-          message={
-            isProcessingDelete
-              ? 'Deleting payroll record...'
-              : isUpdatingContributions
-              ? 'Updating contributions...'
-              : 'Processing payroll records...'
-          }
-        />
-
-        {/* Success Overlay */}
-        <SuccessfulOverlay
-          open={successOpen}
-          action={successAction}
-          onClose={() => setSuccessOpen(false)}
-        />
-      </Box>
+      <SuccessfulOverlay
+        open={successOpen}
+        action={successAction}
+        onClose={() => setSuccessOpen(false)}
+      />
     </Box>
   );
 };

@@ -6,6 +6,7 @@ const db = require('../db');
 const { upload } = require('../middleware/upload');
 const { broadcastToRoles, notifyMultipleUsers } = require('../socket/socketService');
 const { notifyPayrollChanged } = require('../socket/socketService');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 // GET all holiday records — always 200 + array (DB errors or missing table → [])
 router.get('/holiday', (req, res) => {
@@ -53,7 +54,7 @@ router.get('/holiday', (req, res) => {
 });
 
 // POST: Create holiday record (Title, About, Date Range, same as announcement)
-router.post('/holiday', upload.single('image'), (req, res) => {
+router.post('/holiday', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { title, about, date_start, date_end, status } = req.body;
   const image = req.file ? `/uploads/${req.file.filename}` : null;
 
@@ -136,7 +137,7 @@ router.post('/holiday', upload.single('image'), (req, res) => {
 });
 
 // PUT: Update holiday record (Title, About, Date Range, optional image)
-router.put('/holiday/:id', upload.single('image'), (req, res) => {
+router.put('/holiday/:id', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { id } = req.params;
   if (isNaN(id)) {
     return res.status(400).json({ error: 'Invalid ID format' });
@@ -181,7 +182,7 @@ router.put('/holiday/:id', upload.single('image'), (req, res) => {
 });
 
 // DELETE: Delete holiday record (and image file if present)
-router.delete('/holiday/:id', (req, res) => {
+router.delete('/holiday/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
 
   if (isNaN(id)) {

@@ -26,6 +26,8 @@ import {
   Dialog,
   DialogContent,
   DialogActions,
+  Collapse,
+  Fade,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -48,7 +50,6 @@ import {
   Gradient as GradientIcon,
   Email as EmailIcon,
   Window as WindowIcon,
-  VerifiedUser as VerifiedUserIcon,
   AssignmentInd as AssignmentIndIcon,
   Badge as BadgeIcon,
   LocationOn as LocationOnIcon,
@@ -57,170 +58,156 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 
-// ── Styled components ────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+   THEME TOKENS  (mirrors PDSTemplates T object)
+───────────────────────────────────────────────────────────────────────────── */
+const T = {
+  accent:       '#1e293b',
+  accentDark:   '#0f172a',
+  accentMid:    '#334155',
+  accentFaint:  'rgba(30,41,59,0.05)',
+  accentBorder: 'rgba(30,41,59,0.14)',
+  accentHover:  'rgba(30,41,59,0.09)',
+  rowOdd:       'rgba(30,41,59,0.025)',
+  rowHover:     'rgba(30,41,59,0.055)',
+  text:         '#1a1a1a',
+  muted:        '#6b6b6b',
+  faint:        '#a0a0a0',
+  surface:      '#ffffff',
+  divider:      'rgba(0,0,0,0.08)',
+};
 
-const GlassCard = styled(Card)(() => ({
-  borderRadius: 20,
-  background: 'rgba(255,255,255,0.95)',
-  backdropFilter: 'blur(10px)',
-  boxShadow: '0 8px 40px color-mix(in srgb, var(--primary, #894444) 8%, transparent)',
-  border: '1px solid color-mix(in srgb, var(--primary, #894444) 10%, transparent)',
-  overflow: 'visible',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    boxShadow: '0 12px 48px color-mix(in srgb, var(--primary, #894444) 15%, transparent)',
-    transform: 'translateY(-4px)',
-  },
-}));
+/* ─── Global font import ──────────────────────────────────────────────────── */
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  @keyframes ssShimmer {
+    0%   { background-position: -800px 0; }
+    100% { background-position:  800px 0; }
+  }
+  @keyframes ssPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.55; }
+  }
+  * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+`;
 
-const ProfessionalButton = styled(Button)(({ variant: v }) => ({
+/* ─── Styled components ───────────────────────────────────────────────────── */
+
+const SectionCard = styled(Card)({
   borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: '#fff',
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
   textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: v === 'contained' ? '0 4px 14px rgba(0,0,0,0.15)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: v === 'contained' ? '0 6px 20px rgba(0,0,0,0.2)' : 'none',
-  },
-  '&:active': { transform: 'translateY(0)' },
-}));
+  fontWeight: 600,
+  fontSize: '0.8rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  boxShadow: 'none',
+  '&:hover':  { transform: 'translateY(-1px)', boxShadow: 'none' },
+  '&:active': { transform: 'translateY(0)', boxShadow: 'none' },
+});
 
 const ModernTextField = styled(TextField)(() => ({
   '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    '&:hover': { backgroundColor: 'rgba(255,255,255,0.95)' },
-    '&.Mui-focused': {
-      boxShadow: '0 4px 20px color-mix(in srgb, var(--primary, #894444) 12%, transparent)',
-      backgroundColor: '#fff',
-    },
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: 'rgba(0,0,0,0.15)' },
+    '&:hover fieldset': { borderColor: '#94a3b8' },
+    '&.Mui-focused fieldset': { borderColor: T.accent },
   },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
+  '& .MuiInputLabel-root': { fontWeight: 500, color: T.muted, fontSize: '0.72rem' },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+  '& .MuiInputBase-input': { fontSize: '0.82rem' },
 }));
 
 const ReadOnlyTextField = styled(TextField)(() => ({
   '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    cursor: 'not-allowed',
-    '& fieldset': { borderStyle: 'dashed', borderColor: 'rgba(0,0,0,0.18)' },
-    '&:hover fieldset': { borderColor: 'rgba(0,0,0,0.25)' },
-    '&.Mui-focused fieldset': { borderStyle: 'dashed', borderColor: 'rgba(0,0,0,0.25)' },
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.025)',
+    '& fieldset': { borderStyle: 'dashed', borderColor: 'rgba(0,0,0,0.15)' },
+    '&:hover fieldset': { borderColor: '#94a3b8' },
+    '&.Mui-focused fieldset': { borderStyle: 'dashed', borderColor: '#94a3b8' },
   },
-  '& .MuiInputBase-input': { cursor: 'not-allowed', color: 'rgba(0,0,0,0.45)' },
-  '& .MuiInputLabel-root': { fontWeight: 500 },
+  '& .MuiInputBase-input': { cursor: 'not-allowed', color: T.text, fontWeight: 500, fontSize: '0.82rem' },
+  '& .MuiInputLabel-root': { fontWeight: 500, color: T.muted, fontSize: '0.72rem' },
 }));
 
 const ModernSelect = styled(Select)(() => ({
-  borderRadius: 12,
-  backgroundColor: 'rgba(255,255,255,0.8)',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': { backgroundColor: 'rgba(255,255,255,0.95)' },
-  '&.Mui-focused': { backgroundColor: '#fff' },
+  borderRadius: 8,
+  backgroundColor: '#fff',
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(0,0,0,0.15)' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#94a3b8' },
+  '& .MuiSelect-select': { fontSize: '0.82rem' },
 }));
 
 const PreviewBox = styled(Box)(({ gradient, bgcolor }) => ({
   width: '100%',
-  height: 100,
-  borderRadius: 12,
+  height: 52,
+  borderRadius: 8,
   background: gradient || bgcolor || '#888',
-  border: '2px solid color-mix(in srgb, var(--primary, #894444) 15%, transparent)',
-  boxShadow: '0 4px 20px rgba(109,35,35,0.18)',
-  transition: 'all 0.4s ease',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  transition: 'background 0.3s ease',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   position: 'relative',
   overflow: 'hidden',
-  '&::after': {
-    content: '""',
-    position: 'absolute',
-    inset: 0,
-    background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 60%)',
-    pointerEvents: 'none',
-  },
 }));
 
 const PreviewLabel = styled(Typography)(() => ({
   color: '#fff',
-  fontWeight: 700,
-  letterSpacing: 2,
+  fontWeight: 600,
+  letterSpacing: '0.04em',
   textTransform: 'uppercase',
-  fontSize: '0.72rem',
-  textShadow: '0 1px 6px rgba(0,0,0,0.45)',
+  fontSize: '0.5rem',
+  textShadow: '0 1px 3px rgba(0,0,0,0.4)',
   position: 'relative',
   zIndex: 1,
 }));
 
 const ColorSwatch = styled(Box)(({ swatchcolor }) => ({
   width: '100%',
-  height: 56,
-  borderRadius: 10,
+  height: 34,
+  borderRadius: 8,
   background: swatchcolor,
-  border: '2px solid rgba(109, 35, 35, 0.30)',
-  boxShadow: '0 2px 8px rgba(109, 35, 35, 0.15), inset 0 0 0 1px rgba(255,255,255,0.25)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  transition: 'all 0.3s ease',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    border: '2px solid rgba(109, 35, 35, 0.6)',
-    boxShadow: '0 6px 18px rgba(109, 35, 35, 0.2), inset 0 0 0 1px rgba(255,255,255,0.3)',
-  },
+  transition: 'all 0.15s ease',
+  '&:hover': { borderColor: 'rgba(0,0,0,0.2)' },
 }));
 
 const ColorPickerWrapper = styled(Box)(({ color }) => ({
   position: 'relative',
   width: '100%',
-  height: 56,
-  borderRadius: 12,
+  height: 34,
+  borderRadius: 8,
   background: color,
-  border: `2px solid ${alpha(color || '#888', 0.35)}`,
+  border: '0.5px solid rgba(0,0,0,0.09)',
   cursor: 'pointer',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   overflow: 'hidden',
-  transition: 'all 0.3s ease',
+  transition: 'all 0.15s ease',
   '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: `0 6px 20px ${alpha(color || '#888', 0.45)}`,
-    borderColor: color,
+    borderColor: 'rgba(0,0,0,0.2)',
   },
-  '&:active': { transform: 'translateY(0) scale(0.98)' },
 }));
 
-const cardContentSx = (accentColor) => ({ p: 4, bgcolor: accentColor, overflow: 'visible' });
+/* ─── Shimmer Wireframe ───────────────────────────────────────────────────── */
 
-const sectionHeaderSx = (primaryColor, accentColor) => ({
-  bgcolor: alpha(accentColor, 0.35),
-  pb: 2,
-  borderBottom: `1px solid ${alpha(primaryColor, 0.15)}`,
-});
-
-// ── Shimmer / Wireframe ───────────────────────────────────────────────────────
-
-const ssKeyframes = `
-@keyframes ssShimmer {
-  0%   { background-position: -800px 0; }
-  100% { background-position:  800px 0; }
-}
-@keyframes ssPulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
-}
-`;
-
-const Shim = ({ w = '100%', h = 16, r = 8, sx = {} }) => (
+const Shim = ({ w = '100%', h = 10, r = 4, sx = {} }) => (
   <Box sx={{
     width: w, height: h, borderRadius: `${r}px`, flexShrink: 0,
-    background: 'linear-gradient(90deg,rgba(137,68,68,0.07) 25%,rgba(137,68,68,0.18) 50%,rgba(137,68,68,0.07) 75%)',
+    background: 'linear-gradient(90deg,rgba(30,41,59,0.05) 25%,rgba(30,41,59,0.12) 50%,rgba(30,41,59,0.05) 75%)',
     backgroundSize: '800px 100%',
     animation: 'ssShimmer 1.6s infinite linear',
     ...sx,
@@ -229,239 +216,104 @@ const Shim = ({ w = '100%', h = 16, r = 8, sx = {} }) => (
 
 const SwatchShim = ({ delay = 0 }) => (
   <Box sx={{ animation: `ssPulse 2.2s ease-in-out ${delay}s infinite` }}>
-    <Shim w="55%" h={13} r={4} sx={{ mb: 0.75 }} />
-    <Shim w="100%" h={56} r={10} />
+    <Shim w="50%" h={8} r={3} sx={{ mb: 0.4 }} />
+    <Shim w="100%" h={34} r={8} />
   </Box>
 );
 
-const FieldShim = ({ h = 56, labelW = '40%', delay = 0 }) => (
+const FieldShim = ({ h = 36, labelW = '40%', delay = 0 }) => (
   <Box sx={{ animation: `ssPulse 2.2s ease-in-out ${delay}s infinite` }}>
-    <Shim w={labelW} h={13} r={4} sx={{ mb: 0.5 }} />
-    <Shim w="100%" h={h} r={12} />
+    <Shim w={labelW} h={8} r={3} sx={{ mb: 0.35 }} />
+    <Shim w="100%" h={h} r={8} />
   </Box>
 );
 
-const WireCard = ({ children, delay = 0, sx: extraSx = {} }) => (
+const WireCard = ({ children, delay = 0 }) => (
   <Box sx={{
-    borderRadius: '20px', overflow: 'hidden',
-    background: 'rgba(255,255,255,0.95)',
-    border: '1px solid rgba(137,68,68,0.10)',
-    boxShadow: '0 8px 40px rgba(137,68,68,0.06)',
+    borderRadius: 12, overflow: 'hidden',
+    background: '#fff',
+    border: '0.5px solid rgba(0,0,0,0.09)',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
     height: '100%',
     animation: `ssPulse 2.2s ease-in-out ${delay}s infinite`,
-    ...extraSx,
   }}>
     <Box sx={{
-      px: 3, py: 2.5,
-      background: 'rgba(137,68,68,0.04)',
-      borderBottom: '1px solid rgba(137,68,68,0.08)',
-      display: 'flex', alignItems: 'center', gap: 2,
+      px: 2.5, py: 1.25,
+      borderBottom: '1px solid rgba(0,0,0,0.08)',
+      bgcolor: T.accentFaint,
+      display: 'flex', alignItems: 'center', gap: 1,
+      minHeight: 42,
     }}>
-      <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.10)', flexShrink: 0 }} />
-      <Box sx={{ flexGrow: 1 }}>
-        <Shim w="45%" h={18} r={5} sx={{ mb: 0.75 }} />
-        <Shim w="72%" h={12} r={4} />
-      </Box>
-      <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.08)', flexShrink: 0 }} />
+      <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: 'rgba(30,41,59,0.2)' }} />
+      <Shim w="45%" h={10} r={3} />
     </Box>
-    <Box sx={{ p: 4 }}>{children}</Box>
+    <Box sx={{ p: 2.5 }}>{children}</Box>
   </Box>
 );
 
 const SystemSettingWireframe = () => (
   <>
-    <style>{ssKeyframes}</style>
-    <Box sx={{ py: 4, borderRadius: '14px', minHeight: '100vh' }}>
-      <Box sx={{ mb: 4, px: 3 }}>
+    <style>{GLOBAL_CSS}</style>
+    <Box sx={{ py: 3, minHeight: '100vh' }}>
+      <Box sx={{ mb: 2, px: 3 }}>
         <Box sx={{
-          borderRadius: '20px', overflow: 'hidden',
-          background: 'rgba(255,255,255,0.95)',
-          border: '1px solid rgba(137,68,68,0.10)',
-          boxShadow: '0 8px 40px rgba(137,68,68,0.06)',
+          borderRadius: 12, overflow: 'hidden', background: '#fff',
+          border: '0.5px solid rgba(0,0,0,0.09)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
           animation: 'ssPulse 2.2s ease-in-out infinite',
         }}>
-          <Box sx={{
-            p: 5,
-            background: 'linear-gradient(135deg,rgba(137,68,68,0.14) 0%,rgba(109,35,35,0.20) 60%,rgba(58,15,15,0.26) 100%)',
-            position: 'relative',
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
-                <Box>
-                  <Shim w={240} h={30} r={6} sx={{ mb: 1.5 }} />
-                  <Shim w={330} h={14} r={4} />
-                </Box>
-              </Box>
+          <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#f8fafc 0%,#e2e8f0 100%)', display: 'flex', alignItems: 'center', gap: 2.5 }}>
+            <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: 'rgba(30,41,59,0.12)' }} />
+            <Box>
+              <Shim w={200} h={16} r={3} sx={{ mb: 0.5 }} />
+              <Shim w={320} h={10} r={2} />
             </Box>
           </Box>
         </Box>
       </Box>
       <Box sx={{ px: 3 }}>
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <Box sx={{ width: '100%' }}>
-              <WireCard delay={0}>
-                <Grid container spacing={2.5}>
-                  {[0,1,2,3,4,5,6].map((i) => (
-                    <Grid item xs={12} sm={6} key={i}><SwatchShim delay={i * 0.05} /></Grid>
-                  ))}
-                </Grid>
-              </WireCard>
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <Box sx={{ width: '100%' }}>
-              <WireCard delay={0.08}>
-                <Shim w="100%" h={100} r={12} sx={{ mb: 3 }} />
-                <Grid container spacing={2.5}>
-                  {[0,1].map((i) => (
-                    <Grid item xs={12} sm={6} key={i}>
-                      <SwatchShim delay={0.08 + i * 0.05} />
-                      <Shim w="80%" h={11} r={3} sx={{ mt: 0.75 }} />
-                    </Grid>
-                  ))}
-                </Grid>
-              </WireCard>
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <Box sx={{ width: '100%' }}>
-              <WireCard delay={0.12}>
-                <Grid container spacing={4}>
-                  {[0,1].map((g) => (
-                    <Grid item xs={12} key={g}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
-                        {Array.from({ length: g === 0 ? 3 : 2 }).map((_, j) => (
-                          <Box key={j} sx={{ width: 22, height: 22, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.12)', flexShrink: 0 }} />
-                        ))}
-                        <Shim w="35%" h={14} r={4} />
-                      </Box>
-                      <Shim w="68%" h={11} r={3} sx={{ mb: 2 }} />
-                      <Shim w="100%" h={90} r={12} sx={{ mb: 2.5 }} />
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}><SwatchShim delay={0.12 + g * 0.07} /></Grid>
-                        <Grid item xs={6}><SwatchShim delay={0.16 + g * 0.07} /></Grid>
-                      </Grid>
-                    </Grid>
-                  ))}
-                </Grid>
-              </WireCard>
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <Box sx={{ width: '100%' }}>
-              <WireCard delay={0.16}>
-                <Grid container spacing={2.5}>
-                  {[0,1,2,3,4].map((i) => (
-                    <Grid item xs={12} sm={6} key={i}><SwatchShim delay={i * 0.05} /></Grid>
-                  ))}
-                </Grid>
-              </WireCard>
-            </Box>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <WireCard delay={0.05}>
-              <Grid container spacing={3}>
-                {[0,1].map((i) => (
-                  <Grid item xs={12} key={i}>
-                    <Shim w="40%" h={18} r={5} sx={{ mb: 1.5 }} />
-                    <Box sx={{ height: 48, borderRadius: 12, border: '1px solid rgba(137,68,68,0.22)', bgcolor: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', gap: 1.5, px: 2, mb: 2 }}>
-                      <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.15)', flexShrink: 0 }} />
-                      <Shim w="50%" h={13} r={4} />
-                    </Box>
-                    <Box sx={{ p: 2, border: '2px dashed rgba(137,68,68,0.20)', borderRadius: 3, display: 'flex', justifyContent: 'center' }}>
-                      <Box sx={{ width: 110, height: 110, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.08)' }} />
-                    </Box>
+        <Grid container spacing={2}>
+          {[0, 1, 2, 3].map((i) => (
+            <Grid item xs={12} md={3} key={i} sx={{ display: 'flex' }}>
+              <Box sx={{ width: '100%' }}>
+                <WireCard delay={i * 0.05}>
+                  <Grid container spacing={1.5}>
+                    {Array.from({ length: i === 2 ? 4 : i === 3 ? 5 : 7 }).map((_, j) => (
+                      <Grid item xs={12} sm={6} key={j}><SwatchShim delay={j * 0.04} /></Grid>
+                    ))}
                   </Grid>
-                ))}
-              </Grid>
-            </WireCard>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <WireCard delay={0.09}>
-              <Grid container spacing={3}>
-                <Grid item xs={12}><FieldShim h={96} labelW="42%" delay={0} /></Grid>
-                <Grid item xs={12}><FieldShim h={72} labelW="38%" delay={0.04} /></Grid>
-                <Grid item xs={12}><FieldShim h={56} labelW="50%" delay={0.07} /></Grid>
-                <Grid item xs={12}>
-                  <Shim w="30%" h={13} r={4} sx={{ mb: 0.5 }} />
-                  <Box sx={{ height: 72, borderRadius: 12, border: '1.5px dashed rgba(137,68,68,0.22)', bgcolor: 'rgba(0,0,0,0.03)', display: 'flex', alignItems: 'center', px: 2, gap: 1.5 }}>
-                    <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.10)', flexShrink: 0 }} />
-                    <Shim w="58%" h={13} r={4} />
-                    <Box sx={{ ml: 'auto', width: 18, height: 18, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.10)', flexShrink: 0 }} />
-                  </Box>
+                </WireCard>
+              </Box>
+            </Grid>
+          ))}
+          {[0, 1, 2].map((i) => (
+            <Grid item xs={12} md={4} key={`b${i}`}>
+              <WireCard delay={0.1 + i * 0.05}>
+                <Grid container spacing={2}>
+                  {Array.from({ length: 4 }).map((_, j) => (
+                    <Grid item xs={12} key={j}><FieldShim h={j === 0 ? 64 : 36} delay={j * 0.04} /></Grid>
+                  ))}
                 </Grid>
-              </Grid>
-            </WireCard>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <WireCard delay={0.13}>
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <Shim w="35%" h={13} r={4} sx={{ mb: 0.5 }} />
-                  <Box sx={{ height: 56, borderRadius: 12, border: '1px solid rgba(137,68,68,0.22)', bgcolor: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', px: 2, gap: 1.5 }}>
-                    <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.12)', flexShrink: 0 }} />
-                    <Shim w="42%" h={13} r={4} />
-                    <Box sx={{ ml: 'auto', width: 16, height: 16, borderRadius: 2, bgcolor: 'rgba(137,68,68,0.15)', flexShrink: 0 }} />
-                  </Box>
-                </Grid>
-                <Grid item xs={12}>
-                  <FieldShim h={96} labelW="28%" delay={0.04} />
-                  <Shim w="74%" h={11} r={3} sx={{ mt: 1 }} />
-                </Grid>
-                <Grid item xs={12}>
-                  <FieldShim h={56} labelW="44%" delay={0.06} />
-                  <Shim w="58%" h={11} r={3} sx={{ mt: 0.6 }} />
-                </Grid>
-                <Grid item xs={12}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1, borderTop: '1px solid rgba(137,68,68,0.10)' }}>
-                    <Box sx={{ width: 20, height: 20, borderRadius: '50%', bgcolor: 'rgba(137,68,68,0.12)', flexShrink: 0 }} />
-                    <Shim w="36%" h={14} r={4} />
-                  </Box>
-                  <Shim w="65%" h={11} r={3} sx={{ mt: 0.5 }} />
-                </Grid>
-                <Grid item xs={12}><FieldShim h={56} labelW="34%" delay={0.08} /></Grid>
-                <Grid item xs={12}><FieldShim h={56} labelW="38%" delay={0.10} /></Grid>
-                <Grid item xs={12}>
-                  <Box sx={{ height: 72, borderRadius: 12, bgcolor: 'rgba(137,68,68,0.20)', display: 'flex', alignItems: 'center', px: 2, gap: 1, animation: 'ssPulse 2.2s ease-in-out 0.1s infinite' }}>
-                    <Shim w="75%" h={10} r={3} sx={{ background: 'rgba(255,255,255,0.22)', backgroundSize: '800px 100%', animation: 'none' }} />
-                    <Box sx={{ ml: 'auto', width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.75 }}>
-                    <Shim w="52%" h={11} r={3} />
-                  </Box>
-                </Grid>
-                <Grid item xs={12}>
-                  <Box sx={{ p: 2.5, border: '1.5px solid rgba(137,68,68,0.15)', borderRadius: 2, bgcolor: 'rgba(255,255,255,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                    <Shim w="38%" h={12} r={3} />
-                    <Shim w="55%" h={20} r={5} />
-                    <Shim w="42%" h={13} r={3} />
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.75 }}>
-                    <Shim w="44%" h={11} r={3} />
-                  </Box>
-                </Grid>
-              </Grid>
-            </WireCard>
-          </Grid>
+              </WireCard>
+            </Grid>
+          ))}
         </Grid>
       </Box>
     </Box>
   </>
 );
 
-// ── Default values ────────────────────────────────────────────────────────────
+/* ─── Default values ──────────────────────────────────────────────────────── */
 const DEFAULT_SETTINGS = {
-  primaryColor:                '#894444',
-  secondaryColor:              '#6d2323',
+  primaryColor:                '#1e293b',
+  secondaryColor:              '#334155',
   accentColor:                 '#FFFFFF',
   textColor:                   '#FFFFFF',
-  textPrimaryColor:            '#6D2323',
+  textPrimaryColor:            '#0f172a',
   textSecondaryColor:          '#FFFFFF',
-  hoverColor:                  '#512424',
+  hoverColor:                  '#0f172a',
   backgroundColor:             '#FFFFFF',
-  sidebarGradientEnd:          '#3a0f0f',
+  sidebarGradientEnd:          '#0f172a',
   institutionLogo:             '',
   hrisLogo:                    '',
   institutionName:             'Institution Name',
@@ -471,21 +323,21 @@ const DEFAULT_SETTINGS = {
   footerText:                  '2026 - HUMAN RESOURCES INFORMATION SYSTEM.  ALL RIGHTS RESERVED.',
   copyrightSymbol:             '©',
   enableWatermark:             true,
-  actionButtonColor:           '#6d2323',
-  actionButtonHoverColor:      '#a31d1d',
-  destructiveButtonColor:      '#6c757d',
-  destructiveButtonHoverColor: '#5a6268',
+  actionButtonColor:           '#1e293b',
+  actionButtonHoverColor:      '#334155',
+  destructiveButtonColor:      '#64748b',
+  destructiveButtonHoverColor: '#475569',
   modalBackgroundColor:        '#FFFFFF',
-  modalHeaderColor:            '#6d2323',
+  modalHeaderColor:            '#1e293b',
   modalHeaderTextColor:        '#FFFFFF',
-  modalBodyTextColor:          '#333333',
-  modalBorderColor:            '#894444',
+  modalBodyTextColor:          '#334155',
+  modalBorderColor:            '#1e293b',
   adminEmail:                  'hrinformationsystemhris@gmail.com',
   certifierName:               'Default Certifier',
   certifierPosition:           'Default Position',
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const isLightColor = (hex = '#000') => {
   const h = hex.replace('#', '');
   const r = parseInt(h.substring(0, 2), 16) / 255;
@@ -494,18 +346,39 @@ const isLightColor = (hex = '#000') => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
 };
 
-// ── Color picker sub-components ───────────────────────────────────────────────
-const ColorPickerItem = ({ label, field, value, onChange, textPrimaryColor }) => {
+/* ─── Shared panel header (mirrors PDSTemplates PanelHeader) ──────────────── */
+const PanelHeader = ({ icon: Icon, title, right }) => (
+  <Box sx={{
+    px: 2.5, py: 1.25,
+    borderBottom: `1px solid ${T.divider}`,
+    display: 'flex', alignItems: 'center', gap: 1.25,
+    bgcolor: T.accentFaint, minHeight: 42,
+  }}>
+    <Icon sx={{ fontSize: 14, color: T.accent }} />
+    <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.accent }}>
+      {title}
+    </Typography>
+    {right && <><Box sx={{ flex: 1 }} />{right}</>}
+  </Box>
+);
+
+/* ─── Color picker sub-components ────────────────────────────────────────── */
+const ColorPickerItem = ({ label, field, value, onChange }) => {
   const color = value || '#888888';
   const light = isLightColor(color);
   return (
     <Box>
-      <Typography variant="caption" sx={{ mb: 0.75, display: 'block', color: textPrimaryColor, fontWeight: 600, opacity: 0.8 }}>{label}</Typography>
+      <Typography sx={{ mb: 0.4, display: 'block', color: T.muted, fontWeight: 600, fontSize: '0.65rem', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{label}</Typography>
       <Box sx={{ position: 'relative' }}>
         <ColorSwatch swatchcolor={color}>
-          <Typography variant="caption" sx={{ fontWeight: 700, pointerEvents: 'none', color: light ? 'rgba(0,0,0,0.75)' : '#fff', textShadow: light ? '0 1px 2px rgba(255,255,255,0.6)' : '0 1px 3px rgba(0,0,0,0.55)' }}>{color}</Typography>
+          <Typography sx={{
+            fontWeight: 600, pointerEvents: 'none',
+            fontFamily: "'JetBrains Mono', monospace", fontSize: '0.58rem',
+            color: light ? 'rgba(0,0,0,0.6)' : '#fff',
+          }}>{color}</Typography>
         </ColorSwatch>
-        <input type="color" value={color} onChange={(e) => onChange(field, e.target.value)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 2 }} />
+        <input type="color" value={color} onChange={(e) => onChange(field, e.target.value)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 2 }} />
       </Box>
     </Box>
   );
@@ -515,16 +388,45 @@ const ColorInput = ({ label, field, value, onChange }) => {
   const color = value || '#888888';
   return (
     <Box>
-      <Typography variant="caption" sx={{ mb: 0.75, display: 'block', fontWeight: 600, opacity: 0.8 }}>{label}</Typography>
+      <Typography sx={{ mb: 0.4, display: 'block', fontWeight: 600, fontSize: '0.65rem', color: T.muted, letterSpacing: '0.04em', textTransform: 'uppercase' }}>{label}</Typography>
       <ColorPickerWrapper color={color}>
-        <input type="color" value={color} onChange={(e) => onChange(field, e.target.value)} style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 2 }} />
-        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 700, textShadow: '0 1px 3px rgba(0,0,0,0.5)', zIndex: 1, pointerEvents: 'none' }}>{color}</Typography>
+        <input type="color" value={color} onChange={(e) => onChange(field, e.target.value)}
+          style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 2 }} />
+        <Typography sx={{
+          color: '#fff', fontWeight: 600,
+          fontFamily: "'JetBrains Mono', monospace", fontSize: '0.58rem',
+          textShadow: '0 1px 3px rgba(0,0,0,0.5)', zIndex: 1, pointerEvents: 'none',
+        }}>{color}</Typography>
       </ColorPickerWrapper>
     </Box>
   );
 };
 
-// ── Main component ────────────────────────────────────────────────────────────
+/* ─── Section header with optional reset ─────────────────────────────────── */
+const SectionHeader = ({ icon: Icon, title, subtitle, onReset, resetTitle, accentColor }) => (
+  <Box sx={{
+    px: 2.5, py: 1.25,
+    borderBottom: `1px solid ${T.divider}`,
+    display: 'flex', alignItems: 'center', gap: 1.25,
+    bgcolor: T.accentFaint, minHeight: 42,
+  }}>
+    <Icon sx={{ fontSize: 14, color: accentColor || T.accent }} />
+    <Box sx={{ flex: 1 }}>
+      <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: accentColor || T.accent, lineHeight: 1.3 }}>{title}</Typography>
+      {subtitle && <Typography sx={{ color: T.faint, fontSize: '0.68rem', lineHeight: 1.3 }}>{subtitle}</Typography>}
+    </Box>
+    {onReset && (
+      <Tooltip title={resetTitle || 'Reset to default'}>
+        <IconButton onClick={onReset} size="small"
+          sx={{ color: T.muted, '&:hover': { color: T.accent, bgcolor: T.accentHover }, transition: 'all 0.15s ease', width: 26, height: 26 }}>
+          <UndoIcon sx={{ fontSize: 13 }} />
+        </IconButton>
+      </Tooltip>
+    )}
+  </Box>
+);
+
+/* ─── Main component ──────────────────────────────────────────────────────── */
 const SystemSetting = () => {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [originalColors, setOriginalColors] = useState({});
@@ -560,11 +462,9 @@ const SystemSetting = () => {
       const url = API_BASE_URL.includes('/api') ? `${API_BASE_URL}/system-settings` : `${API_BASE_URL}/api/system-settings`;
       const response = await axios.get(url);
       const fetched = { ...response.data };
-
       Object.entries(MIGRATED_FIELDS).forEach(([field, { from, to }]) => {
         if (fetched[field] && fetched[field].toUpperCase() === from.toUpperCase()) fetched[field] = to;
       });
-
       const stored = localStorage.getItem('systemSettings');
       if (stored) {
         try {
@@ -576,9 +476,7 @@ const SystemSetting = () => {
           if (needsUpdate) localStorage.setItem('systemSettings', JSON.stringify(parsed));
         } catch { localStorage.removeItem('systemSettings'); }
       }
-
       setSettings((prev) => ({ ...prev, ...fetched }));
-
       const colorFields = ['primaryColor','secondaryColor','accentColor','textColor','textPrimaryColor','textSecondaryColor','hoverColor','backgroundColor','sidebarGradientEnd','actionButtonColor','actionButtonHoverColor','destructiveButtonColor','destructiveButtonHoverColor','modalBackgroundColor','modalHeaderColor','modalHeaderTextColor','modalBodyTextColor','modalBorderColor'];
       const orig = {};
       colorFields.forEach((f) => { orig[f] = fetched[f] || DEFAULT_SETTINGS[f]; });
@@ -610,10 +508,7 @@ const SystemSetting = () => {
     reader.readAsDataURL(file);
   };
 
-  // ── NEW: Remove logo handler ──────────────────────────────────────────────
-  const handleLogoRemove = (field) => {
-    setField(field, '');
-  };
+  const handleLogoRemove = (field) => { setField(field, ''); };
 
   const handleSave = async () => {
     try {
@@ -645,467 +540,442 @@ const SystemSetting = () => {
 
   if (loading) return <SystemSettingWireframe />;
 
-  const SectionHeader = ({ icon: Icon, title, subtitle, onReset, resetTitle }) => (
-    <CardHeader
-      title={
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Avatar sx={{ bgcolor: alpha(s.primaryColor, 0.12), color: s.textPrimaryColor }}><Icon /></Avatar>
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="h5" component="div" sx={{ fontWeight: 600, color: s.textPrimaryColor }}>{title}</Typography>
-            <Typography variant="body2" sx={{ color: s.textPrimaryColor, opacity: 0.7 }}>{subtitle}</Typography>
-          </Box>
-          {onReset && (
-            <Tooltip title={resetTitle || 'Reset to default'}>
-              <IconButton onClick={onReset} sx={{ color: s.textPrimaryColor, backgroundColor: alpha(s.primaryColor, 0.08), '&:hover': { backgroundColor: alpha(s.primaryColor, 0.18), transform: 'scale(1.05)' }, transition: 'all 0.2s ease' }}>
-                <UndoIcon />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-      }
-      sx={sectionHeaderSx(s.primaryColor, s.accentColor)}
-    />
-  );
-
   return (
-    <Box sx={{ py: 4, borderRadius: '14px', minHeight: '100vh', pb: 14, '--primary': s.primaryColor, '--secondary': s.secondaryColor, '--accent': s.accentColor, '--text-primary': s.textPrimaryColor }}>
+    <Fade in timeout={400}>
+      <Box sx={{ py: 1, minHeight: '100vh', pb: 12 }}>
+        <style>{GLOBAL_CSS}</style>
 
-      {/* Page Header */}
-      <Box sx={{ mb: 4, px: 3 }}>
-        <GlassCard sx={{ overflow: 'hidden' }}>
-          <Box sx={{ p: 5, background: `linear-gradient(135deg, ${s.primaryColor} 0%, ${s.secondaryColor} 60%, ${s.sidebarGradientEnd || '#3a0f0f'} 100%)`, borderRadius: 4, position: 'relative', overflow: 'hidden' }}>
-            <Box sx={{ position: 'absolute', top: -60, right: -60, width: 220, height: 220, background: 'radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
-            <Box sx={{ position: 'absolute', bottom: -40, left: '25%', width: 180, height: 180, background: 'radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%)', borderRadius: '50%' }} />
-            <Box sx={{ position: 'absolute', top: '50%', right: '15%', width: 100, height: 100, background: 'radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%)', borderRadius: '50%', transform: 'translateY(-50%)' }} />
-            <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-              <Box display="flex" alignItems="center">
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.15)', mr: 4, width: 64, height: 64, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', border: '2px solid rgba(255,255,255,0.25)' }}>
-                  <SettingsIcon sx={{ fontSize: 32, color: '#fff' }} />
-                </Avatar>
+        {/* ── Page header (matches PDSTemplates gradient header) ── */}
+        <Box sx={{ mb: 2, px: 3 }}>
+          <SectionCard>
+            <Box sx={{
+              px: 4, py: 3,
+              background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              position: 'relative', overflow: 'hidden',
+            }}>
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(30,41,59,0.08) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(30,41,59,0.05) 0%,transparent 70%)' }} />
+
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
+                <SettingsIcon sx={{ fontSize: 28, color: T.accent }} />
                 <Box>
-                  <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5, lineHeight: 1.2, color: '#fff', textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>System Settings</Typography>
-                  <Typography variant="body1" sx={{ opacity: 0.8, color: '#fff' }}>Customize the appearance and behavior of your HRIS system</Typography>
+                  <Typography sx={{ fontSize: '1.15rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+                    System Settings
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>
+                    Administrative Panel · Customize appearance and behavior of your HRIS system
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ position: 'relative', zIndex: 1 }}>
+                <Box sx={{
+                  px: 2, py: 0.6, borderRadius: 5,
+                  bgcolor: alpha(T.accent, 0.08),
+                  border: `1px solid ${alpha(T.accent, 0.16)}`,
+                }}>
+                  <Typography sx={{ fontSize: '0.75rem', color: T.accent, fontWeight: 700 }}>
+                    7 sections
+                  </Typography>
                 </Box>
               </Box>
             </Box>
-          </Box>
-        </GlassCard>
-      </Box>
+          </SectionCard>
+        </Box>
 
-      <Box sx={{ px: 3 }}>
-        <Grid container spacing={3}>
+        <Box sx={{ px: 3 }}>
+          <Grid container spacing={2}>
 
-          {/* Color Palette */}
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <GlassCard sx={{ width: '100%' }}>
-              <SectionHeader icon={PaletteIcon} title="Color Palette" subtitle="Core colors used throughout the system"
-                onReset={() => { setSettings((prev) => ({ ...prev, ...originalColors })); setSnackbar({ open: true, message: 'Colors reset to original values!', severity: 'success' }); }}
-                resetTitle="Reset colors to original values" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <Grid container spacing={2.5}>
-                  {[
-                    { label: 'Header & Footer', field: 'secondaryColor' },
-                    { label: 'Sidebar, Buttons & Containers', field: 'primaryColor' },
-                    { label: 'Cards Background', field: 'accentColor' },
-                    { label: 'Hover State', field: 'hoverColor' },
-                    { label: 'Page Background', field: 'backgroundColor' },
-                    { label: 'Primary Text', field: 'textPrimaryColor' },
-                    { label: 'Secondary Text', field: 'textSecondaryColor' },
-                  ].map(({ label, field }) => (
-                    <Grid item xs={12} sm={6} key={field}>
-                      <ColorPickerItem label={label} field={field} value={s[field]} onChange={setField} textPrimaryColor={s.textPrimaryColor} />
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Grid>
-
-          {/* Sidebar Gradient */}
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <GlassCard sx={{ width: '100%' }}>
-              <SectionHeader icon={GradientIcon} title="Sidebar Gradient" subtitle="Top-to-bottom gradient for the navigation sidebar"
-                onReset={() => { setSettings((prev) => ({ ...prev, primaryColor: '#894444', sidebarGradientEnd: '#3a0f0f' })); setSnackbar({ open: true, message: 'Sidebar gradient reset to default!', severity: 'success' }); }}
-                resetTitle="Reset sidebar gradient to default" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <PreviewBox gradient={`linear-gradient(180deg, ${s.primaryColor} 0%, ${s.sidebarGradientEnd || '#3a0f0f'} 100%)`} sx={{ mb: 3 }}>
-                  <PreviewLabel>SIDEBAR PREVIEW</PreviewLabel>
-                </PreviewBox>
-                <Grid container spacing={2.5}>
-                  <Grid item xs={12} sm={6}>
-                    <ColorPickerItem label="Gradient Start (Top)" field="primaryColor" value={s.primaryColor} onChange={setField} textPrimaryColor={s.textPrimaryColor} />
-                    <Typography variant="caption" sx={{ mt: 0.75, display: 'block', color: s.textPrimaryColor, opacity: 0.55 }}>Also applies to buttons &amp; containers</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <ColorPickerItem label="Gradient End (Bottom)" field="sidebarGradientEnd" value={s.sidebarGradientEnd} onChange={setField} textPrimaryColor={s.textPrimaryColor} />
-                    <Typography variant="caption" sx={{ mt: 0.75, display: 'block', color: s.textPrimaryColor, opacity: 0.55 }}>Bottom color of the sidebar</Typography>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Grid>
-
-          {/* Action Button Colors */}
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <GlassCard sx={{ width: '100%' }}>
-              <SectionHeader icon={ColorLensIcon} title="Action Button Colors" subtitle="Action buttons (Add, Edit, View) share one set — Destructive buttons (Delete, Cancel) share another"
-                onReset={() => { setSettings((prev) => ({ ...prev, actionButtonColor: '#6d2323', actionButtonHoverColor: '#a31d1d', destructiveButtonColor: '#6c757d', destructiveButtonHoverColor: '#5a6268' })); setSnackbar({ open: true, message: 'Button colors reset to default!', severity: 'success' }); }}
-                resetTitle="Reset button colors to default" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <Grid container spacing={4}>
-                  {[
-                    { description: 'Add / Create · Edit / Update · View / Read', icons: [<AddIcon fontSize="small" />, <EditIcon fontSize="small" />, <VisibilityIcon fontSize="small" />], colorField: 'actionButtonColor', hoverField: 'actionButtonHoverColor' },
-                    { description: 'Delete · Cancel', icons: [<DeleteIcon fontSize="small" />, <CancelIcon fontSize="small" />], colorField: 'destructiveButtonColor', hoverField: 'destructiveButtonHoverColor' },
-                  ].map(({ description, icons, colorField, hoverField }) => (
-                    <Grid item xs={12} key={colorField}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
-                        {icons.map((icon, i) => <Box key={i} sx={{ color: s[colorField] }}>{icon}</Box>)}
-                      </Box>
-                      <Typography variant="caption" sx={{ mb: 2, display: 'block', color: s.textPrimaryColor, opacity: 0.65 }}>{description}</Typography>
-                      <PreviewBox gradient={`linear-gradient(135deg, ${s[colorField]} 0%, ${s[hoverField]} 100%)`} sx={{ mb: 2.5, height: 90 }}>
-                        <PreviewLabel>NORMAL → HOVER PREVIEW</PreviewLabel>
-                      </PreviewBox>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6}><ColorInput label="Normal Color" field={colorField} value={s[colorField]} onChange={setField} /></Grid>
-                        <Grid item xs={6}><ColorInput label="Hover Color" field={hoverField} value={s[hoverField]} onChange={setField} /></Grid>
+            {/* ── Color Palette ── */}
+            <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
+              <SectionCard sx={{ width: '100%' }}>
+                <SectionHeader icon={PaletteIcon} title="Color Palette" subtitle="Core colors used throughout the system"
+                  onReset={() => { setSettings((prev) => ({ ...prev, ...originalColors })); setSnackbar({ open: true, message: 'Colors reset to original values!', severity: 'success' }); }}
+                  resetTitle="Reset colors to original values" />
+                <Box sx={{ p: 2.5 }}>
+                  <Grid container spacing={1.5}>
+                    {[
+                      { label: 'Header & Footer', field: 'secondaryColor' },
+                      { label: 'Sidebar & Buttons', field: 'primaryColor' },
+                      { label: 'Cards Background', field: 'accentColor' },
+                      { label: 'Hover State', field: 'hoverColor' },
+                      { label: 'Page Background', field: 'backgroundColor' },
+                      { label: 'Primary Text', field: 'textPrimaryColor' },
+                      { label: 'Secondary Text', field: 'textSecondaryColor' },
+                    ].map(({ label, field }) => (
+                      <Grid item xs={12} sm={6} key={field}>
+                        <ColorPickerItem label={label} field={field} value={s[field]} onChange={setField} />
                       </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              </SectionCard>
+            </Grid>
+
+            {/* ── Sidebar Gradient ── */}
+            <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
+              <SectionCard sx={{ width: '100%' }}>
+                <SectionHeader icon={GradientIcon} title="Sidebar Gradient" subtitle="Top-to-bottom navigation gradient"
+                  onReset={() => { setSettings((prev) => ({ ...prev, primaryColor: '#1e293b', sidebarGradientEnd: '#0f172a' })); setSnackbar({ open: true, message: 'Sidebar gradient reset to default!', severity: 'success' }); }}
+                  resetTitle="Reset sidebar gradient to default" />
+                <Box sx={{ p: 2.5 }}>
+                  <PreviewBox gradient={`linear-gradient(180deg, ${s.primaryColor} 0%, ${s.sidebarGradientEnd || '#0f172a'} 100%)`} sx={{ mb: 2 }}>
+                    <PreviewLabel>SIDEBAR PREVIEW</PreviewLabel>
+                  </PreviewBox>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={12} sm={6}>
+                      <ColorPickerItem label="Gradient Start (Top)" field="primaryColor" value={s.primaryColor} onChange={setField} />
+                      <Typography sx={{ mt: 0.4, display: 'block', color: T.faint, fontSize: '0.6rem' }}>Also applies to buttons &amp; containers</Typography>
                     </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Grid>
-
-          {/* Modal Colors */}
-          <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
-            <GlassCard sx={{ width: '100%' }}>
-              <SectionHeader icon={WindowIcon} title="Modal Colors" subtitle="Colors used in popup dialogs and modal windows"
-                onReset={() => { setSettings((prev) => ({ ...prev, modalBackgroundColor: '#FFFFFF', modalHeaderColor: '#6d2323', modalHeaderTextColor: '#FFFFFF', modalBodyTextColor: '#333333', modalBorderColor: '#894444' })); setSnackbar({ open: true, message: 'Modal colors reset to default!', severity: 'success' }); }}
-                resetTitle="Reset modal colors to default" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <Grid container spacing={2.5}>
-                  {[
-                    { label: 'Modal Background', field: 'modalBackgroundColor' },
-                    { label: 'Header Background', field: 'modalHeaderColor' },
-                    { label: 'Header Text', field: 'modalHeaderTextColor' },
-                    { label: 'Body Text', field: 'modalBodyTextColor' },
-                    { label: 'Border / Accent', field: 'modalBorderColor' },
-                  ].map(({ label, field }) => (
-                    <Grid item xs={12} sm={6} key={field}>
-                      <ColorPickerItem label={label} field={field} value={s[field]} onChange={setField} textPrimaryColor={s.textPrimaryColor} />
+                    <Grid item xs={12} sm={6}>
+                      <ColorPickerItem label="Gradient End (Bottom)" field="sidebarGradientEnd" value={s.sidebarGradientEnd} onChange={setField} />
+                      <Typography sx={{ mt: 0.4, display: 'block', color: T.faint, fontSize: '0.6rem' }}>Bottom color of the sidebar</Typography>
                     </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Grid>
+                  </Grid>
+                </Box>
+              </SectionCard>
+            </Grid>
 
-          {/* ── Logos ── */}
-          <Grid item xs={12} md={4}>
-            <GlassCard sx={{ height: '100%' }}>
-              <SectionHeader icon={ImageIcon} title="Logos" subtitle="Upload institution and system logos" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <Grid container spacing={3}>
-                  {[
-                    { label: 'Institution Logo', field: 'institutionLogo', btnLabel: 'Upload Institution Logo', placeholderIcon: BusinessIcon },
-                    { label: 'HRIS Logo', field: 'hrisLogo', btnLabel: 'Upload HRIS Logo', placeholderIcon: SettingsIcon },
-                  ].map(({ label, field, btnLabel, placeholderIcon: PlaceholderIcon }) => (
-                    <Grid item xs={12} key={field}>
-                      <Typography variant="subtitle1" gutterBottom fontWeight={700} sx={{ color: s.textPrimaryColor }}>{label}</Typography>
+            {/* ── Action Button Colors ── */}
+            <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
+              <SectionCard sx={{ width: '100%' }}>
+                <SectionHeader icon={ColorLensIcon} title="Action Button Colors" subtitle="Action and destructive button sets"
+                  onReset={() => { setSettings((prev) => ({ ...prev, actionButtonColor: '#1e293b', actionButtonHoverColor: '#334155', destructiveButtonColor: '#64748b', destructiveButtonHoverColor: '#475569' })); setSnackbar({ open: true, message: 'Button colors reset to default!', severity: 'success' }); }}
+                  resetTitle="Reset button colors to default" />
+                <Box sx={{ p: 2.5 }}>
+                  <Grid container spacing={2}>
+                    {[
+                      { description: 'Add · Edit · View', icons: [<AddIcon sx={{ fontSize: 13 }} />, <EditIcon sx={{ fontSize: 13 }} />, <VisibilityIcon sx={{ fontSize: 13 }} />], colorField: 'actionButtonColor', hoverField: 'actionButtonHoverColor' },
+                      { description: 'Delete · Cancel', icons: [<DeleteIcon sx={{ fontSize: 13 }} />, <CancelIcon sx={{ fontSize: 13 }} />], colorField: 'destructiveButtonColor', hoverField: 'destructiveButtonHoverColor' },
+                    ].map(({ description, icons, colorField, hoverField }) => (
+                      <Grid item xs={12} key={colorField}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mb: 0.15 }}>
+                          {icons.map((icon, i) => <Box key={i} sx={{ color: s[colorField], display: 'flex' }}>{icon}</Box>)}
+                        </Box>
+                        <Typography sx={{ mb: 1, display: 'block', color: T.faint, fontSize: '0.62rem' }}>{description}</Typography>
+                        <PreviewBox gradient={`linear-gradient(135deg, ${s[colorField]} 0%, ${s[hoverField]} 100%)`} sx={{ mb: 1.5, height: 40 }}>
+                          <PreviewLabel>NORMAL → HOVER</PreviewLabel>
+                        </PreviewBox>
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={6}><ColorInput label="Normal" field={colorField} value={s[colorField]} onChange={setField} /></Grid>
+                          <Grid item xs={6}><ColorInput label="Hover" field={hoverField} value={s[hoverField]} onChange={setField} /></Grid>
+                        </Grid>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              </SectionCard>
+            </Grid>
 
-                      {/* Upload + Remove buttons row */}
-                      <Box sx={{ display: 'flex', gap: 1.5 }}>
-                        <ProfessionalButton
-                          variant="outlined"
-                          component="label"
-                          startIcon={<UploadIcon />}
-                          sx={{ flexGrow: 1, borderColor: s.primaryColor, color: s.textPrimaryColor, '&:hover': { backgroundColor: alpha(s.primaryColor, 0.1) } }}
-                        >
-                          {btnLabel}
-                          <input type="file" hidden accept=".jpg,.jpeg,.png" onChange={(e) => handleLogoUpload(field, e)} />
-                        </ProfessionalButton>
+            {/* ── Modal Colors ── */}
+            <Grid item xs={12} md={3} sx={{ display: 'flex' }}>
+              <SectionCard sx={{ width: '100%' }}>
+                <SectionHeader icon={WindowIcon} title="Modal Colors" subtitle="Colors used in popup dialogs"
+                  onReset={() => { setSettings((prev) => ({ ...prev, modalBackgroundColor: '#FFFFFF', modalHeaderColor: '#1e293b', modalHeaderTextColor: '#FFFFFF', modalBodyTextColor: '#334155', modalBorderColor: '#1e293b' })); setSnackbar({ open: true, message: 'Modal colors reset to default!', severity: 'success' }); }}
+                  resetTitle="Reset modal colors to default" />
+                <Box sx={{ p: 2.5 }}>
+                  <Grid container spacing={1.5}>
+                    {[
+                      { label: 'Modal Background', field: 'modalBackgroundColor' },
+                      { label: 'Header Background', field: 'modalHeaderColor' },
+                      { label: 'Header Text', field: 'modalHeaderTextColor' },
+                      { label: 'Body Text', field: 'modalBodyTextColor' },
+                      { label: 'Border / Accent', field: 'modalBorderColor' },
+                    ].map(({ label, field }) => (
+                      <Grid item xs={12} sm={6} key={field}>
+                        <ColorPickerItem label={label} field={field} value={s[field]} onChange={setField} />
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              </SectionCard>
+            </Grid>
 
-                        {s[field] && (
-                          <Tooltip title={`Remove ${label}`}>
-                            <ProfessionalButton
-                              variant="outlined"
-                              onClick={() => handleLogoRemove(field)}
-                              sx={{
-                                minWidth: 'auto',
-                                px: 1.5,
-                                borderColor: alpha('#d32f2f', 0.5),
-                                color: '#d32f2f',
-                                '&:hover': {
-                                  backgroundColor: alpha('#d32f2f', 0.08),
-                                  borderColor: '#d32f2f',
-                                },
-                              }}
-                            >
-                              <RemoveCircleOutlineIcon fontSize="small" />
-                            </ProfessionalButton>
-                          </Tooltip>
-                        )}
-                      </Box>
-
-                      {/* Logo preview */}
-                      <Box sx={{ mt: 2, p: 2, border: `2px dashed ${alpha(s.primaryColor, 0.25)}`, borderRadius: 3, textAlign: 'center', bgcolor: 'rgba(255,255,255,0.5)', display: 'flex', justifyContent: 'center', position: 'relative' }}>
-                        {s[field] ? (
-                          <Box sx={{ position: 'relative', display: 'inline-block' }}>
-                            <img src={s[field]} alt={`${label} Preview`} style={{ width: 110, height: 110, objectFit: 'cover', borderRadius: '50%' }} />
-                            {/* Overlay remove button on hover */}
-                            <Box
-                              onClick={() => handleLogoRemove(field)}
-                              sx={{
-                                position: 'absolute', inset: 0, borderRadius: '50%',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                bgcolor: 'rgba(0,0,0,0)', cursor: 'pointer',
-                                transition: 'background 0.25s ease',
-                                '&:hover': { bgcolor: 'rgba(211,47,47,0.55)' },
-                                '& .remove-icon': { opacity: 0, transition: 'opacity 0.25s ease' },
-                                '&:hover .remove-icon': { opacity: 1 },
-                              }}
-                            >
-                              <Box className="remove-icon" sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                                <DeleteIcon sx={{ color: '#fff', fontSize: 28 }} />
-                                <Typography sx={{ color: '#fff', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Remove</Typography>
+            {/* ── Logos ── */}
+            <Grid item xs={12} md={4}>
+              <SectionCard sx={{ height: '100%' }}>
+                <SectionHeader icon={ImageIcon} title="Logos" subtitle="Upload institution and system logos" />
+                <Box sx={{ p: 2.5 }}>
+                  <Grid container spacing={2.5}>
+                    {[
+                      { label: 'Institution Logo', field: 'institutionLogo', btnLabel: 'Upload Institution Logo', placeholderIcon: BusinessIcon },
+                      { label: 'HRIS Logo', field: 'hrisLogo', btnLabel: 'Upload HRIS Logo', placeholderIcon: SettingsIcon },
+                    ].map(({ label, field, btnLabel, placeholderIcon: PlaceholderIcon }) => (
+                      <Grid item xs={12} key={field}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography sx={{ fontWeight: 700, color: T.text, fontSize: '0.8rem' }}>{label}</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 0.75 }}>
+                          <AccentButton variant="outlined" component="label"
+                            startIcon={<UploadIcon sx={{ fontSize: '14px !important' }} />}
+                            sx={{
+                              flexGrow: 1, height: 36,
+                              borderColor: T.accentBorder, color: T.accent,
+                              '&:hover': { backgroundColor: T.accentFaint, borderColor: T.accent, transform: 'none' },
+                            }}>
+                            {btnLabel}
+                            <input type="file" hidden accept=".jpg,.jpeg,.png" onChange={(e) => handleLogoUpload(field, e)} />
+                          </AccentButton>
+                          {s[field] && (
+                            <Tooltip title={`Remove ${label}`}>
+                              <AccentButton variant="outlined" onClick={() => handleLogoRemove(field)}
+                                sx={{
+                                  minWidth: 'auto', px: 1, height: 36,
+                                  borderColor: 'rgba(220,38,38,0.3)', color: '#dc2626',
+                                  '&:hover': { backgroundColor: 'rgba(220,38,38,0.06)', borderColor: '#dc2626', transform: 'none' },
+                                }}>
+                                <RemoveCircleOutlineIcon sx={{ fontSize: 14 }} />
+                              </AccentButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                        <Box sx={{
+                          mt: 1.25, p: 1.5,
+                          border: `1px dashed ${T.accentBorder}`,
+                          borderRadius: 2, textAlign: 'center',
+                          bgcolor: T.accentFaint,
+                          display: 'flex', justifyContent: 'center',
+                        }}>
+                          {s[field] ? (
+                            <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                              <img src={s[field]} alt={`${label} Preview`} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: '50%' }} />
+                              <Box onClick={() => handleLogoRemove(field)}
+                                sx={{ position: 'absolute', inset: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'rgba(0,0,0,0)', cursor: 'pointer', transition: 'background 0.2s ease', '&:hover': { bgcolor: 'rgba(220,38,38,0.5)' }, '& .remove-icon': { opacity: 0, transition: 'opacity 0.2s ease' }, '&:hover .remove-icon': { opacity: 1 } }}>
+                                <Box className="remove-icon" sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.15 }}>
+                                  <DeleteIcon sx={{ color: '#fff', fontSize: 20 }} />
+                                  <Typography sx={{ color: '#fff', fontSize: '0.5rem', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>Remove</Typography>
+                                </Box>
                               </Box>
                             </Box>
-                          </Box>
-                        ) : (
-                          <Avatar sx={{ width: 110, height: 110, bgcolor: alpha(s.primaryColor, 0.1), border: `2px solid ${alpha(s.primaryColor, 0.2)}` }}>
-                            <PlaceholderIcon sx={{ fontSize: 52, color: alpha(s.primaryColor, 0.4) }} />
-                          </Avatar>
-                        )}
-                      </Box>
+                          ) : (
+                            <Avatar sx={{ width: 72, height: 72, bgcolor: '#fff', border: '0.5px solid rgba(0,0,0,0.09)', '& .MuiSvgIcon-root': { fontSize: 30, color: '#cbd5e1' } }}>
+                              <PlaceholderIcon />
+                            </Avatar>
+                          )}
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              </SectionCard>
+            </Grid>
+
+            {/* ── Institution Information ── */}
+            <Grid item xs={12} md={4}>
+              <SectionCard sx={{ height: '100%' }}>
+                <SectionHeader icon={BusinessIcon} title="Institution Info" subtitle="Details shown on payslips and documents"
+                  onReset={() => { setSettings((prev) => ({ ...prev, institutionName: DEFAULT_SETTINGS.institutionName, institutionAddress: DEFAULT_SETTINGS.institutionAddress, institutionAbbreviation: DEFAULT_SETTINGS.institutionAbbreviation })); setSnackbar({ open: true, message: 'Institution info reset to default!', severity: 'success' }); }}
+                  resetTitle="Reset institution info to default" />
+                <Box sx={{ p: 2.5 }}>
+                  <Grid container spacing={2}>
+                    {[
+                      { label: 'Institution Name', field: 'institutionName', icon: BusinessIcon, multiline: true, rows: 2 },
+                      { label: 'Institution Address', field: 'institutionAddress', icon: LocationOnIcon, multiline: true, rows: 2 },
+                      { label: 'Institution Abbreviation', field: 'institutionAbbreviation', icon: BusinessIcon },
+                    ].map(({ label, field, icon: Icon, multiline, rows }) => (
+                      <Grid item xs={12} key={field}>
+                        <ModernTextField fullWidth label={label} value={s[field] || ''} onChange={(e) => setField(field, e.target.value)} multiline={multiline} rows={rows || 1}
+                          InputProps={{ startAdornment: <InputAdornment position="start"><Icon sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment> }} />
+                      </Grid>
+                    ))}
+                    <Grid item xs={12}>
+                      <ReadOnlyTextField fullWidth label="System Name" value={s.systemName || ''} multiline rows={2}
+                        InputProps={{
+                          readOnly: true,
+                          startAdornment: <InputAdornment position="start"><SettingsIcon sx={{ color: '#cbd5e1', fontSize: 16 }} /></InputAdornment>,
+                          endAdornment: <InputAdornment position="end"><Tooltip title="This field is locked"><LockIcon sx={{ color: '#cbd5e1', fontSize: 14 }} /></Tooltip></InputAdornment>,
+                        }} />
                     </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Grid>
+                  </Grid>
+                </Box>
+              </SectionCard>
+            </Grid>
 
-          {/* Institution Information */}
-          <Grid item xs={12} md={4}>
-            <GlassCard sx={{ height: '100%' }}>
-              <SectionHeader icon={BusinessIcon} title="Institution Info" subtitle="Configure institution details shown on payslips and documents"
-                onReset={() => { setSettings((prev) => ({ ...prev, institutionName: DEFAULT_SETTINGS.institutionName, institutionAddress: DEFAULT_SETTINGS.institutionAddress, institutionAbbreviation: DEFAULT_SETTINGS.institutionAbbreviation })); setSnackbar({ open: true, message: 'Institution info reset to default!', severity: 'success' }); }}
-                resetTitle="Reset institution info to default" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <Grid container spacing={3}>
-                  {[
-                    { label: 'Institution Name', field: 'institutionName', icon: BusinessIcon, multiline: true, rows: 3 },
-                    { label: 'Institution Address', field: 'institutionAddress', icon: LocationOnIcon, multiline: true, rows: 2 },
-                    { label: 'Institution Abbreviation', field: 'institutionAbbreviation', icon: BusinessIcon },
-                  ].map(({ label, field, icon: Icon, multiline, rows }) => (
-                    <Grid item xs={12} key={field}>
-                      <ModernTextField fullWidth label={label} value={s[field] || ''} onChange={(e) => setField(field, e.target.value)} multiline={multiline} rows={rows || 1}
-                        InputProps={{ startAdornment: <InputAdornment position="start"><Icon sx={{ color: s.primaryColor }} /></InputAdornment> }}
-                        InputLabelProps={{ style: { color: s.textPrimaryColor } }} />
+            {/* ── Footer & Certifier ── */}
+            <Grid item xs={12} md={4}>
+              <SectionCard sx={{ height: '100%' }}>
+                <SectionHeader icon={DescriptionIcon} title="Footer & Certifier" subtitle="Footer text, copyright, email, and certifier"
+                  onReset={() => { setSettings((prev) => ({ ...prev, certifierName: DEFAULT_SETTINGS.certifierName, certifierPosition: DEFAULT_SETTINGS.certifierPosition, adminEmail: DEFAULT_SETTINGS.adminEmail, footerText: DEFAULT_SETTINGS.footerText, copyrightSymbol: DEFAULT_SETTINGS.copyrightSymbol })); setSnackbar({ open: true, message: 'Footer & certifier info reset to default!', severity: 'success' }); }}
+                  resetTitle="Reset footer & certifier to default" />
+                <Box sx={{ p: 2.5 }}>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel sx={{ fontWeight: 500, color: T.muted, fontSize: '0.72rem' }}>Copyright Symbol</InputLabel>
+                        <ModernSelect value={s.copyrightSymbol} label="Copyright Symbol" onChange={(e) => handleSymbolChange(e.target.value)}
+                          startAdornment={<InputAdornment position="start"><DescriptionIcon sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment>}>
+                          {copyrightSymbols.map((sym) => <MenuItem key={sym.value} value={sym.value} sx={{ color: T.text, fontSize: '0.78rem' }}>{sym.label}</MenuItem>)}
+                        </ModernSelect>
+                      </FormControl>
                     </Grid>
-                  ))}
-                  <Grid item xs={12}>
-                    <ReadOnlyTextField fullWidth label="System Name" value={s.systemName || ''} multiline rows={2}
-                      InputProps={{
-                        readOnly: true,
-                        startAdornment: <InputAdornment position="start"><SettingsIcon sx={{ color: alpha(s.primaryColor, 0.4) }} /></InputAdornment>,
-                        endAdornment: <InputAdornment position="end"><Tooltip title="This field is locked and cannot be edited"><LockIcon sx={{ color: 'rgba(0,0,0,0.3)', fontSize: 18 }} /></Tooltip></InputAdornment>,
-                      }} />
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </GlassCard>
-          </Grid>
+                    <Grid item xs={12}>
+                      <ModernTextField fullWidth label="Footer Text" value={s.footerText} onChange={(e) => handleFooterTextChange(e.target.value)} multiline rows={2}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><DescriptionIcon sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment> }} />
+                      <Typography sx={{ mt: 0.4, display: 'block', color: T.faint, fontSize: '0.6rem' }}>Symbol is automatically prepended.</Typography>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <ModernTextField fullWidth label="Admin Contact Email" value={s.adminEmail} onChange={(e) => setField('adminEmail', e.target.value)} type="email"
+                        InputProps={{ startAdornment: <InputAdornment position="start"><EmailIcon sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment> }}
+                        helperText={<Typography variant="caption" sx={{ color: T.faint, fontSize: '0.6rem' }}>Used for the Gmail icon link in the footer.</Typography>} />
+                    </Grid>
 
-          {/* Footer & Certifier */}
-          <Grid item xs={12} md={4}>
-            <GlassCard sx={{ height: '100%' }}>
-              <SectionHeader icon={DescriptionIcon} title="Footer & Certifier" subtitle="Configure footer text, copyright, contact email, and payslip certifier details"
-                onReset={() => { setSettings((prev) => ({ ...prev, certifierName: DEFAULT_SETTINGS.certifierName, certifierPosition: DEFAULT_SETTINGS.certifierPosition, adminEmail: DEFAULT_SETTINGS.adminEmail, footerText: DEFAULT_SETTINGS.footerText, copyrightSymbol: DEFAULT_SETTINGS.copyrightSymbol })); setSnackbar({ open: true, message: 'Footer & certifier info reset to default!', severity: 'success' }); }}
-                resetTitle="Reset footer & certifier to default" />
-              <CardContent sx={cardContentSx(s.accentColor)}>
-                <Grid container spacing={3}>
-                  <Grid item xs={12}>
-                    <FormControl fullWidth>
-                      <InputLabel sx={{ fontWeight: 500, color: s.textPrimaryColor }}>Copyright Symbol</InputLabel>
-                      <ModernSelect value={s.copyrightSymbol} label="Copyright Symbol" onChange={(e) => handleSymbolChange(e.target.value)}
-                        startAdornment={<InputAdornment position="start"><DescriptionIcon sx={{ color: s.primaryColor }} /></InputAdornment>}
-                        sx={{ '& .MuiOutlinedInput-notchedOutline': { borderColor: alpha(s.textPrimaryColor, 0.3) } }}>
-                        {copyrightSymbols.map((sym) => <MenuItem key={sym.value} value={sym.value} sx={{ color: s.textPrimaryColor }}>{sym.label}</MenuItem>)}
-                      </ModernSelect>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <ModernTextField fullWidth label="Footer Text" value={s.footerText} onChange={(e) => handleFooterTextChange(e.target.value)} multiline rows={3}
-                      InputProps={{ startAdornment: <InputAdornment position="start"><DescriptionIcon sx={{ color: s.primaryColor }} /></InputAdornment> }}
-                      InputLabelProps={{ style: { color: s.textPrimaryColor } }} />
-                    <Typography variant="caption" sx={{ mt: 1, display: 'block', color: s.textPrimaryColor, opacity: 0.65 }}>The selected symbol is automatically prepended to your footer text.</Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <ModernTextField fullWidth label="Admin Contact Email" value={s.adminEmail} onChange={(e) => setField('adminEmail', e.target.value)} type="email"
-                      InputProps={{ startAdornment: <InputAdornment position="start"><EmailIcon sx={{ color: s.primaryColor }} /></InputAdornment> }}
-                      InputLabelProps={{ style: { color: s.textPrimaryColor } }}
-                      helperText={<Typography variant="caption" sx={{ color: s.textPrimaryColor, opacity: 0.65 }}>Used for the Gmail icon link in the footer.</Typography>} />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1, borderTop: `1px solid ${alpha(s.primaryColor, 0.15)}` }}>
-                      <AssignmentIndIcon sx={{ color: s.primaryColor, fontSize: 20 }} />
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: s.textPrimaryColor, letterSpacing: '0.04em' }}>Payslip Certifier</Typography>
-                    </Box>
-                    <Typography variant="caption" sx={{ color: s.textPrimaryColor, opacity: 0.6 }}>Name and position printed at the bottom of every payslip</Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <ModernTextField fullWidth label="Certifier Name" value={s.certifierName || ''} onChange={(e) => setField('certifierName', e.target.value)}
-                      InputProps={{ startAdornment: <InputAdornment position="start"><BadgeIcon sx={{ color: s.primaryColor }} /></InputAdornment> }}
-                      InputLabelProps={{ style: { color: s.textPrimaryColor } }} />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <ModernTextField fullWidth label="Certifier Position" value={s.certifierPosition || ''} onChange={(e) => setField('certifierPosition', e.target.value)}
-                      InputProps={{ startAdornment: <InputAdornment position="start"><DescriptionIcon sx={{ color: s.primaryColor }} /></InputAdornment> }}
-                      InputLabelProps={{ style: { color: s.textPrimaryColor } }} />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <PreviewBox bgcolor={s.secondaryColor} sx={{ height: 72, gap: 1 }}>
-                      <PreviewLabel sx={{ fontSize: '0.62rem', textAlign: 'center', px: 2, letterSpacing: 1, flexGrow: 1 }}>{s.footerText}</PreviewLabel>
-                      <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', mr: 1.5, flexShrink: 0 }}>
-                        <EmailIcon sx={{ fontSize: 14, color: '#fff' }} />
+                    {/* Certifier divider */}
+                    <Grid item xs={12}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+                        <AssignmentIndIcon sx={{ color: T.accent, fontSize: 15 }} />
+                        <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: '0.72rem' }}>Payslip Certifier</Typography>
                       </Box>
-                    </PreviewBox>
-                    <Typography variant="caption" sx={{ mt: 0.75, display: 'block', color: s.textPrimaryColor, opacity: 0.55, textAlign: 'center' }}>Footer preview — email icon links to {s.adminEmail || 'admin@example.com'}</Typography>
+                      <Typography sx={{ color: T.faint, fontSize: '0.62rem' }}>Name and position printed at the bottom of every payslip</Typography>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                      <ModernTextField fullWidth label="Certifier Name" value={s.certifierName || ''} onChange={(e) => setField('certifierName', e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><BadgeIcon sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment> }} />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <ModernTextField fullWidth label="Certifier Position" value={s.certifierPosition || ''} onChange={(e) => setField('certifierPosition', e.target.value)}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><DescriptionIcon sx={{ color: T.muted, fontSize: 16 }} /></InputAdornment> }} />
+                    </Grid>
+
+                    {/* Footer preview */}
+                    <Grid item xs={12}>
+                      <PreviewBox bgcolor={s.secondaryColor} sx={{ height: 38, gap: 0.5 }}>
+                        <PreviewLabel sx={{ fontSize: '0.44rem', textAlign: 'center', px: 1.5, flexGrow: 1 }}>{s.footerText}</PreviewLabel>
+                        <Box sx={{ width: 18, height: 18, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', mr: 1, flexShrink: 0 }}>
+                          <EmailIcon sx={{ fontSize: 9, color: '#fff' }} />
+                        </Box>
+                      </PreviewBox>
+                      <Typography sx={{ mt: 0.4, display: 'block', color: T.faint, fontSize: '0.6rem', textAlign: 'center' }}>Footer preview</Typography>
+                    </Grid>
+
+                    {/* Certifier preview */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 1.5, border: `0.5px solid ${T.divider}`, borderRadius: 2, textAlign: 'center', bgcolor: '#fff' }}>
+                        <Typography sx={{ fontSize: '0.58rem', color: T.faint, mb: 0.15, letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 600 }}>Certified Correct</Typography>
+                        <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text }}>{s.certifierName || '—'}</Typography>
+                        <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 500, mt: 0.1 }}>{s.certifierPosition || '—'}</Typography>
+                      </Box>
+                      <Typography sx={{ mt: 0.4, display: 'block', color: T.faint, fontSize: '0.6rem', textAlign: 'center' }}>Payslip footer preview</Typography>
+                    </Grid>
                   </Grid>
-                  <Grid item xs={12}>
-                    <Box sx={{ p: 2.5, border: `1.5px solid ${alpha(s.primaryColor, 0.2)}`, borderRadius: 2, textAlign: 'center', bgcolor: 'rgba(255,255,255,0.6)' }}>
-                      <Typography sx={{ fontSize: '12px', color: '#555', mb: 0.5, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Certified Correct</Typography>
-                      <Typography sx={{ fontSize: '15px', fontWeight: 900, color: '#1a1a1a' }}>{s.certifierName || '—'}</Typography>
-                      <Typography sx={{ fontSize: '12px', color: '#444', fontWeight: 600, mt: 0.3 }}>{s.certifierPosition || '—'}</Typography>
-                    </Box>
-                    <Typography variant="caption" sx={{ mt: 0.75, display: 'block', color: s.textPrimaryColor, opacity: 0.55, textAlign: 'center' }}>Payslip footer preview</Typography>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </GlassCard>
+                </Box>
+              </SectionCard>
+            </Grid>
+
           </Grid>
-
-        </Grid>
-      </Box>
-
-      {/* ── Floating Action Bar ─────────────────────────────────────────────── */}
-      <Box
-        sx={{
-          position: 'fixed',
-          bottom: 60,
-          right: 32,
-          zIndex: 1200,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-          px: 2.5,
-          py: 1.5,
-          borderRadius: '20px',
-          background: 'rgba(255,255,255,0.92)',
-          backdropFilter: 'blur(16px)',
-          boxShadow: `0 8px 40px rgba(0,0,0,0.18), 0 2px 12px ${alpha(s.primaryColor, 0.25)}`,
-          border: `1px solid ${alpha(s.primaryColor, 0.18)}`,
-          transition: 'box-shadow 0.3s ease',
-          '&:hover': {
-            boxShadow: `0 12px 48px rgba(0,0,0,0.22), 0 4px 16px ${alpha(s.primaryColor, 0.32)}`,
-          },
-        }}
-      >
-        {/* Subtle label */}
-        <Typography
-          variant="caption"
-          sx={{
-            color: alpha(s.textPrimaryColor, 0.55),
-            fontWeight: 600,
-            fontSize: '0.72rem',
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-            mr: 0.5,
-            userSelect: 'none',
-          }}
-        >
-          System Settings
-        </Typography>
-
-        <Box sx={{ width: '1px', height: 28, bgcolor: alpha(s.primaryColor, 0.2), mx: 0.5 }} />
-
-        <ProfessionalButton
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={() => setConfirmResetOpen(true)}
-          disabled={saving}
-          size="small"
-          sx={{
-            borderColor: alpha(s.primaryColor, 0.45),
-            color: s.textPrimaryColor,
-            fontSize: '0.82rem',
-            py: '7px',
-            px: '14px',
-            '&:hover': {
-              backgroundColor: alpha(s.primaryColor, 0.07),
-              borderColor: s.primaryColor,
-            },
-          }}
-        >
-          Reset
-        </ProfessionalButton>
-
-        <ProfessionalButton
-          variant="contained"
-          startIcon={saving ? <CircularProgress size={16} sx={{ color: s.primaryColor }} /> : <SaveIcon />}
-          onClick={handleSave}
-          disabled={saving}
-          size="small"
-          sx={{
-            bgcolor: s.primaryColor,
-            color: '#fff',
-            fontSize: '0.82rem',
-            py: '7px',
-            px: '18px',
-            fontWeight: 800,
-            '&:hover': { bgcolor: s.secondaryColor },
-            boxShadow: `0 4px 14px ${alpha(s.primaryColor, 0.45)}`,
-          }}
-        >
-          {saving ? 'Saving…' : 'Save Changes'}
-        </ProfessionalButton>
-      </Box>
-
-      {/* Saving backdrop */}
-      <Backdrop sx={{ color: s.accentColor, zIndex: (t) => t.zIndex.drawer + 1 }} open={saving}>
-        <Box sx={{ textAlign: 'center' }}>
-          <CircularProgress color="inherit" size={60} thickness={4} />
-          <Typography variant="h6" sx={{ mt: 2, color: s.accentColor }}>Saving settings...</Typography>
         </Box>
-      </Backdrop>
 
-      {/* Confirm reset dialog */}
-      <Dialog open={confirmResetOpen} onClose={() => setConfirmResetOpen(false)} maxWidth="xs" fullWidth
-        PaperProps={{ sx: { borderRadius: 3, background: '#fff', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' } }}>
-        <Box sx={{ px: 3, py: 2, background: `linear-gradient(135deg, ${s.primaryColor} 0%, ${s.secondaryColor} 100%)`, borderRadius: '12px 12px 0 0', display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.15)', width: 36, height: 36 }}>
-            <RefreshIcon sx={{ color: '#fff', fontSize: 20 }} />
-          </Avatar>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem' }}>Confirm Reset</Typography>
+        {/* ── Floating Action Bar (structure unchanged, style unified) ── */}
+        <Box sx={{
+          position: 'fixed', bottom: 60, right: 28, zIndex: 1200,
+          display: 'flex', alignItems: 'center', gap: 0.75,
+          px: 1.5, py: 0.75,
+          borderRadius: 8,
+          background: 'rgba(255,255,255,0.97)',
+          backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06)',
+          border: '0.5px solid rgba(0,0,0,0.09)',
+          transition: 'box-shadow 0.2s ease',
+          '&:hover': { boxShadow: '0 8px 24px rgba(0,0,0,0.1)' },
+        }}>
+          <Typography sx={{ color: T.muted, fontWeight: 600, fontSize: '0.62rem', letterSpacing: '0.05em', textTransform: 'uppercase', userSelect: 'none' }}>
+            System Settings
+          </Typography>
+          <Box sx={{ width: '1px', height: 16, bgcolor: T.divider, mx: 0.25 }} />
+
+          {/* Reset — ghost/outlined, clearly secondary */}
+          <AccentButton
+            variant="outlined"
+            startIcon={<RefreshIcon sx={{ fontSize: '13px !important' }} />}
+            onClick={() => setConfirmResetOpen(true)}
+            disabled={saving}
+            size="small"
+            sx={{
+              height: 30, px: 1.25,
+              borderColor: 'rgba(220,38,38,0.35)',
+              color: '#dc2626',
+              fontSize: '0.72rem',
+              '&:hover': {
+                backgroundColor: 'rgba(220,38,38,0.06)',
+                borderColor: '#dc2626',
+                transform: 'none',
+              },
+            }}
+          >
+            Reset
+          </AccentButton>
+
+          {/* Save — solid filled, primary action */}
+          <AccentButton
+            variant="contained"
+            startIcon={saving ? <CircularProgress size={12} sx={{ color: '#fff' }} /> : <SaveIcon sx={{ fontSize: '13px !important' }} />}
+            onClick={handleSave}
+            disabled={saving}
+            size="small"
+            sx={{
+              height: 30, px: 1.5,
+              bgcolor: T.accent,
+              color: '#fff',
+              fontSize: '0.72rem',
+              boxShadow: `0 2px 10px ${alpha(T.accent, 0.28)}`,
+              '&:hover': { bgcolor: T.accentDark, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`, transform: 'translateY(-1px)' },
+              '&:disabled': { bgcolor: '#d8d8d8 !important', color: '#999 !important', boxShadow: 'none !important', transform: 'none !important' },
+            }}
+          >
+            {saving ? 'Saving…' : 'Save Changes'}
+          </AccentButton>
         </Box>
-        <DialogContent sx={{ pt: 3 }}>
-          <Typography sx={{ color: '#333', fontSize: '0.95rem' }}>Are you sure you want to reset all settings to their defaults? This cannot be undone.</Typography>
-        </DialogContent>
-        <DialogActions sx={{ p: 2, gap: 1 }}>
-          <ProfessionalButton variant="outlined" onClick={() => setConfirmResetOpen(false)} sx={{ borderColor: s.primaryColor, color: s.primaryColor, '&:hover': { backgroundColor: alpha(s.primaryColor, 0.08) } }}>Cancel</ProfessionalButton>
-          <ProfessionalButton variant="contained" onClick={() => { setConfirmResetOpen(false); executeReset(); }} sx={{ bgcolor: s.primaryColor, color: '#fff', '&:hover': { bgcolor: s.secondaryColor } }}>Reset Defaults</ProfessionalButton>
-        </DialogActions>
-      </Dialog>
 
-      {/* Snackbar */}
-      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar((p) => ({ ...p, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
-        <Alert onClose={() => setSnackbar((p) => ({ ...p, open: false }))} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 3, '& .MuiAlert-message': { fontWeight: 500 } }} icon={snackbar.severity === 'success' ? <CheckCircle /> : <ErrorIcon />}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-    </Box>
+        {/* ── Saving backdrop ── */}
+        <Backdrop sx={{ bgcolor: 'rgba(15,23,42,0.4)', zIndex: (t) => t.zIndex.drawer + 1 }} open={saving}>
+          <Box sx={{ textAlign: 'center' }}>
+            <CircularProgress size={32} thickness={3.5} sx={{ color: '#fff' }} />
+            <Typography sx={{ mt: 1.5, color: '#fff', fontWeight: 600, fontSize: '0.82rem' }}>Saving settings…</Typography>
+          </Box>
+        </Backdrop>
+
+        {/* ── Confirm reset dialog ── */}
+        <Dialog open={confirmResetOpen} onClose={() => setConfirmResetOpen(false)} maxWidth="xs" fullWidth
+          PaperProps={{ sx: { borderRadius: 3, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', border: '0.5px solid rgba(0,0,0,0.09)', overflow: 'hidden' } }}>
+          <Box sx={{
+            px: 2.5, py: 1.5,
+            bgcolor: T.accent,
+            display: 'flex', alignItems: 'center', gap: 1,
+          }}>
+            <Box sx={{ width: 26, height: 26, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <RefreshIcon sx={{ color: '#fff', fontSize: 14 }} />
+            </Box>
+            <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.86rem' }}>Confirm Reset</Typography>
+          </Box>
+          <DialogContent sx={{ pt: 2.5 }}>
+            <Typography sx={{ color: T.text, fontSize: '0.82rem', lineHeight: 1.6 }}>
+              Are you sure you want to reset all settings to their defaults? This cannot be undone.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 2.5, pb: 2, gap: 0.75 }}>
+            <AccentButton variant="outlined" onClick={() => setConfirmResetOpen(false)}
+              sx={{ borderColor: T.accentBorder, color: T.muted, '&:hover': { backgroundColor: T.accentFaint, color: T.text, transform: 'none' } }}>
+              Cancel
+            </AccentButton>
+            <AccentButton variant="contained" onClick={() => { setConfirmResetOpen(false); executeReset(); }}
+              sx={{ bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } }}>
+              Reset Defaults
+            </AccentButton>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Snackbar ── */}
+        <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar((p) => ({ ...p, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+          <Alert onClose={() => setSnackbar((p) => ({ ...p, open: false }))} severity={snackbar.severity}
+            sx={{ width: '100%', borderRadius: 2, fontWeight: 500, fontSize: '0.78rem' }}
+            icon={snackbar.severity === 'success' ? <CheckCircle /> : <ErrorIcon />}>
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
+      </Box>
+    </Fade>
   );
 };
 
 export default SystemSetting;
-

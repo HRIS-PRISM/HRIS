@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import API_BASE_URL from '../apiConfig';
-import { getAuthHeaders } from '../utils/auth';
+import { getAuthHeaders, getUserInfo } from '../utils/auth';
 import { componentMapping, getCategoryIcon } from '../utils/componentMapping';
 import { useSocket } from '../contexts/SocketContext';
 import React from 'react';
@@ -31,7 +31,15 @@ const useDynamicSidebar = () => {
       setLoading(true);
       setError(null);
 
-      const employeeNumber = localStorage.getItem('employeeNumber');
+      const tokenUser = getUserInfo();
+      const tokenEmployeeNumber = tokenUser?.employeeNumber || '';
+      const storedEmployeeNumber = localStorage.getItem('employeeNumber') || '';
+
+      if (tokenEmployeeNumber && tokenEmployeeNumber !== storedEmployeeNumber) {
+        localStorage.setItem('employeeNumber', tokenEmployeeNumber);
+      }
+
+      const employeeNumber = tokenEmployeeNumber || storedEmployeeNumber;
       if (!employeeNumber) {
         setError('No employee number found');
         setLoading(false);

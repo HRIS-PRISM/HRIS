@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, logAudit } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin } = require('../middleware/auth');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
+router.use(authenticateToken, requireAdmin);
+
 // GET all department table records
-router.get('/api/department-table', authenticateToken, (req, res) => {
+router.get('/api/department-table', (req, res) => {
   db.query('SELECT * FROM department_table', (err, results) => {
     if (err) return res.status(500).send(err);
     res.json(results);
@@ -13,7 +15,7 @@ router.get('/api/department-table', authenticateToken, (req, res) => {
 });
 
 // GET a single department table by ID
-router.get('/api/department-table/:id', authenticateToken, (req, res) => {
+router.get('/api/department-table/:id', (req, res) => {
   const { id } = req.params;
   db.query(
     'SELECT * FROM department_table WHERE id = ?',
@@ -28,7 +30,7 @@ router.get('/api/department-table/:id', authenticateToken, (req, res) => {
 });
 
 // POST: Add a new department table
-router.post('/api/department-table', authenticateToken, (req, res) => {
+router.post('/api/department-table', (req, res) => {
   const { code, description } = req.body;
   if (!code || !description)
     return res.status(400).send('Code and description are required');
@@ -54,7 +56,7 @@ router.post('/api/department-table', authenticateToken, (req, res) => {
 });
 
 // PUT: Update a department table
-router.put('/api/department-table/:id', authenticateToken, (req, res) => {
+router.put('/api/department-table/:id', (req, res) => {
   const { id } = req.params;
   const { code, description } = req.body;
 
@@ -75,7 +77,7 @@ router.put('/api/department-table/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE: Delete a department table
-router.delete('/api/department-table/:id', authenticateToken, (req, res) => {
+router.delete('/api/department-table/:id', (req, res) => {
   const { id } = req.params;
   db.query('DELETE FROM department_table WHERE id = ?', [id], (err, result) => {
     if (err) return res.status(500).send(err);
@@ -93,7 +95,7 @@ router.delete('/api/department-table/:id', authenticateToken, (req, res) => {
 });
 
 // GET all department assignments
-router.get('/api/department-assignment', authenticateToken, (req, res) => {
+router.get('/api/department-assignment', (req, res) => {
   db.query('SELECT * FROM department_assignment', (err, results) => {
     if (err) return res.status(500).send(err);
     res.json(results);
@@ -101,7 +103,7 @@ router.get('/api/department-assignment', authenticateToken, (req, res) => {
 });
 
 // GET a single department assignment by ID
-router.get('/api/department-assignment/:id', authenticateToken, (req, res) => {
+router.get('/api/department-assignment/:id', (req, res) => {
   const { id } = req.params;
   db.query(
     'SELECT * FROM department_assignment WHERE id = ?',
@@ -116,7 +118,7 @@ router.get('/api/department-assignment/:id', authenticateToken, (req, res) => {
 });
 
 // POST: Add a new department assignment
-router.post('/api/department-assignment', authenticateToken, (req, res) => {
+router.post('/api/department-assignment', (req, res) => {
   const { code, name, employeeNumber } = req.body;
   if (!code || !employeeNumber)
     return res.status(400).send('Code and Employee Number are required');
@@ -156,7 +158,7 @@ router.post('/api/department-assignment', authenticateToken, (req, res) => {
 });
 
 // PUT: Update a department assignment
-router.put('/api/department-assignment/:id', authenticateToken, (req, res) => {
+router.put('/api/department-assignment/:id', (req, res) => {
   const { id } = req.params;
   const { code, name, employeeNumber } = req.body;
 
@@ -189,7 +191,7 @@ router.put('/api/department-assignment/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE: Delete a department assignment
-router.delete('/api/department-assignment/:id', authenticateToken, (req, res) => {
+router.delete('/api/department-assignment/:id', (req, res) => {
   const { id } = req.params;
   db.query(
     'DELETE FROM department_assignment WHERE id = ?',

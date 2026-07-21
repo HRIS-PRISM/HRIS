@@ -2,13 +2,11 @@ import API_BASE_URL from '../../apiConfig';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import {
-  Container,
   Typography,
   TextField,
   Button,
   Box,
   Grid,
-  Chip,
   Modal,
   IconButton,
   CircularProgress,
@@ -21,15 +19,23 @@ import {
   ListItem,
   ListItemText,
   Card,
-  CardContent,
   Fade,
   Divider,
-  Backdrop,
-  styled,
-  alpha,
+  InputAdornment,
   Avatar,
   Tooltip,
+  Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TablePagination,
+  TableRow,
 } from '@mui/material';
+import { alpha, styled } from '@mui/material/styles';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -45,6 +51,10 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Refresh,
+  HelpOutline as HelpOutlineIcon,
+  ErrorOutline as ErrorOutlineIcon,
+  Warning as WarningIcon,
+  AccountBalance as GsisSectionIcon,
 } from '@mui/icons-material';
 
 import ReorderIcon from '@mui/icons-material/Reorder';
@@ -55,116 +65,764 @@ import usePageAccess from '../../hooks/usePageAccess';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16
-      )}`
-    : '109, 35, 35';
+// ─── Theme tokens (matching LeaveRequest) ─────────────────────────────────────
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover: 'rgba(109,35,35,0.10)',
+  headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  divider: 'rgba(0,0,0,0.08)',
+  warning: '#8B4545',       
+  warningBg: 'rgba(109,35,35,0.08)', 
 };
 
-// Professional styled components - colors will be applied via sx prop
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
+// ─── Styled primitives ─────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
   overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    transform: 'translateY(-4px)',
-  },
-}));
+  background: T.surface,
+});
 
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
-    boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
-    },
-    '&:active': {
-      transform: 'translateY(0)',
-    },
-  })
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: T.text },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+// ─── Shimmer ───────────────────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}`;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background: `linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)`,
+      backgroundSize: '800px 100%',
+      animation: 'shimmer 1.6s infinite linear',
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
 );
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-  },
-}));
+// ─── Wireframe ─────────────────────────────────────────────────────────────────
+const Wireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: '100vw',
+        maxWidth: '100%',
+        position: 'relative',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* Header skeleton */}
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: 'hidden',
+          border: `1px solid ${T.accentBorder}`,
+          animation: 'blink 2s ease-in-out infinite',
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2.5,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -50,
+              right: -50,
+              width: 180,
+              height: 180,
+              borderRadius: '50%',
+              bgcolor: 'rgba(109,35,35,0.06)',
+            }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.12)',
+                flexShrink: 0,
+              }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Bone w={240} h={18} sx={{ mb: 1 }} />
+              <Bone w={380} h={11} />
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                bgcolor: 'rgba(109,35,35,0.1)',
+              }}
+            />
+          </Box>
+        </Box>
+      </Box>
 
-// Enhanced Auth header helper with error handling
+      {/* Two-column skeleton */}
+      <Grid container spacing={3}>
+        <Grid item xs={12} lg={4}>
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${T.accentBorder}`,
+              bgcolor: '#fff',
+              overflow: 'hidden',
+              animation: `blink 2s ease-in-out 0s infinite`,
+              height: 'calc(100vh - 280px)',
+            }}
+          >
+            <Box
+              sx={{
+                px: 3.5,
+                py: 2.5,
+                borderBottom: `1px solid ${T.divider}`,
+                bgcolor: T.accentFaint,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+              }}
+            >
+              <Box
+                sx={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(109,35,35,0.12)',
+                }}
+              />
+              <Bone w={180} h={13} />
+            </Box>
+            <Box
+              sx={{
+                p: 3.5,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2.5,
+              }}
+            >
+              {[100, 160, 120, 140, 110, 130, 120].map((w, i) => (
+                <Box key={i}>
+                  <Bone w={w} h={10} sx={{ mb: 1 }} />
+                  <Box
+                    sx={{
+                      height: 40,
+                      borderRadius: 2,
+                      border: `1px solid ${T.accentBorder}`,
+                      bgcolor: '#fafafa',
+                    }}
+                  />
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Grid>
+        <Grid item xs={12} lg={8}>
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: `1px solid ${T.accentBorder}`,
+              bgcolor: '#fff',
+              overflow: 'hidden',
+              animation: `blink 2s ease-in-out 0.1s infinite`,
+              height: 'calc(100vh - 280px)',
+            }}
+          >
+            <Box
+              sx={{
+                px: 3.5,
+                py: 2.5,
+                borderBottom: `1px solid ${T.divider}`,
+                bgcolor: T.accentFaint,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+              }}
+            >
+              <Box
+                sx={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(109,35,35,0.12)',
+                }}
+              />
+              <Bone w={240} h={13} />
+            </Box>
+            <Box
+              sx={{
+                p: 3.5,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2.5,
+              }}
+            >
+              {[200, 160, 180, 140, 150, 170, 130].map((w, i) => (
+                <Box key={i}>
+                  <Bone w={w} h={10} sx={{ mb: 1 }} />
+                  <Box
+                    sx={{
+                      height: 40,
+                      borderRadius: 2,
+                      border: `1px solid ${T.accentBorder}`,
+                      bgcolor: '#fafafa',
+                    }}
+                  />
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Grid>
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─── Generic Confirmation Modal ────────────────────────────────────────────────
+const ConfirmModal = ({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  confirmColor = T.accent,
+  confirmHoverColor = T.accentDark,
+  icon: Icon = HelpOutlineIcon,
+  iconColor = T.accent,
+  iconBg = T.accentFaint,
+  loading = false,
+}) => (
+  <Modal
+    open={open}
+    onClose={onClose}
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      p: 2,
+      zIndex: 1400,
+    }}
+  >
+    <Fade in={open}>
+      <Box
+        sx={{
+          width: '100%',
+          maxWidth: 420,
+          borderRadius: 3,
+          overflow: 'hidden',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+          bgcolor: T.surface,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <Box
+          sx={{
+            px: 3.5,
+            py: 2.5,
+            background: T.headerGrad,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -40,
+              right: -30,
+              width: 140,
+              height: 140,
+              borderRadius: '50%',
+              bgcolor: 'rgba(255,255,255,0.04)',
+            }}
+          />
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.15)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon sx={{ fontSize: 17, color: '#fff' }} />
+            </Box>
+            <Typography
+              sx={{ fontWeight: 700, color: '#fff', fontSize: '0.93rem' }}
+            >
+              {title}
+            </Typography>
+          </Box>
+          <IconButton
+            onClick={onClose}
+            size="small"
+            sx={{
+              color: 'rgba(255,255,255,0.75)',
+              position: 'relative',
+              zIndex: 1,
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+            }}
+          >
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        <Box sx={{ px: 3.5, py: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                bgcolor: iconBg,
+                border: `1px solid ${alpha(iconColor, 0.2)}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                mt: 0.25,
+              }}
+            >
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Typography
+              sx={{
+                fontSize: '0.875rem',
+                color: T.text,
+                lineHeight: 1.65,
+                pt: 0.5,
+                whiteSpace: 'pre-line',
+              }}
+            >
+              {message}
+            </Typography>
+          </Box>
+        </Box>
+        <Box
+          sx={{
+            px: 3.5,
+            py: 2,
+            borderTop: `1px solid ${T.divider}`,
+            bgcolor: '#f9f9f9',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 1.25,
+          }}
+        >
+          <AccentButton
+            onClick={onClose}
+            variant="outlined"
+            sx={{
+              fontSize: '0.8rem',
+              borderColor: T.accentBorder,
+              color: T.muted,
+              '&:hover': {
+                bgcolor: T.accentFaint,
+                borderColor: T.accent,
+                color: T.accent,
+              },
+            }}
+          >
+            Cancel
+          </AccentButton>
+          <AccentButton
+            onClick={onConfirm}
+            variant="contained"
+            disabled={loading}
+            startIcon={
+              loading ? (
+                <CircularProgress size={12} sx={{ color: '#fff' }} />
+              ) : null
+            }
+            sx={{
+              fontSize: '0.8rem',
+              bgcolor: confirmColor,
+              color: '#fff',
+              boxShadow: `0 2px 10px ${alpha(confirmColor, 0.32)}`,
+              '&:hover': { bgcolor: confirmHoverColor },
+              '&:disabled': { bgcolor: '#ddd' },
+            }}
+          >
+            {loading ? 'Processing…' : confirmLabel}
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Error / Info Modal ────────────────────────────────────────────────────────
+const ErrorModal = ({
+  open,
+  onClose,
+  title,
+  message,
+  details,
+  detailsLabel = 'skipped',
+  icon: Icon = ErrorOutlineIcon,
+  iconColor = '#C62828',
+  iconBg = '#FFEBEE',
+}) => (
+  <Modal
+    open={open}
+    onClose={onClose}
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      p: 2,
+      zIndex: 1500,
+    }}
+  >
+    <Fade in={open}>
+      <Box
+        sx={{
+          width: '100%',
+          maxWidth: 960,
+          maxHeight: '90vh',
+          borderRadius: 3,
+          overflow: 'hidden',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+          bgcolor: T.surface,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <Box
+          sx={{
+            px: 3.5,
+            py: 2.5,
+            background: `linear-gradient(180deg,${iconColor} 0%,${alpha(iconColor, 0.82)} 100%)`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            position: 'relative',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: -40,
+              right: -30,
+              width: 140,
+              height: 140,
+              borderRadius: '50%',
+              bgcolor: 'rgba(255,255,255,0.05)',
+            }}
+          />
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.18)',
+                border: '1px solid rgba(255,255,255,0.22)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon sx={{ fontSize: 17, color: '#fff' }} />
+            </Box>
+            <Typography
+              sx={{ fontWeight: 700, color: '#fff', fontSize: '0.93rem' }}
+            >
+              {title}
+            </Typography>
+          </Box>
+          <IconButton
+            onClick={onClose}
+            size="small"
+            sx={{
+              color: 'rgba(255,255,255,0.75)',
+              position: 'relative',
+              zIndex: 1,
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+            }}
+          >
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+
+        <Box
+          sx={{
+            px: 3.5,
+            py: 3,
+            overflowY: 'auto',
+            flexGrow: 1,
+            minHeight: 0,
+            '&::-webkit-scrollbar': { width: 4 },
+            '&::-webkit-scrollbar-thumb': {
+              bgcolor: T.accentBorder,
+              borderRadius: 2,
+            },
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                bgcolor: iconBg,
+                border: `1px solid ${alpha(iconColor, 0.2)}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                mt: 0.25,
+              }}
+            >
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography
+                sx={{
+                  fontSize: '0.875rem',
+                  color: T.text,
+                  lineHeight: 1.65,
+                  pt: 0.5,
+                  whiteSpace: 'pre-line',
+                }}
+              >
+                {message}
+              </Typography>
+
+              {Array.isArray(details) && details.length > 0 && (
+                <Box
+                  sx={{
+                    mt: 2,
+                    borderRadius: 2,
+                    border: `1px solid ${T.divider}`,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      px: 1.75,
+                      py: 1,
+                      bgcolor: alpha(iconColor, 0.07),
+                      borderBottom: `1px solid ${T.divider}`,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        color: iconColor,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                      }}
+                    >
+                      {details.length} row{details.length === 1 ? '' : 's'}{' '}
+                      {detailsLabel}
+                    </Typography>
+                  </Box>
+                              <Box sx={{ px: 1.75, py: 1, bgcolor: '#fff' }}>
+                                <TableContainer
+                                  component={Paper}
+                                  sx={{ maxHeight: 360, boxShadow: 'none' }}
+                                >
+                                  <Table stickyHeader size="small">
+                                    <TableHead>
+                                      <TableRow>
+                                        <TableCell sx={{ fontWeight: 700, width: 80 }}>Row</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Issue</TableCell>
+                                      </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                      {details.map((item, i) => {
+                                        let rowNum = '';
+                                        let msg = item;
+                                        const m = String(item).match(/^Row\s*(\d+)\s*:\s*(.*)$/i);
+                                        if (m) {
+                                          rowNum = m[1];
+                                          msg = m[2];
+                                        }
+                                        return (
+                                          <TableRow key={i} hover>
+                                            <TableCell sx={{ fontSize: '0.85rem' }}>{rowNum || i + 1}</TableCell>
+                                            <TableCell sx={{ fontSize: '0.85rem', color: T.text }}>{msg}</TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </TableContainer>
+                              </Box>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        </Box>
+
+        <Box
+          sx={{
+            px: 3.5,
+            py: 2,
+            borderTop: `1px solid ${T.divider}`,
+            bgcolor: '#f9f9f9',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            flexShrink: 0,
+          }}
+        >
+          <AccentButton
+            onClick={onClose}
+            variant="contained"
+            sx={{
+              fontSize: '0.8rem',
+              bgcolor: iconColor,
+              color: '#fff',
+              boxShadow: `0 2px 10px ${alpha(iconColor, 0.3)}`,
+              '&:hover': { bgcolor: alpha(iconColor, 0.85) },
+            }}
+          >
+            Understood
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Section label used inside form panels ─────────────────────────────────────
+const FormSectionLabel = ({ icon: Icon, children }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+    <Icon sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
+    <Typography
+      sx={{
+        fontSize: '0.68rem',
+        fontWeight: 700,
+        letterSpacing: '0.09em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+      }}
+    >
+      {children}
+    </Typography>
+  </Box>
+);
+
+// ─── Enhanced Auth header helper ───────────────────────────────────────────────
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
-
   if (!token) {
     console.error('No authentication token found in localStorage');
-    // Optionally redirect to login
-    // window.location.href = '/login';
     return {};
   }
-
-  // For debugging - log token existence (remove in production)
-  console.log('Auth token being used:', token ? 'Token exists' : 'No token');
-
   return {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    withCredentials: true, // Important for cookies if using them
+    withCredentials: true,
   };
 };
 
-// Add axios response interceptor for global error handling
-axios.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      console.error(
-        'Authentication error:',
-        error.response?.data?.message || 'Unauthorized'
-      );
-      // Optionally redirect to login
-      // localStorage.removeItem('token');
-      // window.location.href = '/login';
-    } else if (error.response?.status === 403) {
-      console.error('Authorization error: Insufficient permissions');
-    }
-    return Promise.reject(error);
-  }
-);
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  const ext = (e?.nameExtension || e?.suffix || '').trim();
+  if (!last && !first) return (e?.fullName || '').trim() || `#${e?.employeeNumber}`;
+  const givenParts = [first, mid].filter(Boolean).join(' ');
+  const extSuffix = ext ? ` ${ext}` : '';
+  return last ? `${last.toUpperCase()}, ${givenParts}${extSuffix}` : `${givenParts}${extSuffix}`;
+};
 
-// Employee Autocomplete Component
+// ─── Employee Autocomplete Component ──────────────────────────────────────────
 const EmployeeAutocomplete = ({
   value,
   onChange,
@@ -176,7 +834,6 @@ const EmployeeAutocomplete = ({
   selectedEmployee,
   onEmployeeSelect,
   dropdownDisabled = false,
-  settings = {},
 }) => {
   const [query, setQuery] = useState('');
   const [employees, setEmployees] = useState([]);
@@ -190,7 +847,7 @@ const EmployeeAutocomplete = ({
     if (value && !selectedEmployee) {
       fetchEmployeeById(value);
     }
-  }, [value]);
+  }, [value]); // eslint-disable-line
 
   useEffect(() => {
     if (selectedEmployee) {
@@ -214,10 +871,8 @@ const EmployeeAutocomplete = ({
     setIsLoading(true);
     try {
       const response = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(
-          searchQuery
-        )}`,
-        getAuthHeaders()
+        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(searchQuery)}`,
+        getAuthHeaders(),
       );
       setEmployees(response.data);
     } catch (error) {
@@ -233,7 +888,7 @@ const EmployeeAutocomplete = ({
     try {
       const response = await axios.get(
         `${API_BASE_URL}/Remittance/employees/search`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEmployees(response.data);
     } catch (error) {
@@ -248,13 +903,12 @@ const EmployeeAutocomplete = ({
     try {
       const response = await axios.get(
         `${API_BASE_URL}/Remittance/employees/${employeeNumber}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       const employee = response.data;
       onEmployeeSelect(employee);
       setQuery(employee.name || '');
     } catch (error) {
-      // Suppress 404 errors for missing employees (expected behavior)
       if (error.response?.status !== 404) {
         console.error('Error fetching employee by ID:', error);
       }
@@ -271,9 +925,7 @@ const EmployeeAutocomplete = ({
       onChange('');
     }
 
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(() => {
       if (inputValue.trim().length >= 2) {
@@ -296,26 +948,19 @@ const EmployeeAutocomplete = ({
   const handleInputFocus = () => {
     setShowDropdown(true);
     if (employees.length === 0 && !isLoading) {
-      if (query.length >= 2) {
-        fetchEmployees(query);
-      } else {
-        fetchAllEmployees();
-      }
+      if (query.length >= 2) fetchEmployees(query);
+      else fetchAllEmployees();
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Escape') {
-      setShowDropdown(false);
-    }
+    if (e.key === 'Escape') setShowDropdown(false);
   };
 
   const handleDropdownClick = () => {
     if (!showDropdown) {
       setShowDropdown(true);
-      if (employees.length === 0 && !isLoading) {
-        fetchAllEmployees();
-      }
+      if (employees.length === 0 && !isLoading) fetchAllEmployees();
     } else {
       setShowDropdown(false);
     }
@@ -323,7 +968,7 @@ const EmployeeAutocomplete = ({
 
   return (
     <Box sx={{ position: 'relative', width: '100%' }} ref={dropdownRef}>
-      <ModernTextField
+      <FieldInput
         ref={inputRef}
         value={query}
         onChange={handleInputChange}
@@ -338,15 +983,23 @@ const EmployeeAutocomplete = ({
         autoComplete="off"
         size="small"
         InputProps={{
-          startAdornment: <PersonIcon sx={{ color: settings?.textPrimaryColor || settings?.primaryColor || '#6D2323', mr: 1 }} />,
+          startAdornment: (
+            <InputAdornment position="start">
+              <PersonIcon sx={{ fontSize: 15, color: T.muted }} />
+            </InputAdornment>
+          ),
           endAdornment: (
             <IconButton
               onClick={dropdownDisabled ? undefined : handleDropdownClick}
               size="small"
               disabled={dropdownDisabled}
-              sx={{ color: settings?.textPrimaryColor || settings?.primaryColor || '#6D2323' }}
+              sx={{ color: T.muted, p: 0.25 }}
             >
-              {showDropdown ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              {showDropdown ? (
+                <ExpandLessIcon sx={{ fontSize: 16 }} />
+              ) : (
+                <ExpandMoreIcon sx={{ fontSize: 16 }} />
+              )}
             </IconButton>
           ),
         }}
@@ -354,57 +1007,106 @@ const EmployeeAutocomplete = ({
 
       {showDropdown && (
         <Paper
-          elevation={3}
+          elevation={4}
           sx={{
             position: 'absolute',
             top: '100%',
             left: 0,
             right: 0,
             zIndex: 1000,
-            maxHeight: 300,
+            maxHeight: 260,
             overflow: 'auto',
-            mt: 1,
+            mt: 0.75,
             borderRadius: 2,
+            border: `1px solid ${T.accentBorder}`,
+            '&::-webkit-scrollbar': { width: 4 },
+            '&::-webkit-scrollbar-thumb': {
+              bgcolor: T.accentBorder,
+              borderRadius: 2,
+            },
           }}
         >
           {isLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" sx={{ ml: 1 }}>
-                Loading...
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                p: 2,
+                gap: 1,
+              }}
+            >
+              <CircularProgress size={14} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+                Loading…
               </Typography>
             </Box>
           ) : employees.length > 0 ? (
-            <List dense>
+            <List dense disablePadding>
               {employees.map((employee) => (
                 <ListItem
                   key={employee.employeeNumber}
                   button
                   onClick={() => handleEmployeeSelect(employee)}
                   sx={{
-                    '&:hover': {
-                      backgroundColor: alpha(settings?.accentColor || settings?.backgroundColor || '#FEF9E1', 0.3),
-                    },
+                    py: 1,
+                    px: 1.5,
+                    '&:hover': { bgcolor: T.accentHover },
+                    borderBottom: `1px solid ${T.divider}`,
+                    '&:last-child': { borderBottom: 'none' },
                   }}
                 >
+                  <Avatar
+                    sx={{
+                      width: 26,
+                      height: 26,
+                      bgcolor: alpha(T.accent, 0.12),
+                      color: T.accent,
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      mr: 1.25,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {(employee.name?.[0] || '?').toUpperCase()}
+                  </Avatar>
                   <ListItemText
                     primary={employee.name}
                     secondary={`#${employee.employeeNumber}`}
-                    primaryTypographyProps={{ fontWeight: 'bold', color: settings?.textPrimaryColor || '#6D2323' }}
-                    secondaryTypographyProps={{ color: settings?.textSecondaryColor || '#666' }}
+                    primaryTypographyProps={{
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: T.text,
+                    }}
+                    secondaryTypographyProps={{
+                      fontSize: '0.7rem',
+                      color: T.muted,
+                    }}
                   />
                 </ListItem>
               ))}
             </List>
           ) : query.length >= 2 ? (
             <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
+              <Typography
+                sx={{
+                  fontSize: '0.78rem',
+                  color: T.faint,
+                  fontStyle: 'italic',
+                }}
+              >
                 No employees found matching "{query}"
               </Typography>
             </Box>
           ) : (
             <Box sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="textSecondary">
+              <Typography
+                sx={{
+                  fontSize: '0.78rem',
+                  color: T.faint,
+                  fontStyle: 'italic',
+                }}
+              >
                 {employees.length === 0
                   ? 'No employees available'
                   : 'Type to search or scroll to browse'}
@@ -417,14 +1119,19 @@ const EmployeeAutocomplete = ({
   );
 };
 
+// ─── Main component ────────────────────────────────────────────────────────────
 const EmployeeRemittance = () => {
   const [data, setData] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
+  const [employeeInfo, setEmployeeInfo] = useState({});
+  const [deptMap, setDeptMap] = useState({});
+  const [empCatMap, setEmpCatMap] = useState({});
   const [newRemittance, setNewRemittance] = useState({
     employeeNumber: '',
     liquidatingCash: '',
     gsisSalaryLoan: '',
     gsisPolicyLoan: '',
+    gfal: '',
     gsisArrears: '',
     cpl: '',
     mpl: '',
@@ -440,12 +1147,19 @@ const EmployeeRemittance = () => {
     landbankSalaryLoan: '',
     earistCreditCoop: '',
     feu: '',
+    rel: '',
+    gsl: '',
+    gbk: '',
   });
   const [editRemittance, setEditRemittance] = useState(null);
   const [originalRemittance, setOriginalRemittance] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
+  const [totalRemittanceCount, setTotalRemittanceCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState('');
   const [errors, setErrors] = useState({});
@@ -460,76 +1174,296 @@ const EmployeeRemittance = () => {
     severity: 'success',
   });
 
-  const showSnackbar = (message, severity = 'success') => {
+  const [errorModal, setErrorModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    details: null,
+    detailsLabel: 'skipped',
+    iconColor: '#C62828',
+    iconBg: '#FFEBEE',
+    icon: ErrorOutlineIcon,
+  });
+  const [confirmModal, setConfirmModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    confirmLabel: 'Confirm',
+    confirmColor: T.accent,
+    confirmHoverColor: T.accentDark,
+    icon: HelpOutlineIcon,
+    iconColor: T.accent,
+    iconBg: T.accentFaint,
+    loading: false,
+    onConfirm: () => {},
+  });
+
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const ACCEPTED_EXTENSIONS = ['.xls', '.xlsx'];
+  const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+  const showError = (title, message, opts = {}) =>
+    setErrorModal({
+      open: true,
+      title,
+      message,
+      details: null,
+      detailsLabel: 'skipped',
+      iconColor: '#C62828',
+      iconBg: '#FFEBEE',
+      icon: ErrorOutlineIcon,
+      ...opts,
+    });
+  const closeError = () => setErrorModal((p) => ({ ...p, open: false }));
+  const showConfirm = (opts) =>
+    setConfirmModal({
+      open: true,
+      title: '',
+      message: '',
+      confirmLabel: 'Confirm',
+      confirmColor: T.accent,
+      confirmHoverColor: T.accentDark,
+      icon: HelpOutlineIcon,
+      iconColor: T.accent,
+      iconBg: T.accentFaint,
+      loading: false,
+      onConfirm: () => {},
+      ...opts,
+    });
+  const closeConfirm = () =>
+    setConfirmModal((p) => ({ ...p, open: false, loading: false }));
+
+  const showSnackbar = (message, severity = 'success') =>
     setSnackbar({ open: true, message, severity });
-  };
 
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
 
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6d2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
-
-  // Dynamic page access control using component identifier
-  // Note: This component may need a new page entry in the database with identifier 'remittances'
   const {
     hasAccess,
     loading: accessLoading,
     error: accessError,
   } = usePageAccess('remittances');
 
+  const getAuthHeadersMultipart = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error('No authentication token found in localStorage');
+      return {};
+    }
+    return {
+      headers: { Authorization: `Bearer ${token}` },
+      withCredentials: true,
+    };
+  };
+
   useEffect(() => {
-    fetchRemittances();
-  }, []);
+    const init = async () => {
+      await Promise.all([fetchRemittances(), fetchDeptMap(), fetchEmpCatMap()]);
+      setPageLoading(false);
+    };
+    init();
+  }, [page, rowsPerPage, searchTerm]); // eslint-disable-line
+
+  const getEmployeeDisplayName = (employeeNumber) => {
+    const id = employeeNumber?.toString();
+    const info = employeeInfo[id];
+    if (info) return buildDisplayName(info);
+    return employeeNames[id] || 'Loading…';
+  };
 
   const fetchRemittances = async () => {
     try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: rowsPerPage.toString(),
+      });
+      if (searchTerm.trim()) params.append('q', searchTerm.trim());
+
       const res = await axios.get(
-        `${API_BASE_URL}/Remittance/employee-remittance`,
-        getAuthHeaders()
+        `${API_BASE_URL}/Remittance/employee-remittance?${params.toString()}`,
+        getAuthHeaders(),
       );
-      setData(res.data);
 
-      // Fetch employee names for all records
-      const uniqueEmployeeIds = [
-        ...new Set(res.data.map((r) => r.employeeNumber).filter(Boolean)),
-      ];
+      const remittanceData = res.data?.data || [];
       const namesMap = {};
+      const infoMap = {};
 
-      await Promise.all(
-        uniqueEmployeeIds.map(async (id) => {
-          try {
-            const response = await axios.get(
-              `${API_BASE_URL}/Remittance/employees/${id}`,
-              getAuthHeaders()
-            );
-            namesMap[id] = response.data.name || 'Unknown';
-          } catch (error) {
-            // Suppress 404 errors for missing employees (expected behavior)
-            if (error.response?.status !== 404) {
-              console.error(`Error fetching employee ${id}:`, error);
-            }
-            namesMap[id] = 'Unknown';
-          }
-        })
-      );
+      remittanceData.forEach((item) => {
+        const id = item.employeeNumber?.toString();
+        if (!id) return;
+        namesMap[id] = item.name || 'Unknown';
+        infoMap[id] = item;
+      });
 
+      setData(remittanceData);
       setEmployeeNames(namesMap);
+      setEmployeeInfo(infoMap);
+      setTotalRemittanceCount(res.data?.total || 0);
     } catch (err) {
       console.error('Error fetching data:', err);
       showSnackbar(
         'Failed to fetch remittance records. Please try again.',
-        'error'
+        'error',
       );
+    }
+  };
+
+  const handleChangePage = (_, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const fetchDeptMap = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.get(`${API_BASE_URL}/api/department-assignment`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const map = {};
+      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
+        if (item.employeeNumber && item.code) {
+          map[item.employeeNumber.toString()] = item.code;
+        }
+      });
+      setDeptMap(map);
+    } catch (error) {
+      console.error('Error fetching department map:', error);
+    }
+  };
+
+  const fetchEmpCatMap = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const map = {};
+      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
+        if (!item.employeeNumber) return;
+        const label = item.parentGroup && item.typeName ? `${item.parentGroup} | ${item.typeName}` : item.categoryLabel || '';
+        if (label) {
+          map[item.employeeNumber.toString()] = {
+            label,
+            colorHex: item.colorHex || '#757575',
+          };
+        }
+      });
+      setEmpCatMap(map);
+    } catch (error) {
+      console.error('Error fetching employment category map:', error);
+    }
+  };
+
+  const handleUploadPayrollButtonClick = () => {
+    if (uploading) return;
+    fileInputRef.current?.click();
+  };
+
+  const handlePayrollFileSelected = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file next time
+    if (!file) return;
+
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+      showError(
+        'Invalid File Type',
+        'Please upload a valid Excel file (.xls or .xlsx).',
+{ icon: WarningIcon, iconColor: T.warning, iconBg: T.warningBg },      );
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      showError(
+        'File Too Large',
+        `Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+{ icon: WarningIcon, iconColor: T.warning, iconBg: T.warningBg },      );
+      return;
+    }
+
+    showConfirm({
+      title: 'Confirm Payroll Import',
+      message: `Import deductions from "${file.name}"?\n\nThis will update remittance and payroll records for all matched employees.`,
+      confirmLabel: 'Upload & Import',
+      confirmColor: T.accent,
+      confirmHoverColor: T.accentDark,
+      icon: CloudUploadIcon,
+      iconColor: T.accent,
+      iconBg: T.accentFaint,
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        await handleUploadPayrollXLSX(file);
+        closeConfirm();
+      },
+    });
+  };
+
+  // Shared handler used after either import endpoint responds. Refreshing
+  // the table BEFORE surfacing success/warning UI means the grid on the
+  // right is already showing the newly imported data underneath the modal —
+  // no page reload, no waiting after dismissing the dialog.
+  const finishImport = async (updated, warnings) => {
+    await fetchRemittances();
+
+    setSuccessAction('adding');
+    setSuccessOpen(true);
+    setTimeout(() => setSuccessOpen(false), 2000);
+
+   if (warnings?.length) {
+  showError(
+    `Import Completed — ${updated} record(s) updated`,
+    `${warnings.length} row${warnings.length === 1 ? '' : 's'} could not be fully processed. The remaining records were imported and already appear in the table — review the rows below and add them manually if needed.`,
+    {
+      icon: WarningIcon,
+      iconColor: T.warning,
+      iconBg: T.warningBg,
+      details: warnings,
+      detailsLabel: 'skipped',
+    },
+  );
+} else {
+      showSnackbar(
+        `Import complete. ${updated} record(s) updated.`,
+        'success',
+      );
+    }
+  };
+
+  const handleUploadPayrollXLSX = async (file) => {
+    setUploading(true);
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await axios.post(
+        `${API_BASE_URL}/api/import-payroll`,
+        formData,
+        getAuthHeadersMultipart(),
+      );
+
+      const { updated = 0, warnings } = res.data || {};
+      await finishImport(updated, warnings);
+    } catch (err) {
+      console.error('Error importing payroll file:', err);
+      if (err.response?.data?.message) {
+        showError('Import Failed', err.response.data.message);
+      } else {
+        showError(
+          'Import Failed',
+          'Failed to import payroll file. Please try again.',
+        );
+      }
+    } finally {
+      setUploading(false);
+      setLoading(false);
     }
   };
 
@@ -539,100 +1473,114 @@ const EmployeeRemittance = () => {
 
   const validateForm = () => {
     const newErrors = {};
-
     if (
       !newRemittance.employeeNumber ||
       newRemittance.employeeNumber.trim() === ''
     ) {
       newErrors.employeeNumber = 'Employee selection is required';
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleAdd = async () => {
     if (!validateForm()) {
-      showSnackbar('Please select an employee', 'error');
+      showError(
+        'Missing Required Fields',
+        'Please select an employee before submitting.',
+        { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' },
+      );
       return;
     }
 
-    setLoading(true);
-    try {
-      // Filter out empty fields and convert to numbers
-      const filteredRemittance = Object.fromEntries(
-        Object.entries(newRemittance).filter(([key, value]) => {
-          if (key === 'employeeNumber') return value !== '';
-          return value !== '';
-        })
-      );
+    showConfirm({
+      title: 'Confirm Add Remittance',
+      message: `Add remittance record for Employee #${newRemittance.employeeNumber}?\n\nThis will create a new remittance entry.`,
+      confirmLabel: 'Add Record',
+      confirmColor: T.accent,
+      confirmHoverColor: T.accentDark,
+      icon: AddIcon,
+      iconColor: T.accent,
+      iconBg: T.accentFaint,
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        setLoading(true);
+        try {
+          const filteredRemittance = Object.fromEntries(
+            Object.entries(newRemittance).filter(([key, value]) => {
+              if (key === 'employeeNumber') return value !== '';
+              return value !== '';
+            }),
+          );
+          Object.keys(filteredRemittance).forEach((key) => {
+            if (key !== 'employeeNumber' && filteredRemittance[key] !== '') {
+              filteredRemittance[key] =
+                parseFloat(filteredRemittance[key]) || 0;
+            }
+          });
 
-      // Convert numeric fields
-      Object.keys(filteredRemittance).forEach((key) => {
-        if (key !== 'employeeNumber' && filteredRemittance[key] !== '') {
-          filteredRemittance[key] = parseFloat(filteredRemittance[key]) || 0;
+          await axios.post(
+            `${API_BASE_URL}/Remittance/employee-remittance`,
+            filteredRemittance,
+            getAuthHeaders(),
+          );
+
+          setNewRemittance({
+            employeeNumber: '',
+            liquidatingCash: '',
+            gsisSalaryLoan: '',
+            gsisPolicyLoan: '',
+            gfal: '',
+            gsisArrears: '',
+            cpl: '',
+            mpl: '',
+            mplLite: '',
+            emergencyLoan: '',
+            nbc594: '',
+            increment: '',
+            sss: '',
+            pagibig: '',
+            pagibigFundCont: '',
+            pagibig2: '',
+            multiPurpLoan: '',
+            landbankSalaryLoan: '',
+            earistCreditCoop: '',
+            feu: '',
+            rel: '',
+            gsl: '',
+            gbk: '',
+          });
+          setSelectedEmployee(null);
+          setErrors({});
+          setSuccessAction('adding');
+          setSuccessOpen(true);
+          setTimeout(() => setSuccessOpen(false), 2000);
+          fetchRemittances();
+        } catch (err) {
+          console.error('Error adding data:', err);
+          if (err.response?.status === 409) {
+            showError(
+              'Duplicate Record',
+              'Employee data already exists. This employee already has a remittance record.',
+            );
+          } else if (err.response?.data?.message) {
+            showError('Submission Failed', err.response.data.message);
+          } else {
+            showError(
+              'Submission Failed',
+              'Failed to add remittance record. Please try again.',
+            );
+          }
+        } finally {
+          setLoading(false);
+          closeConfirm();
         }
-      });
-
-      await axios.post(
-        `${API_BASE_URL}/Remittance/employee-remittance`,
-        filteredRemittance,
-        getAuthHeaders()
-      );
-
-      setNewRemittance({
-        employeeNumber: '',
-        liquidatingCash: '',
-        gsisSalaryLoan: '',
-        gsisPolicyLoan: '',
-        gsisArrears: '',
-        cpl: '',
-        mpl: '',
-        mplLite: '',
-        emergencyLoan: '',
-        nbc594: '',
-        increment: '',
-        sss: '',
-        pagibig: '',
-        pagibigFundCont: '',
-        pagibig2: '',
-        multiPurpLoan: '',
-        landbankSalaryLoan: '',
-        earistCreditCoop: '',
-        feu: '',
-      });
-      setSelectedEmployee(null);
-      setErrors({});
-      setTimeout(() => {
-        setLoading(false);
-        setSuccessAction('adding');
-        setSuccessOpen(true);
-        setTimeout(() => setSuccessOpen(false), 2000);
-      }, 300);
-      fetchRemittances();
-    } catch (err) {
-      console.error('Error adding data:', err);
-      setLoading(false);
-
-      if (err.response?.status === 409) {
-        showSnackbar(
-          'Employee data already exists. This employee already has a remittance record.',
-          'error'
-        );
-      } else if (err.response?.data?.message) {
-        showSnackbar(err.response.data.message, 'error');
-      } else {
-        showSnackbar(
-          'Failed to add remittance record. Please try again.',
-          'error'
-        );
-      }
-    }
+      },
+    });
   };
 
   const handleUpdate = async () => {
     try {
-      // Convert numeric fields
       const updateData = { ...editRemittance };
       Object.keys(updateData).forEach((key) => {
         if (
@@ -648,7 +1596,7 @@ const EmployeeRemittance = () => {
       await axios.put(
         `${API_BASE_URL}/Remittance/employee-remittance/${editRemittance.id}`,
         updateData,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setEditRemittance(null);
       setOriginalRemittance(null);
@@ -661,41 +1609,57 @@ const EmployeeRemittance = () => {
     } catch (err) {
       console.error('Error updating data:', err);
       if (err.response?.data?.message) {
-        showSnackbar(err.response.data.message, 'error');
+        showError('Update Failed', err.response.data.message);
       } else {
-        showSnackbar(
+        showError(
+          'Update Failed',
           'Failed to update remittance record. Please try again.',
-          'error'
         );
       }
     }
   };
 
-  const handleDelete = async (id) => {
-    try {
-      await axios.delete(
-        `${API_BASE_URL}/Remittance/employee-remittance/${id}`,
-        getAuthHeaders()
-      );
-      setEditRemittance(null);
-      setOriginalRemittance(null);
-      setSelectedEditEmployee(null);
-      setIsEditing(false);
-      fetchRemittances();
-      setSuccessAction('delete');
-      setSuccessOpen(true);
-      setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (err) {
-      console.error('Error deleting data:', err);
-      if (err.response?.data?.message) {
-        showSnackbar(err.response.data.message, 'error');
-      } else {
-        showSnackbar(
-          'Failed to delete remittance record. Please try again.',
-          'error'
-        );
-      }
-    }
+  const handleDelete = (id) => {
+    showConfirm({
+      title: 'Delete Remittance Record',
+      message:
+        'Are you sure you want to permanently delete this remittance record? This action cannot be undone.',
+      confirmLabel: 'Delete',
+      confirmColor: '#C62828',
+      confirmHoverColor: '#B71C1C',
+      icon: DeleteIcon,
+      iconColor: '#C62828',
+      iconBg: '#FFEBEE',
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        try {
+          await axios.delete(
+            `${API_BASE_URL}/Remittance/employee-remittance/${id}`,
+            getAuthHeaders(),
+          );
+          setEditRemittance(null);
+          setOriginalRemittance(null);
+          setSelectedEditEmployee(null);
+          setIsEditing(false);
+          fetchRemittances();
+          setSuccessAction('delete');
+          setSuccessOpen(true);
+          setTimeout(() => setSuccessOpen(false), 2000);
+        } catch (err) {
+          console.error('Error deleting data:', err);
+          if (err.response?.data?.message) {
+            showError('Delete Failed', err.response.data.message);
+          } else {
+            showError(
+              'Delete Failed',
+              'Failed to delete remittance record. Please try again.',
+            );
+          }
+        } finally {
+          closeConfirm();
+        }
+      },
+    });
   };
 
   const handleChange = (field, value, isEdit = false) => {
@@ -705,9 +1669,9 @@ const EmployeeRemittance = () => {
       setNewRemittance({ ...newRemittance, [field]: value });
       if (errors[field]) {
         setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors[field];
-          return newErrors;
+          const n = { ...prev };
+          delete n[field];
+          return n;
         });
       }
     }
@@ -716,9 +1680,9 @@ const EmployeeRemittance = () => {
   const handleEmployeeChange = (employeeNumber) => {
     setNewRemittance({ ...newRemittance, employeeNumber });
     setErrors((prev) => {
-      const newErrors = { ...prev };
-      delete newErrors.employeeNumber;
-      return newErrors;
+      const n = { ...prev };
+      delete n.employeeNumber;
+      return n;
     });
   };
 
@@ -729,14 +1693,12 @@ const EmployeeRemittance = () => {
   const handleEditEmployeeChange = (employeeNumber) => {
     setEditRemittance({ ...editRemittance, employeeNumber });
   };
-
   const handleEditEmployeeSelect = (employee) => {
     setSelectedEditEmployee(employee);
   };
 
   const handleOpenModal = async (remittance) => {
     const employeeName = employeeNames[remittance.employeeNumber] || 'Unknown';
-
     setEditRemittance({ ...remittance });
     setOriginalRemittance({ ...remittance });
     setSelectedEditEmployee({
@@ -767,19 +1729,17 @@ const EmployeeRemittance = () => {
   };
 
   const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
-    }
+    if (newMode !== null) setViewMode(newMode);
   };
 
   const hasChanges = () => {
     if (!editRemittance || !originalRemittance) return false;
-
     const fields = [
       'employeeNumber',
       'liquidatingCash',
       'gsisSalaryLoan',
       'gsisPolicyLoan',
+      'gfal',
       'gsisArrears',
       'cpl',
       'mpl',
@@ -795,10 +1755,12 @@ const EmployeeRemittance = () => {
       'landbankSalaryLoan',
       'earistCreditCoop',
       'feu',
+      'rel',
+      'gsl',
+      'gbk',
     ];
-
     return fields.some(
-      (field) => editRemittance[field] !== originalRemittance[field]
+      (field) => editRemittance[field] !== originalRemittance[field],
     );
   };
 
@@ -806,6 +1768,7 @@ const EmployeeRemittance = () => {
     liquidatingCash: 'Liquidating Cash',
     gsisSalaryLoan: 'GSIS Salary Loan',
     gsisPolicyLoan: 'GSIS Policy Loan',
+    gfal: 'GFAL',
     gsisArrears: 'GSIS Arrears',
     cpl: 'CPL',
     mpl: 'MPL',
@@ -821,28 +1784,116 @@ const EmployeeRemittance = () => {
     landbankSalaryLoan: 'Landbank Salary Loan',
     earistCreditCoop: 'EARIST Credit Coop',
     feu: 'FEU',
+    rel: 'REL',
+    gsl: 'GSL',
+    gbk: 'GBK',
   };
 
-  if (accessLoading) {
-    return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: textPrimaryColor, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: textPrimaryColor }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
+  // GSIS-related deductions are grouped together in the forms below so they
+  // don't get visually mixed in with the other, unrelated deduction types.
+  const GSIS_FIELDS = [
+    'gsisSalaryLoan',
+    'gsisPolicyLoan',
+    'gsisArrears',
+    'gfal',
+    'cpl',
+    'mpl',
+    'mplLite',
+    'emergencyLoan',
+    'rel',
+    'gbk',
+    'gsl',
+  ];
+  const OTHER_FIELDS = Object.keys(fieldLabels).filter(
+    (field) => !GSIS_FIELDS.includes(field),
+  );
 
-  if (hasAccess === false) {
+  const getTotalDeductions = (remittance) =>
+    Object.keys(fieldLabels)
+      .reduce((sum, field) => sum + (parseFloat(remittance[field]) || 0), 0)
+      .toFixed(2);
+
+  const filteredData = data;
+
+  const handleUploadButtonClick = () => {
+    if (uploading) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file next time
+    if (!file) return;
+
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+      showError(
+        'Invalid File Type',
+        'Please upload a valid Excel file (.xls or .xlsx).',
+        { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' },
+      );
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      showError(
+        'File Too Large',
+        `Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' },
+      );
+      return;
+    }
+
+    showConfirm({
+      title: 'Confirm Payroll Import',
+      message: `Import deductions from "${file.name}"?\n\nThis will update remittance and payroll records for all matched employees.`,
+      confirmLabel: 'Upload & Import',
+      confirmColor: T.accent,
+      confirmHoverColor: T.accentDark,
+      icon: CloudUploadIcon,
+      iconColor: T.accent,
+      iconBg: T.accentFaint,
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, loading: true }));
+        await handleUploadPayroll(file);
+        closeConfirm();
+      },
+    });
+  };
+
+  const handleUploadPayroll = async (file) => {
+    setUploading(true);
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await axios.post(
+        `${API_BASE_URL}/Remittance/import-payroll`,
+        formData,
+        getAuthHeadersMultipart(),
+      );
+
+      const { updated = 0, warnings } = res.data || {};
+      await finishImport(updated, warnings);
+    } catch (err) {
+      console.error('Error importing payroll file:', err);
+      if (err.response?.data?.message) {
+        showError('Import Failed', err.response.data.message);
+      } else {
+        showError(
+          'Import Failed',
+          'Failed to import payroll file. Please try again.',
+        );
+      }
+    } finally {
+      setUploading(false);
+      setLoading(false);
+    }
+  };
+
+  if (accessLoading) return <Wireframe />;
+  if (hasAccess === false)
     return (
       <AccessDenied
         title="Access Denied"
@@ -851,678 +1902,884 @@ const EmployeeRemittance = () => {
         returnButtonText="Return to Home"
       />
     );
-  }
+  if (pageLoading) return <Wireframe />;
 
-  const filteredData = data.filter((remittance) => {
-    const employeeNumber = remittance.employeeNumber?.toString() || '';
-    const employeeName =
-      employeeNames[remittance.employeeNumber]?.toLowerCase() || '';
-    const search = searchTerm.toLowerCase();
-    return employeeNumber.includes(search) || employeeName.includes(search);
-  });
+  const canAdd = !loading && !!newRemittance.employeeNumber;
 
   return (
-    <Box
-      sx={{
-        py: 4,
-        mt: -5,
-        width: '1600px', // Fixed width
-        mx: 'auto', // Center horizontally
-        overflow: 'hidden', // Prevent horizontal scroll
-      }}
-    >
-      {/* Container with fixed width */}
-      <Box sx={{ px: 6 }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard
+    <Fade in timeout={400}>
+      <Box
+        sx={{
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          mb: { xs: 1, md: 2 },
+          width: '100vw',
+          maxWidth: '100%',
+          position: 'relative',
+          left: '63%',
+          transform: 'translateX(-61%)',
+          px: { xs: 2, sm: 3, md: 6 },
+        }}
+      >
+        <LoadingOverlay
+          open={loading}
+          message="Processing remittance record…"
+        />
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
+
+        <ErrorModal
+          open={errorModal.open}
+          onClose={closeError}
+          title={errorModal.title}
+          message={errorModal.message}
+          details={errorModal.details}
+          detailsLabel={errorModal.detailsLabel}
+          icon={errorModal.icon}
+          iconColor={errorModal.iconColor}
+          iconBg={errorModal.iconBg}
+        />
+        <ConfirmModal
+          open={confirmModal.open}
+          onClose={closeConfirm}
+          onConfirm={confirmModal.onConfirm}
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmLabel={confirmModal.confirmLabel}
+          confirmColor={confirmModal.confirmColor}
+          confirmHoverColor={confirmModal.confirmHoverColor}
+          icon={confirmModal.icon}
+          iconColor={confirmModal.iconColor}
+          iconBg={confirmModal.iconBg}
+          loading={confirmModal.loading}
+        />
+
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+          <Box
+            sx={{
+              px: 4,
+              py: 3,
+              background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            <Box
               sx={{
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
+                position: 'absolute',
+                top: -50,
+                right: -50,
+                width: 200,
+                height: 200,
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: -30,
+                left: '30%',
+                width: 150,
+                height: 150,
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)',
+              }}
+            />
+
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                position: 'relative',
+                zIndex: 1,
+              }}
+            >
+              <ReorderIcon sx={{ fontSize: 32, color: T.accent }} />
+              <Box>
+                <Typography
+                  sx={{
+                    fontSize: '1.25rem',
+                    fontWeight: 900,
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    mb: 0.3,
+                  }}
+                >
+                  Employee Remittance Management
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.82rem',
+                    color: T.accentMid,
+                    fontWeight: 700,
+                    opacity: 0.9,
+                  }}
+                >
+                  Administrative Panel • Add and manage remittance records for
+                  employees
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+                position: 'relative',
+                zIndex: 1,
               }}
             >
               <Box
                 sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
+                  px: 2.5,
+                  py: 0.75,
+                  borderRadius: 6,
+                  bgcolor: alpha(T.accent, 0.1),
+                  border: `1px solid ${alpha(T.accent, 0.2)}`,
                 }}
               >
-                {/* Decorative elements */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(
-                      accentColor,
-                      0.1
-                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(
-                      accentColor,
-                      0.08
-                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
+                <Typography
+                  sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}
                 >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15),
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                      }}
-                    >
-                      <ReorderIcon
-                        sx={{ color: textPrimaryColor, fontSize: 32 }}
-                      />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Employee Remittance Management
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: accentDark,
-                        }}
-                      >
-                        Add and manage remittance records for employees
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={() => window.location.reload()}
-                        sx={{
-                          bgcolor: 'rgba(109,35,35,0.1)',
-                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                          color: accentColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh sx={{ fontSize: 24 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
+                  {data.length} {data.length === 1 ? 'record' : 'records'}
+                </Typography>
               </Box>
-            </GlassCard>
+              <Tooltip title="Refresh Data">
+                <IconButton
+                  onClick={() => fetchRemittances()}
+                  size="small"
+                  sx={{
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${T.accentBorder}`,
+                    color: T.accent,
+                    width: 34,
+                    height: 34,
+                    '&:hover': { bgcolor: alpha(T.accent, 0.15) },
+                  }}
+                >
+                  <Refresh sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
           </Box>
-        </Fade>
+        </SectionCard>
 
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{
-            color: primaryColor,
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: primaryColor }}>
-              Processing remittance record...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Main Content */}
-        <Grid container spacing={4}>
-          {/* Add New Remittance Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={700}>
-              <GlassCard
+        {/* ── Two-column layout ── */}
+        <Grid container spacing={2}>
+          {/* ── LEFT: Add New Remittance ── */}
+          <Grid item xs={12} lg={4}>
+            <SectionCard
+              sx={{
+                height: 'calc(100vh - 280px)',
+                display: 'flex',
+                flexDirection: 'column',
+                border: `1px solid ${alpha(T.divider, 0.85)}`,
+                boxShadow: '0 16px 34px rgba(25, 25, 25, 0.06)',
+                borderRadius: 3,
+                bgcolor: T.surface,
+              }}
+            >
+              {/* Panel header */}
+              <Box
                 sx={{
-                  height: 'calc(100vh - 200px)',
+                  px: 3.5,
+                  py: 1.75,
+                  borderBottom: `1px solid ${alpha(T.divider, 0.5)}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  bgcolor: alpha(T.accent, 0.03),
+                }}
+              >
+                <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography
+                  sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}
+                >
+                  Add New Remittance
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                  <Box component="span" sx={{ color: '#c62828' }}>
+                    *
+                  </Box>{' '}
+                  required
+                </Typography>
+              </Box>
+
+              {/* Scrollable body */}
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 3,
+                  flexGrow: 1,
+                  overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
-                  border: `1px solid ${alpha(accentColor, 0.1)}`
+                  gap: 0,
+                  '&::-webkit-scrollbar': { width: 4 },
+                  '&::-webkit-scrollbar-thumb': {
+                    bgcolor: T.accentBorder,
+                    borderRadius: 2,
+                  },
                 }}
               >
                 <Box
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <FactCheckIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                      Add New Remittance
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                      Fill in remittance information
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
+                    mb: 3,
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: alpha(T.accent, 0.04),
+                    border: `1px solid ${alpha(T.divider, 0.45)}`,
                     display: 'flex',
                     flexDirection: 'column',
-                    overflowY: 'auto',
+                    gap: 1,
                   }}
                 >
-                  <Box sx={{ mb: 3 }}>
-                    <Typography
-                      variant="h5"
+                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.84rem', fontWeight: 700, color: T.text }}>
+                        Import payroll deductions
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                        Upload an Excel file.
+                      </Typography>
+                    </Box>
+                    <AccentButton
+                      onClick={handleUploadPayrollButtonClick}
+                      variant="contained"
+                      size="medium"
+                      disabled={uploading}
+                      startIcon={
+                        uploading ? (
+                          <CircularProgress size={16} sx={{ color: '#fff' }} />
+                        ) : (
+                          <UploadFileIcon sx={{ fontSize: '18px !important' }} />
+                        )
+                      }
                       sx={{
-                        fontWeight: 600,
-                        mb: 2,
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
+                        height: 44,
+                        px: 3,
+                        bgcolor: T.accent,
+                        color: '#fff',
+                        boxShadow: `0 4px 16px ${alpha(T.accent, 0.18)}`,
+                        '&:hover': { bgcolor: T.accentDark },
+                        '&:disabled': {
+                          bgcolor: '#bdbdbd !important',
+                          color: '#f5f5f5 !important',
+                          boxShadow: 'none !important',
+                        },
+                        ml: { sm: 2 },
                       }}
                     >
-                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information{' '}
-                      <span
-                        style={{
-                          marginLeft: '12px',
-                          fontWeight: 400,
-                          opacity: 0.7,
-                          color: 'red',
-                        }}
-                      >
-                        *
-                      </span>
-                    </Typography>
-
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Search Employee
-                        </Typography>
-                        <EmployeeAutocomplete
-                          value={newRemittance.employeeNumber}
-                          onChange={handleEmployeeChange}
-                          selectedEmployee={selectedEmployee}
-                          onEmployeeSelect={handleEmployeeSelect}
-                          placeholder="Search and select employee..."
-                          required
-                          error={!!errors.employeeNumber}
-                          helperText={errors.employeeNumber || ''}
-                          settings={settings}
-                        />
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Selected Employee
-                        </Typography>
-                        {selectedEmployee ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: alpha(settings.accentColor || settings.backgroundColor || '#FEF9E1', 0.8),
-                              border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              paddingLeft: '10px',
-                              gap: 1.5,
-                            }}
-                          >
-                            <PersonIcon
-                              sx={{ color: settings.primaryColor || accentColor, fontSize: 20 }}
-                            />
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                flex: 1,
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: settings.textPrimaryColor || accentColor,
-                                  fontSize: '14px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {selectedEmployee.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: settings.textSecondaryColor || grayColor,
-                                  fontSize: '12px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                ID: {selectedEmployee.employeeNumber}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                              border: '2px dashed rgba(109, 35, 35, 0.3)',
-                              borderRadius: 2,
-                              minHeight: '30px',
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: grayColor,
-                                fontStyle: 'italic',
-                                fontSize: '14px',
-                              }}
-                            >
-                              No employee selected
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    </Grid>
+                      {uploading ? 'Uploading…' : 'Import Remittances'}
+                    </AccentButton>
                   </Box>
-
-                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-                  <Typography
-                    variant="h5"
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xls,.xlsx"
+                    onChange={handlePayrollFileSelected}
+                    style={{ display: 'none' }}
+                  />
+                  <Box
                     sx={{
-                      fontWeight: 600,
-                      mb: 3,
-                      color: accentColor,
+                      pt: 1,
                       display: 'flex',
                       alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 2,
+                      flexWrap: 'wrap',
                     }}
                   >
-                    <FactCheckIcon sx={{ mr: 2, fontSize: 24 }} />
-                    Remittance Details
+                    
+                  </Box>
+                </Box>
+                <Box
+                  sx={{
+                    mb: 3,
+                    p: 3,
+                    borderRadius: 3,
+                    bgcolor: alpha(T.accent, 0.04),
+                    border: `1px solid ${alpha(T.divider, 0.35)}`,
+                    boxShadow: '0 12px 36px rgba(0,0,0,0.04)',
+                  }}
+                >
+                  <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+                  <Typography sx={{ fontSize: '0.75rem', color: T.muted, mb: 2 }}>
+                    Select the employee first, then enter the deduction amounts below.
                   </Typography>
 
-                  <Grid container spacing={2}>
-                    {Object.keys(fieldLabels).map((field) => (
+                  <Box sx={{ mb: 2.5 }}>
+                    <Typography
+                      sx={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        color: T.accent,
+                        mb: 0.75,
+                      }}
+                    >
+                      Search Employee{' '}
+                      <Box component="span" sx={{ color: '#c62828' }}>
+                        *
+                      </Box>
+                    </Typography>
+                    <EmployeeAutocomplete
+                      value={newRemittance.employeeNumber}
+                      onChange={handleEmployeeChange}
+                      selectedEmployee={selectedEmployee}
+                      onEmployeeSelect={handleEmployeeSelect}
+                      placeholder="Search name or employee ID…"
+                      required
+                      error={!!errors.employeeNumber}
+                      helperText={errors.employeeNumber || ''}
+                    />
+                  </Box>
+
+                  {selectedEmployee ? (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.25,
+                        px: 2,
+                        py: 1.5,
+                        mb: 3,
+                        borderRadius: 3,
+                        bgcolor: alpha(T.accent, 0.08),
+                        border: `1px solid ${alpha(T.accentBorder, 0.5)}`,
+                      }}
+                    >
+                      <Avatar
+                        sx={{
+                          width: 36,
+                          height: 36,
+                          bgcolor: alpha(T.accent, 0.15),
+                          fontSize: '0.86rem',
+                          color: T.accent,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {(selectedEmployee.name?.[0] || '?').toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.88rem',
+                            fontWeight: 700,
+                            color: T.text,
+                            lineHeight: 1.2,
+                          }}
+                          noWrap
+                        >
+                          {selectedEmployee.name}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                          #{selectedEmployee.employeeNumber}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: `1.5px dashed ${T.accentBorder}`,
+                        borderRadius: 3,
+                        py: 1.75,
+                        mb: 3,
+                        bgcolor: alpha(T.accent, 0.02),
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: '0.75rem',
+                          color: T.faint,
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        No employee selected yet
+                      </Typography>
+                    </Box>
+                  )}
+
+                  <Divider sx={{ borderColor: alpha(T.divider, 0.7), mb: 2.5 }} />
+
+                  <FormSectionLabel icon={GsisSectionIcon}>
+                    GSIS Deductions
+                  </FormSectionLabel>
+
+                  <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+                    {GSIS_FIELDS.map((field) => (
                       <Grid item xs={12} sm={6} key={field}>
                         <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                          sx={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            color: T.accent,
+                            mb: 0.5,
+                          }}
                         >
                           {fieldLabels[field]}
                         </Typography>
-                        <ModernTextField
+                        <FieldInput
                           type="number"
                           value={newRemittance[field]}
                           onChange={(e) => handleChange(field, e.target.value)}
                           fullWidth
                           size="small"
                           inputProps={{ step: '0.01', min: '0' }}
+                          placeholder="0.00"
+                          sx={{
+                            bgcolor: T.surface,
+                            borderColor: alpha(T.divider, 0.6),
+                          }}
                         />
                       </Grid>
                     ))}
                   </Grid>
 
-                  <Box sx={{ mt: 'auto', pt: 3 }}>
-                    <ProfessionalButton
-                      onClick={handleAdd}
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      fullWidth
-                      sx={{
-                        py: 1.5,
-                        fontSize: '1rem',
-                        backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                        color: settings.accentColor || '#FEF9E1',
-                        '&:hover': {
-                          backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                        },
-                      }}
-                    >
-                      Add Remittance Record
-                    </ProfessionalButton>
-                  </Box>
+                  <Divider sx={{ borderColor: alpha(T.divider, 0.7), mb: 2.5 }} />
+
+                  <FormSectionLabel icon={FactCheckIcon}>
+                    Other Deductions
+                  </FormSectionLabel>
+
+                  <Grid container spacing={1.5} sx={{ mb: 0 }}>
+                    {OTHER_FIELDS.map((field) => (
+                      <Grid item xs={12} sm={6} key={field}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            color: T.accent,
+                            mb: 0.5,
+                          }}
+                        >
+                          {fieldLabels[field]}
+                        </Typography>
+                        <FieldInput
+                          type="number"
+                          value={newRemittance[field]}
+                          onChange={(e) => handleChange(field, e.target.value)}
+                          fullWidth
+                          size="small"
+                          inputProps={{ step: '0.01', min: '0' }}
+                          placeholder="0.00"
+                          sx={{
+                            bgcolor: T.surface,
+                            borderColor: alpha(T.divider, 0.6),
+                          }}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
                 </Box>
-              </GlassCard>
-            </Fade>
+
+                {/* Submit */}
+                <Box sx={{ mt: 'auto' }}>
+                  <AccentButton
+                    onClick={handleAdd}
+                    variant="contained"
+                    fullWidth
+                    startIcon={<AddIcon sx={{ fontSize: '16px !important' }} />}
+                    disabled={!canAdd}
+                    sx={{
+                      height: 42,
+                      bgcolor: canAdd ? T.accent : '#d0d0d0',
+                      color: canAdd ? '#fff' : '#888',
+                      boxShadow: canAdd
+                        ? `0 2px 10px ${alpha(T.accent, 0.32)}`
+                        : 'none',
+                      '&:hover': { bgcolor: canAdd ? T.accentDark : '#d0d0d0' },
+                      '&:disabled': {
+                        bgcolor: '#d0d0d0 !important',
+                        color: '#888 !important',
+                        boxShadow: 'none !important',
+                        transform: 'none !important',
+                      },
+                    }}
+                  >
+                    {loading ? 'Submitting…' : 'Add Remittance Record'}
+                  </AccentButton>
+                </Box>
+              </Box>
+            </SectionCard>
           </Grid>
 
-          {/* Remittance Records Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={900}>
-              <GlassCard
+          {/* ── RIGHT: Records ── */}
+          <Grid item xs={12} lg={8}>
+            <SectionCard
+              sx={{
+                height: 'calc(100vh - 280px)',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {/* Records header / toolbar */}
+              <Box
                 sx={{
-                  height: 'calc(100vh - 200px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  border: `1px solid ${alpha(accentColor, 0.1)}`
+                  px: 3.5,
+                  py: 2,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
                 }}
               >
+                {/* Title row */}
                 <Box
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: accentColor,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    mb: 2,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <ReorderIcon sx={{ fontSize: '1.8rem', mr: 2 }} />
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                        Remittance Records
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                        View and manage existing records
-                      </Typography>
-                    </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
+                    <Typography
+                      sx={{
+                        fontSize: '0.88rem',
+                        fontWeight: 700,
+                        color: T.text,
+                      }}
+                    >
+                      Remittance Records
+                    </Typography>
                   </Box>
-
                   <ToggleButtonGroup
                     value={viewMode}
                     exclusive
                     onChange={handleViewModeChange}
-                    aria-label="view mode"
                     size="small"
                     sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
                       '& .MuiToggleButton-root': {
-                        color: accentColor,
-                        borderColor: 'rgba(109, 35, 35, 0.5)',
-                        padding: '4px 8px',
+                        px: 1,
+                        py: 0.35,
+                        border: `1px solid ${T.accentBorder}`,
+                        color: T.muted,
                         '&.Mui-selected': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          color: accentColor,
+                          bgcolor: T.accentFaint,
+                          color: T.accent,
                         },
                       },
                     }}
                   >
-                    <ToggleButton value="grid" aria-label="grid view">
-                      <ViewModuleIcon fontSize="small" />
+                    <ToggleButton value="grid">
+                      <ViewModuleIcon sx={{ fontSize: 14 }} />
                     </ToggleButton>
-                    <ToggleButton value="list" aria-label="list view">
-                      <ViewListIcon fontSize="small" />
+                    <ToggleButton value="list">
+                      <ViewListIcon sx={{ fontSize: 14 }} />
                     </ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
 
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
+                {/* Search */}
+                <FieldInput
+                  size="small"
+                  placeholder="Search by name or employee ID…"
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setPage(0); }}
+                  fullWidth
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 15, color: T.muted }} />
+                      </InputAdornment>
+                    ),
                   }}
-                >
-                  <Box sx={{ mb: 3 }}>
-                    <ModernTextField
-                      size="small"
-                      variant="outlined"
-                      placeholder="Search by Employee ID or Name"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      fullWidth
-                      InputProps={{
-                        startAdornment: (
-                          <SearchIcon sx={{ color: accentColor, mr: 1 }} />
-                        ),
+                />
+              </Box>
+
+              {/* Records list */}
+              <Box
+                sx={{
+                  flexGrow: 1,
+                  overflowY: 'auto',
+                  p: 2,
+                  '&::-webkit-scrollbar': { width: 4 },
+                  '&::-webkit-scrollbar-thumb': {
+                    bgcolor: T.accentBorder,
+                    borderRadius: 2,
+                  },
+                }}
+              >
+                {filteredData.length === 0 ? (
+                  <Box sx={{ py: 10, textAlign: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: '50%',
+                        bgcolor: T.accentFaint,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mx: 'auto',
+                        mb: 2,
                       }}
-                    />
+                    >
+                      <FactCheckIcon
+                        sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                      />
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontSize: '0.9rem',
+                        fontWeight: 600,
+                        color: T.muted,
+                        mb: 0.5,
+                      }}
+                    >
+                      {data.length === 0
+                        ? 'No remittance records yet'
+                        : 'No records match your search'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                      {data.length === 0
+                        ? 'Use the form on the left to add a record.'
+                        : 'Try a different search term.'}
+                    </Typography>
                   </Box>
-
-                  <Box
-                    sx={{
-                      flexGrow: 1,
-                      overflowY: 'auto',
-                      pr: 1,
-                      '&::-webkit-scrollbar': {
-                        width: '6px',
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        background: '#f1f1f1',
-                        borderRadius: '3px',
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: accentColor,
-                        borderRadius: '3px',
-                      },
-                    }}
-                  >
-                    {viewMode === 'grid' ? (
-                      <Grid container spacing={2}>
-                        {filteredData.map((remittance) => (
-                          <Grid item xs={12} sm={6} md={4} key={remittance.id}>
-                            <Card
-                              onClick={() => handleOpenModal(remittance)}
-                              sx={{
-                                cursor: 'pointer',
-                                border: '1px solid rgba(109, 35, 35, 0.1)',
-                                height: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                '&:hover': {
-                                  borderColor: accentColor,
-                                  transform: 'translateY(-2px)',
-                                  transition: 'all 0.2s ease',
-                                  boxShadow: '0 4px 8px rgba(109,35,35,0.15)',
-                                },
-                              }}
-                            >
-                              <CardContent
-                                sx={{
-                                  p: 2,
-                                  flexGrow: 1,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                }}
-                              >
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    mb: 1,
-                                  }}
-                                >
-                                  <FactCheckIcon
-                                    sx={{
-                                      fontSize: 18,
-                                      color: accentColor,
-                                      mr: 0.5,
-                                    }}
-                                  />
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      color: accentColor,
-                                      px: 0.5,
-                                      py: 0.2,
-                                      borderRadius: 0.5,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold',
-                                    }}
-                                  >
-                                    {remittance.employeeNumber}
-                                  </Typography>
-                                </Box>
-
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  mb={0.5}
-                                  noWrap
-                                >
-                                  {employeeNames[remittance.employeeNumber] ||
-                                    'Loading...'}
-                                </Typography>
-
-                                <Typography
-                                  variant="body2"
-                                  color={grayColor}
-                                  sx={{ flexGrow: 1 }}
-                                >
-                                  Total Deductions:{' '}
-                                  {Object.keys(fieldLabels)
-                                    .reduce(
-                                      (sum, field) =>
-                                        sum +
-                                        (parseFloat(remittance[field]) || 0),
-                                      0
-                                    )
-                                    .toFixed(2)}
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    ) : (
-                      filteredData.map((remittance) => (
-                        <Card
-                          key={remittance.id}
+                ) : viewMode === 'grid' ? (
+                  <Grid container spacing={1.5} alignItems="stretch">
+                    {filteredData.map((remittance) => (
+                      <Grid
+                        item
+                        xs={12}
+                        sm={3}
+                        key={remittance.id}
+                        sx={{ display: 'flex' }}
+                      >
+                        <Box
                           onClick={() => handleOpenModal(remittance)}
                           sx={{
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            p: 2,
+                            borderRadius: 2,
                             cursor: 'pointer',
-                            border: '1px solid rgba(109, 35, 35, 0.1)',
-                            mb: 1,
+                            bgcolor: '#fff',
+                            border: `1px solid ${T.accentBorder}`,
+                            position: 'relative',
+                            transition: 'all 0.13s',
                             '&:hover': {
-                              borderColor: accentColor,
-                              backgroundColor: 'rgba(254, 249, 225, 0.3)',
+                              bgcolor: T.rowHover,
+                              borderColor: T.accent,
                             },
                           }}
                         >
-                          <Box sx={{ p: 2 }}>
-                            <Box
-                              sx={{ display: 'flex', alignItems: 'flex-start' }}
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 0.5,
+                              mb: 0.75,
+                            }}
+                          >
+                            <Typography
+                              sx={{ fontSize: '0.7rem', color: T.faint }}
                             >
-                              <Box sx={{ mr: 1.5, mt: 0.2 }}>
-                                <FactCheckIcon
-                                  sx={{ fontSize: 20, color: accentColor }}
-                                />
-                              </Box>
-
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: accentColor,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold',
-                                    display: 'block',
-                                    mb: 0.5
-                                  }}
-                                >
-                                  {remittance.employeeNumber}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  sx={{ mb: 0.5 }}
-                                >
-                                  {employeeNames[remittance.employeeNumber] ||
-                                    'Loading...'}
-                                </Typography>
-
-                                <Typography
-                                  variant="body2"
-                                  color={grayColor}
-                                  sx={{ mb: 0.5 }}
-                                >
-                                  Total Deductions:{' '}
-                                  {Object.keys(fieldLabels)
-                                    .reduce(
-                                      (sum, field) =>
-                                        sum +
-                                        (parseFloat(remittance[field]) || 0),
-                                      0
-                                    )
-                                    .toFixed(2)}
-                                </Typography>
-                              </Box>
-                            </Box>
+                              {remittance.employeeNumber}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                color: T.text,
+                              }}
+                              noWrap
+                            >
+                              {getEmployeeDisplayName(remittance.employeeNumber)}
+                            </Typography>
                           </Box>
-                        </Card>
-                      ))
-                    )}
-
-                    {filteredData.length === 0 && (
-                      <Box textAlign="center" py={4}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                            <DeptBadge code={deptMap[remittance.employeeNumber?.toString()]} />
+                            <EmpCatBadge
+                              label={empCatMap[remittance.employeeNumber?.toString()]?.label}
+                              colorHex={empCatMap[remittance.employeeNumber?.toString()]?.colorHex}
+                            />
+                          </Box>
+                          <Typography
+                            sx={{
+                              fontSize: '0.75rem',
+                              color: T.muted,
+                              mb: 1,
+                              flexGrow: 1,
+                            }}
+                          >
+                            Total Deductions:{' '}
+                            <Box
+                              component="span"
+                              sx={{ fontWeight: 700, color: T.accent }}
+                            >
+                              {getTotalDeductions(remittance)}
+                            </Box>
+                          </Typography>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                            }}
+                          >
+                            <FactCheckIcon
+                              sx={{ fontSize: 11, color: T.faint }}
+                            />
+                            <Typography
+                              sx={{ fontSize: '0.7rem', color: T.muted }}
+                            >
+                              {
+                                Object.keys(fieldLabels).filter(
+                                  (f) => parseFloat(remittance[f]) > 0,
+                                ).length
+                              }{' '}
+                              active field(s)
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                ) : (
+                  <>
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 1,
+                        display: 'grid',
+                        gridTemplateColumns: '110px 1fr 130px',
+                        gap: 1,
+                        alignItems: 'center',
+                        bgcolor: alpha(T.accent, 0.04),
+                        borderRadius: 1.5,
+                        mb: 1,
+                      }}
+                    >
+                      {['Emp. No', 'Employee', 'Total Deductions'].map(
+                        (col) => (
+                          <Typography
+                            key={col}
+                            sx={{
+                              fontSize: '0.65rem',
+                              fontWeight: 700,
+                              color: T.accent,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.07em',
+                            }}
+                          >
+                            {col}
+                          </Typography>
+                        ),
+                      )}
+                    </Box>
+                    {filteredData.map((remittance, idx) => (
+                      <Box
+                        key={remittance.id}
+                        onClick={() => handleOpenModal(remittance)}
+                        sx={{
+                          px: 1.5,
+                          py: 1.25,
+                          display: 'grid',
+                          gridTemplateColumns: '110px 1fr 130px',
+                          gap: 1,
+                          alignItems: 'center',
+                          borderRadius: 1.5,
+                          cursor: 'pointer',
+                          bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                          border: '1px solid transparent',
+                          transition: 'background 0.13s ease',
+                          '&:hover': { bgcolor: T.rowHover },
+                        }}
+                      >
                         <Typography
-                          variant="h6"
-                          color={accentColor}
-                          fontWeight="bold"
-                          sx={{ mb: 1 }}
+                          sx={{ fontSize: '0.75rem', color: T.muted }}
                         >
-                          No Records Found
+                          {remittance.employeeNumber}
                         </Typography>
-                        <Typography variant="body2" color={grayColor}>
-                          Try adjusting your search criteria
-                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.82rem',
+                              fontWeight: 500,
+                              color: T.text,
+                            }}
+                            noWrap
+                          >
+                            {getEmployeeDisplayName(remittance.employeeNumber)}
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                            <DeptBadge code={deptMap[remittance.employeeNumber?.toString()]} />
+                            <EmpCatBadge
+                              label={empCatMap[remittance.employeeNumber?.toString()]?.label}
+                              colorHex={empCatMap[remittance.employeeNumber?.toString()]?.colorHex}
+                            />
+                          </Box>
+                        </Box>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              px: 1,
+                              py: 0.2,
+                              borderRadius: 1,
+                              bgcolor: T.accentFaint,
+                              border: `1px solid ${T.accentBorder}`,
+                            }}
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: '0.68rem',
+                                fontWeight: 800,
+                                color: T.accent,
+                              }}
+                            >
+                              {getTotalDeductions(remittance)}
+                            </Typography>
+                          </Box>
+                        </Box>
                       </Box>
-                    )}
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Fade>
+                    ))}
+                  </>
+                )}
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
+                <TablePagination
+                  component="div"
+                  count={totalRemittanceCount}
+                  page={page}
+                  onPageChange={handleChangePage}
+                  rowsPerPage={rowsPerPage}
+                  onRowsPerPageChange={handleChangeRowsPerPage}
+                  rowsPerPageOptions={[12, 24, 48, 96]}
+                  labelRowsPerPage="Rows per page"
+                  showFirstButton
+                  showLastButton
+                />
+              </Box>
+            </SectionCard>
           </Grid>
         </Grid>
 
-        {/* Edit Modal */}
+        {/* ── Edit / View Modal ── */}
         <Modal
           open={!!editRemittance}
           onClose={handleCloseModal}
@@ -1530,357 +2787,470 @@ const EmployeeRemittance = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            p: 2,
           }}
         >
-          <GlassCard
-            sx={{
-              width: '90%',
-              maxWidth: '900px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {editRemittance && (
-              <>
-                <Box
-                  sx={{
-                    p: 3,
-                    background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
-                    color: settings.accentColor || '#FEF9E1',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: settings.accentColor || '#FEF9E1' }}>
-                    {isEditing
-                      ? 'Edit Remittance Information'
-                      : 'Remittance Details'}
-                  </Typography>
-                  <IconButton
-                    onClick={handleCloseModal}
-                    sx={{ color: settings.accentColor || '#FEF9E1' }}
+          <Fade in={!!editRemittance}>
+            <Box
+              sx={{
+                width: '100%',
+                maxWidth: 920,
+                maxHeight: '90vh',
+                borderRadius: 3,
+                overflow: 'hidden',
+                boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
+                bgcolor: T.surface,
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
+              {editRemittance && (
+                <>
+                  {/* Modal header */}
+                  <Box
+                    sx={{
+                      px: 3.5,
+                      py: 2.5,
+                      background: T.headerGrad,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                    }}
                   >
-                    <Close />
-                  </IconButton>
-                </Box>
-
-                <Box sx={{ 
-                  p: 4, 
-                  flexGrow: 1, 
-                  overflowY: 'auto',
-                  minHeight: 0,
-                  '&::-webkit-scrollbar': {
-                    width: '6px',
-                  },
-                  '&::-webkit-scrollbar-track': {
-                    background: '#f1f1f1',
-                    borderRadius: '3px',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    background: settings.primaryColor || accentColor,
-                    borderRadius: '3px',
-                  },
-                }}>
-                  <Box sx={{ mb: 3 }}>
-                    <Typography
-                      variant="h5"
+                    <Box
                       sx={{
-                        fontWeight: 600,
-                        mb: 2,
-                        color: accentColor,
+                        position: 'absolute',
+                        top: -50,
+                        right: -30,
+                        width: 180,
+                        height: 180,
+                        borderRadius: '50%',
+                        bgcolor: 'rgba(255,255,255,0.04)',
+                      }}
+                    />
+                    <Box
+                      sx={{
                         display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        position: 'relative',
+                        zIndex: 1,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 2,
+                          bgcolor: 'rgba(255,255,255,0.15)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <FactCheckIcon sx={{ fontSize: 18, color: '#fff' }} />
+                      </Box>
+                      <Box>
+                        <Typography
+                          sx={{
+                            fontWeight: 700,
+                            color: '#fff',
+                            fontSize: '0.95rem',
+                            lineHeight: 1.2,
+                            mb: 0.3,
+                          }}
+                        >
+                          {isEditing
+                            ? 'Edit Remittance Record'
+                            : 'Remittance Details'}
+                        </Typography>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.75,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: '0.72rem',
+                              color: 'rgba(255,255,255,0.68)',
+                            }}
+                          >
+                            #{editRemittance.employeeNumber} •{' '}
+                            {selectedEditEmployee?.name ||
+                              employeeNames[editRemittance.employeeNumber] ||
+                              '—'}
+                          </Typography>
+                          {!isEditing && (
+                            <Chip
+                              label="View mode"
+                              size="small"
+                              sx={{
+                                height: 16,
+                                fontSize: '0.62rem',
+                                bgcolor: 'rgba(255,255,255,0.1)',
+                                color: 'rgba(255,255,255,0.7)',
+                                fontWeight: 500,
+                              }}
+                            />
+                          )}
+                          {isEditing && (
+                            <Chip
+                              label="Editing"
+                              size="small"
+                              sx={{
+                                height: 16,
+                                fontSize: '0.62rem',
+                                bgcolor: 'rgba(255,200,0,0.22)',
+                                color: '#ffe082',
+                                fontWeight: 600,
+                              }}
+                            />
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+                    <IconButton
+                      onClick={handleCloseModal}
+                      size="small"
+                      sx={{
+                        color: 'rgba(255,255,255,0.75)',
+                        position: 'relative',
+                        zIndex: 1,
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' },
+                      }}
+                    >
+                      <Close sx={{ fontSize: 17 }} />
+                    </IconButton>
+                  </Box>
+
+                  {/* Modal body */}
+                  <Box
+                    sx={{
+                      px: 3.5,
+                      py: 3,
+                      overflowY: 'auto',
+                      flexGrow: 1,
+                      '&::-webkit-scrollbar': { width: 4 },
+                      '&::-webkit-scrollbar-thumb': {
+                        bgcolor: T.accentBorder,
+                        borderRadius: 2,
+                      },
+                    }}
+                  >
+                    {/* ── Employee section — always read-only ── */}
+                    <FormSectionLabel icon={PersonIcon}>
+                      Employee Information
+                    </FormSectionLabel>
+
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                        px: 2.5,
+                        py: 2,
+                        mb: 2.5,
+                        borderRadius: 2,
+                        bgcolor: T.accentFaint,
+                        border: `1px solid ${T.accentBorder}`,
+                      }}
+                    >
+                      <Avatar
+                        sx={{
+                          width: 44,
+                          height: 44,
+                          bgcolor: alpha(T.accent, 0.15),
+                          fontSize: '1rem',
+                          color: T.accent,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {(selectedEditEmployee?.name?.[0] || '?').toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.9rem',
+                            fontWeight: 700,
+                            color: T.text,
+                            lineHeight: 1.2,
+                          }}
+                          noWrap
+                        >
+                          {selectedEditEmployee?.name ||
+                            employeeNames[editRemittance.employeeNumber] ||
+                            '—'}
+                        </Typography>
+                        <Typography
+                          sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.25 }}
+                        >
+                          Employee No. #{editRemittance.employeeNumber}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        icon={
+                          <PersonIcon sx={{ fontSize: '13px !important' }} />
+                        }
+                        label="Non-editable"
+                        size="small"
+                        sx={{
+                          height: 22,
+                          fontSize: '0.65rem',
+                          bgcolor: alpha(T.accent, 0.08),
+                          color: T.accentMid,
+                          border: `1px solid ${T.accentBorder}`,
+                          fontWeight: 600,
+                          flexShrink: 0,
+                        }}
+                      />
+                    </Box>
+
+                    <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                    {/* ── GSIS Deductions — 3 columns ── */}
+                    <FormSectionLabel icon={GsisSectionIcon}>
+                      GSIS Deductions
+                    </FormSectionLabel>
+
+                    <Grid container spacing={2} sx={{ mb: 2.5 }}>
+                      {GSIS_FIELDS.map((field) => (
+                        <Grid item xs={12} sm={4} key={field}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: T.accent,
+                              mb: 0.5,
+                            }}
+                          >
+                            {fieldLabels[field]}
+                          </Typography>
+                          {isEditing ? (
+                            <FieldInput
+                              type="number"
+                              value={editRemittance[field] || ''}
+                              onChange={(e) =>
+                                handleChange(field, e.target.value, true)
+                              }
+                              fullWidth
+                              size="small"
+                              inputProps={{ step: '0.01', min: '0' }}
+                              placeholder="0.00"
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                px: 1.5,
+                                py: 1,
+                                bgcolor: T.accentFaint,
+                                borderRadius: 2,
+                                border: `1px solid ${T.accentBorder}`,
+                              }}
+                            >
+                              <Typography
+                                sx={{ fontSize: '0.82rem', color: T.text }}
+                              >
+                                {editRemittance[field] || '0.00'}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Grid>
+                      ))}
+                    </Grid>
+
+                    <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                    {/* ── Other Deductions — 3 columns ── */}
+                    <FormSectionLabel icon={FactCheckIcon}>
+                      Other Deductions
+                    </FormSectionLabel>
+
+                    <Grid container spacing={2}>
+                      {OTHER_FIELDS.map((field) => (
+                        <Grid item xs={12} sm={4} key={field}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: T.accent,
+                              mb: 0.5,
+                            }}
+                          >
+                            {fieldLabels[field]}
+                          </Typography>
+                          {isEditing ? (
+                            <FieldInput
+                              type="number"
+                              value={editRemittance[field] || ''}
+                              onChange={(e) =>
+                                handleChange(field, e.target.value, true)
+                              }
+                              fullWidth
+                              size="small"
+                              inputProps={{ step: '0.01', min: '0' }}
+                              placeholder="0.00"
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                px: 1.5,
+                                py: 1,
+                                bgcolor: T.accentFaint,
+                                borderRadius: 2,
+                                border: `1px solid ${T.accentBorder}`,
+                              }}
+                            >
+                              <Typography
+                                sx={{ fontSize: '0.82rem', color: T.text }}
+                              >
+                                {editRemittance[field] || '0.00'}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Grid>
+                      ))}
+                    </Grid>
+
+                    {/* Total summary */}
+                    <Box
+                      sx={{
+                        mt: 3,
+                        p: 2.5,
+                        bgcolor: T.accentFaint,
+                        borderRadius: 2,
+                        border: `1px solid ${T.accentBorder}`,
+                        display: 'flex',
+                        justifyContent: 'space-between',
                         alignItems: 'center',
                       }}
                     >
-                      <PersonIcon sx={{ mr: 2, fontSize: 24 }} />
-                      Employee Information
-                    </Typography>
-
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Search Employee
-                        </Typography>
-                        <EmployeeAutocomplete
-                          value={editRemittance?.employeeNumber || ''}
-                          onChange={
-                            isEditing ? handleEditEmployeeChange : () => {}
-                          }
-                          selectedEmployee={selectedEditEmployee}
-                          onEmployeeSelect={
-                            isEditing ? handleEditEmployeeSelect : () => {}
-                          }
-                          placeholder="Search and select employee..."
-                          required
-                          disabled={!isEditing}
-                          dropdownDisabled={!isEditing}
-                          settings={settings}
-                        />
-                        {!isEditing && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: grayColor,
-                              fontStyle: 'italic',
-                              display: 'block',
-                              mt: 0.5,
-                            }}
-                          >
-                            Contact administrator for assistance.
-                          </Typography>
-                        )}
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
-                        >
-                          Selected Employee
-                        </Typography>
-                        {selectedEditEmployee ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              backgroundColor: alpha(settings.accentColor || settings.backgroundColor || '#FEF9E1', 0.8),
-                              border: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.3)}`,
-                              borderRadius: 2,
-                              padding: '12px',
-                              gap: 1.5,
-                            }}
-                          >
-                            <PersonIcon
-                              sx={{ color: settings.primaryColor || accentColor, fontSize: 20 }}
-                            />
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                flexDirection: 'column',
-                                flex: 1,
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 'bold',
-                                  color: settings.textPrimaryColor || accentColor,
-                                  fontSize: '14px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                {selectedEditEmployee.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  color: settings.textSecondaryColor || grayColor,
-                                  fontSize: '12px',
-                                  lineHeight: 1.2,
-                                }}
-                              >
-                                ID: {selectedEditEmployee.employeeNumber}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        ) : (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                              border: '2px dashed rgba(109, 35, 35, 0.3)',
-                              borderRadius: 2,
-                              padding: '12px',
-                              minHeight: '48px',
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: grayColor,
-                                fontStyle: 'italic',
-                                fontSize: '14px',
-                              }}
-                            >
-                              No employee selected
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    </Grid>
+                      <Typography
+                        sx={{
+                          fontSize: '0.82rem',
+                          fontWeight: 700,
+                          color: T.accent,
+                        }}
+                      >
+                        Total Deductions
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: '1rem',
+                          fontWeight: 900,
+                          color: T.accent,
+                        }}
+                      >
+                        {getTotalDeductions(editRemittance)}
+                      </Typography>
+                    </Box>
                   </Box>
 
-                  <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-                  <Typography
-                    variant="h5"
+                  {/* Modal footer */}
+                  <Box
                     sx={{
-                      fontWeight: 600,
-                      mb: 3,
-                      color: accentColor,
+                      px: 3.5,
+                      py: 2,
+                      borderTop: `1px solid ${T.divider}`,
+                      bgcolor: '#f9f9f9',
                       display: 'flex',
-                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      gap: 1.25,
+                      flexShrink: 0,
                     }}
                   >
-                    <FactCheckIcon sx={{ mr: 2, fontSize: 24 }} />
-                    Remittance Details
-                  </Typography>
-
-                  <Grid container spacing={2}>
-                    {Object.keys(fieldLabels).map((field) => (
-                      <Grid item xs={12} sm={6} key={field}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: accentColor }}
+                    {!isEditing ? (
+                      <>
+                        <AccentButton
+                          onClick={() => handleDelete(editRemittance.id)}
+                          variant="outlined"
+                          startIcon={
+                            <DeleteIcon sx={{ fontSize: '14px !important' }} />
+                          }
+                          sx={{
+                            fontSize: '0.8rem',
+                            borderColor: '#e57373',
+                            color: '#c62828',
+                            '&:hover': {
+                              bgcolor: 'rgba(198,40,40,0.04)',
+                              borderColor: '#c62828',
+                              transform: 'none',
+                            },
+                          }}
                         >
-                          {fieldLabels[field]}
-                        </Typography>
-                        {isEditing ? (
-                          <ModernTextField
-                            type="number"
-                            value={editRemittance[field] || ''}
-                            onChange={(e) =>
-                              handleChange(field, e.target.value, true)
-                            }
-                            fullWidth
-                            size="small"
-                            inputProps={{ step: '0.01', min: '0' }}
-                          />
-                        ) : (
-                          <Box
-                            sx={{
-                              p: 1.5,
-                              bgcolor: 'rgba(254, 249, 225, 0.5)',
-                              borderRadius: 1,
-                              border: '1px solid rgba(109, 35, 35, 0.2)',
-                            }}
-                          >
-                            <Typography variant="body2">
-                              {editRemittance[field] || '0.00'}
-                            </Typography>
-                          </Box>
-                        )}
-                      </Grid>
-                    ))}
-                  </Grid>
-
-                </Box>
-
-                {/* Bottom action bar */}
-                <Box
-                  sx={{
-                    borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                    backgroundColor: '#FFFFFF',
-                    px: 3,
-                    py: 2,
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: 2,
-                    position: 'sticky',
-                    bottom: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  {!isEditing ? (
-                    <>
-                      <ProfessionalButton
-                        onClick={() => handleDelete(editRemittance.id)}
-                        variant="outlined"
-                        startIcon={<DeleteIcon />}
-                        sx={{
-                          borderColor: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(settings.deleteButtonColor || settings.primaryColor || '#6d2323', 0.1),
-                            borderColor: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
-                            color: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Delete
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={handleStartEdit}
-                        variant="contained"
-                        startIcon={<EditIcon />}
-                        sx={{
-                          backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Edit
-                      </ProfessionalButton>
-                    </>
-                  ) : (
-                    <>
-                      <ProfessionalButton
-                        onClick={handleCancelEdit}
-                        variant="outlined"
-                        startIcon={<CancelIcon />}
-                        sx={{
-                          borderColor: settings.cancelButtonColor || '#6c757d',
-                          color: settings.cancelButtonColor || '#6c757d',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(settings.cancelButtonColor || '#6c757d', 0.1),
-                            borderColor: settings.cancelButtonHoverColor || '#5a6268',
-                            color: settings.cancelButtonHoverColor || '#5a6268',
-                          },
-                        }}
-                      >
-                        Cancel
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={handleUpdate}
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        disabled={!hasChanges()}
-                        sx={{
-                          backgroundColor: hasChanges() 
-                            ? (settings.updateButtonColor || settings.primaryColor || '#6d2323')
-                            : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: hasChanges() 
-                              ? (settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d')
-                              : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          },
-                          '&:disabled': {
-                            color: alpha(settings.accentColor || '#FEF9E1', 0.5),
-                          },
-                        }}
-                      >
-                        Save
-                      </ProfessionalButton>
-                    </>
-                  )}
-                </Box>
-              </>
-            )}
-          </GlassCard>
+                          Delete
+                        </AccentButton>
+                        <AccentButton
+                          onClick={handleStartEdit}
+                          variant="contained"
+                          startIcon={
+                            <EditIcon sx={{ fontSize: '14px !important' }} />
+                          }
+                          sx={{
+                            fontSize: '0.8rem',
+                            bgcolor: T.accent,
+                            color: '#fff',
+                            boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                            '&:hover': { bgcolor: T.accentDark },
+                          }}
+                        >
+                          Edit Record
+                        </AccentButton>
+                      </>
+                    ) : (
+                      <>
+                        <AccentButton
+                          onClick={handleCancelEdit}
+                          variant="outlined"
+                          startIcon={
+                            <CancelIcon sx={{ fontSize: '14px !important' }} />
+                          }
+                          sx={{
+                            fontSize: '0.8rem',
+                            borderColor: T.accentBorder,
+                            color: T.muted,
+                            '&:hover': {
+                              bgcolor: T.accentFaint,
+                              borderColor: T.accent,
+                              color: T.accent,
+                            },
+                          }}
+                        >
+                          Cancel
+                        </AccentButton>
+                        <AccentButton
+                          onClick={handleUpdate}
+                          disabled={!hasChanges()}
+                          variant="contained"
+                          startIcon={
+                            <SaveIcon sx={{ fontSize: '14px !important' }} />
+                          }
+                          sx={{
+                            fontSize: '0.8rem',
+                            bgcolor: T.accent,
+                            color: '#fff',
+                            boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                            '&:hover': { bgcolor: T.accentDark },
+                          }}
+                        >
+                          Save Changes
+                        </AccentButton>
+                      </>
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Fade>
         </Modal>
 
-        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
-
+        {/* ── Snackbar ── */}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={3000}
@@ -1890,13 +3260,13 @@ const EmployeeRemittance = () => {
           <Alert
             onClose={() => setSnackbar({ ...snackbar, open: false })}
             severity={snackbar.severity}
-            sx={{ width: '100%' }}
+            sx={{ width: '100%', borderRadius: 2 }}
           >
             {snackbar.message}
           </Alert>
         </Snackbar>
       </Box>
-    </Box>
+    </Fade>
   );
 };
 

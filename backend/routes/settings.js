@@ -4,6 +4,7 @@ const db = require('../db');
 const path = require('path');
 const fs = require('fs');
 const { upload } = require('../middleware/upload');
+const { authenticateToken, requireAdmin, requireTechnical } = require('../middleware/auth');
 
 // ── Generalized default settings ─────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -129,7 +130,7 @@ router.get('/api/system-settings/:key', (req, res) => {
 });
 
 // UPDATE system settings (bulk upsert)
-router.put('/api/system-settings', (req, res) => {
+router.put('/api/system-settings', authenticateToken, requireTechnical, (req, res) => {
   console.log('PUT /api/system-settings called');
 
   const settings = req.body;
@@ -200,7 +201,7 @@ router.put('/api/system-settings', (req, res) => {
 });
 
 // UPDATE single setting by key
-router.put('/api/system-settings/:key', (req, res) => {
+router.put('/api/system-settings/:key', authenticateToken, requireTechnical, (req, res) => {
   const { key } = req.params;
   const { value } = req.body;
 
@@ -223,7 +224,7 @@ router.put('/api/system-settings/:key', (req, res) => {
 });
 
 // DELETE single setting by key
-router.delete('/api/system-settings/:key', (req, res) => {
+router.delete('/api/system-settings/:key', authenticateToken, requireTechnical, (req, res) => {
   const { key } = req.params;
 
   db.query(
@@ -241,7 +242,7 @@ router.delete('/api/system-settings/:key', (req, res) => {
 });
 
 // RESET all settings to defaults
-router.post('/api/system-settings/reset', (req, res) => {
+router.post('/api/system-settings/reset', authenticateToken, requireTechnical, (req, res) => {
   console.log('POST /api/system-settings/reset called');
 
   db.getConnection((err, connection) => {
@@ -364,7 +365,7 @@ const deleteOldLogo = (logoUrl) => {
 };
 
 // Update settings
-router.post('/api/settings', upload.single('logo'), (req, res) => {
+router.post('/api/settings', authenticateToken, requireAdmin, upload.single('logo'), (req, res) => {
   const companyName  = req.body.company_name  || '';
   const headerColor  = req.body.header_color  || '#ffffff';
   const footerText   = req.body.footer_text   || '';

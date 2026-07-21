@@ -1,880 +1,529 @@
 import API_BASE_URL from "../apiConfig";
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import SuccessfulOverlay from "./SuccessfulOverlay";
 import {
-  Alert,
-  TextField,
-  Button,
-  Container,
-  Box,
-  Paper,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  CircularProgress,
-  InputAdornment,
-  IconButton,
-  Avatar,
-  Chip,
-  TablePagination,
-  Card,
-  CardContent,
-  CardHeader,
-  Grid,
-  Fade,
-  Backdrop,
-  styled,
-  alpha,
-  Breadcrumbs,
-  Link,
-  Tooltip,
+  TextField, Button, Box, Typography,
+  Table, TableBody, TableCell,
+  TableHead, TableRow, CircularProgress, InputAdornment,
+  IconButton, Avatar, Chip, TablePagination,
+  Fade, Tooltip, alpha, Card, Tabs, Tab,
 } from "@mui/material";
+import { styled } from "@mui/material/styles";
 import {
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
+  Search,
+  Refresh,
   LockReset as LockResetIcon,
-  Home,
-  Security,
-  CheckCircle,
-  Cancel,
-  Info,
-  Person,
-  Email,
-  Badge as BadgeIcon,
-  Business,
+  WarningAmberRounded,
+  ArrowBack as ArrowBackIcon,
+  ViewList as ViewListIcon,
 } from "@mui/icons-material";
 import { getAuthHeaders } from "../utils/auth";
 
-// System Settings Hook (from AdminHome)
-const useSystemSettings = () => {
-  const [settings, setSettings] = useState({
-    primaryColor: '#894444',
-    secondaryColor: '#6d2323',
-    accentColor: '#FEF9E1',
-    textColor: '#FFFFFF',
-    textPrimaryColor: '#6D2323', 
-    textSecondaryColor: '#FEF9E1', 
-    hoverColor: '#6D2323',
-    backgroundColor: '#FFFFFF',
-  });
-
-  useEffect(() => {
-    const storedSettings = localStorage.getItem('systemSettings');
-    if (storedSettings) {
-      try {
-        const parsedSettings = JSON.parse(storedSettings);
-        setSettings(parsedSettings);
-      } catch (error) {
-        console.error('Error parsing stored settings:', error);
-      }
-    }
-
-    const fetchSettings = async () => {
-      try {
-        const url = API_BASE_URL.includes('/api') 
-          ? `${API_BASE_URL}/system-settings`
-          : `${API_BASE_URL}/api/system-settings`;
-        
-        const response = await axios.get(url);
-        setSettings(response.data);
-        localStorage.setItem('systemSettings', JSON.stringify(response.data));
-      } catch (error) {
-        console.error('Error fetching system settings:', error);
-      }
-    };
-
-    fetchSettings();
-  }, []);
-
-  return settings;
+// ─── Theme tokens ──────────────────────────────────────────────────────────────
+const T = {
+  accent:       '#6d2323',
+  accentDark:   '#5a1d1d',
+  accentMid:    '#8B4545',
+  accentFaint:  'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  accentHover:  'rgba(109,35,35,0.10)',
+  rowEven:      '#ffffff',
+  rowOdd:       'rgba(109,35,35,0.025)',
+  rowHover:     'rgba(109,35,35,0.055)',
+  text:         '#1a1a1a',
+  muted:        '#6b6b6b',
+  faint:        '#a0a0a0',
+  surface:      '#ffffff',
+  divider:      'rgba(0,0,0,0.08)',
 };
 
+// ─── Styled primitives ─────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
+// ─── Shimmer ───────────────────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}`;
+
+const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
+  <Box sx={{
+    width: w, height: h, borderRadius: r,
+    background: 'linear-gradient(90deg, rgba(109,35,35,0.07) 25%, rgba(109,35,35,0.14) 50%, rgba(109,35,35,0.07) 75%)',
+    backgroundSize: '800px 100%',
+    animation: 'shimmer 1.6s infinite linear',
+    flexShrink: 0,
+    ...sx,
+  }} />
+);
+
+const Wireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box sx={{
+      py: { xs: 2, md: 4 }, mt: { xs: 0, md: -5 },
+      width: '100vw', maxWidth: '100%',
+      position: 'relative', left: '63%', transform: 'translateX(-61%)',
+      px: { xs: 2, sm: 3, md: 6 },
+    }}>
+      <Box sx={{ mb: 3, borderRadius: 3, overflow: 'hidden', border: `1px solid ${T.accentBorder}`, animation: 'blink 2s ease-in-out infinite' }}>
+        <Box sx={{ p: 3.5, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 52, height: 52, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)', flexShrink: 0 }} />
+            <Box><Bone w={200} h={18} sx={{ mb: 1 }} /><Bone w={320} h={11} /></Box>
+          </Box>
+          <Bone w={120} h={32} r={8} />
+        </Box>
+      </Box>
+      <Box sx={{ borderRadius: 3, border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', overflow: 'hidden', animation: 'blink 2s ease-in-out 0.1s infinite', height: 'calc(100vh - 200px)' }}>
+        <Box sx={{ px: 3.5, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', gap: 1.5, alignItems: 'center' }}>
+          <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'rgba(109,35,35,0.12)' }} />
+          <Bone w={160} h={13} />
+        </Box>
+        <Box sx={{ p: 3.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Box key={i} sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Bone w={40} h={40} r="50%" />
+              <Box sx={{ flex: 1 }}><Bone w="60%" h={12} sx={{ mb: 1 }} /><Bone w="40%" h={10} /></Box>
+              <Bone w={80} h={32} r={8} />
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  </>
+);
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 const ResetPassword = () => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [users, setUsers] = useState([]);
-  const [filteredUsers, setFilteredUsers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [resetting, setResetting] = useState({});
-  const [errMessage, setErrorMessage] = useState("");
-  const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState("");
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [refreshing, setRefreshing] = useState(false);
+  const [users, setUsers]                 = useState([]);
+  const [loading, setLoading]             = useState(false);
+  const [resetting, setResetting]         = useState({});
+  const [errMessage, setError]            = useState('');
+  const [successOpen, setSuccessOpen]     = useState(false);
+  const [successAction, setSuccessAction] = useState('');
+  const [page, setPage]                   = useState(0);
+  const [rowsPerPage, setRowsPerPage]     = useState(10);
+  const [searchTerm, setSearchTerm]       = useState('');
+  const [activeSection, setSection]       = useState('all');
   const navigate = useNavigate();
 
-  // Use system settings
-  const settings = useSystemSettings();
-  
-  // Memoize styled components to prevent recreation on every render
-  const GlassCard = useMemo(() => styled(Card)({
-    borderRadius: 20,
-    background: `${settings.accentColor}F2`,
-    backdropFilter: "blur(10px)",
-    boxShadow: `0 8px 40px ${settings.primaryColor}14`,
-    border: `1px solid ${settings.primaryColor}1A`,
-    overflow: "hidden",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    "&:hover": {
-      boxShadow: `0 12px 48px ${settings.primaryColor}26`,
-      transform: "translateY(-4px)",
-    },
-  }), [settings]);
+  const properUsers     = useMemo(() => users.filter((u) => u.fullName?.trim()), [users]);
+  const incompleteUsers = useMemo(() => users.filter((u) => !u.fullName?.trim()), [users]);
 
-  const ProfessionalButton = useMemo(() => styled(Button)(({ variant }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: "12px 24px",
-    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-    textTransform: "none",
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
-    boxShadow: variant === "contained" ? `0 4px 14px ${settings.primaryColor}40` : "none",
-    "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow: variant === "contained" ? `0 6px 20px ${settings.primaryColor}59` : "none",
-    },
-    "&:active": {
-      transform: "translateY(0)",
-    },
-  })), [settings]);
+  const sourceUsers = useMemo(() => {
+    if (activeSection === 'accounts')   return properUsers;
+    if (activeSection === 'incomplete') return incompleteUsers;
+    return users;
+  }, [activeSection, users, properUsers, incompleteUsers]);
 
-  const ModernTextField = useMemo(() => styled(TextField)({
-    "& .MuiOutlinedInput-root": {
-      borderRadius: 12,
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-      backgroundColor: "rgba(255, 255, 255, 0.8)",
-      "&:hover": {
-        transform: "translateY(-1px)",
-        backgroundColor: "rgba(255, 255, 255, 0.95)",
-      },
-      "&.Mui-focused": {
-        transform: "translateY(-1px)",
-        boxShadow: `0 4px 20px ${settings.primaryColor}40`,
-        backgroundColor: "rgba(255, 255, 255, 1)",
-      },
-    },
-    "& .MuiInputLabel-root": {
-      fontWeight: 500,
-    },
-  }), [settings]);
+  const filteredUsers = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    if (!term) return sourceUsers;
+    return sourceUsers.filter((u) =>
+      (u.fullName || '').toLowerCase().includes(term) ||
+      (u.email    || '').toLowerCase().includes(term) ||
+      String(u.employeeNumber || '').includes(term),
+    );
+  }, [searchTerm, sourceUsers]);
 
-  const PremiumTableContainer = useMemo(() => styled(TableContainer)({
-    borderRadius: 16,
-    overflow: "hidden",
-    boxShadow: `0 4px 24px ${settings.primaryColor}0F`,
-    border: `1px solid ${settings.primaryColor}14`,
-  }), [settings]);
-
-  const PremiumTableCell = useMemo(() => styled(TableCell)(({ isHeader = false }) => ({
-    fontWeight: isHeader ? 600 : 500,
-    padding: "18px 20px",
-    borderBottom: isHeader
-      ? `2px solid ${settings.primaryColor}4D`
-      : `1px solid ${settings.primaryColor}0F`,
-    fontSize: "0.95rem",
-    letterSpacing: "0.025em",
-  })), [settings]);
-
-  // Fetch users on component mount
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  // Filter users based on search term
-  useEffect(() => {
-    if (!searchTerm.trim()) {
-      setFilteredUsers(users);
-    } else {
-      const filtered = users.filter(
-        (user) =>
-          (user.fullName || "")
-            .toLowerCase()
-            .includes(searchTerm.toLowerCase()) ||
-          (user.email || "")
-            .toLowerCase()
-            .includes(searchTerm.toLowerCase()) ||
-          String(user.employeeNumber || "").includes(searchTerm)
-      );
-      setFilteredUsers(filtered);
-    }
-    setPage(0);
-  }, [searchTerm, users]);
+  useEffect(() => { fetchUsers(); }, []); // eslint-disable-line
 
   const fetchUsers = async () => {
-    setLoading(true);
-    setRefreshing(true);
-    setErrorMessage("");
-    setSuccessOpen(false);
-
+    setLoading(true); setError('');
     try {
-      const authHeaders = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/users/search`, {
-        method: "GET",
-        headers: authHeaders.headers,
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        setErrorMessage(error.error || "Failed to fetch users");
-        setUsers([]);
-        setFilteredUsers([]);
-        return;
-      }
-
-      const data = await response.json();
+      const res = await fetch(`${API_BASE_URL}/users/search`, { method: 'GET', headers: getAuthHeaders().headers });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); setError(e.error || 'Failed to fetch users'); setUsers([]); return; }
+      const data = await res.json();
       setUsers(Array.isArray(data) ? data : []);
-      setFilteredUsers(Array.isArray(data) ? data : []);
-
-      if (refreshing) {
-        setSuccessAction("create");
-        setSuccessOpen(true);
-      }
-    } catch (err) {
-      console.error("Error fetching users:", err);
-      setErrorMessage("Something went wrong while fetching users.");
-      setUsers([]);
-      setFilteredUsers([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    } catch { setError('Something went wrong while fetching users.'); setUsers([]); }
+    finally { setLoading(false); }
   };
 
-  const handleResetPassword = async (employeeNumber) => {
-    setResetting((prev) => ({ ...prev, [employeeNumber]: true }));
-    setErrorMessage("");
-    setSuccessOpen(false);
-
+  const handleReset = async (employeeNumber) => {
+    setResetting((p) => ({ ...p, [employeeNumber]: true }));
+    setError('');
     try {
-      const authHeaders = getAuthHeaders();
-      const response = await fetch(`${API_BASE_URL}/users/reset-password`, {
-        method: "POST",
-        headers: {
-          ...authHeaders.headers,
-          "Content-Type": "application/json",
-        },
+      const res = await fetch(`${API_BASE_URL}/users/reset-password`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders().headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeNumber }),
       });
+      const data = await res.json();
+      if (res.ok) { setSuccessAction('reset'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000); }
+      else { setError(data.error || 'Failed to reset password'); }
+    } catch { setError('Something went wrong while resetting password.'); }
+    finally { setResetting((p) => ({ ...p, [employeeNumber]: false })); }
+  };
 
-      const data = await response.json();
+  const getInitials = (name) => {
+    if (!name) return '?';
+    const parts = name.trim().split(' ').filter(Boolean);
+    if (!parts.length) return '?';
+    return parts.length === 1 ? parts[0][0].toUpperCase() : (parts[0][0] + parts[1][0]).toUpperCase();
+  };
 
-      if (response.ok) {
-        setSuccessAction("reset");
-        setSuccessOpen(true);
-      } else {
-        setErrorMessage(data.error || "Failed to reset password");
-      }
-    } catch (err) {
-      console.error("Reset Password Error", err);
-      setErrorMessage("Something went wrong while resetting password.");
-    } finally {
-      setResetting((prev) => ({ ...prev, [employeeNumber]: false }));
+  const getRoleStyle = (role = '') => {
+    switch ((role || '').toLowerCase()) {
+      case 'superadmin':    return { color: T.accent,    bg: T.accentFaint           };
+      case 'administrator': return { color: T.accentMid, bg: 'rgba(139,69,69,0.08)' };
+      case 'technical':     return { color: '#1565C0',   bg: '#E3F2FD'              };
+      case 'staff':         return { color: '#2E7D32',   bg: '#E8F5E9'              };
+      default:              return { color: T.muted,     bg: 'rgba(0,0,0,0.05)'     };
     }
   };
 
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
+  const paged = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  const getInitials = (nameOrUsername) => {
-    if (!nameOrUsername) return "U";
-    const parts = nameOrUsername.trim().split(" ").filter(Boolean);
-    
-    // FIX: Handle case where split results in an empty array (e.g., input was only whitespace)
-    if (parts.length === 0) return "U";
-    
-    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-    return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
-  };
-
-  const getRoleColor = (role = "") => {
-    switch ((role || "").toLowerCase()) {
-      case "superadmin":
-        return { bgcolor: alpha(settings.primaryColor, 0.15), color: settings.primaryColor };
-      case "administrator":
-        return { bgcolor: alpha(settings.secondaryColor, 0.15), color: settings.secondaryColor };
-      case "staff":
-        return { bgcolor: alpha(settings.primaryColor, 0.1), color: settings.primaryColor };
-      default:
-        return { bgcolor: alpha(settings.primaryColor, 0.1), color: settings.primaryColor };
-    }
-  };
-
-  const paginatedUsers = filteredUsers.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
-  );
+  if (loading && users.length === 0) return <Wireframe />;
 
   return (
-    <>
-      <Box
-        sx={{
-          py: 4,
-          borderRadius: "14px",
-          width: "100vw",
-          mx: "auto",
-          maxWidth: "100%",
-          overflow: "hidden",
-          position: "relative",
-          left: "50%",
-          transform: "translateX(-50%)",
-          minHeight: "92vh",
-        }}
-      >
-        <Box sx={{ px: 6, mx: "auto", maxWidth: "1600px" }}>
-          {/* Header */}
-          <Fade in timeout={500}>
-            <Box sx={{ mb: 4 }}>
-              <GlassCard>
-                <Box
-                  sx={{
-                    p: 5,
-                    background: `linear-gradient(135deg, ${settings.accentColor} 0%, ${alpha(settings.accentColor, 0.9)} 100%)`,
-                    color: settings.primaryColor,
-                    position: "relative",
-                    overflow: "hidden",
-                  }}
-                >
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      top: -50,
-                      right: -50,
-                      width: 200,
-                      height: 200,
-                      background: `radial-gradient(circle, ${alpha(settings.primaryColor, 0.1)} 0%, ${alpha(settings.primaryColor, 0)} 70%)`,
-                    }}
-                  />
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      bottom: -30,
-                      left: "30%",
-                      width: 150,
-                      height: 150,
-                      background: `radial-gradient(circle, ${alpha(settings.primaryColor, 0.08)} 0%, ${alpha(settings.primaryColor, 0)} 70%)`,
-                    }}
-                  />
+    <Fade in timeout={400}>
+      <Box sx={{
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        mb: { xs: 1, md: 2 },
+        width: '100vw', maxWidth: '100%',
+        position: 'relative', left: '63%', transform: 'translateX(-61%)',
+        px: { xs: 2, sm: 3, md: 6 },
+      }}>
+        <style>{shimmerKf}</style>
+        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
 
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    position="relative"
-                    zIndex={1}
-                  >
-                    <Box display="flex" alignItems="center">
-                      <Avatar
-                        sx={{
-                          bgcolor: alpha(settings.primaryColor, 0.15),
-                          mr: 4,
-                          width: 64,
-                          height: 64,
-                          boxShadow: `0 8px 24px ${alpha(settings.primaryColor, 0.15)}`,
-                        }}
-                      >
-                        <LockResetIcon sx={{ fontSize: 32, color: settings.primaryColor }} />
-                      </Avatar>
-                      <Box>
-                        <Typography
-                          variant="h4"
-                          component="h1"
-                          sx={{
-                            fontWeight: 700,
-                            mb: 1,
-                            lineHeight: 1.2,
-                            color: settings.primaryColor,
-                          }}
-                        >
-                          Password Management
-                        </Typography>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            opacity: 0.8,
-                            fontWeight: 400,
-                            color: settings.textPrimaryColor,
-                          }}
-                        >
-                          Search for employees/users and reset their password to their surname (ALL CAPS)
+        {/* ── Error banner ── */}
+        {errMessage && (
+          <Box sx={{
+            mb: 2, px: 3, py: 1.5, borderRadius: 2,
+            bgcolor: '#FFEBEE', border: '1px solid rgba(198,40,40,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2,
+          }}>
+            <Typography sx={{ fontSize: '0.82rem', color: '#C62828', fontWeight: 600 }}>{errMessage}</Typography>
+            <AccentButton onClick={() => setError('')} size="small" variant="outlined"
+              sx={{ fontSize: '0.72rem', borderColor: 'rgba(198,40,40,0.3)', color: '#C62828', px: 1.5, py: 0.3, '&:hover': { bgcolor: 'rgba(198,40,40,0.06)', transform: 'none' } }}>
+              Dismiss
+            </AccentButton>
+          </Box>
+        )}
+
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box sx={{
+            px: 4, py: 3,
+            background: 'linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            position: 'relative', overflow: 'hidden',
+          }}>
+            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)' }} />
+            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)' }} />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+              <LockResetIcon sx={{ fontSize: 32, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                  Password Management
+                </Typography>
+                <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                  Administrative Panel • Resets a user's password to their surname (ALL CAPS)
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              {[
+                { label: `${users.length} total`,             color: T.accent  },
+                { label: `${properUsers.length} complete`,    color: '#2E7D32' },
+                { label: `${incompleteUsers.length} missing`, color: '#F57C00' },
+              ].map(({ label, color }) => (
+                <Box key={label} sx={{ px: 2, py: 0.6, borderRadius: 6, bgcolor: alpha(color, 0.1), border: `1px solid ${alpha(color, 0.22)}` }}>
+                  <Typography sx={{ fontSize: '0.75rem', color, fontWeight: 700 }}>{label}</Typography>
+                </Box>
+              ))}
+              <Tooltip title="Refresh">
+                <IconButton onClick={fetchUsers} disabled={loading}
+                  sx={{ width: 34, height: 34, border: `1px solid ${T.accentBorder}`, borderRadius: 2, bgcolor: '#fff', '&:hover': { borderColor: T.accent, color: T.accent } }}>
+                  {loading ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <Refresh sx={{ fontSize: 16 }} />}
+                </IconButton>
+              </Tooltip>
+              
+            </Box>
+          </Box>
+        </SectionCard>
+
+        {/* ── Table card ── */}
+        <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
+
+          {/* Toolbar */}
+          <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+
+            {/* Title row */}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <ViewListIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                  Account Records
+                </Typography>
+                {activeSection === 'incomplete' && incompleteUsers.length > 0 && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.5, py: 0.3, bgcolor: '#FFF3E0', border: '1px solid rgba(245,124,0,0.3)', borderRadius: 20 }}>
+                    <WarningAmberRounded sx={{ fontSize: 11, color: '#F57C00' }} />
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#F57C00' }}>
+                      {incompleteUsers.length} missing names
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+              <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>
+                {filteredUsers.length} of {sourceUsers.length} shown
+              </Typography>
+            </Box>
+
+            {/* Filter tabs */}
+            <Tabs
+              value={activeSection}
+              onChange={(_, v) => { setSection(v); setSearchTerm(''); setPage(0); }}
+              sx={{
+                mb: 1.5, minHeight: 32,
+                '& .MuiTabs-indicator': { backgroundColor: T.accent, height: 2.5, borderRadius: '2px 2px 0 0' },
+              }}
+            >
+              {[
+                { key: 'all',        label: 'All',        count: users.length           },
+                { key: 'accounts',   label: 'Complete',   count: properUsers.length     },
+                { key: 'incomplete', label: 'Incomplete', count: incompleteUsers.length },
+              ].map((t) => (
+                <Tab
+                  key={t.key}
+                  value={t.key}
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <span>{t.label}</span>
+                      <Box sx={{
+                        px: 0.9, py: 0.1, borderRadius: '20px', lineHeight: 1,
+                        bgcolor: activeSection === t.key ? alpha(T.accent, 0.12) : 'rgba(0,0,0,0.06)',
+                      }}>
+                        <Typography sx={{ fontSize: '0.6rem', fontWeight: 900, color: activeSection === t.key ? T.accent : T.faint }}>
+                          {t.count}
                         </Typography>
                       </Box>
                     </Box>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Chip
-                        label={`${users.length} Users`}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(settings.primaryColor, 0.15),
-                          color: settings.primaryColor,
-                          fontWeight: 500,
-                          "& .MuiChip-label": { px: 1 },
-                        }}
-                      />
-                      <Tooltip title="Refresh Users">
-                        <IconButton
-                          onClick={fetchUsers}
-                          disabled={loading}
-                          sx={{
-                            bgcolor: alpha(settings.primaryColor, 0.1),
-                            "&:hover": { bgcolor: alpha(settings.primaryColor, 0.2) },
-                            color: settings.primaryColor,
-                            width: 48,
-                            height: 48,
-                            "&:disabled": {
-                              bgcolor: alpha(settings.primaryColor, 0.05),
-                              color: alpha(settings.primaryColor, 0.3),
-                            },
-                          }}
-                        >
-                          {loading ? (
-                            <CircularProgress
-                              size={24}
-                              sx={{ color: settings.primaryColor }}
-                            />
-                          ) : (
-                            <RefreshIcon />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Box>
-          </Fade>
-
-        {/* Error Alert - Center Modal Overlay */}
-        {errMessage && (
-          <Backdrop
-            open={true}
-            sx={{
-              zIndex: 9999,
-              backdropFilter: "blur(8px)",
-              backgroundColor: "rgba(0, 0, 0, 0.5)",
-            }}
-            onClick={() => setErrorMessage("")}
-          >
-            <Fade in timeout={300}>
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                sx={{
-                  position: "relative",
-                  minWidth: "400px",
-                  maxWidth: "600px",
-                }}
-              >
-                <Alert
-                  severity="error"
+                  }
                   sx={{
-                    borderRadius: 4,
-                    boxShadow: "0 12px 48px rgba(0, 0, 0, 0.4)",
-                    fontSize: "1.1rem",
-                    p: 3,
-                    "& .MuiAlert-message": { fontWeight: 500 },
-                    "& .MuiAlert-icon": { fontSize: "2rem" },
+                    minHeight: 32, py: 0.5, px: 1.5, fontSize: '0.75rem', fontWeight: 600,
+                    textTransform: 'none', color: T.muted,
+                    '&.Mui-selected': { color: T.accent, fontWeight: 700 },
+                    '&:hover': { color: T.accent, bgcolor: T.accentFaint },
+                    transition: 'all 0.15s',
                   }}
-                  icon={<Cancel />}
-                  onClose={() => setErrorMessage("")}
-                >
-                  {errMessage}
-                </Alert>
-              </Box>
-            </Fade>
-          </Backdrop>
-        )}
+                />
+              ))}
+            </Tabs>
 
-        {/* Stats Cards */}
-        <Fade in timeout={700}>
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} sm={6} md={4}>
-              <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
-                  <Person sx={{ fontSize: 44, color: settings.textPrimaryColor, mb: 1 }} />
-                  <Typography
-                    variant="h5"
-                    sx={{ color: settings.textPrimaryColor, fontWeight: 700 }}
-                  >
-                    {users.length}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>
-                    Total Users
-                  </Typography>
-                </CardContent>
-              </GlassCard>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
-                  <SearchIcon sx={{ fontSize: 44, color: settings.textPrimaryColor, mb: 1 }} />
-                  <Typography
-                    variant="h5"
-                    sx={{ color: settings.textPrimaryColor, fontWeight: 700 }}
-                  >
-                    {filteredUsers.length}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>
-                    Filtered Results
-                  </Typography>
-                </CardContent>
-              </GlassCard>
-            </Grid>
-
-            <Grid item xs={12} sm={6} md={4}>
-              <GlassCard>
-                <CardContent sx={{ textAlign: "center", p: 3 }}>
-                  <LockResetIcon sx={{ fontSize: 44, color: settings.textPrimaryColor, mb: 1 }} />
-                  <Typography
-                    variant="h5"
-                    sx={{ color: settings.textPrimaryColor, fontWeight: 700 }}
-                  >
-                    {Object.keys(resetting).filter(k => resetting[k]).length}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: settings.textPrimaryColor }}>
-                    Resets In Progress
-                  </Typography>
-                </CardContent>
-              </GlassCard>
-            </Grid>
-          </Grid>
-        </Fade>
-
-        {/* Search Controls */}
-        <Fade in timeout={900}>
-          <GlassCard sx={{ mb: 4 }}>
-            <CardHeader
-              title={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                  <Avatar
-                    sx={{
-                      bgcolor: alpha(settings.accentColor, 0.8),
-                      color: settings.textPrimaryColor,
-                    }}
-                  >
-                    <SearchIcon />
-                  </Avatar>
-                  <Box>
-                    <Typography
-                      variant="h5"
-                      component="div"
-                      sx={{ fontWeight: 600, color: settings.textPrimaryColor }}
-                    >
-                      Search Users
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ color: settings.textPrimaryColor }}
-                    >
-                      Find users by name, email, or employee number
-                    </Typography>
-                  </Box>
-                </Box>
-              }
-              sx={{
-                bgcolor: alpha(settings.accentColor, 0.5),
-                pb: 2,
-                borderBottom: `1px solid ${alpha(settings.primaryColor, 0.1)}`,
+            {/* Search */}
+            <FieldInput
+              size="small" fullWidth
+              placeholder="Search by name, email, or employee number…"
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(0); }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search sx={{ fontSize: 15, color: T.muted }} />
+                  </InputAdornment>
+                ),
               }}
             />
-            <CardContent sx={{ p: 4 }}>
-              <ModernTextField
-                fullWidth
-                label="Search Users"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by name, email, or employee number..."
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon sx={{ color: settings.textPrimaryColor }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{
-            color: settings.accentColor,
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading && !refreshing}
-        >
-          <Box sx={{ textAlign: "center" }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: settings.accentColor }}>
-              Loading users...
-            </Typography>
           </Box>
-        </Backdrop>
 
-        {/* Users Table */}
-        {!loading && (
-          <Fade in timeout={1100}>
-            <GlassCard>
-              <Box
-                sx={{
-                  p: 3,
-                  background: `linear-gradient(135deg, ${settings.accentColor} 0%, ${alpha(settings.accentColor, 0.9)} 100%)`,
-                  color: settings.primaryColor,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  borderBottom: `1px solid ${alpha(settings.primaryColor, 0.1)}`,
-                }}
-              >
-                <Box>
-                  <Typography
-                    variant="h5"
-                    sx={{ fontWeight: 600, color: settings.primaryColor }}
-                  >
-                    User Accounts
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ opacity: 0.8, color: settings.accentColor }}
-                  >
-                    {searchTerm
-                      ? `Showing ${filteredUsers.length} of ${users.length} users matching "${searchTerm}"`
-                      : `Total: ${users.length} registered users`}
-                  </Typography>
+          {/* Incomplete notice */}
+          {activeSection === 'incomplete' && incompleteUsers.length > 0 && (
+            <Box sx={{ px: 3.5, py: 1.25, bgcolor: '#FFF8E1', borderBottom: 'l1px solid rgba(245,124,0,0.18)', display: 'flex', alignItems: 'center', gap: 1 }}>
+              <WarningAmberRounded sx={{ fontSize: 13, color: '#F57C00', flexShrink: 0 }} />
+              <Typography sx={{ fontSize: '0.72rem', color: '#7c4300', fontStyle: 'italic' }}>
+                These accounts are missing a full name. They can still have their password reset, but should be updated in employee records.
+              </Typography>
+            </Box>
+          )}
+
+          {/* Table */}
+          <Box sx={{
+            flexGrow: 1, overflowY: 'auto',
+            '&::-webkit-scrollbar': { width: 4 },
+            '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
+          }}>
+            {paged.length === 0 ? (
+              <Box sx={{ py: 10, textAlign: 'center' }}>
+                <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                  <LockResetIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                 </Box>
+                <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                  {users.length === 0 ? 'No users found' : 'No records match your search'}
+                </Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                  {searchTerm ? 'Try a different name, email, or employee number.' : 'No users available in this section.'}
+                </Typography>
               </Box>
+            ) : (
+              <Table sx={{ minWidth: 680 }}>
+                <TableHead sx={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                  <TableRow>
+                    {['Emp. No', 'Full Name', 'Email', 'Role', 'Action'].map((h, i) => (
+                      <TableCell key={h} sx={{
+                        fontSize: '0.62rem', fontWeight: 700, color: T.accent,
+                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                        borderBottom: `2px solid ${T.accentBorder}`,
+                        bgcolor: alpha(T.accent, 0.03),
+                        py: 1.5, px: 2.5, whiteSpace: 'nowrap',
+                        textAlign: i === 4 ? 'center' : 'left',
+                      }}>
+                        {h}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paged.map((user, idx) => {
+                    const isIncomplete = !user.fullName?.trim();
+                    const roleStyle    = getRoleStyle(user.role);
+                    const initials     = isIncomplete ? '?' : getInitials(user.fullName);
+                    return (
+                      <TableRow key={user.employeeNumber} sx={{
+                        bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
+                        transition: 'background 0.12s ease',
+                        '&:hover': { bgcolor: T.rowHover },
+                        borderBottom: `1px solid ${T.divider}`,
+                      }}>
+                        <TableCell sx={{ px: 2.5, py: 1.75 }}>
+                          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.muted, fontFamily: 'monospace' }}>
+                            #{user.employeeNumber}
+                          </Typography>
+                        </TableCell>
 
-              <PremiumTableContainer component={Paper} elevation={0}>
-                <Table sx={{ minWidth: 800 }}>
-                  <TableHead sx={{ bgcolor: alpha(settings.accentColor, 0.7) }}>
-                    <TableRow>
-                      <PremiumTableCell isHeader sx={{ color: settings.textPrimaryColor }}>
-                        <BadgeIcon sx={{ mr: 1, verticalAlign: "middle" }} />
-                        Employee #
-                      </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings.textPrimaryColor }}>
-                        <Person sx={{ mr: 1, verticalAlign: "middle" }} />
-                        Full Name
-                      </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings.textPrimaryColor }}>
-                        <Email sx={{ mr: 1, verticalAlign: "middle" }} />
-                        Email
-                      </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: settings.textPrimaryColor }}>
-                        <Business sx={{ mr: 1, verticalAlign: "middle" }} />
-                        Role
-                      </PremiumTableCell>
-                      <PremiumTableCell
-                        isHeader
-                        sx={{ color: settings.textPrimaryColor, textAlign: "center" }}
-                      >
-                        <Security sx={{ mr: 1, verticalAlign: "middle" }} />
-                        Action
-                      </PremiumTableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {paginatedUsers.length > 0 ? (
-                      paginatedUsers.map((user) => (
-                        <TableRow
-                          key={user.employeeNumber}
-                          sx={{
-                            "&:nth-of-type(even)": {
-                              bgcolor: alpha(settings.accentColor, 0.3),
-                            },
-                            "&:hover": { bgcolor: alpha(settings.primaryColor, 0.05) },
-                            transition: "all 0.2s ease",
-                          }}
-                        >
-                          <PremiumTableCell
-                            sx={{ fontWeight: 600, color: settings.textPrimaryColor }}
-                          >
-                            {user.employeeNumber}
-                          </PremiumTableCell>
+                        <TableCell sx={{ px: 2.5, py: 1.75 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <Avatar sx={{
+                              width: 36, height: 36, fontSize: '0.78rem', fontWeight: 700,
+                              bgcolor: isIncomplete ? alpha('#F57C00', 0.15) : alpha(T.accent, 0.12),
+                              color:   isIncomplete ? '#F57C00' : T.accent,
+                              border: `2px solid ${isIncomplete ? alpha('#F57C00', 0.2) : T.accentBorder}`,
+                            }}>
+                              {initials}
+                            </Avatar>
+                            {isIncomplete ? (
+                              <Box>
+                                <Typography sx={{ fontSize: '0.8rem', fontStyle: 'italic', color: T.faint }}>No name on record</Typography>
+                                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mt: 0.25, px: 1, py: 0.15, bgcolor: '#FFF3E0', border: '1px solid rgba(245,124,0,0.25)', borderRadius: 10 }}>
+                                  <Typography sx={{ fontSize: '0.58rem', fontWeight: 900, color: '#F57C00', letterSpacing: '0.06em' }}>MISSING</Typography>
+                                </Box>
+                              </Box>
+                            ) : (
+                              <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{user.fullName}</Typography>
+                            )}
+                          </Box>
+                        </TableCell>
 
-                          <PremiumTableCell>
-                            <Box
-                              sx={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 2,
-                              }}
-                            >
-                              <Avatar
-                                src={user.avatar || ""}
-                                alt={user.fullName}
-                                sx={{
-                                  width: 48,
-                                  height: 48,
-                                  bgcolor: settings.primaryColor,
-                                  color: settings.accentColor,
-                                  fontWeight: 700,
-                                  fontSize: "1rem",
-                                  boxShadow: `0 4px 12px ${alpha(settings.primaryColor, 0.2)}`,
-                                  border: "2px solid #fff",
-                                }}
-                              >
-                                {!user.avatar && getInitials(user.fullName)}
-                              </Avatar>
-                              <Typography
-                                variant="body1"
-                                sx={{ fontWeight: 600, color: settings.textPrimaryColor }}
-                              >
-                                {user.fullName || "N/A"}
-                              </Typography>
-                            </Box>
-                          </PremiumTableCell>
-
-                          <PremiumTableCell sx={{ color: settings.textPrimaryColor }}>
-                            {user.email || "N/A"}
-                          </PremiumTableCell>
-
-                          <PremiumTableCell>
-                            <Chip
-                              label={user.role || "N/A"}
-                              size="small"
-                              sx={{
-                                ...getRoleColor(user.role),
-                                fontWeight: 600,
-                              }}
-                            />
-                          </PremiumTableCell>
-
-                          <PremiumTableCell sx={{ textAlign: "center" }}>
-                            <ProfessionalButton
-                              variant="contained"
-                              size="small"
-                              onClick={() => handleResetPassword(user.employeeNumber)}
-                              disabled={resetting[user.employeeNumber] || !user.email}
-                              startIcon={
-                                resetting[user.employeeNumber] ? (
-                                  <CircularProgress size={16} sx={{ color: settings.accentColor }} />
-                                ) : (
-                                  <LockResetIcon />
-                                )
-                              }
-                              sx={{
-                                bgcolor: settings.primaryColor,
-                                color: settings.accentColor,
-                                "&:hover": {
-                                  bgcolor: settings.secondaryColor,
-                                },
-                                "&:disabled": {
-                                  bgcolor: alpha(settings.primaryColor, 0.3),
-                                },
-                              }}
-                            >
-                              {resetting[user.employeeNumber] ? "Resetting..." : "Reset"}
-                            </ProfessionalButton>
-                          </PremiumTableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={5}
-                          sx={{ textAlign: "center", py: 8 }}
-                        >
-                          <Box sx={{ textAlign: "center" }}>
-                            <Info
-                              sx={{
-                                fontSize: 80,
-                                color: alpha(settings.primaryColor, 0.3),
-                                mb: 3,
-                              }}
-                            />
-                            <Typography
-                              variant="h5"
-                              color={alpha(settings.primaryColor, 0.6)}
-                              gutterBottom
-                              sx={{ fontWeight: 600 }}
-                            >
-                              No Users Found
-                            </Typography>
-                            <Typography
-                              variant="body1"
-                              color={alpha(settings.primaryColor, 0.4)}
-                            >
-                              {searchTerm
-                                ? "Try adjusting your search criteria"
-                                : "No users available"}
+                        <TableCell sx={{ px: 2.5, py: 1.75 }}>
+                          <Box sx={{ px: 1.25, py: 0.35, bgcolor: T.accentFaint, borderRadius: 1.5, border: `1px solid ${T.accentBorder}`, display: 'inline-block', maxWidth: 240 }}>
+                            <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {user.email || 'N/A'}
                             </Typography>
                           </Box>
                         </TableCell>
+
+                        <TableCell sx={{ px: 2.5, py: 1.75 }}>
+                          <Chip
+                            label={(user.role || 'N/A').toUpperCase()}
+                            size="small"
+                            sx={{
+                              height: 20, fontSize: '0.62rem', fontWeight: 700,
+                              bgcolor: roleStyle.bg, color: roleStyle.color,
+                              border: `1px solid ${alpha(roleStyle.color, 0.25)}`,
+                              borderRadius: '4px',
+                            }}
+                          />
+                        </TableCell>
+
+                        <TableCell sx={{ px: 2.5, py: 1.75, textAlign: 'center' }}>
+                          <AccentButton
+                            variant="contained"
+                            size="small"
+                            disabled={resetting[user.employeeNumber] || !user.email}
+                            onClick={() => handleReset(user.employeeNumber)}
+                            startIcon={
+                              resetting[user.employeeNumber]
+                                ? <CircularProgress size={11} sx={{ color: '#fff' }} />
+                                : <LockResetIcon sx={{ fontSize: '13px !important' }} />
+                            }
+                            sx={{
+                              fontSize: '0.72rem', px: 1.5, height: 28,
+                              bgcolor: T.accent, color: '#fff',
+                              boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+                              '&:hover': { bgcolor: T.accentDark },
+                              '&:disabled': { bgcolor: '#ddd !important', color: '#999 !important', boxShadow: 'none !important', transform: 'none !important' },
+                            }}
+                          >
+                            {resetting[user.employeeNumber] ? 'Resetting…' : 'Reset'}
+                          </AccentButton>
+                        </TableCell>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </PremiumTableContainer>
-
-              {/* Pagination */}
-              {filteredUsers.length > 0 && (
-                <Box sx={{ display: "flex", justifyContent: "flex-end", p: 2 }}>
-                  <TablePagination
-                    component="div"
-                    count={filteredUsers.length}
-                    page={page}
-                    onPageChange={handleChangePage}
-                    rowsPerPage={rowsPerPage}
-                    onRowsPerPageChange={handleChangeRowsPerPage}
-                    rowsPerPageOptions={[5, 10, 25, 50, 100]}
-                    sx={{
-                      "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows":
-                        {
-                          color: settings.textPrimaryColor,
-                          fontWeight: 600,
-                        },
-                    }}
-                  />
-                </Box>
-              )}
-            </GlassCard>
-          </Fade>
-        )}
-
-        {/* Back Button */}
-        <Fade in timeout={1300}>
-          <Box sx={{ mt: 4, textAlign: "center" }}>
-            <ProfessionalButton
-              onClick={() => navigate(-1)}
-              variant="outlined"
-              sx={{
-                borderColor: settings.accentColor,
-                color: settings.accentColor,
-                "&:hover": {
-                  borderColor: alpha(settings.accentColor, 0.8),
-                  bgcolor: alpha(settings.accentColor, 0.1),
-                },
-              }}
-            >
-              Go Back
-            </ProfessionalButton>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </Box>
-        </Fade>
-      </Box>
-    </Box>
 
-    {/* Success Overlay - Outside main container for fullscreen */}
-    <SuccessfulOverlay 
-      open={successOpen} 
-      action={successAction} 
-      onClose={() => setSuccessOpen(false)} 
-    />
-    </>
+          {/* Pagination */}
+          {filteredUsers.length > 0 && (
+            <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+              <TablePagination
+                component="div"
+                count={filteredUsers.length}
+                page={page}
+                onPageChange={(_, p) => setPage(p)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={(e) => { setRowsPerPage(+e.target.value); setPage(0); }}
+                rowsPerPageOptions={[5, 10, 25, 50]}
+                sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: '0.78rem', fontWeight: 600 } }}
+              />
+            </Box>
+          )}
+        </SectionCard>
+      </Box>
+    </Fade>
   );
 };
 

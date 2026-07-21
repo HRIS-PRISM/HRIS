@@ -1,255 +1,295 @@
-import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import API_BASE_URL from "../../apiConfig";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import {
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  CircularProgress,
-  Chip,
+  Box,
+  Grid,
   Modal,
+  IconButton,
+  CircularProgress,
   Snackbar,
   Alert,
-  Container,
   Typography,
-  Grid,
-  Paper,
-  Box,
-  InputAdornment,
   Fade,
-  Backdrop,
-  styled,
-  alpha,
   Avatar,
   Tooltip,
-  IconButton,
-  Card,
-  CardContent,
+  Button,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-} from '@mui/material';
+  Card,
+} from "@mui/material";
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
-  Domain,
+  Close,
   Search as SearchIcon,
   ViewList as ViewListIcon,
   ViewModule as ViewModuleIcon,
-  Close,
+  Domain as DomainIcon,
   Refresh,
-} from '@mui/icons-material';
-import LoadingOverlay from '../LoadingOverlay';
-import SuccessfulOverlay from '../SuccessfulOverlay';
-import AccessDenied from '../AccessDenied';
-import { useNavigate } from 'react-router-dom';
-import usePageAccess from '../../hooks/usePageAccess';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
-import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+} from "@mui/icons-material";
+import { styled, alpha } from "@mui/material/styles";
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(
-        result[3],
-        16
-      )}`
-    : '109, 35, 35';
+import LoadingOverlay from "../LoadingOverlay";
+import SuccessfulOverlay from "../SuccessfulOverlay";
+import AccessDenied from "../AccessDenied";
+import { useNavigate } from "react-router-dom";
+import usePageAccess from "../../hooks/usePageAccess";
+import { useSystemSettings } from "../../hooks/useSystemSettings";
+import usePayrollRealtimeRefresh from "../../hooks/usePayrollRealtimeRefresh";
+
+// ── Theme tokens (mirrors DepartmentAssignment) ───────────────
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover: "rgba(109,35,35,0.10)",
+  headerGrad: "linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)",
+  rowEven: "#ffffff",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  surface: "#ffffff",
+  divider: "rgba(0,0,0,0.08)",
 };
 
-// Professional styled components - colors will be applied via sx prop
-const GlassCard = styled(Paper)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    transform: 'translateY(-4px)',
-  },
-}));
+const scrollbarSx = {
+  "&::-webkit-scrollbar": { width: 4 },
+  "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 },
+  "&::-webkit-scrollbar-track": { bgcolor: "transparent" },
+};
 
-const ProfessionalButton = styled(Button)(
-  ({ theme, variant, color = 'primary' }) => ({
-    borderRadius: 12,
-    fontWeight: 600,
-    padding: '12px 24px',
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    textTransform: 'none',
-    fontSize: '0.95rem',
-    letterSpacing: '0.025em',
-    boxShadow:
-      variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-    '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow:
-        variant === 'contained'
-          ? '0 6px 20px rgba(254, 249, 225, 0.35)'
-          : 'none',
+// ── Styled components ─────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8,
+    fontSize: "0.875rem",
+    backgroundColor: "#fff",
+    "& fieldset": { borderColor: T.accentBorder },
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  "& .MuiInputLabel-root.Mui-focused": { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.875rem",
+  letterSpacing: "0.01em",
+  transition: "all 0.18s ease",
+  "&:hover": { transform: "translateY(-1px)" },
+  "&:active": { transform: "translateY(0)" },
+});
+
+// ── Auth helper ───────────────────────────────────────────────
+const getAuthHeaders = () => {
+  const token = localStorage.getItem("token");
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
-    '&:active': {
-      transform: 'translateY(0)',
-    },
-  })
+  };
+};
+
+// ── Grid card ─────────────────────────────────────────────────
+const DeptCard = ({ department, onClick }) => (
+  <Box
+    onClick={onClick}
+    sx={{
+      p: "12px 14px",
+      borderRadius: 2,
+      cursor: "pointer",
+      bgcolor: "#fff",
+      border: `1px solid ${T.accentBorder}`,
+      transition: "all 0.15s ease",
+      "&:hover": {
+        bgcolor: T.rowHover,
+        borderColor: T.accent,
+        transform: "translateY(-2px)",
+        boxShadow: `0 4px 16px ${alpha(T.accent, 0.12)}`,
+      },
+      display: "flex",
+      flexDirection: "column",
+      gap: 0.75,
+    }}
+  >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+      <Avatar
+        sx={{
+          width: 28,
+          height: 28,
+          bgcolor: alpha(T.accent, 0.1),
+          color: T.accent,
+        }}
+      >
+        <DomainIcon sx={{ fontSize: 14 }} />
+      </Avatar>
+    </Box>
+    <Box>
+      <Typography sx={{ fontSize: "0.68rem", color: T.faint, mb: 0.1 }}>
+        Code
+      </Typography>
+      <Typography
+        sx={{
+          fontSize: "0.82rem",
+          fontWeight: 700,
+          color: T.text,
+          lineHeight: 1.2,
+        }}
+        noWrap
+      >
+        {department.code}
+      </Typography>
+      {department.description && (
+        <Typography sx={{ fontSize: "0.7rem", color: T.muted, mt: 0.2 }} noWrap>
+          {department.description}
+        </Typography>
+      )}
+    </Box>
+  </Box>
 );
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
-  '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
-  },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-  },
-}));
+// ── List row ──────────────────────────────────────────────────
+const DeptRow = ({ department, index, onClick }) => (
+  <Box
+    onClick={onClick}
+    sx={{
+      px: 2,
+      py: 1.25,
+      display: "flex",
+      alignItems: "center",
+      gap: 1.5,
+      borderRadius: 1.5,
+      cursor: "pointer",
+      bgcolor: index % 2 === 0 ? T.rowEven : T.rowOdd,
+      border: "1px solid transparent",
+      transition: "background 0.13s ease",
+      "&:hover": { bgcolor: T.rowHover },
+      mb: 0.5,
+    }}
+  >
+    <DomainIcon sx={{ fontSize: 16, color: T.accent, flexShrink: 0 }} />
+    <Box sx={{ minWidth: 0 }}>
+      <Typography
+        sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text }}
+        noWrap
+      >
+        {department.code}
+      </Typography>
+      {department.description && (
+        <Typography sx={{ fontSize: "0.72rem", color: T.muted }} noWrap>
+          {department.description}
+        </Typography>
+      )}
+    </Box>
+  </Box>
+);
 
+// ════════════════════════════════════════════════════════════
+// ── Main Component
+// ════════════════════════════════════════════════════════════
 const DepartmentTable = () => {
   const { settings } = useSystemSettings();
-  
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6d2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
-  const textPrimaryColor = settings.textPrimaryColor || '#6d2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  
+  const navigate = useNavigate();
+
   const [data, setData] = useState([]);
-  const [newEntry, setNewEntry] = useState({
-    code: '',
-    description: '',
-  });
-  const [editingId, setEditingId] = useState(null);
+  const [newEntry, setNewEntry] = useState({ code: "", description: "" });
   const [editData, setEditData] = useState({});
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
-  const [successAction, setSuccessAction] = useState('');
-  const [viewMode, setViewMode] = useState('grid');
+  const [successAction, setSuccessAction] = useState("");
+  const [viewMode, setViewMode] = useState("grid");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [originalDepartment, setOriginalDepartment] = useState(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
-    message: '',
-    severity: 'success',
+    message: "",
+    severity: "success",
   });
 
-  const navigate = useNavigate();
-
-  const showSnackbar = (message, severity = 'success') => {
+  const showSnackbar = (message, severity = "success") =>
     setSnackbar({ open: true, message, severity });
-  };
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    console.log(
-      'Token from localStorage:',
-      token ? 'Token exists' : 'No token found'
-    );
-    if (token) {
-      console.log('Token length:', token.length);
-      console.log('Token starts with:', token.substring(0, 20) + '...');
-    }
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    };
-  };
-
-  // Dynamic page access control using component identifier
-  // Note: This component may need a new page entry in the database with identifier 'department-table'
-  const { hasAccess, loading: accessLoading, error: accessError } = usePageAccess('department-table');
+  const { hasAccess, loading: accessLoading } =
+    usePageAccess("department-table");
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
-    try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/department-table`,
-        getAuthHeaders()
-      );
-      setData(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
-      console.error('Error fetching data', error);
-      showSnackbar(
-        'Failed to fetch department data. Please try again.',
-        'error'
-      );
-    }
-  };
-
   usePayrollRealtimeRefresh(() => {
     fetchData();
   });
 
+  const fetchData = async () => {
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/api/department-table`,
+        getAuthHeaders(),
+      );
+      setData(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      showSnackbar(
+        "Failed to fetch department data. Please try again.",
+        "error",
+      );
+    }
+  };
+
   const addEntry = async () => {
     if (!newEntry.code || !newEntry.description) {
-      showSnackbar('Please fill in all required fields', 'error');
+      showSnackbar("Please fill in all required fields", "error");
       return;
     }
-
     setLoading(true);
     try {
       await axios.post(
         `${API_BASE_URL}/api/department-table`,
         newEntry,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
-      setNewEntry({ code: '', description: '' });
+      setNewEntry({ code: "", description: "" });
       fetchData();
       setTimeout(() => {
         setLoading(false);
-        setSuccessAction('adding');
+        setSuccessAction("adding");
         setSuccessOpen(true);
         setTimeout(() => setSuccessOpen(false), 2000);
       }, 300);
-    } catch (error) {
-      console.error('Error adding data', error);
+    } catch {
       setLoading(false);
-      showSnackbar('Failed to add department. Please try again.', 'error');
+      showSnackbar("Failed to add department. Please try again.", "error");
     }
   };
 
   const startEditing = (item) => {
     setSelectedDepartment(item);
     setOriginalDepartment({ ...item });
-    setEditData({
-      code: item.code,
-      description: item.description,
-    });
+    setEditData({ code: item.code, description: item.description });
     setModalOpen(true);
     setIsEditing(false);
-  };
-
-  const handleStartEdit = () => {
-    setIsEditing(true);
   };
 
   const handleCancelEdit = () => {
@@ -266,19 +306,18 @@ const DepartmentTable = () => {
       await axios.put(
         `${API_BASE_URL}/api/department-table/${selectedDepartment.id}`,
         editData,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setModalOpen(false);
       setSelectedDepartment(null);
       setOriginalDepartment(null);
       setIsEditing(false);
       fetchData();
-      setSuccessAction('edit');
+      setSuccessAction("edit");
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error saving edit', error);
-      showSnackbar('Failed to update department. Please try again.', 'error');
+    } catch {
+      showSnackbar("Failed to update department. Please try again.", "error");
     }
   };
 
@@ -286,68 +325,52 @@ const DepartmentTable = () => {
     try {
       await axios.delete(
         `${API_BASE_URL}/api/department-table/${id}`,
-        getAuthHeaders()
+        getAuthHeaders(),
       );
       setModalOpen(false);
       setSelectedDepartment(null);
       setOriginalDepartment(null);
       setIsEditing(false);
       fetchData();
-      setSuccessAction('delete');
+      setSuccessAction("delete");
       setSuccessOpen(true);
       setTimeout(() => setSuccessOpen(false), 2000);
-    } catch (error) {
-      console.error('Error deleting entry', error);
-      showSnackbar('Failed to delete department. Please try again.', 'error');
+    } catch {
+      showSnackbar("Failed to delete department. Please try again.", "error");
     }
   };
 
-  const handleChange = (field, value) => {
-    setEditData({ ...editData, [field]: value });
-  };
+  const hasChanges = () =>
+    editData.code !== originalDepartment?.code ||
+    editData.description !== originalDepartment?.description;
 
-  const handleViewModeChange = (event, newMode) => {
-    if (newMode !== null) {
-      setViewMode(newMode);
-    }
-  };
-
-  const hasChanges = () => {
-    if (!selectedDepartment || !originalDepartment) return false;
-
+  const filteredData = data.filter((d) => {
+    const term = searchTerm.toLowerCase();
     return (
-      editData.code !== originalDepartment.code ||
-      editData.description !== originalDepartment.description
+      (d.code?.toLowerCase() || "").includes(term) ||
+      (d.description?.toLowerCase() || "").includes(term)
     );
-  };
-
-  const filteredData = data.filter((department) => {
-    const code = department.code?.toLowerCase() || '';
-    const description = department.description?.toLowerCase() || '';
-    const search = searchTerm.toLowerCase();
-    return code.includes(search) || description.includes(search);
   });
 
-  if (accessLoading) {
+  // ── Access guards ────────────────────────────────────────────
+  if (accessLoading)
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: textPrimaryColor, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: textPrimaryColor }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          py: 8,
+        }}
+      >
+        <CircularProgress sx={{ color: T.accent, mb: 2 }} />
+        <Typography sx={{ color: T.accent }}>
+          Loading access information…
+        </Typography>
+      </Box>
     );
-  }
 
-  if (hasAccess === false) {
+  if (hasAccess === false)
     return (
       <AccessDenied
         title="Access Denied"
@@ -356,871 +379,768 @@ const DepartmentTable = () => {
         returnButtonText="Return to Home"
       />
     );
-  }
 
   return (
-    <Box
-      sx={{
-        py: 4,
-        mt: -5,
-        width: '1600px', // Fixed width
-        mx: 'auto', // Center horizontally
-        overflow: 'hidden', // Prevent horizontal scroll
-      }}
-    >
-      {/* Container with fixed width */}
-      <Box sx={{ px: 6 }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard
+    <Fade in timeout={400}>
+      <Box
+        sx={{
+          py: { xs: 1, md: 2 },
+          mt: { xs: 0, md: -2 },
+          mb: { xs: 1, md: 2 },
+          width: "100vw",
+          maxWidth: "100%",
+          position: "relative",
+          left: "63%",
+          transform: "translateX(-61%)",
+          px: { xs: 2, sm: 3, md: 6 },
+        }}
+      >
+        <LoadingOverlay open={loading} message="Processing department record…" />
+
+        {/* ── Page Header ── */}
+        <SectionCard sx={{ mb: 2, overflow: "hidden" }}>
+          <Box
+            sx={{
+              px: 4,
+              py: 3,
+              background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <Box
               sx={{
-                background: `rgba(${hexToRgb(primaryColor)}, 0.95)`,
-                boxShadow: `0 8px 40px ${alpha(accentColor, 0.08)}`,
-                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                '&:hover': {
-                  boxShadow: `0 12px 48px ${alpha(accentColor, 0.15)}`,
-                },
+                position: "absolute",
+                top: -50,
+                right: -50,
+                width: 200,
+                height: 200,
+                borderRadius: "50%",
+                background:
+                  "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)",
+              }}
+            />
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                position: "relative",
+                zIndex: 1,
+              }}
+            >
+              <DomainIcon sx={{ fontSize: 32, color: T.accent }} />
+              <Box>
+                <Typography
+                  sx={{
+                    fontSize: "1.25rem",
+                    fontWeight: 900,
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    mb: 0.3,
+                  }}
+                >
+                  Department Information Management
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.82rem",
+                    color: T.accentMid,
+                    fontWeight: 700,
+                    opacity: 0.9,
+                  }}
+                >
+                  Administrative Panel • Add and manage department records
+                </Typography>
+              </Box>
+            </Box>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1.5,
+                position: "relative",
+                zIndex: 1,
               }}
             >
               <Box
                 sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: textPrimaryColor,
-                  position: 'relative',
-                  overflow: 'hidden',
+                  px: 2.5,
+                  py: 0.75,
+                  borderRadius: 6,
+                  bgcolor: alpha(T.accent, 0.1),
+                  border: `1px solid ${alpha(T.accent, 0.2)}`,
                 }}
               >
-                {/* Decorative elements */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(
-                      accentColor,
-                      0.1
-                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(
-                      accentColor,
-                      0.08
-                    )} 0%, ${alpha(accentColor, 0)} 70%)`,
-                  }}
-                />
-
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
+                <Typography
+                  sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }}
                 >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(accentColor, 0.15),
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: `0 8px 24px ${alpha(accentColor, 0.15)}`,
-                      }}
-                    >
-                      <Domain sx={{ color: textPrimaryColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: textPrimaryColor,
-                        }}
-                      >
-                        Department Information Management
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}
-                      >
-                        Add and manage department records
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Tooltip title="Refresh Data">
-                      <IconButton
-                        onClick={() => window.location.reload()}
-                        sx={{
-                          bgcolor: alpha(accentColor, 0.1),
-                          '&:hover': { bgcolor: alpha(accentColor, 0.2) },
-                          color: textPrimaryColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh sx={{ fontSize: 24 }} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
+                  {data.length}{" "}
+                  {data.length === 1 ? "department" : "departments"}
+                </Typography>
               </Box>
-            </GlassCard>
+              <Tooltip title="Refresh Data">
+                <IconButton
+                  onClick={() => fetchData()}
+                  sx={{
+                    bgcolor: alpha(T.accent, 0.08),
+                    color: T.accent,
+                    width: 36,
+                    height: 36,
+                    "&:hover": { bgcolor: alpha(T.accent, 0.15) },
+                  }}
+                >
+                  <Refresh sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
           </Box>
-        </Fade>
+        </SectionCard>
 
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{ color: textSecondaryColor, zIndex: (theme) => theme.zIndex.drawer + 1 }}
-          open={loading}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography variant="h6" sx={{ mt: 2, color: textSecondaryColor }}>
-              Processing department record...
-            </Typography>
-          </Box>
-        </Backdrop>
-
-        {/* Main Content */}
-        <Grid container spacing={4}>
-          {/* Add New Department Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={700}>
-              <GlassCard
+        <Grid container spacing={2}>
+          {/* ── LEFT: Add Form ── */}
+          <Grid item xs={12} lg={5}>
+            <SectionCard
+              sx={{
+                height: "calc(100vh - 280px)",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* Section label */}
+              <Box
                 sx={{
-                  height: 'calc(100vh - 200px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  border: `1px solid ${alpha(accentColor, 0.1)}`
+                  px: 3,
+                  py: 1.25,
+                  borderBottom: `1px solid ${T.divider}`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                  bgcolor: T.accentFaint,
+                  flexShrink: 0,
                 }}
               >
-                <Box
+                <AddIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography
+                  sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}
+                >
+                  Add New Department
+                </Typography>
+              </Box>
+
+              {/* Fields */}
+              <Box sx={{ px: 3, pt: 2.5, pb: 1, flexShrink: 0 }}>
+                <Typography
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: textPrimaryColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: alpha(T.accent, 0.55),
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                    mb: 0.75,
                   }}
                 >
-                  <Domain sx={{ fontSize: '1.8rem', mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                      Add New Department
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                      Fill in department information
-                    </Typography>
+                  Department Code{" "}
+                  <Box component="span" sx={{ color: "#c62828" }}>
+                    *
                   </Box>
-                </Box>
+                </Typography>
+                <FieldInput
+                  value={newEntry.code}
+                  onChange={(e) =>
+                    setNewEntry({ ...newEntry, code: e.target.value })
+                  }
+                  placeholder="e.g. HR, FINANCE, IT"
+                  fullWidth
+                  size="small"
+                  InputProps={{
+                    startAdornment: (
+                      <DomainIcon
+                        sx={{ color: T.muted, mr: 1, fontSize: 15 }}
+                      />
+                    ),
+                  }}
+                />
 
-                <Box
+                <Typography
                   sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflowY: 'auto',
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: alpha(T.accent, 0.55),
+                    textTransform: "uppercase",
+                    letterSpacing: "0.07em",
+                    mb: 0.75,
+                    mt: 2,
                   }}
                 >
-                  <Box sx={{ mb: 3 }}>
-                    <Typography
-                      variant="h5"
-                      sx={{
-                        fontWeight: 600,
-                        mb: 2,
-                        color: textPrimaryColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Domain sx={{ mr: 2, fontSize: 24 }} />
-                      Department Information{' '}
-                      <span
-                        style={{
-                          marginLeft: '12px',
-                          fontWeight: 400,
-                          opacity: 0.7,
-                          color: 'red',
-                        }}
-                      >
-                        *
-                      </span>
-                    </Typography>
-
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
-                        >
-                          Department Code
-                        </Typography>
-                        <ModernTextField
-                          value={newEntry.code}
-                          onChange={(e) =>
-                            setNewEntry({ ...newEntry, code: e.target.value })
-                          }
-                          fullWidth
-                          size="small"
-                          sx={{
-                            '& .MuiOutlinedInput-root': {
-                              '& fieldset': {
-                                borderColor: accentColor,
-                                borderWidth: '1.5px',
-                              },
-                              '&:hover fieldset': {
-                                borderColor: accentColor,
-                              },
-                              '&.Mui-focused fieldset': {
-                                borderColor: accentColor,
-                              },
-                            },
-                          }}
-                        />
-                      </Grid>
-
-                      <Grid item xs={12} sm={6}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
-                        >
-                          Department Description
-                        </Typography>
-                        <ModernTextField
-                          value={newEntry.description}
-                          onChange={(e) =>
-                            setNewEntry({
-                              ...newEntry,
-                              description: e.target.value,
-                            })
-                          }
-                          fullWidth
-                          size="small"
-                          sx={{
-                            '& .MuiOutlinedInput-root': {
-                              '& fieldset': {
-                                borderColor: accentColor,
-                                borderWidth: '1.5px',
-                              },
-                              '&:hover fieldset': {
-                                borderColor: accentColor,
-                              },
-                              '&.Mui-focused fieldset': {
-                                borderColor: accentColor,
-                              },
-                            },
-                          }}
-                        />
-                      </Grid>
-                    </Grid>
+                  Description{" "}
+                  <Box component="span" sx={{ color: "#c62828" }}>
+                    *
                   </Box>
+                </Typography>
+                <FieldInput
+                  value={newEntry.description}
+                  onChange={(e) =>
+                    setNewEntry({ ...newEntry, description: e.target.value })
+                  }
+                  placeholder="e.g. Human Resources"
+                  fullWidth
+                  size="small"
+                />
+              </Box>
 
-                  <Box sx={{ mt: 'auto', pt: 3 }}>
-                    <ProfessionalButton
-                      onClick={addEntry}
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      fullWidth
-                      sx={{
-                        py: 1.5,
-                        fontSize: '1rem',
-                        backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                        color: settings.accentColor || '#FEF9E1',
-                        '&:hover': {
-                          backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                        },
-                      }}
-                    >
-                      Add Department
-                    </ProfessionalButton>
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Fade>
+              <Box sx={{ flex: 1 }} />
+
+              {/* Submit */}
+              <Box
+                sx={{
+                  px: 3,
+                  py: 1.5,
+                  borderTop: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  flexShrink: 0,
+                }}
+              >
+                <AccentButton
+                  onClick={addEntry}
+                  variant="contained"
+                  startIcon={
+                    loading ? (
+                      <CircularProgress size={14} color="inherit" />
+                    ) : (
+                      <AddIcon sx={{ fontSize: "16px !important" }} />
+                    )
+                  }
+                  fullWidth
+                  disabled={loading}
+                  sx={{
+                    height: 38,
+                    bgcolor: T.accent,
+                    color: "#fff",
+                    boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                    "&:hover": { bgcolor: T.accentDark },
+                    "&:disabled": {
+                      bgcolor: `${alpha(T.accent, 0.35)} !important`,
+                      color: "#fff !important",
+                    },
+                  }}
+                >
+                  {loading ? "Adding…" : "Add Department"}
+                </AccentButton>
+              </Box>
+            </SectionCard>
           </Grid>
 
-          {/* Department Records Section */}
-          <Grid item xs={12} lg={6}>
-            <Fade in timeout={900}>
-              <GlassCard
+          {/* ── RIGHT: Records ── */}
+          <Grid item xs={12} lg={7}>
+            <SectionCard
+              sx={{
+                height: "calc(100vh - 280px)",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* Section header */}
+              <Box
                 sx={{
-                  height: 'calc(100vh - 200px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  border: `1px solid ${alpha(accentColor, 0.1)}`
+                  px: 3.5,
+                  py: 2,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: T.accentFaint,
+                  flexShrink: 0,
                 }}
               >
                 <Box
                   sx={{
-                    p: 4,
-                    background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                    color: textPrimaryColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    mb: 1.5,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Domain sx={{ fontSize: '1.8rem', mr: 2 }} />
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                        Department Records
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                        View and manage existing records
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <DomainIcon sx={{ fontSize: 17, color: T.accent }} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.88rem",
+                        fontWeight: 700,
+                        color: T.text,
+                      }}
+                    >
+                      Department Records
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                    <Box
+                      sx={{
+                        px: 1.5,
+                        py: 0.4,
+                        borderRadius: 6,
+                        bgcolor: alpha(T.accent, 0.08),
+                        border: `1px solid ${alpha(T.accent, 0.15)}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: "0.72rem",
+                          color: T.accent,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {filteredData.length} dept
+                        {filteredData.length !== 1 ? "s" : ""}
                       </Typography>
                     </Box>
-                  </Box>
-
-                  <ToggleButtonGroup
-                    value={viewMode}
-                    exclusive
-                    onChange={handleViewModeChange}
-                    aria-label="view mode"
-                    size="small"
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                      '& .MuiToggleButton-root': {
-                        color: textPrimaryColor,
-                        borderColor: alpha(accentColor, 0.5),
-                        padding: '4px 8px',
-                        '&.Mui-selected': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          color: textPrimaryColor,
-                        },
-                      },
-                    }}
-                  >
-                    <ToggleButton value="grid" aria-label="grid view">
-                      <ViewModuleIcon fontSize="small" />
-                    </ToggleButton>
-                    <ToggleButton value="list" aria-label="list view">
-                      <ViewListIcon fontSize="small" />
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-                </Box>
-
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                  }}
-                >
-                  <Box sx={{ mb: 3 }}>
-                    <ModernTextField
+                    <ToggleButtonGroup
+                      value={viewMode}
+                      exclusive
+                      onChange={(_, v) => v && setViewMode(v)}
                       size="small"
-                      variant="outlined"
-                      placeholder="Search by Code or Description"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      fullWidth
-                      InputProps={{
-                        startAdornment: (
-                          <SearchIcon sx={{ color: textPrimaryColor, mr: 1 }} />
-                        ),
+                      sx={{
+                        "& .MuiToggleButton-root": {
+                          px: 1,
+                          py: 0.35,
+                          border: `1px solid ${T.accentBorder}`,
+                          color: T.muted,
+                          "&.Mui-selected": {
+                            bgcolor: T.accentFaint,
+                            color: T.accent,
+                          },
+                        },
                       }}
-                    />
+                    >
+                      <ToggleButton value="grid">
+                        <ViewModuleIcon sx={{ fontSize: 14 }} />
+                      </ToggleButton>
+                      <ToggleButton value="list">
+                        <ViewListIcon sx={{ fontSize: 14 }} />
+                      </ToggleButton>
+                    </ToggleButtonGroup>
                   </Box>
+                </Box>
+                <FieldInput
+                  size="small"
+                  placeholder="Search by code or description…"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  fullWidth
+                  InputProps={{
+                    startAdornment: (
+                      <SearchIcon
+                        sx={{ fontSize: 15, color: T.muted, mr: 0.5 }}
+                      />
+                    ),
+                  }}
+                />
+              </Box>
 
-                  <Box
-                    sx={{
-                      flexGrow: 1,
-                      overflowY: 'auto',
-                      pr: 1,
-                      '&::-webkit-scrollbar': {
-                        width: '6px',
-                      },
-                      '&::-webkit-scrollbar-track': {
-                        background: '#f1f1f1',
-                        borderRadius: '3px',
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: accentColor,
-                        borderRadius: '3px',
-                      },
-                    }}
-                  >
-                    {viewMode === 'grid' ? (
-                      <Grid container spacing={2}>
-                        {filteredData.map((department) => (
-                          <Grid item xs={12} sm={6} md={4} key={department.id}>
-                            <Card
-                              onClick={() => startEditing(department)}
-                              sx={{
-                                cursor: 'pointer',
-                                border: `1px solid ${alpha(accentColor, 0.1)}`,
-                                height: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                '&:hover': {
-                                  borderColor: accentColor,
-                                  transform: 'translateY(-2px)',
-                                  transition: 'all 0.2s ease',
-                                  boxShadow: `0 4px 8px ${alpha(accentColor, 0.15)}`,
-                                },
-                              }}
-                            >
-                              <CardContent
-                                sx={{
-                                  p: 2,
-                                  flexGrow: 1,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                }}
-                              >
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    mb: 1,
-                                  }}
-                                >
-                                  <Domain
-                                    sx={{
-                                      fontSize: 18,
-                                      color: accentColor,
-                                      mr: 0.5,
-                                    }}
-                                  />
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      color: textPrimaryColor,
-                                      px: 0.5,
-                                      py: 0.2,
-                                      borderRadius: 0.5,
-                                      fontSize: '0.7rem',
-                                      fontWeight: 'bold',
-                                    }}
-                                  >
-                                    {department.code}
-                                  </Typography>
-                                </Box>
-
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  mb={0.5}
-                                  sx={{ wordBreak: 'break-word' }}
-                                >
-                                  {department.description || 'No Description'}
-                                </Typography>
-
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  sx={{ flexGrow: 1, wordBreak: 'break-word' }}
-                                >
-                                  {department.code}
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))}
+              {/* Content */}
+              <Box
+                sx={{ flexGrow: 1, overflowY: "auto", p: 2, ...scrollbarSx }}
+              >
+                {filteredData.length === 0 ? (
+                  <Box sx={{ py: 10, textAlign: "center" }}>
+                    <Box
+                      sx={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: "50%",
+                        bgcolor: T.accentFaint,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        mx: "auto",
+                        mb: 2,
+                      }}
+                    >
+                      <DomainIcon
+                        sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }}
+                      />
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontSize: "0.9rem",
+                        fontWeight: 600,
+                        color: T.muted,
+                        mb: 0.5,
+                      }}
+                    >
+                      {data.length === 0
+                        ? "No departments yet"
+                        : "No departments match your search"}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>
+                      {data.length === 0
+                        ? "Use the form on the left to add a department."
+                        : "Try a different search term."}
+                    </Typography>
+                  </Box>
+                ) : viewMode === "grid" ? (
+                  <Grid container spacing={1.5}>
+                    {filteredData.map((dept) => (
+                      <Grid item xs={6} sm={4} md={3} key={dept.id}>
+                        <DeptCard
+                          department={dept}
+                          onClick={() => startEditing(dept)}
+                        />
                       </Grid>
-                    ) : (
-                      filteredData.map((department) => (
-                        <Card
-                          key={department.id}
-                          onClick={() => startEditing(department)}
+                    ))}
+                  </Grid>
+                ) : (
+                  <>
+                    <Box
+                      sx={{
+                        px: 2,
+                        py: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        bgcolor: alpha(T.accent, 0.04),
+                        borderRadius: 1.5,
+                        mb: 1,
+                      }}
+                    >
+                      {["Code / Description"].map((col) => (
+                        <Typography
+                          key={col}
                           sx={{
-                            cursor: 'pointer',
-                            border: `1px solid ${alpha(accentColor, 0.1)}`,
-                            mb: 1,
-                            '&:hover': {
-                              borderColor: accentColor,
-                              backgroundColor: alpha(primaryColor, 0.3),
-                            },
+                            fontSize: "0.65rem",
+                            fontWeight: 700,
+                            color: T.accent,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.07em",
                           }}
                         >
-                          <Box sx={{ p: 2 }}>
-                            <Box
-                              sx={{ display: 'flex', alignItems: 'flex-start' }}
-                            >
-                              <Box sx={{ mr: 1.5, mt: 0.2 }}>
-                                <Domain
-                                  sx={{ fontSize: 20, color: accentColor }}
-                                />
-                              </Box>
-
-                              <Box sx={{ flexGrow: 1 }}>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: textPrimaryColor,
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold',
-                                    display: 'block',
-                                    mb: 0.5
-                                  }}
-                                >
-                                  {department.code}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  sx={{ mb: 0.5 }}
-                                >
-                                  {department.description || 'No Description'}
-                                </Typography>
-
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  color="#333"
-                                  sx={{ mb: 0.5, wordBreak: 'break-word' }}
-                                >
-                                  {department.code}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Box>
-                        </Card>
-                      ))
-                    )}
-
-                    {filteredData.length === 0 && (
-                      <Box textAlign="center" py={4}>
-                        <Typography
-                          variant="h6"
-                          color={textPrimaryColor}
-                          fontWeight="bold"
-                          sx={{ mb: 1 }}
-                        >
-                          No Records Found
+                          {col}
                         </Typography>
-                        <Typography
-                          variant="body2"
-                          color="#666"
-                          sx={{ mt: 0.5 }}
-                        >
-                          Try adjusting your search criteria
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Box>
-              </GlassCard>
-            </Fade>
+                      ))}
+                    </Box>
+                    {filteredData.map((dept, i) => (
+                      <DeptRow
+                        key={dept.id}
+                        department={dept}
+                        index={i}
+                        onClick={() => startEditing(dept)}
+                      />
+                    ))}
+                  </>
+                )}
+              </Box>
+            </SectionCard>
           </Grid>
         </Grid>
 
-        {/* Edit Modal */}
+        {/* ── Edit Modal ── */}
         <Modal
           open={modalOpen}
           onClose={() => setModalOpen(false)}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            p: 2,
           }}
         >
-          <GlassCard
-            sx={{
-              width: '90%',
-              maxWidth: '900px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {selectedDepartment && (
-              <>
-                {/* Modal Header */}
-                <Box
-                  sx={{
-                    p: 3,
-                    background: `linear-gradient(135deg, ${settings.secondaryColor || '#6d2323'} 0%, ${settings.deleteButtonHoverColor || '#a31d1d'} 100%)`,
-                    color: settings.accentColor || '#FEF9E1',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <Domain sx={{ fontSize: 24, color: '#FFFFFF' }} />
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#FFFFFF', lineHeight: 1.1 }}>
-                        {isEditing
-                          ? 'Edit Department Information'
-                          : 'Department Information'}
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ color: '#FFFFFF', opacity: 0.9, lineHeight: 1.1 }}
-                      >
-                        View and manage department details
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <IconButton
-                    onClick={() => setModalOpen(false)}
-                    sx={{ color: '#FFFFFF' }}
+          <Fade in={modalOpen}>
+            <Box
+              sx={{
+                width: "95%",
+                maxWidth: 560,
+                borderRadius: 3,
+                overflow: "hidden",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.22)",
+                outline: "none",
+                bgcolor: T.surface,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {selectedDepartment && (
+                <>
+                  {/* Modal header */}
+                  <Box
+                    sx={{
+                      px: 3.5,
+                      py: 2.5,
+                      background: T.headerGrad,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      position: "relative",
+                      overflow: "hidden",
+                      flexShrink: 0,
+                    }}
                   >
-                    <Close />
-                  </IconButton>
-                </Box>
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: -40,
+                        right: -30,
+                        width: 140,
+                        height: 140,
+                        borderRadius: "50%",
+                        bgcolor: "rgba(255,255,255,0.04)",
+                      }}
+                    />
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        position: "relative",
+                        zIndex: 1,
+                      }}
+                    >
+                      <Avatar
+                        sx={{
+                          width: 44,
+                          height: 44,
+                          bgcolor: "rgba(255,255,255,0.15)",
+                          color: "#fff",
+                        }}
+                      >
+                        <DomainIcon sx={{ fontSize: 22 }} />
+                      </Avatar>
+                      <Box>
+                        <Typography
+                          sx={{
+                            fontSize: "1rem",
+                            fontWeight: 800,
+                            color: "#fff",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {isEditing ? "Edit Department" : "Department Details"}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontSize: "0.72rem",
+                            color: "rgba(255,255,255,0.68)",
+                            mt: 0.3,
+                          }}
+                        >
+                          {selectedDepartment.code}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <IconButton
+                      onClick={() => setModalOpen(false)}
+                      size="small"
+                      sx={{
+                        color: "rgba(255,255,255,0.75)",
+                        "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                        position: "relative",
+                        zIndex: 1,
+                      }}
+                    >
+                      <Close sx={{ fontSize: 17 }} />
+                    </IconButton>
+                  </Box>
 
-                {/* Modal Content with Scroll */}
-                <Box
-                  sx={{
-                    p: 4,
-                    flexGrow: 1,
-                    overflowY: 'auto',
-                    minHeight: 0,
-                    '&::-webkit-scrollbar': {
-                      width: '6px',
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      background: '#f1f1f1',
-                      borderRadius: '3px',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      background: settings.primaryColor || accentColor,
-                      borderRadius: '3px',
-                    },
-                  }}
-                >
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} sm={6}>
+                  {/* Modal body */}
+                  <Box sx={{ p: 3, ...scrollbarSx }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Typography
+                          sx={{
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            color: alpha(T.accent, 0.55),
+                            textTransform: "uppercase",
+                            letterSpacing: "0.07em",
+                            mb: 0.75,
+                          }}
+                        >
+                          Department Code
+                        </Typography>
+                        {isEditing ? (
+                          <FieldInput
+                            value={editData.code}
+                            onChange={(e) =>
+                              setEditData({ ...editData, code: e.target.value })
+                            }
+                            fullWidth
+                            size="small"
+                          />
+                        ) : (
                           <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
+                            sx={{
+                              fontSize: "0.95rem",
+                              fontWeight: 600,
+                              color: T.text,
+                            }}
                           >
-                            Department Code
+                            {selectedDepartment.code}
                           </Typography>
-                          {isEditing ? (
-                            <ModernTextField
-                              value={editData.code}
-                              onChange={(e) =>
-                                handleChange('code', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  '& fieldset': {
-                                    borderColor: accentColor,
-                                  },
-                                  '&:hover fieldset': {
-                                    borderColor: accentColor,
-                                  },
-                                  '&.Mui-focused fieldset': {
-                                    borderColor: accentColor,
-                                  },
-                                },
-                              }}
-                            />
-                          ) : (
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                p: 1.5,
-                                bgcolor: alpha(primaryColor, 0.5),
-                                borderRadius: 1,
-                              }}
-                            >
-                              {selectedDepartment.code}
-                            </Typography>
-                          )}
-                        </Grid>
+                        )}
+                      </Grid>
 
-                        <Grid item xs={12} sm={6}>
+                      <Grid item xs={12} sm={6}>
+                        <Typography
+                          sx={{
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            color: alpha(T.accent, 0.55),
+                            textTransform: "uppercase",
+                            letterSpacing: "0.07em",
+                            mb: 0.75,
+                          }}
+                        >
+                          Description
+                        </Typography>
+                        {isEditing ? (
+                          <FieldInput
+                            value={editData.description}
+                            onChange={(e) =>
+                              setEditData({
+                                ...editData,
+                                description: e.target.value,
+                              })
+                            }
+                            fullWidth
+                            size="small"
+                          />
+                        ) : (
                           <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 500, mb: 1, color: textPrimaryColor }}
+                            sx={{
+                              fontSize: "0.95rem",
+                              fontWeight: 600,
+                              color: T.text,
+                            }}
                           >
-                            Department Description
+                            {selectedDepartment.description || "—"}
                           </Typography>
-                          {isEditing ? (
-                            <ModernTextField
-                              value={editData.description}
-                              onChange={(e) =>
-                                handleChange('description', e.target.value)
-                              }
-                              fullWidth
-                              size="small"
-                              sx={{
-                                '& .MuiOutlinedInput-root': {
-                                  '& fieldset': {
-                                    borderColor: accentColor,
-                                  },
-                                  '&:hover fieldset': {
-                                    borderColor: accentColor,
-                                  },
-                                  '&.Mui-focused fieldset': {
-                                    borderColor: accentColor,
-                                  },
-                                },
-                              }}
-                            />
-                          ) : (
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                p: 1.5,
-                                bgcolor: alpha(primaryColor, 0.5),
-                                borderRadius: 1,
-                              }}
-                            >
-                              {selectedDepartment.description}
-                            </Typography>
-                          )}
-                        </Grid>
+                        )}
                       </Grid>
                     </Grid>
-                  </Grid>
-                </Box>
+                  </Box>
 
-                {/* Bottom action bar */}
-                <Box
-                  sx={{
-                    borderTop: `1px solid ${alpha(settings.primaryColor || '#6d2323', 0.2)}`,
-                    backgroundColor: '#FFFFFF',
-                    px: 3,
-                    py: 2,
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: 2,
-                    position: 'sticky',
-                    bottom: 0,
-                    zIndex: 10,
-                    flexShrink: 0,
-                  }}
-                >
-                  {!isEditing ? (
-                    <>
-                      <ProfessionalButton
-                        onClick={() => deleteEntry(selectedDepartment.id)}
-                        variant="outlined"
-                        startIcon={<DeleteIcon />}
-                        sx={{
-                          borderColor: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.deleteButtonColor || settings.primaryColor || '#6d2323',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(settings.deleteButtonColor || settings.primaryColor || '#6d2323', 0.1),
-                            borderColor: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
-                            color: settings.deleteButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Delete
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={handleStartEdit}
-                        variant="contained"
-                        startIcon={<EditIcon />}
-                        sx={{
-                          backgroundColor: settings.updateButtonColor || settings.primaryColor || '#6d2323',
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d',
-                          },
-                        }}
-                      >
-                        Edit
-                      </ProfessionalButton>
-                    </>
-                  ) : (
-                    <>
-                      <ProfessionalButton
-                        onClick={handleCancelEdit}
-                        variant="outlined"
-                        startIcon={<CancelIcon />}
-                        sx={{
-                          borderColor: settings.cancelButtonColor || '#6c757d',
-                          color: settings.cancelButtonColor || '#6c757d',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: alpha(settings.cancelButtonColor || '#6c757d', 0.1),
-                            borderColor: settings.cancelButtonHoverColor || '#5a6268',
-                            color: settings.cancelButtonHoverColor || '#5a6268',
-                          },
-                        }}
-                      >
-                        Cancel
-                      </ProfessionalButton>
-                      <ProfessionalButton
-                        onClick={saveEdit}
-                        variant="contained"
-                        startIcon={<SaveIcon />}
-                        disabled={!hasChanges()}
-                        sx={{
-                          backgroundColor: hasChanges() 
-                            ? (settings.updateButtonColor || settings.primaryColor || '#6d2323')
-                            : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          color: settings.accentColor || '#FEF9E1',
-                          minWidth: '120px',
-                          '&:hover': {
-                            backgroundColor: hasChanges() 
-                              ? (settings.updateButtonHoverColor || settings.hoverColor || '#a31d1d')
-                              : alpha(settings.primaryColor || '#6d2323', 0.5),
-                          },
-                          '&:disabled': {
-                            color: alpha(settings.accentColor || '#FEF9E1', 0.5),
-                          },
-                        }}
-                      >
-                        Save
-                      </ProfessionalButton>
-                    </>
-                  )}
-                </Box>
-              </>
-            )}
-          </GlassCard>
+                  {/* Modal footer */}
+                  <Box
+                    sx={{
+                      p: 2,
+                      borderTop: `1px solid ${T.divider}`,
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: 1.5,
+                      bgcolor: "#fff",
+                    }}
+                  >
+                    {!isEditing ? (
+                      <>
+                        <AccentButton
+                          onClick={() => deleteEntry(selectedDepartment.id)}
+                          variant="outlined"
+                          startIcon={
+                            <DeleteIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            fontSize: "0.8rem",
+                            borderColor: "#e57373",
+                            color: "#c62828",
+                            "&:hover": {
+                              bgcolor: "rgba(198,40,40,0.06)",
+                              borderColor: "#c62828",
+                              transform: "none",
+                            },
+                          }}
+                        >
+                          Delete
+                        </AccentButton>
+                        <AccentButton
+                          onClick={() => setIsEditing(true)}
+                          variant="contained"
+                          startIcon={
+                            <EditIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            fontSize: "0.8rem",
+                            bgcolor: T.accent,
+                            color: "#fff",
+                            boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                            "&:hover": { bgcolor: T.accentDark },
+                          }}
+                        >
+                          Edit
+                        </AccentButton>
+                      </>
+                    ) : (
+                      <>
+                        <AccentButton
+                          onClick={handleCancelEdit}
+                          variant="outlined"
+                          startIcon={
+                            <CancelIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            fontSize: "0.8rem",
+                            borderColor: T.accentBorder,
+                            color: T.muted,
+                            "&:hover": {
+                              bgcolor: T.accentFaint,
+                              borderColor: T.accent,
+                              color: T.accent,
+                              transform: "none",
+                            },
+                          }}
+                        >
+                          Cancel
+                        </AccentButton>
+                        <AccentButton
+                          onClick={saveEdit}
+                          variant="contained"
+                          startIcon={
+                            <SaveIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          disabled={!hasChanges()}
+                          sx={{
+                            fontSize: "0.8rem",
+                            bgcolor: "#639922",
+                            color: "#fff",
+                            boxShadow: "0 2px 10px rgba(99,153,34,0.32)",
+                            "&:hover": { bgcolor: "#3B6D11" },
+                            "&:disabled": {
+                              bgcolor: "#b9c7a5 !important",
+                              color: "#fff !important",
+                            },
+                          }}
+                        >
+                          Save
+                        </AccentButton>
+                      </>
+                    )}
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Fade>
         </Modal>
 
-        <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
+        <SuccessfulOverlay
+          open={successOpen}
+          action={successAction}
+          onClose={() => setSuccessOpen(false)}
+        />
 
         <Snackbar
           open={snackbar.open}
           autoHideDuration={3000}
           onClose={() => setSnackbar({ ...snackbar, open: false })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         >
           <Alert
             onClose={() => setSnackbar({ ...snackbar, open: false })}
             severity={snackbar.severity}
-            sx={{ width: '100%' }}
+            sx={{ width: "100%", borderRadius: 2 }}
           >
             {snackbar.message}
           </Alert>
         </Snackbar>
       </Box>
-    </Box>
+    </Fade>
   );
 };
 
