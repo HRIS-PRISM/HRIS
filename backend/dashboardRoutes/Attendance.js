@@ -907,7 +907,7 @@
           AND AttendanceDateTime >= UNIX_TIMESTAMP(?) * 1000
           AND AttendanceDateTime < UNIX_TIMESTAMP(DATE_ADD(?, INTERVAL 1 DAY)) * 1000
         GROUP BY PersonID, DATE(FROM_UNIXTIME(AttendanceDateTime / 1000))
-      ) ari_daily ON ari_daily.PersonID = ar.personID AND ari_daily.attDate = ar.date
+      ) ari_daily ON ari_daily.PersonID = ar.personID AND ari_daily.attDate = ar.date             
       ${MODIFIER_NAME_JOINS}
       LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
         AND ar.personID = ot.employeeID

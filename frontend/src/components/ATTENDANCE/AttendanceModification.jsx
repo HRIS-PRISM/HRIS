@@ -573,13 +573,17 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
   </Box>
 );
 
-// ─── Auto-colon Time Input ─────────────────────────────────────────────────
+// ─── Auto-colon Time Input (display HH:MM; store HH:MM:00 for API) ─────────
 const digitsOnly = (str) => (str || '').replace(/\D/g, '');
 const formatTimeDigits = (digits) => {
-  const d = digits.slice(0, 6);
+  const d = digits.slice(0, 4);
   if (d.length <= 2) return d;
-  if (d.length <= 4) return `${d.slice(0, 2)}:${d.slice(2)}`;
-  return `${d.slice(0, 2)}:${d.slice(2, 4)}:${d.slice(4)}`;
+  return `${d.slice(0, 2)}:${d.slice(2)}`;
+};
+/** Strip seconds from displayed time labels (e.g. "06:04:00 AM" → "06:04 AM"). */
+const displayTimeNoSeconds = (val) => {
+  if (!val || String(val).trim() === '') return val || '';
+  return String(val).replace(/(\d{1,2}:\d{2}):\d{2}/, '$1');
 };
 const parseStoredTime = (val) => {
   if (!val || String(val).trim() === '') return { digits: '', ampm: 'AM' };
@@ -591,9 +595,16 @@ const parseStoredTime = (val) => {
   else if (str.endsWith('PM')) { ampm = 'PM'; timePart = str.slice(0, -2).trim(); }
   else if (str.endsWith('AM')) { ampm = 'AM'; timePart = str.slice(0, -2).trim(); }
   else { const hm = str.match(/^(\d{1,2}):/); if (hm) ampm = parseInt(hm[1], 10) >= 12 ? 'PM' : 'AM'; }
-  return { digits: digitsOnly(timePart), ampm };
+  // Keep HHMM only — ignore seconds from stored HH:MM:SS values
+  return { digits: digitsOnly(timePart).slice(0, 4), ampm };
 };
-const buildStoredTime = (digits, ampm) => { if (!digits) return ''; return `${formatTimeDigits(digits)} ${ampm}`; };
+const buildStoredTime = (digits, ampm) => {
+  if (!digits) return '';
+  const formatted = formatTimeDigits(digits);
+  // Persist with :00 when HH:MM is complete so backend stays HH:MM:SS
+  const withSeconds = digits.length >= 4 ? `${formatted}:00` : formatted;
+  return `${withSeconds} ${ampm}`;
+};
 
 const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled }) => {
   const { digits: initDigits, ampm: initAmPm } = parseStoredTime(value);
@@ -607,23 +618,63 @@ const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled })
   const handleKeyDown = (e) => {
     if (e.key === 'Backspace') { e.preventDefault(); const nd = localDigits.slice(0, -1); setLocalDigits(nd); onChange({ target: { value: buildStoredTime(nd, ampm) } }); return; }
     if (e.key === 'Delete') { e.preventDefault(); setLocalDigits(''); onChange({ target: { value: '' } }); return; }
-    if (/^\d$/.test(e.key)) { e.preventDefault(); if (localDigits.length >= 6) return; const nd = localDigits + e.key; setLocalDigits(nd); onChange({ target: { value: buildStoredTime(nd, ampm) } }); }
+    if (/^\d$/.test(e.key)) { e.preventDefault(); if (localDigits.length >= 4) return; const nd = localDigits + e.key; setLocalDigits(nd); onChange({ target: { value: buildStoredTime(nd, ampm) } }); }
   };
   const toggleAmPm = () => { const n = ampm === 'AM' ? 'PM' : 'AM'; setAmPm(n); onChange({ target: { value: buildStoredTime(localDigits, n) } }); };
+  const clearTime = () => {
+    if (!localDigits) return;
+    setLocalDigits('');
+    onChange({ target: { value: '' } });
+  };
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center' }}>
       <input
-        type="text" value={formatTimeDigits(localDigits)} onKeyDown={handleKeyDown} onChange={() => {}} placeholder="HH:MM:SS"
-        style={{ width: '78px', padding: '6px 7px', borderRadius: '6px 0 0 6px', border: `1.5px solid ${borderColor}`, borderRight: 'none', fontSize: '0.76rem', outline: 'none', fontFamily: 'monospace', fontWeight: 600, boxSizing: 'border-box', background: bgColor, color: T.text, transition: 'border-color 0.15s', letterSpacing: '0.04em', caretColor: T.accent }}
+        type="text" value={formatTimeDigits(localDigits)} onKeyDown={handleKeyDown} onChange={() => {}} placeholder="HH:MM"
+        style={{ width: '62px', padding: '6px 7px', borderRadius: '6px 0 0 6px', border: `1.5px solid ${borderColor}`, borderRight: 'none', fontSize: '0.76rem', outline: 'none', fontFamily: 'monospace', fontWeight: 600, boxSizing: 'border-box', background: bgColor, color: T.text, transition: 'border-color 0.15s', letterSpacing: '0.04em', caretColor: T.accent }}
         onFocus={(e) => { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`; }}
         onBlur={(e) => { e.target.style.borderColor = borderColor; e.target.style.boxShadow = 'none'; }}
       />
       <button type="button" onClick={toggleAmPm} title={`Click to switch to ${ampm === 'AM' ? 'PM' : 'AM'}`}
-        style={{ width: '30px', padding: '6px 3px', borderRadius: '0 6px 6px 0', border: `1.5px solid ${borderColor}`, fontSize: '0.65rem', fontWeight: 800, fontFamily: T.font, cursor: 'pointer', background: ampm === 'AM' ? 'rgba(25,118,210,0.10)' : 'rgba(198,40,40,0.10)', color: ampm === 'AM' ? '#1565c0' : '#b71c1c', transition: 'all 0.15s', letterSpacing: '0.03em', userSelect: 'none', lineHeight: 1, boxSizing: 'border-box' }}
+        style={{ width: '30px', padding: '6px 3px', borderRadius: 0, border: `1.5px solid ${borderColor}`, borderRight: 'none', fontSize: '0.65rem', fontWeight: 800, fontFamily: T.font, cursor: 'pointer', background: ampm === 'AM' ? 'rgba(25,118,210,0.10)' : 'rgba(198,40,40,0.10)', color: ampm === 'AM' ? '#1565c0' : '#b71c1c', transition: 'all 0.15s', letterSpacing: '0.03em', userSelect: 'none', lineHeight: 1, boxSizing: 'border-box' }}
         onMouseEnter={(e) => { e.currentTarget.style.background = ampm === 'AM' ? 'rgba(25,118,210,0.18)' : 'rgba(198,40,40,0.18)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = ampm === 'AM' ? 'rgba(25,118,210,0.10)' : 'rgba(198,40,40,0.10)'; }}
       >{ampm}</button>
+      <button
+        type="button"
+        onClick={clearTime}
+        disabled={!localDigits}
+        title="Clear time"
+        aria-label="Clear time"
+        style={{
+          width: '22px',
+          padding: '6px 0',
+          borderRadius: '0 6px 6px 0',
+          border: `1.5px solid ${borderColor}`,
+          fontSize: '0.7rem',
+          fontWeight: 800,
+          fontFamily: T.font,
+          cursor: localDigits ? 'pointer' : 'default',
+          background: localDigits ? 'rgba(183,28,28,0.06)' : bgColor,
+          color: localDigits ? '#b71c1c' : alpha(T.text, 0.28),
+          transition: 'all 0.15s',
+          lineHeight: 1,
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: localDigits ? 1 : 0.55,
+        }}
+        onMouseEnter={(e) => {
+          if (!localDigits) return;
+          e.currentTarget.style.background = 'rgba(183,28,28,0.14)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = localDigits ? 'rgba(183,28,28,0.06)' : bgColor;
+        }}
+      >
+        <Close sx={{ fontSize: 12 }} />
+      </button>
     </Box>
   );
 };
@@ -642,38 +693,49 @@ const BREAK_IN_DEFAULT = '12:00:00 PM';
 const BREAK_OUT_DEFAULT = '01:00:00 PM';
 const isNoBreakValue = (v) => !v || String(v).trim() === '';
 
-/** Small pill button — appears under Break Out when both break fields are empty */
+// TimeInput cluster = HH:MM (62) + AM/PM (30) + clear (22)
+const TIME_INPUT_CLUSTER_PX = 62 + 30 + 22;
+// Row grid uses gap={1.25} → 10px with default MUI spacing
+const ROW_GRID_GAP_PX = 10;
+/**
+ * Width from start of BRK IN column through BRK OUT's X button:
+ * half of the 2-col span + half gap + one time-input cluster.
+ */
+const FILL_BREAK_WIDTH = `calc(50% + ${ROW_GRID_GAP_PX / 2}px + ${TIME_INPUT_CLUSTER_PX}px)`;
+
+/** Pill button — spans BRK IN + BRK OUT when both break fields are empty */
 const FillBreakBtn = ({ onClick }) => (
   <Tooltip title="Auto-fill Break In (12:00 PM) & Break Out (1:00 PM)" placement="top">
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        marginTop: 4,
-        background: 'rgba(106,31,138,0.08)',
-        border: '1px solid rgba(106,31,138,0.32)',
-        borderRadius: '6px',
-        padding: '4px 7px',
-        cursor: 'pointer',
-        color: '#6a1f8a',
-        fontSize: '0.62rem',
-        fontWeight: 800,
-        fontFamily: T.font,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-        whiteSpace: 'nowrap',
-        width: '100%',
-        boxSizing: 'border-box',
-        transition: 'background-color 0.15s, border-color 0.15s',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.16)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.08)'; }}
-    >
-      <AccessTime sx={{ fontSize: 11 }} />
-      Fill Break
-    </button>
+    <Box sx={{ width: '100%', display: 'block' }}>
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          background: 'rgba(106,31,138,0.08)',
+          border: '1px solid rgba(106,31,138,0.32)',
+          borderRadius: '6px',
+          padding: '5px 10px',
+          cursor: 'pointer',
+          color: '#6a1f8a',
+          fontSize: '0.62rem',
+          fontWeight: 800,
+          fontFamily: T.font,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 4,
+          whiteSpace: 'nowrap',
+          width: '100%',
+          boxSizing: 'border-box',
+          transition: 'background-color 0.15s, border-color 0.15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.16)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.08)'; }}
+      >
+        <AccessTime sx={{ fontSize: 11 }} />
+        Fill Break
+      </button>
+    </Box>
   </Tooltip>
 );
 
@@ -682,7 +744,7 @@ const OrigValueRow = ({ origVal, color }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.2 }}>
     <History sx={{ fontSize: 9, color: color || T.accentMid, flexShrink: 0 }} />
     <Typography sx={{ fontSize: '0.6rem', color: color || T.accentMid, fontFamily: 'monospace', fontStyle: 'italic', whiteSpace: 'nowrap' }}>
-      orig: {origVal || '—'}
+      orig: {displayTimeNoSeconds(origVal) || '—'}
     </Typography>
   </Box>
 );
@@ -844,6 +906,28 @@ const RecordsRow = memo(function RecordsRow({
           const origVal = autoFillMeta?.originalValues?.[field];
           // FIX 3: suppress "was:" when row is auto-filled — "orig:" already covers it
           const showWas = !isAutoFilled && baselineVal && baselineVal !== currentVal;
+          const isBreakField = field === 'breaktimeIN' || field === 'breaktimeOUT';
+          // When both breaks are empty, cover BRK IN + BRK OUT up to the clear (X) edge
+          if (showFillBreak && isBreakField) {
+            if (field === 'breaktimeIN') return null;
+            return (
+              <Box
+                key="fill-break"
+                sx={{
+                  // Records grid: emp | date | day | timeIN | brkIN | brkOUT | timeOUT | …
+                  gridColumn: '5 / 7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  minWidth: 0,
+                }}
+              >
+                <Box sx={{ width: FILL_BREAK_WIDTH, maxWidth: '100%' }}>
+                  <FillBreakBtn onClick={() => onFillBreak(index)} />
+                </Box>
+              </Box>
+            );
+          }
           return (
             <Box key={field}>
               <MemoTimeInput
@@ -864,17 +948,12 @@ const RecordsRow = memo(function RecordsRow({
                     color: unsaved ? '#e65100' : T.faint,
                     fontWeight: unsaved ? 700 : 400,
                   }}>
-                    {`was: ${baselineVal}`}
+                    {`was: ${displayTimeNoSeconds(baselineVal)}`}
                   </Typography>
                 </Box>
               )}
               {isAutoFilled && origVal !== undefined && origVal !== currentVal && (
                 <OrigValueRow origVal={origVal} color={T.accentMid} />
-              )}
-              {field === 'breaktimeOUT' && showFillBreak && (
-                <Box sx={{ mt: 0.4 }}>
-                  <FillBreakBtn onClick={() => onFillBreak(index)} />
-                </Box>
               )}
             </Box>
           );
@@ -1011,6 +1090,28 @@ const FullMonthRow = memo(function FullMonthRow({
           const origVal = autoFillMeta?.originalValues?.[field];
           // FIX 3: suppress "was:" when row is auto-filled — "orig:" already covers it
           const showWas = !record.isNew && !isAutoFilled && baselineVal && baselineVal !== currentVal;
+          const isBreakField = field === 'breaktimeIN' || field === 'breaktimeOUT';
+          // When both breaks are empty, cover BRK IN + BRK OUT up to the clear (X) edge
+          if (showFillBreak && isBreakField) {
+            if (field === 'breaktimeIN') return null;
+            return (
+              <Box
+                key="fill-break"
+                sx={{
+                  // Full-month grid: select | status | date | day | timeIN | brkIN | brkOUT | timeOUT | …
+                  gridColumn: '6 / 8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  minWidth: 0,
+                }}
+              >
+                <Box sx={{ width: FILL_BREAK_WIDTH, maxWidth: '100%' }}>
+                  <FillBreakBtn onClick={() => onFillBreak(index)} />
+                </Box>
+              </Box>
+            );
+          }
           return (
             <Box key={field}>
               <MemoTimeInput
@@ -1032,17 +1133,12 @@ const FullMonthRow = memo(function FullMonthRow({
                     color: unsaved ? '#e65100' : T.faint,
                     fontWeight: unsaved ? 700 : 400,
                   }}>
-                    {`was: ${baselineVal}`}
+                    {`was: ${displayTimeNoSeconds(baselineVal)}`}
                   </Typography>
                 </Box>
               )}
               {isAutoFilled && origVal !== undefined && origVal !== currentVal && (
                 <OrigValueRow origVal={origVal} color={T.accentMid} />
-              )}
-              {field === 'breaktimeOUT' && showFillBreak && (
-                <Box sx={{ mt: 0.4 }}>
-                  <FillBreakBtn onClick={() => onFillBreak(index)} />
-                </Box>
               )}
             </Box>
           );
