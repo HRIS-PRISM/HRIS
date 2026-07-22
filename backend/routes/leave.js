@@ -1234,6 +1234,24 @@ router.delete("/leave_table/:id", requireAdmin, (req, res) => {
 // LEAVE ASSIGNMENT
 // ============================================
 router.get("/leave_assignment", requireAdmin, (req, res) => {
+  const includeVoided =
+    String(req.query.include_voided || "").trim() === "1" ||
+    String(req.query.include_voided || "").toLowerCase() === "true";
+  const employeeNumber = String(req.query.employeeNumber || "").trim();
+
+  const where = [];
+  const params = [];
+  if (!includeVoided) {
+    where.push("la.voided_at IS NULL");
+  }
+  if (employeeNumber) {
+    where.push("la.employeeNumber = ?");
+    params.push(employeeNumber);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  // Commutation subquery scoped to non-cancelled rows only; active assignments
+  // (default) keep the join small. Prefer assignment indexes for filters.
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
@@ -1254,9 +1272,10 @@ router.get("/leave_assignment", requireAdmin, (req, res) => {
     ) lc ON lc.leave_assignment_id = la.id
     LEFT JOIN leave_table lt ON la.leave_code = lt.leave_code
     LEFT JOIN person_table p ON la.employeeNumber = p.agencyEmployeeNum
+    ${whereSql}
     ORDER BY p.lastName, p.firstName, la.leave_code
   `;
-  db.query(query, (err, results) => {
+  db.query(query, params, (err, results) => {
     if (err) {
       console.error("[GET /leave_assignment] DB Error:", err.message);
       return res
