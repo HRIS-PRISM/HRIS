@@ -495,9 +495,14 @@ const Login = () => {
   const isSm = useMediaQuery(theme.breakpoints.down("md"));      // phones + small tablets
   const isMd = useMediaQuery(theme.breakpoints.down("lg"));      // tablets
   const showCarousel = useMediaQuery(theme.breakpoints.up("md")); // hide carousel below md
+  // Below md the layout stacks and grows naturally (auto height) so nothing
+  // ever gets clipped — the fixed-height cross-fade card only applies once
+  // the carousel appears alongside it (md and up).
+  const isCompact = !showCarousel;
 
-  // Fixed card height — both panels will be constrained to this. Scales down on small screens.
-  const CARD_HEIGHT = isXs ? 0 : isMd ? 460 : 560;
+  // Fixed card height — only used at md+ where there's room for the two-column
+  // layout. Below that, the card is auto-height (see CARD_HEIGHT usage below).
+  const CARD_HEIGHT = isMd ? 480 : 560;
 
   // ── Carousel card width (px) — must match the card width in the JSX below
   const CARD_W = isMd ? 420 : 720;
@@ -576,9 +581,10 @@ const Login = () => {
 
   useEffect(() => {
     // Only lock page scroll on larger screens where the layout is a fixed
-    // single-viewport composition. On phones/small tablets the stacked
-    // layout can exceed 100vh, so allow natural scrolling there.
-    if (isSm) {
+    // single-viewport, two-column composition. Below md the card stacks and
+    // auto-sizes to its content, which can exceed 100vh, so allow natural
+    // scrolling there instead of clipping anything.
+    if (isCompact) {
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
       return;
@@ -589,7 +595,7 @@ const Login = () => {
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
     };
-  }, [isSm]);
+  }, [isCompact]);
 
   useEffect(() => {
     if (!showIntro) return;
@@ -1040,7 +1046,7 @@ const Login = () => {
       <Box sx={{ position: "fixed", inset: 0, backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center", animation: "zoomPulse 20s ease-in-out infinite", "@keyframes zoomPulse": { "0%,100%": { transform: "scale(1)" }, "50%": { transform: "scale(1.05)" } } }} />
       <Box sx={{ position: "fixed", inset: 0, background: "linear-gradient(135deg, rgba(75,0,0,0.84) 0%, rgba(0,0,0,0.90) 100%)" }} />
 
-      <Box sx={{ position: "fixed", inset: 0, zIndex: 10, overflow: isSm ? "auto" : "hidden" }}>
+      <Box sx={{ position: "fixed", inset: 0, zIndex: 10, overflow: isCompact ? "auto" : "hidden" }}>
         <LoadingOverlay open={loading} message="Please wait..." />
 
         <Box
@@ -1052,12 +1058,99 @@ const Login = () => {
             alignItems: "center",
             justifyContent: "center",
             overflow: "visible",
-            gap: { xs: 3, sm: 4, md: 5, lg: 8, xl: "100px" },
+            gap: { xs: 1.5, sm: 2, md: 5, lg: 8, xl: "100px" },
             px: { xs: 2, sm: 4, md: 4, lg: 8, xl: "160px" },
-            py: { xs: 3, md: 0 },
+            py: { xs: 1.5, sm: 2, md: 0 },
             boxSizing: "border-box",
           }}
         >
+
+          {/* ── Compact announcements banner (phones/tablets, below md) ──────── */}
+          {isCompact && carouselItems.length > 0 && (
+            <Box sx={{ width: "100%", maxWidth: 420, mx: "auto", order: -1 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 1.5,
+                  overflowX: carouselItems.length > 1 ? "auto" : "visible",
+                  overflowY: "hidden",
+                  scrollSnapType: carouselItems.length > 1 ? "x mandatory" : "none",
+                  WebkitOverflowScrolling: "touch",
+                  justifyContent: carouselItems.length > 1 ? "flex-start" : "center",
+                  "&::-webkit-scrollbar": { display: "none" },
+                  scrollbarWidth: "none",
+                }}
+              >
+                {carouselItems.map((item) => (
+                  <Box
+                    key={item.id}
+                    sx={{
+                      flex: carouselItems.length > 1 ? "0 0 88%" : "0 0 100%",
+                      scrollSnapAlign: "center",
+                      borderRadius: { xs: "16px", sm: "18px" },
+                      overflow: "hidden",
+                      position: "relative",
+                      boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+                      border: "1px solid rgba(255,255,255,0.14)",
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={item.image ? `${API_BASE_URL}${item.image}` : "/api/placeholder/620/540"}
+                      alt={item.title || item.type}
+                      sx={{
+                        width: "100%",
+                        height: { xs: 130, sm: 160 },
+                        objectFit: "cover",
+                        display: "block",
+                        filter: "brightness(0.62)",
+                      }}
+                    />
+                    <Box sx={{ position: "absolute", bottom: 0, width: "100%", background: "linear-gradient(0deg, rgba(0,0,0,0.82) 0%, transparent 100%)", p: "22px 16px 14px" }}>
+                      <Chip
+                        size="small"
+                        label={getTypeLabel(item.type)}
+                        icon={
+                          item.type === "HOLIDAY"
+                            ? <EventIcon sx={{ fontSize: "12px !important", color: "#fff !important" }} />
+                            : item.type === "SUSPENSION"
+                            ? <BlockIcon sx={{ fontSize: "12px !important", color: "#fff !important" }} />
+                            : <AnnouncementIcon sx={{ fontSize: "12px !important", color: "#fff !important" }} />
+                        }
+                        sx={{
+                          mb: 0.75,
+                          bgcolor:
+                            item.type === "HOLIDAY"
+                              ? "rgba(237,108,2,0.85)"
+                              : item.type === "SUSPENSION"
+                              ? "rgba(211,47,47,0.85)"
+                              : "rgba(128,0,32,0.85)",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: "0.6rem",
+                          height: 19,
+                          "& .MuiChip-icon": { color: "#fff" },
+                        }}
+                      />
+                      <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.85rem", lineHeight: 1.25, mb: 0.25 }}>
+                        {item.title}
+                      </Typography>
+                      <Typography sx={{ color: "rgba(255,255,255,0.7)", fontSize: "0.7rem" }}>
+                        {item.date ? new Date(item.date).toDateString() : ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+              {carouselItems.length > 1 && (
+                <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mt: 1.25 }}>
+                  {carouselItems.map((item) => (
+                    <Box key={`dot-${item.id}`} sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.35)" }} />
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
 
           {/* ── LEFT — Carousel (hidden on phones/small tablets) ─────────────── */}
           {showCarousel && (
@@ -1189,8 +1282,9 @@ const Login = () => {
                 boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
                 position: "relative",
                 overflow: "hidden",
-                height: { xs: "auto", sm: CARD_HEIGHT },
-                minHeight: { xs: 480, sm: "auto" },
+                height: { xs: "auto", md: CARD_HEIGHT },
+                minHeight: { xs: 420, sm: 460, md: "auto" },
+                maxHeight: { xs: "none", md: CARD_HEIGHT },
                 boxSizing: "border-box",
                 display: "flex",
                 flexDirection: "column",
@@ -1199,11 +1293,11 @@ const Login = () => {
               {/* ── Login Panel ── */}
               <Box
                 sx={{
-                  position: { xs: "static", sm: "absolute" },
-                  inset: { sm: "36px" },
-                  display: showForgotPassword ? { xs: "none", sm: "flex" } : "flex",
+                  position: { xs: "static", md: "absolute" },
+                  inset: { md: "36px" },
+                  display: showForgotPassword ? { xs: "none", md: "flex" } : "flex",
                   flexDirection: "column",
-                  flex: { xs: 1, sm: "unset" },
+                  flex: { xs: 1, md: "unset" },
                   transition: "opacity 0.25s ease, transform 0.25s ease",
                   opacity: showForgotPassword ? 0 : 1,
                   transform: showForgotPassword ? "translateX(-24px)" : "translateX(0)",
@@ -1345,11 +1439,11 @@ const Login = () => {
               {/* ── Forgot Password Panel ── */}
               <Box
                 sx={{
-                  position: { xs: "static", sm: "absolute" },
-                  inset: { sm: "36px" },
-                  display: showForgotPassword ? "flex" : { xs: "none", sm: "flex" },
+                  position: { xs: "static", md: "absolute" },
+                  inset: { md: "36px" },
+                  display: showForgotPassword ? "flex" : { xs: "none", md: "flex" },
                   flexDirection: "column",
-                  flex: { xs: 1, sm: "unset" },
+                  flex: { xs: 1, md: "unset" },
                   transition: "opacity 0.25s ease, transform 0.25s ease",
                   opacity: showForgotPassword ? 1 : 0,
                   transform: showForgotPassword ? "translateX(0)" : "translateX(24px)",
