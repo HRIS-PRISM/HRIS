@@ -3197,7 +3197,7 @@ const AttendanceModuleFacultyDesignated = ({
         ),
       ),
     );
-    const lateTotalTime = rowTardinessSum;
+    const lateTotalTime = morningTardiness;
     const overallTardiness = rowTardinessSum;
     const hnRendered = sumTime(
       attendanceData.map((r) =>
