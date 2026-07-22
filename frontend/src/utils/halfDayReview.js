@@ -9,9 +9,7 @@ import {
   isScheduledByOfficialTime,
   getOfficialSchedWorkSec,
   hasNoPunches,
-  hasMorningPunch,
-  hasAfternoonPunch,
-  isHalfDayByTardinessThreshold,
+  isHalfDayByPunchPattern,
   computeArrivalLateSec,
   computeEarlyLeaveUndertimeSec,
 } from './officialAttendanceFromDailyRows';
@@ -420,19 +418,13 @@ export function detectSuggestedHalfDay(row, moduleType, calendarMaps) {
   if (!isScheduledByOfficialTime(row)) return false;
   if (getOfficialSchedWorkSec(row) == null) return false;
 
-  // Non-teaching + designated 40hrs: half-day when shortfall > half of official work.
-  if (
-    moduleType === MODULE_TYPES.NON_TEACHING ||
-    moduleType === MODULE_TYPES.DESIGNATED_40HRS
-  ) {
-    return isHalfDayByTardinessThreshold(row);
+  if (moduleType === MODULE_TYPES.NON_TEACHING) {
+    if (hasNoPunches(row)) return false;
+  } else if (hasNoPunchesTimeInOutOnly(row)) {
+    return false;
   }
 
-  // Faculty 30hrs: keep Time IN / Time OUT XOR half-day detection.
-  if (hasNoPunchesTimeInOutOnly(row)) return false;
-  const morning = !EMPTY_PUNCH(row?.timeIN);
-  const afternoon = !EMPTY_PUNCH(row?.timeOUT);
-  return morning !== afternoon;
+  return isHalfDayByPunchPattern(row);
 }
 
 function hasNoPunchesTimeInOutOnly(row) {
@@ -441,11 +433,7 @@ function hasNoPunchesTimeInOutOnly(row) {
 
 export function createSuggestedEntry(row, moduleType) {
   const suggested = computeSuggestedTardinessFromPunches(row, moduleType);
-  const detectedReason =
-    moduleType === MODULE_TYPES.NON_TEACHING ||
-    moduleType === MODULE_TYPES.DESIGNATED_40HRS
-      ? 'tardiness_over_half'
-      : 'xor_punch';
+  const detectedReason = 'punch_pattern';
   return {
     date: normalizeReviewDate(row.date),
     status: HALF_DAY_STATUS.SUGGESTED,
