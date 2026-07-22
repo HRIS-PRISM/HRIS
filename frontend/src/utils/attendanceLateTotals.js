@@ -14,9 +14,14 @@ export function sumHmsDurationStrings(values) {
 }
 
 /**
- * Late total: punch/HR-reject shortfall only (excludes absent + approved half-day).
+ * Late total: punch/HR-reject shortfall (keeps punch late after half-day approve).
+ * Prefer lateTotalDisplayTime so confirming half day does not shrink Late Total.
  */
 export function computeLateTotalTimeFromTardiness(_overallTardiness, buckets) {
+  const display = buckets?.lateTotalDisplayTime;
+  if (display != null && String(display).trim() !== '') {
+    return display;
+  }
   const fromBuckets = buckets?.lateShortfallTime;
   if (fromBuckets != null && String(fromBuckets).trim() !== '') {
     return fromBuckets;

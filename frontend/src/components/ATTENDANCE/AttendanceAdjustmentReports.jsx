@@ -1,11 +1,15 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import {
   Box, Typography, Card, CircularProgress, Fade,
   FormControl, Select, MenuItem, Tooltip, Avatar,
-  IconButton, Dialog, TablePagination, alpha, styled, Collapse,
+  IconButton, Dialog, DialogTitle, DialogContent, DialogActions, TablePagination, alpha, styled, Collapse,
+  Tabs, Tab,
 } from '@mui/material';
 import {
   EditCalendar as EditCalendarIcon,
@@ -23,7 +27,18 @@ import {
   ArrowBackIos as ArrowBackIosIcon,
   EventAvailable as EventAvailableIcon,
   Edit as EditIcon,
+  TableChart as TableChartIcon,
+  Insights as InsightsIcon,
+  Fingerprint as FingerprintIcon,
+  ListAlt as ListAltIcon,
+  PersonOff as PersonOffIcon,
+  FileDownload as FileDownloadIcon,
 } from '@mui/icons-material';
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip as RechartTooltip,
+} from 'recharts';
 
 // ─── Poppins font import ───────────────────────────────────────────────────
 const poppinsImport = `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');`;
@@ -329,6 +344,75 @@ const AdjustmentReportWireframe = () => (
 
 const ADJ_TYPES = ['Time In', 'Time Out', 'Breaktime In', 'Breaktime Out', 'Manual Entry'];
 
+const CHART_COLORS = ['#6d2323', '#2563eb', '#059669', '#c2410c', '#7c3aed', '#92400e', '#0369a1', '#8B4545'];
+const ADJ_TYPE_COLORS = {
+  'Time In': '#0369a1',
+  'Time Out': '#065f46',
+  'Breaktime In': '#7c3aed',
+  'Breaktime Out': '#c2410c',
+  'Manual Entry': '#92400e',
+};
+
+const ChartCard = ({ title, subtitle, headerAction, filters, children }) => (
+  <Box sx={{
+    flex: '1 1 360px', minWidth: 300, p: 2.5, borderRadius: '10px',
+    bgcolor: '#fff', border: `1px solid ${T.accentBorder}`,
+    display: 'flex', flexDirection: 'column', gap: 1,
+  }}>
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+          <Typography sx={{ fontSize: '0.88rem', fontWeight: 800, color: T.accent, fontFamily: T.font }}>{title}</Typography>
+          {headerAction}
+        </Box>
+        {subtitle && (
+          <Typography sx={{ fontSize: '0.7rem', color: T.faint, fontFamily: T.font, mt: 0.25 }}>{subtitle}</Typography>
+        )}
+        {filters}
+      </Box>
+    </Box>
+    <Box sx={{ width: '100%', height: 280 }}>{children}</Box>
+  </Box>
+);
+
+const formatPersonDisplayName = (person, fallback = '') => {
+  if (person?.lastName || person?.firstName) {
+    const mi = person.middleName ? ` ${String(person.middleName).trim().charAt(0)}.` : '';
+    return `${person.lastName || ''}, ${person.firstName || ''}${mi}`.replace(/^,\s*/, '').trim();
+  }
+  if (!fallback) return '—';
+  const parts = String(fallback).trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    const first = parts[0];
+    const mi = parts.length > 2 ? ` ${parts[1].charAt(0)}.` : '';
+    return `${last}, ${first}${mi}`;
+  }
+  return fallback;
+};
+
+const buildEmpCatLabel = (item) => {
+  if (!item) return '';
+  if (item.parentGroup && item.typeName) return `${item.parentGroup} | ${item.typeName}`;
+  if (item.customCategory?.trim()) return `Other (${item.customCategory.trim()})`;
+  if (item.categoryLabel && item.categoryLabel !== 'Unassigned') return item.categoryLabel;
+  return '';
+};
+
+const PUNCH_BRACKETS = [
+  { key: 'timeIn', label: 'Time In', field: 'daysWithTimeIn' },
+  { key: 'breakIn', label: 'Break Time In', field: 'daysWithBreakIn' },
+  { key: 'breakOut', label: 'Break Time Out', field: 'daysWithBreakOut' },
+  { key: 'timeOut', label: 'Time Out', field: 'daysWithTimeOut' },
+];
+
+const chartTooltipStyle = {
+  contentStyle: {
+    borderRadius: 8, border: `1px solid ${T.accentBorder}`,
+    fontFamily: T.font, fontSize: '0.75rem', boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  },
+};
+
 // ─── TABLE columns ────────────────────────────────────────────────────────
 const TABLE_COLS = [
   { key: 'employeeNumber', label: 'EMP #',          w: 90  },
@@ -368,6 +452,7 @@ const AttendanceAdjustmentReports = () => {
   const [searchEmpNum, setSearchEmpNum] = useState(preEmpNum);
   const [typeFilter,   setTypeFilter]   = useState('all');
   const [deptFilter,   setDeptFilter]   = useState('all');
+  const [empCatFilter, setEmpCatFilter] = useState('all');
   const [opFilter,     setOpFilter]     = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
 
@@ -375,6 +460,28 @@ const AttendanceAdjustmentReports = () => {
   const [rowsPerPage,    setRowsPerPage] = useState(25);
   const [selectedRecord, setSelected]    = useState(null);
   const [detailOpen,     setDetailOpen]  = useState(false);
+  const [activeTab,      setActiveTab]   = useState('table');
+
+  const [registeredUsers,   setRegisteredUsers]   = useState([]);
+  const [personMap,         setPersonMap]         = useState({});
+  const [deviceUsers,       setDeviceUsers]       = useState([]);
+  const [allDeviceUsersRaw, setAllDeviceUsersRaw] = useState([]);
+  const [deviceSummary,     setDeviceSummary]     = useState([]);
+  const [punchInsights,     setPunchInsights]     = useState([]);
+  const [departmentTable,   setDepartmentTable]   = useState([]);
+  const [deptCodeByEmployee, setDeptCodeByEmployee] = useState({});
+  const [empCatMap,         setEmpCatMap]         = useState({});
+  const [deviceLoading,     setDeviceLoading]     = useState(false);
+  const [deviceError,       setDeviceError]       = useState('');
+  const [deviceDeptFilter,  setDeviceDeptFilter]  = useState('all');
+  const [noRecordsDialogOpen, setNoRecordsDialogOpen] = useState(false);
+  const [noRecordsSearch, setNoRecordsSearch] = useState('');
+  const [unregisteredDialogOpen, setUnregisteredDialogOpen] = useState(false);
+  const [unregisteredSearch, setUnregisteredSearch] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
+
+  const insightsExportRef = useRef(null);
 
   const today = new Date().toLocaleDateString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -423,21 +530,160 @@ const AttendanceAdjustmentReports = () => {
     }
   }, [searchEmpNum, dateFrom, dateTo]); // eslint-disable-line
 
+  const fetchRegisteredUsers = useCallback(async () => {
+    try {
+      const auth = getAuthHeaders();
+      const [usersResp, personsResp, empCatResp] = await Promise.all([
+        fetch(`${API_BASE_URL}/users`, { method: 'GET', ...auth }),
+        fetch(`${API_BASE_URL}/personalinfo/person_table`, { method: 'GET', ...auth }),
+        fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, { method: 'GET', ...auth }),
+      ]);
+      if (!usersResp.ok) return;
+      const usersDataRaw = await usersResp.json();
+      const personsDataRaw = personsResp.ok ? await personsResp.json().catch(() => []) : [];
+      const empCatsDataRaw = empCatResp.ok ? await empCatResp.json().catch(() => []) : [];
+      const usersArray = Array.isArray(usersDataRaw) ? usersDataRaw : usersDataRaw.users || usersDataRaw.data || [];
+      const personsArray = Array.isArray(personsDataRaw) ? personsDataRaw : personsDataRaw.persons || personsDataRaw.data || [];
+      const empCatsArray = Array.isArray(empCatsDataRaw) ? empCatsDataRaw : empCatsDataRaw.data || empCatsDataRaw.records || [];
+
+      const nextPersonMap = {};
+      (personsArray || []).forEach((p) => {
+        const key = String(p.agencyEmployeeNum ?? p.employeeNumber ?? '').trim();
+        if (key) nextPersonMap[key] = p;
+      });
+      setPersonMap(nextPersonMap);
+
+      const nextEmpCatMap = {};
+      (empCatsArray || []).forEach((item) => {
+        if (!item?.employeeNumber) return;
+        const label = buildEmpCatLabel(item);
+        if (label) {
+          nextEmpCatMap[String(item.employeeNumber)] = {
+            label,
+            colorHex: item.colorHex || '#757575',
+          };
+        }
+      });
+      setEmpCatMap(nextEmpCatMap);
+
+      const enriched = (usersArray || []).map((user) => {
+        const person = nextPersonMap[String(user.employeeNumber)];
+        const fullName = person
+          ? `${person.firstName || ''} ${person.middleName || ''} ${person.lastName || ''} ${person.nameExtension || ''}`.trim()
+          : user.fullName || user.username || `${user.firstName || ''} ${user.lastName || ''}`.trim();
+        return { ...user, fullName: fullName || user.username || String(user.employeeNumber || '') };
+      });
+      setRegisteredUsers(enriched);
+    } catch (err) {
+      console.error('AttendanceAdjustmentReports registered users fetch error:', err);
+    }
+  }, []); // eslint-disable-line
+
+  const registeredUserSet = useMemo(
+    () => new Set(
+      registeredUsers
+        .map((u) => String(u.employeeNumber || '').trim())
+        .filter(Boolean),
+    ),
+    [registeredUsers],
+  );
+
+  const fetchDeviceInsights = useCallback(async () => {
+    if (!dateFrom || !dateTo) {
+      setDeviceUsers([]);
+      setAllDeviceUsersRaw([]);
+      setDeviceSummary([]);
+      setPunchInsights([]);
+      return;
+    }
+    setDeviceLoading(true);
+    setDeviceError('');
+    try {
+      const auth = getAuthHeaders();
+      const [usersRes, summaryRes, deptTableRes, deptAssignRes, punchRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, auth),
+        axios.post(
+          `${API_BASE_URL}/attendance/api/device-attendance-summary`,
+          { startDate: dateFrom, endDate: dateTo },
+          auth,
+        ),
+        axios.get(`${API_BASE_URL}/api/department-table`, auth),
+        axios.get(`${API_BASE_URL}/api/department-assignment`, auth),
+        axios.post(
+          `${API_BASE_URL}/attendance/api/device-punch-insights`,
+          { startDate: dateFrom, endDate: dateTo },
+          auth,
+        ),
+      ]);
+
+      const allowed = registeredUserSet;
+      const rawDeviceUsers = usersRes.data || [];
+      setAllDeviceUsersRaw(rawDeviceUsers);
+
+      const filteredUsers = rawDeviceUsers.filter(
+        (u) => u?.PersonID != null && allowed.has(String(u.PersonID)),
+      );
+      const filteredSummary = (Array.isArray(summaryRes.data) ? summaryRes.data : []).filter(
+        (row) => row?.PersonID != null && allowed.has(String(row.PersonID)),
+      );
+      const filteredPunch = (Array.isArray(punchRes.data) ? punchRes.data : []).filter(
+        (row) => row?.PersonID != null && allowed.has(String(row.PersonID)),
+      );
+
+      const deptList = Array.isArray(deptTableRes.data) ? deptTableRes.data : [];
+      deptList.sort((a, b) => String(a?.code || '').localeCompare(String(b?.code || '')));
+      setDepartmentTable(deptList);
+
+      const codeMap = {};
+      (Array.isArray(deptAssignRes.data) ? deptAssignRes.data : []).forEach((a) => {
+        if (!a?.employeeNumber) return;
+        codeMap[String(a.employeeNumber)] = a.code || '';
+      });
+      setDeptCodeByEmployee(codeMap);
+
+      setDeviceUsers(filteredUsers);
+      setDeviceSummary(filteredSummary);
+      setPunchInsights(filteredPunch);
+    } catch (err) {
+      console.error('AttendanceAdjustmentReports device insights fetch error:', err);
+      setDeviceError('Failed to load device attendance insights.');
+      setDeviceUsers([]);
+      setAllDeviceUsersRaw([]);
+      setDeviceSummary([]);
+      setPunchInsights([]);
+    } finally {
+      setDeviceLoading(false);
+    }
+  }, [dateFrom, dateTo, registeredUserSet]);
+
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([fetchData(), fetchDeviceInsights()]);
+  }, [fetchData, fetchDeviceInsights]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { setPage(0); }, [dateFrom, dateTo, searchName, searchEmpNum, typeFilter, deptFilter, opFilter, sourceFilter]);
+  useEffect(() => { fetchRegisteredUsers(); }, [fetchRegisteredUsers]);
+  useEffect(() => {
+    if (registeredUserSet.size > 0) fetchDeviceInsights();
+  }, [fetchDeviceInsights, registeredUserSet.size]);
+  useEffect(() => { setPage(0); }, [dateFrom, dateTo, searchName, searchEmpNum, typeFilter, deptFilter, empCatFilter, opFilter, sourceFilter]);
+
+  const getEmpCatLabelForEmployee = useCallback((empNo) => {
+    return empCatMap[String(empNo)]?.label || 'Unassigned';
+  }, [empCatMap]);
 
   const filtered = useMemo(() => adjustments.filter(r => {
     if (dateFrom && r.originalDate && r.originalDate < dateFrom) return false;
     if (dateTo   && r.originalDate && r.originalDate > dateTo)   return false;
     if (typeFilter   !== 'all' && r.adjustmentType !== typeFilter)  return false;
     if (deptFilter   !== 'all' && r.department     !== deptFilter)  return false;
+    if (empCatFilter !== 'all' && getEmpCatLabelForEmployee(r.employeeNumber) !== empCatFilter) return false;
     if (opFilter !== 'all' && ((opFilter === 'INSERT') !== (r.operationType === 'INSERT'))) return false;
     if (sourceFilter === 'autofill' && !r.autofillRemarks) return false;
     if (sourceFilter === 'manual'   &&  r.autofillRemarks) return false;
     if (searchName   && !(r.employeeName || '').toLowerCase().includes(searchName.toLowerCase()))       return false;
     if (searchEmpNum && !r.employeeNumber.toLowerCase().includes(searchEmpNum.toLowerCase())) return false;
     return true;
-  }), [adjustments, dateFrom, dateTo, typeFilter, deptFilter, opFilter, sourceFilter, searchName, searchEmpNum]);
+  }), [adjustments, dateFrom, dateTo, typeFilter, deptFilter, empCatFilter, opFilter, sourceFilter, searchName, searchEmpNum, getEmpCatLabelForEmployee]);
 
   const paged = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
@@ -446,13 +692,462 @@ const AttendanceAdjustmentReports = () => {
   const newInsertions     = filtered.filter(r => r.operationType === 'INSERT').length;
   const autoFillCount     = filtered.filter(r => r.autofillRemarks).length;
 
+  const chartData = useMemo(() => {
+    const byTypeMap = {};
+    const bySourceMap = { 'Auto-Fill': 0, Manual: 0 };
+    const byOpMap = { NEW: 0, EDIT: 0 };
+    const byDeptMap = {};
+    const byDayMap = {};
+
+    filtered.forEach(r => {
+      const type = r.adjustmentType || 'Manual Entry';
+      byTypeMap[type] = (byTypeMap[type] || 0) + 1;
+
+      if (r.autofillRemarks) bySourceMap['Auto-Fill'] += 1;
+      else bySourceMap.Manual += 1;
+
+      if (r.operationType === 'INSERT') byOpMap.NEW += 1;
+      else byOpMap.EDIT += 1;
+
+      const dept = r.department && r.department !== '—' ? r.department : 'Unassigned';
+      byDeptMap[dept] = (byDeptMap[dept] || 0) + 1;
+
+      const day = r.dayOfWeek || 'Unknown';
+      byDayMap[day] = (byDayMap[day] || 0) + 1;
+    });
+
+    const byType = Object.entries(byTypeMap).map(([name, value]) => ({
+      name, value, fill: ADJ_TYPE_COLORS[name] || CHART_COLORS[0],
+    }));
+    const bySource = Object.entries(bySourceMap)
+      .filter(([, value]) => value > 0)
+      .map(([name, value]) => ({
+        name, value, fill: name === 'Auto-Fill' ? T.accent : '#1565c0',
+      }));
+    const byOperation = Object.entries(byOpMap)
+      .filter(([, value]) => value > 0)
+      .map(([name, value]) => ({
+        name, value, fill: name === 'NEW' ? '#f59e0b' : T.accent,
+      }));
+    const byDepartment = Object.entries(byDeptMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+    const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const byDay = dayOrder
+      .filter(d => byDayMap[d])
+      .map(name => ({ name: name.slice(0, 3), fullName: name, value: byDayMap[name] }));
+
+    return { byType, bySource, byOperation, byDepartment, byDay };
+  }, [filtered]);
+
+  const scopedRegisteredUsers = useMemo(() => registeredUsers.filter((u) => {
+    const emp = String(u.employeeNumber || '').trim();
+    if (!emp || !registeredUserSet.has(emp)) return false;
+    if (searchEmpNum && !emp.toLowerCase().includes(searchEmpNum.toLowerCase())) return false;
+    if (searchName && !(u.fullName || '').toLowerCase().includes(searchName.toLowerCase())) return false;
+    if (empCatFilter !== 'all' && getEmpCatLabelForEmployee(emp) !== empCatFilter) return false;
+    return true;
+  }), [registeredUsers, registeredUserSet, searchEmpNum, searchName, empCatFilter, getEmpCatLabelForEmployee]);
+
+  const deptDescriptionByCode = useMemo(() => {
+    const map = {};
+    departmentTable.forEach((d) => {
+      if (d?.code) map[String(d.code)] = d.description || d.code;
+    });
+    return map;
+  }, [departmentTable]);
+
+  const empCatOptions = useMemo(() => {
+    const labels = new Set();
+    Object.values(empCatMap).forEach((entry) => {
+      if (entry?.label) labels.add(entry.label);
+    });
+    return [...labels].sort();
+  }, [empCatMap]);
+
+  const getDeptCodeForEmployee = useCallback((empNo) => {
+    const code = deptCodeByEmployee[String(empNo)] || '';
+    return code || 'Unassigned';
+  }, [deptCodeByEmployee]);
+
+  const deviceScopedEmployees = useMemo(() => scopedRegisteredUsers.filter((u) => {
+    const emp = String(u.employeeNumber);
+    if (deviceDeptFilter !== 'all') {
+      const code = deptCodeByEmployee[emp] || '';
+      if (deviceDeptFilter === '__UNASSIGNED__') {
+        if (code) return false;
+      } else if (code !== deviceDeptFilter) {
+        return false;
+      }
+    }
+    return true;
+  }), [scopedRegisteredUsers, deviceDeptFilter, deptCodeByEmployee]);
+
+  const deviceChartData = useMemo(() => {
+    const scopedSet = new Set(deviceScopedEmployees.map((u) => String(u.employeeNumber)));
+    const summaryMap = new Map();
+    deviceSummary
+      .filter((row) => scopedSet.has(String(row.PersonID)))
+      .forEach((row) => {
+        summaryMap.set(String(row.PersonID), Number(row.recordsCount) || 0);
+      });
+
+    const punchMap = new Map();
+    punchInsights
+      .filter((row) => scopedSet.has(String(row.PersonID)))
+      .forEach((row) => {
+        punchMap.set(String(row.PersonID), {
+          totalDays: Number(row.totalDays) || 0,
+          daysWithTimeIn: Number(row.daysWithTimeIn) || 0,
+          daysWithBreakIn: Number(row.daysWithBreakIn) || 0,
+          daysWithBreakOut: Number(row.daysWithBreakOut) || 0,
+          daysWithTimeOut: Number(row.daysWithTimeOut) || 0,
+        });
+      });
+
+    const nameMap = new Map();
+    deviceUsers.forEach((u) => {
+      if (u?.PersonID != null) nameMap.set(String(u.PersonID), u.PersonName || String(u.PersonID));
+    });
+    deviceScopedEmployees.forEach((u) => {
+      const key = String(u.employeeNumber);
+      if (!nameMap.has(key)) nameMap.set(key, u.fullName || key);
+    });
+
+    let withRecords = 0;
+    let withoutRecords = 0;
+    const employeesNotUsingDevice = [];
+
+    deviceScopedEmployees.forEach((u) => {
+      const emp = String(u.employeeNumber);
+      const punchDays = summaryMap.get(emp) || 0;
+      const punch = punchMap.get(emp);
+      const hasAnyDevicePunch = punchDays > 0 || (punch && (
+        punch.totalDays > 0
+        || punch.daysWithTimeIn > 0
+        || punch.daysWithBreakIn > 0
+        || punch.daysWithBreakOut > 0
+        || punch.daysWithTimeOut > 0
+      ));
+
+      if (hasAnyDevicePunch) withRecords += 1;
+      else {
+        withoutRecords += 1;
+        employeesNotUsingDevice.push({
+          employeeNumber: emp,
+          displayName: formatPersonDisplayName(personMap[emp], u.fullName || emp),
+        });
+      }
+    });
+
+    employeesNotUsingDevice.sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    const byCoverage = [
+      { name: 'With Device Records', value: withRecords, fill: '#059669' },
+      { name: 'No Device Records', value: withoutRecords, fill: '#94a3b8' },
+    ].filter((d) => d.value > 0);
+
+    const byEmployee = [...summaryMap.entries()]
+      .map(([pid, value]) => {
+        const fullName = nameMap.get(pid) || pid;
+        const parts = fullName.split(' ').filter(Boolean);
+        return {
+          name: parts.length > 1 ? parts[parts.length - 1] : fullName,
+          fullName,
+          value,
+        };
+      })
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const byDeptMap = {};
+    deviceScopedEmployees.forEach((u) => {
+      const code = getDeptCodeForEmployee(u.employeeNumber);
+      const count = summaryMap.get(String(u.employeeNumber)) || 0;
+      byDeptMap[code] = (byDeptMap[code] || 0) + count;
+    });
+    const byDepartment = Object.entries(byDeptMap)
+      .map(([code, value]) => ({
+        name: code,
+        fullName: code === 'Unassigned' ? 'Unassigned' : (deptDescriptionByCode[code] || code),
+        value,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const bucketDefs = [
+      { name: '1–5 days', min: 1, max: 5 },
+      { name: '6–10 days', min: 6, max: 10 },
+      { name: '11–15 days', min: 11, max: 15 },
+      { name: '16–20 days', min: 16, max: 20 },
+      { name: '21+ days', min: 21, max: Infinity },
+    ];
+    const byPunchDays = bucketDefs
+      .map(({ name, min, max }) => ({
+        name,
+        value: [...summaryMap.values()].filter((c) => c >= min && c <= max).length,
+        fill: T.accentMid,
+      }))
+      .filter((d) => d.value > 0);
+
+    const totalPunchDays = [...summaryMap.values()].reduce((sum, n) => sum + n, 0);
+
+    const punchConsistency = PUNCH_BRACKETS.map(({ key, label, field }) => {
+      let consistent = 0;
+      let partial = 0;
+      let missing = 0;
+      punchMap.forEach((row) => {
+        const total = row.totalDays || 0;
+        const bracketDays = row[field] || 0;
+        if (total <= 0) return;
+        if (bracketDays >= total) consistent += 1;
+        else if (bracketDays > 0) partial += 1;
+        else missing += 1;
+      });
+      return { key, label, consistent, partial, missing };
+    });
+
+    const byPunchConsistencyWide = punchConsistency.map(({ label, consistent, partial, missing }) => ({
+      label,
+      Consistent: consistent,
+      Partial: partial,
+      Missing: missing,
+    }));
+
+    const unregisteredDeviceUsers = allDeviceUsersRaw
+      .filter((u) => u?.PersonID != null && !registeredUserSet.has(String(u.PersonID)))
+      .map((u) => ({
+        employeeNumber: String(u.PersonID),
+        displayName: formatPersonDisplayName(null, u.PersonName || String(u.PersonID)),
+        personName: u.PersonName || '',
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    return {
+      byCoverage,
+      byEmployee,
+      byDepartment,
+      byPunchDays,
+      byPunchConsistencyWide,
+      punchConsistency,
+      employeesNotUsingDevice,
+      unregisteredDeviceUsers,
+      withRecords,
+      withoutRecords,
+      registeredCount: deviceScopedEmployees.length,
+      totalPunchDays,
+      avgPunchDays: withRecords > 0 ? (totalPunchDays / withRecords).toFixed(1) : '0',
+      unregisteredCount: unregisteredDeviceUsers.length,
+    };
+  }, [
+    deviceScopedEmployees,
+    deviceSummary,
+    deviceUsers,
+    punchInsights,
+    personMap,
+    getDeptCodeForEmployee,
+    deptDescriptionByCode,
+    allDeviceUsersRaw,
+    registeredUserSet,
+  ]);
+
+  const filteredNonDeviceList = useMemo(() => {
+    const q = noRecordsSearch.trim().toLowerCase();
+    if (!q) return deviceChartData.employeesNotUsingDevice;
+    return deviceChartData.employeesNotUsingDevice.filter(
+      (row) =>
+        row.employeeNumber.toLowerCase().includes(q)
+        || row.displayName.toLowerCase().includes(q),
+    );
+  }, [deviceChartData.employeesNotUsingDevice, noRecordsSearch]);
+
+  const filteredUnregisteredList = useMemo(() => {
+    const q = unregisteredSearch.trim().toLowerCase();
+    if (!q) return deviceChartData.unregisteredDeviceUsers;
+    return deviceChartData.unregisteredDeviceUsers.filter(
+      (row) =>
+        row.employeeNumber.toLowerCase().includes(q)
+        || row.displayName.toLowerCase().includes(q)
+        || row.personName.toLowerCase().includes(q),
+    );
+  }, [deviceChartData.unregisteredDeviceUsers, unregisteredSearch]);
+
   const clearFilters = () => {
     setDateFrom(''); setDateTo('');
     setSearchName(''); setSearchEmpNum('');
-    setTypeFilter('all'); setDeptFilter('all');
+    setTypeFilter('all'); setDeptFilter('all'); setEmpCatFilter('all');
     setOpFilter('all'); setSourceFilter('all');
     setPage(0);
   };
+
+  const buildReportFilename = (prefix, ext) => {
+    const from = dateFrom || 'all';
+    const to = dateTo || 'all';
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `${prefix}_${from}_${to}_${stamp}.${ext}`;
+  };
+
+  const handleGenerateTableReport = useCallback(() => {
+    if (filtered.length === 0) {
+      setExportMessage('No records to export. Adjust filters and try again.');
+      return;
+    }
+    setExportLoading(true);
+    setExportMessage('');
+    try {
+      const headers = [
+        'Employee No.', 'Employee Name', 'Department', 'Date', 'Day',
+        'Operation', 'Source', 'Field', 'Before', 'After',
+        'Save Remarks', 'Fill Remarks', 'Approved By', 'Adjusted On',
+      ];
+      const rows = filtered.map((rec) => [
+        rec.employeeNumber,
+        rec.employeeName || '',
+        rec.department || '',
+        rec.originalDate || '',
+        rec.dayOfWeek || '',
+        rec.operationType || '',
+        rec.autofillRemarks ? 'Auto-Fill' : 'Manual',
+        rec.adjustmentType || '',
+        rec.valueBefore ?? '',
+        rec.valueAfter ?? '',
+        rec.remarks || '',
+        rec.autofillRemarks || '',
+        rec.approvedBy || '',
+        rec.adjustedAt
+          ? new Date(rec.adjustedAt).toLocaleString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          })
+          : '',
+      ]);
+
+      const wsData = [
+        ['Attendance Adjustment Report'],
+        [`Generated: ${today}`],
+        [`Date Range: ${dateFrom || '—'} to ${dateTo || '—'}`],
+        [`Total Records: ${filtered.length}`],
+        [`Employees Affected: ${employeesAffected}`],
+        [`Auto-Fills: ${autoFillCount}`],
+        [],
+        headers,
+        ...rows,
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = headers.map((_, colIdx) => ({
+        wch: Math.min(
+          40,
+          Math.max(
+            headers[colIdx]?.length || 10,
+            ...rows.map((row) => String(row[colIdx] ?? '').length),
+          ),
+        ),
+      }));
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Adjustments');
+      XLSX.writeFile(wb, buildReportFilename('AttendanceAdjustmentReport', 'xlsx'));
+      setExportMessage('Table report downloaded as XLSX.');
+    } catch (err) {
+      console.error('Table report export error:', err);
+      setExportMessage('Failed to generate XLSX report.');
+    } finally {
+      setExportLoading(false);
+    }
+  }, [
+    filtered, today, dateFrom, dateTo, employeesAffected, autoFillCount,
+  ]);
+
+  const handleGenerateInsightsReport = useCallback(async () => {
+    const element = insightsExportRef.current;
+    if (!element) {
+      setExportMessage('Insights content is not ready to export.');
+      return;
+    }
+    setExportLoading(true);
+    setExportMessage('');
+    const originalOverflow = element.style.overflow;
+    const originalHeight = element.style.height;
+    try {
+      element.style.overflow = 'visible';
+      element.style.height = `${element.scrollHeight}px`;
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgData = canvas.toDataURL('image/png');
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(buildReportFilename('AttendanceAdjustmentInsights', 'pdf'));
+      setExportMessage('Insights report downloaded as PDF.');
+    } catch (err) {
+      console.error('Insights report export error:', err);
+      setExportMessage('Failed to generate PDF report.');
+    } finally {
+      element.style.overflow = originalOverflow;
+      element.style.height = originalHeight;
+      setExportLoading(false);
+    }
+  }, [dateFrom, dateTo]);
+
+  const handleExportNonDeviceUsers = useCallback((rows) => {
+    const list = rows || deviceChartData.employeesNotUsingDevice;
+    if (list.length === 0) {
+      setExportMessage('No employees to export — none are without device records for this period.');
+      return;
+    }
+    setExportLoading(true);
+    setExportMessage('');
+    try {
+      const wsData = [
+        ['Employees Not Using Device'],
+        [`Generated: ${today}`],
+        [`Date Range: ${dateFrom || '—'} to ${dateTo || '—'}`],
+        ['Source: Users List (registered) · Attendance Device (AttendanceRecordInfo)'],
+        ['Criteria: No Time In, Time Out, Break Time In, or Break Time Out'],
+        [`Total: ${list.length}`],
+        [],
+        ['Employee No.', 'Name (Last, First M.I.)'],
+        ...list.map((row) => [row.employeeNumber, row.displayName]),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 16 }, { wch: 42 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Not Using Device');
+      XLSX.writeFile(wb, buildReportFilename('EmployeesNotUsingDevice', 'xlsx'));
+      setExportMessage(`Exported ${list.length} employee${list.length === 1 ? '' : 's'} not using device.`);
+    } catch (err) {
+      console.error('Non-device users export error:', err);
+      setExportMessage('Failed to export non-device employee list.');
+    } finally {
+      setExportLoading(false);
+    }
+  }, [deviceChartData.employeesNotUsingDevice, today, dateFrom, dateTo]);
 
   const formatDate = d => {
     if (!d || d === '—') return '—';
@@ -533,8 +1228,8 @@ const AttendanceAdjustmentReports = () => {
                   <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.text, fontFamily: T.font }}>{today}</Typography>
                 </Box>
                 <Tooltip title="Refresh">
-                  <IconButton size="small" onClick={fetchData} disabled={loading} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, '&:hover': { bgcolor: alpha(T.accent, 0.14) } }}>
-                    {loading ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <RefreshIcon sx={{ fontSize: 16 }} />}
+                  <IconButton size="small" onClick={handleRefresh} disabled={loading || deviceLoading} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, '&:hover': { bgcolor: alpha(T.accent, 0.14) } }}>
+                    {(loading || deviceLoading) ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <RefreshIcon sx={{ fontSize: 16 }} />}
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="Print Report">
@@ -545,6 +1240,12 @@ const AttendanceAdjustmentReports = () => {
               </Box>
             </Box>
           </SectionCard>
+
+          <Collapse in={!!exportMessage}>
+            <Box sx={{ mb: 2, px: 2, py: 1.5, borderRadius: '8px', bgcolor: alpha(T.accent, 0.06), border: `1px solid ${T.accentBorder}` }}>
+              <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontFamily: T.font }}>{exportMessage}</Typography>
+            </Box>
+          </Collapse>
 
           {/* ── Error ── */}
           <Collapse in={!!error}>
@@ -561,8 +1262,29 @@ const AttendanceAdjustmentReports = () => {
             <StatCard label="Auto-Fills"         value={autoFillCount}     color={T.accentMid} icon={EventAvailableIcon} />
           </Box>
 
-          {/* ── Main table card — fixed height with internal scroll, mirrors AttendanceSearch ── */}
-<SectionCard sx={{ height: 'calc(100vh - 415px)', display: 'flex', flexDirection: 'column' }}>
+          {/* ── Tabs: Table | Insights ── */}
+          <SectionCard sx={{ mb: 2 }} className="no-print">
+            <Tabs
+              value={activeTab}
+              onChange={(_, v) => setActiveTab(v)}
+              sx={{
+                minHeight: 44,
+                px: 1,
+                '& .MuiTabs-indicator': { bgcolor: T.accent, height: 3, borderRadius: '3px 3px 0 0' },
+                '& .MuiTab-root': {
+                  minHeight: 44, textTransform: 'none', fontFamily: T.font,
+                  fontWeight: 600, fontSize: '0.82rem', color: T.faint,
+                  '&.Mui-selected': { color: T.accent, fontWeight: 800 },
+                },
+              }}
+            >
+              <Tab value="table" icon={<TableChartIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Table" />
+              <Tab value="insights" icon={<InsightsIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Insights" />
+            </Tabs>
+          </SectionCard>
+
+          {/* ── Main card — fixed height with internal scroll, mirrors AttendanceSearch ── */}
+          <SectionCard sx={{ height: 'calc(100vh - 470px)', display: 'flex', flexDirection: 'column' }}>
 
             {/* Filter bar — flexShrink: 0 so it never scrolls away */}
             <Box className="no-print" sx={{ borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
@@ -629,36 +1351,90 @@ const AttendanceAdjustmentReports = () => {
                   </FormControl>
                 )}
 
+                {/* Employment Category */}
+                {(empCatOptions.length > 0 || empCatFilter !== 'all') && (
+                  <FormControl size="small" sx={{ minWidth: 180 }}>
+                    <Select value={empCatFilter} onChange={e => { setEmpCatFilter(e.target.value); setPage(0); }} sx={selectSx}>
+                      <MenuItem value="all" sx={menuItemSx}>All Categories</MenuItem>
+                      <MenuItem value="Unassigned" sx={menuItemSx}>Unassigned</MenuItem>
+                      {empCatOptions.map((label) => (
+                        <MenuItem key={label} value={label} sx={menuItemSx}>{label}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+
                 <Box sx={{ flex: 1 }} />
 
-                {/* Record count + clear */}
+                {/* Record count + export + clear */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                  {loading && <CircularProgress size={14} sx={{ color: T.accent }} />}
+                  {(loading || exportLoading) && <CircularProgress size={14} sx={{ color: T.accent }} />}
                   <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.faint, fontFamily: T.font, whiteSpace: 'nowrap' }}>
-                    {filtered.length} record{filtered.length !== 1 ? 's' : ''}
+                    {activeTab === 'table'
+                      ? `${filtered.length} record${filtered.length !== 1 ? 's' : ''}`
+                      : 'Insights view'}
                   </Typography>
+                  {activeTab === 'table' ? (
+                    <Tooltip title="Download filtered table as XLSX">
+                      <button
+                        onClick={handleGenerateTableReport}
+                        disabled={exportLoading || filtered.length === 0}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          background: T.accent, color: '#fff', border: 'none',
+                          borderRadius: '8px', padding: '7px 14px',
+                          fontWeight: 700, fontSize: '0.72rem', fontFamily: T.font,
+                          cursor: exportLoading || filtered.length === 0 ? 'not-allowed' : 'pointer',
+                          opacity: exportLoading || filtered.length === 0 ? 0.55 : 1,
+                        }}
+                      >
+                        <FileDownloadIcon sx={{ fontSize: 14 }} />
+                        Generate Report
+                      </button>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="Download insights charts as PDF">
+                      <button
+                        onClick={handleGenerateInsightsReport}
+                        disabled={exportLoading}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          background: T.accent, color: '#fff', border: 'none',
+                          borderRadius: '8px', padding: '7px 14px',
+                          fontWeight: 700, fontSize: '0.72rem', fontFamily: T.font,
+                          cursor: exportLoading ? 'not-allowed' : 'pointer',
+                          opacity: exportLoading ? 0.55 : 1,
+                        }}
+                      >
+                        <FileDownloadIcon sx={{ fontSize: 14 }} />
+                        Generate Report
+                      </button>
+                    </Tooltip>
+                  )}
                   <button onClick={clearFilters} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: T.faint, fontSize: '0.72rem', fontFamily: T.font, whiteSpace: 'nowrap' }}>
                     Clear All
                   </button>
                 </Box>
               </Box>
 
-              {/* Legend row */}
-              <Box sx={{ px: 2.5, py: 0.75, bgcolor: '#fafafa', display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-                {[
-                  { color: '#f59e0b', label: 'New insertion' },
-                  { color: T.accent,  label: 'Auto-filled'   },
-                  { color: '#1565c0', label: 'Manual edit'   },
-                ].map(({ color, label }) => (
-                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: color, flexShrink: 0 }} />
-                    <Typography sx={{ fontSize: '0.65rem', color: T.faint, fontFamily: T.font }}>{label}</Typography>
-                  </Box>
-                ))}
-                <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                  Click any row to view full details
-                </Typography>
-              </Box>
+              {/* Legend row — table only */}
+              {activeTab === 'table' && (
+                <Box sx={{ px: 2.5, py: 0.75, bgcolor: '#fafafa', display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[
+                    { color: '#f59e0b', label: 'New insertion' },
+                    { color: T.accent,  label: 'Auto-filled'   },
+                    { color: '#1565c0', label: 'Manual edit'   },
+                  ].map(({ color, label }) => (
+                    <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: color, flexShrink: 0 }} />
+                      <Typography sx={{ fontSize: '0.65rem', color: T.faint, fontFamily: T.font }}>{label}</Typography>
+                    </Box>
+                  ))}
+                  <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
+                    Click any row to view full details
+                  </Typography>
+                </Box>
+              )}
             </Box>
 
             {/* Print-only summary */}
@@ -672,118 +1448,583 @@ const AttendanceAdjustmentReports = () => {
               </Box>
             </Box>
 
-            {/* Column header — flexShrink: 0 so it stays fixed */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: GRID_COLS, px: 2, py: 1.1, bgcolor: T.accent, gap: 1.5, overflowX: 'hidden', flexShrink: 0 }}>
-              {TABLE_COLS.map(col => (
-                <Typography key={col.key} sx={{ color: '#FEF9E1', fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.07em', fontFamily: T.font, whiteSpace: 'nowrap' }}>
-                  {col.label}
-                </Typography>
-              ))}
-            </Box>
-
-            {/* Scrollable rows — flexGrow: 1 fills remaining card height */}
-            <Box
-              id="adj-printable"
-              sx={{
-                flexGrow: 1,
-                overflowY: 'auto',
-                overflowX: 'auto',
-                ...scrollbarSx,
-              }}
-            >
-              <Box sx={{ minWidth: 1480 }}>
-                {paged.length === 0 ? (
-                  <Box sx={{ py: 10, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-                    <EditCalendarIcon sx={{ fontSize: 36, color: alpha(T.accent, 0.25) }} />
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, fontFamily: T.font }}>
-                      {adjustments.length === 0 ? 'No adjustment records found' : 'No records match your filters'}
+            {activeTab === 'table' ? (
+              <>
+                {/* Column header — flexShrink: 0 so it stays fixed */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: GRID_COLS, px: 2, py: 1.1, bgcolor: T.accent, gap: 1.5, overflowX: 'hidden', flexShrink: 0 }}>
+                  {TABLE_COLS.map(col => (
+                    <Typography key={col.key} sx={{ color: '#FEF9E1', fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.07em', fontFamily: T.font, whiteSpace: 'nowrap' }}>
+                      {col.label}
                     </Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontFamily: T.font }}>
-                      {adjustments.length === 0
-                        ? 'Records appear here as soon as admins save changes via Attendance Management.'
-                        : 'Try adjusting your filter criteria.'}
+                  ))}
+                </Box>
+
+                {/* Scrollable rows — flexGrow: 1 fills remaining card height */}
+                <Box
+                  id="adj-printable"
+                  sx={{
+                    flexGrow: 1,
+                    overflowY: 'auto',
+                    overflowX: 'auto',
+                    ...scrollbarSx,
+                  }}
+                >
+                  <Box sx={{ minWidth: 1480 }}>
+                    {paged.length === 0 ? (
+                      <Box sx={{ py: 10, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+                        <EditCalendarIcon sx={{ fontSize: 36, color: alpha(T.accent, 0.25) }} />
+                        <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, fontFamily: T.font }}>
+                          {adjustments.length === 0 ? 'No adjustment records found' : 'No records match your filters'}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontFamily: T.font }}>
+                          {adjustments.length === 0
+                            ? 'Records appear here as soon as admins save changes via Attendance Management.'
+                            : 'Try adjusting your filter criteria.'}
+                        </Typography>
+                      </Box>
+                    ) : paged.map((rec, idx) => {
+                      const rowBg  = idx % 2 === 0 ? T.rowEven : T.rowOdd;
+                      const adjDate = rec.adjustedAt
+                        ? new Date(rec.adjustedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : '—';
+
+                      return (
+                        <Box
+                          key={rec.id}
+                          onClick={() => { setSelected(rec); setDetailOpen(true); }}
+                          sx={{
+                            display: 'grid', gridTemplateColumns: GRID_COLS,
+                            px: 2, py: 1.25, gap: 1.5, alignItems: 'center',
+                            borderBottom: `1px solid ${T.divider}`,
+                            bgcolor: rowBg, cursor: 'pointer', transition: 'background 0.1s',
+                            '&:hover': { bgcolor: T.rowHover },
+                          }}
+                        >
+                          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>{rec.employeeNumber}</Typography>
+                          <Typography sx={{ fontWeight: 600, fontSize: '0.78rem', color: T.text, fontFamily: T.font, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {rec.employeeName || <span style={{ color: T.faint, fontStyle: 'italic' }}>—</span>}
+                          </Typography>
+                          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.74rem', color: T.muted, whiteSpace: 'nowrap' }}>{formatDate(rec.originalDate)}</Typography>
+                          <Typography sx={{ fontSize: '0.74rem', color: T.muted, fontFamily: T.font }}>{rec.dayOfWeek || '—'}</Typography>
+                          <Box><OpTypeBadge type={rec.operationType} /></Box>
+                          <Box><SourceBadge autofillRemarks={rec.autofillRemarks} /></Box>
+                          <Box><AdjTypeBadge type={rec.adjustmentType} /></Box>
+                          <Box><BeforeAfter before={rec.valueBefore} after={rec.valueAfter} /></Box>
+
+                          {/* Save Remarks */}
+                          <Box sx={{ overflow: 'hidden' }}>
+                            {rec.remarks ? (
+                              <Tooltip title={rec.remarks} placement="top">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <NotesIcon sx={{ fontSize: 13, color: '#1565c0', flexShrink: 0 }} />
+                                  <Typography sx={{ fontSize: '0.78rem', color: '#1565c0', fontFamily: T.font, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.remarks}</Typography>
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic', fontFamily: T.font }}>—</Typography>
+                            )}
+                          </Box>
+
+                          {/* Fill Remarks */}
+                          <Box sx={{ overflow: 'hidden' }}>
+                            {rec.autofillRemarks ? (
+                              <Tooltip title={rec.autofillRemarks} placement="top">
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <EventAvailableIcon sx={{ fontSize: 13, color: T.accent, flexShrink: 0 }} />
+                                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontFamily: T.font, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.autofillRemarks}</Typography>
+                                </Box>
+                              </Tooltip>
+                            ) : (
+                              <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic', fontFamily: T.font }}>—</Typography>
+                            )}
+                          </Box>
+
+                          <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rec.approvedBy}</Typography>
+                          <Typography sx={{ fontFamily: 'monospace', fontSize: '0.72rem', color: T.muted, whiteSpace: 'nowrap' }}>{adjDate}</Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+
+                {/* Pagination — flexShrink: 0, always at the bottom of the card */}
+                {filtered.length > 0 && (
+                  <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}`, flexShrink: 0 }} className="no-print">
+                    <TablePagination
+                      component="div"
+                      count={filtered.length}
+                      page={page}
+                      onPageChange={(_, p) => setPage(p)}
+                      rowsPerPage={rowsPerPage}
+                      onRowsPerPageChange={e => { setRowsPerPage(+e.target.value); setPage(0); }}
+                      rowsPerPageOptions={[10, 25, 50, 100]}
+                      sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: '0.78rem', fontWeight: 600, fontFamily: T.font } }}
+                    />
+                  </Box>
+                )}
+              </>
+            ) : (
+              /* ── Insights graphs ── */
+              <Box
+                ref={insightsExportRef}
+                sx={{
+                  flexGrow: 1, overflowY: 'auto', p: 2.5,
+                  display: 'flex', flexWrap: 'wrap', gap: 2, alignContent: 'flex-start',
+                  bgcolor: '#fff',
+                  ...scrollbarSx,
+                }}
+              >
+                <Box sx={{ width: '100%', mb: 0.5, pb: 1.5, borderBottom: `1px solid ${T.divider}` }}>
+                  <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: T.accent, fontFamily: T.font }}>
+                    Attendance Adjustment Insights Report
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontFamily: T.font, mt: 0.25 }}>
+                    Generated: {today}
+                    {dateFrom || dateTo ? ` · Period: ${dateFrom || '—'} to ${dateTo || '—'}` : ''}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1 }}>
+                    <Typography sx={{ fontSize: '0.72rem', fontFamily: T.font, color: T.text }}>
+                      Adjustments: <strong>{totalAdjustments}</strong>
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', fontFamily: T.font, color: T.text }}>
+                      Employees: <strong>{employeesAffected}</strong>
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', fontFamily: T.font, color: T.text }}>
+                      Auto-Fills: <strong>{autoFillCount}</strong>
+                    </Typography>
+                    {deviceChartData.registeredCount > 0 && (
+                      <Typography sx={{ fontSize: '0.72rem', fontFamily: T.font, color: T.text }}>
+                        Registered Users: <strong>{deviceChartData.registeredCount}</strong>
+                      </Typography>
+                    )}
+                  </Box>
+                </Box>
+
+                {filtered.length === 0 && (
+                  <Box sx={{ width: '100%', py: 4, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <InsightsIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.25) }} />
+                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: T.muted, fontFamily: T.font }}>
+                      No adjustment data to visualize
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontFamily: T.font }}>
+                      Adjustment charts appear when matching records exist. Device insights below use Attendance Device data.
                     </Typography>
                   </Box>
-                ) : paged.map((rec, idx) => {
-                  const rowBg  = idx % 2 === 0 ? T.rowEven : T.rowOdd;
-                  const adjDate = rec.adjustedAt
-                    ? new Date(rec.adjustedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                    : '—';
+                )}
 
-                  return (
-                    <Box
-                      key={rec.id}
-                      onClick={() => { setSelected(rec); setDetailOpen(true); }}
-                      sx={{
-                        display: 'grid', gridTemplateColumns: GRID_COLS,
-                        px: 2, py: 1.25, gap: 1.5, alignItems: 'center',
-                        borderBottom: `1px solid ${T.divider}`,
-                        bgcolor: rowBg, cursor: 'pointer', transition: 'background 0.1s',
-                        '&:hover': { bgcolor: T.rowHover },
-                      }}
-                    >
-                      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>{rec.employeeNumber}</Typography>
-                      <Typography sx={{ fontWeight: 600, fontSize: '0.78rem', color: T.text, fontFamily: T.font, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rec.employeeName || <span style={{ color: T.faint, fontStyle: 'italic' }}>—</span>}
-                      </Typography>
-                      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.74rem', color: T.muted, whiteSpace: 'nowrap' }}>{formatDate(rec.originalDate)}</Typography>
-                      <Typography sx={{ fontSize: '0.74rem', color: T.muted, fontFamily: T.font }}>{rec.dayOfWeek || '—'}</Typography>
-                      <Box><OpTypeBadge type={rec.operationType} /></Box>
-                      <Box><SourceBadge autofillRemarks={rec.autofillRemarks} /></Box>
-                      <Box><AdjTypeBadge type={rec.adjustmentType} /></Box>
-                      <Box><BeforeAfter before={rec.valueBefore} after={rec.valueAfter} /></Box>
+                {filtered.length > 0 && (
+                  <>
+                    <ChartCard title="By Field Type" subtitle="Pie · adjustment field distribution">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={chartData.byType}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="45%"
+                            innerRadius={48}
+                            outerRadius={80}
+                            paddingAngle={3}
+                          >
+                            {chartData.byType.map((entry, i) => (
+                              <Cell key={entry.name} fill={entry.fill || CHART_COLORS[i % CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <RechartTooltip {...chartTooltipStyle} />
+                          <Legend wrapperStyle={{ fontSize: '0.7rem', fontFamily: T.font }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
 
-                      {/* Save Remarks */}
-                      <Box sx={{ overflow: 'hidden' }}>
-                        {rec.remarks ? (
-                          <Tooltip title={rec.remarks} placement="top">
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <NotesIcon sx={{ fontSize: 13, color: '#1565c0', flexShrink: 0 }} />
-                              <Typography sx={{ fontSize: '0.78rem', color: '#1565c0', fontFamily: T.font, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.remarks}</Typography>
-                            </Box>
-                          </Tooltip>
-                        ) : (
-                          <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic', fontFamily: T.font }}>—</Typography>
-                        )}
+                    <ChartCard title="By Source" subtitle="Pie · auto-fill vs manual">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={chartData.bySource}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="45%"
+                            innerRadius={48}
+                            outerRadius={80}
+                            paddingAngle={3}
+                          >
+                            {chartData.bySource.map((entry) => (
+                              <Cell key={entry.name} fill={entry.fill} />
+                            ))}
+                          </Pie>
+                          <RechartTooltip {...chartTooltipStyle} />
+                          <Legend wrapperStyle={{ fontSize: '0.7rem', fontFamily: T.font }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    <ChartCard title="By Operation" subtitle="Bar · new insertions vs edits">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData.byOperation} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: T.font }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                          <RechartTooltip {...chartTooltipStyle} />
+                          <Bar dataKey="value" name="Count" radius={[6, 6, 0, 0]}>
+                            {chartData.byOperation.map((entry) => (
+                              <Cell key={entry.name} fill={entry.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    <ChartCard title="By Department" subtitle="Bar · top 10 departments">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData.byDepartment} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                          <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10, fontFamily: T.font }} />
+                          <RechartTooltip {...chartTooltipStyle} />
+                          <Bar dataKey="value" name="Count" fill={T.accent} radius={[0, 6, 6, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    {chartData.byDay.length > 0 && (
+                      <ChartCard title="By Day of Week" subtitle="Bar · adjustments per weekday">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData.byDay} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: T.font }} />
+                            <YAxis allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                            <RechartTooltip
+                              {...chartTooltipStyle}
+                              labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || _}
+                            />
+                            <Bar dataKey="value" name="Count" fill={T.accentMid} radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </ChartCard>
+                    )}
+                  </>
+                )}
+
+                {/* ── Device Attendance Insights (registered users only) ── */}
+                <Box sx={{ width: '100%', mt: filtered.length > 0 ? 1 : 0, pt: filtered.length > 0 ? 2 : 0, borderTop: filtered.length > 0 ? `2px solid ${T.accentBorder}` : 'none' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                        <FingerprintIcon sx={{ fontSize: 18, color: T.accent }} />
+                        <Box>
+                          <Typography sx={{ fontSize: '0.95rem', fontWeight: 800, color: T.accent, fontFamily: T.font }}>
+                            Device Attendance Insights
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.7rem', color: T.faint, fontFamily: T.font }}>
+                            From Attendance Device · only users registered in Users List
+                          </Typography>
+                        </Box>
                       </Box>
 
-                      {/* Fill Remarks */}
-                      <Box sx={{ overflow: 'hidden' }}>
-                        {rec.autofillRemarks ? (
-                          <Tooltip title={rec.autofillRemarks} placement="top">
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <EventAvailableIcon sx={{ fontSize: 13, color: T.accent, flexShrink: 0 }} />
-                              <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontFamily: T.font, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.autofillRemarks}</Typography>
-                            </Box>
-                          </Tooltip>
-                        ) : (
-                          <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic', fontFamily: T.font }}>—</Typography>
-                        )}
-                      </Box>
+                      <Collapse in={!!deviceError}>
+                        <Box sx={{ mb: 1.5, px: 2, py: 1.25, borderRadius: '8px', bgcolor: alpha('#d32f2f', 0.06), border: `1px solid ${alpha('#d32f2f', 0.25)}` }}>
+                          <Typography sx={{ fontSize: '0.78rem', color: '#b71c1c', fontFamily: T.font }}>{deviceError}</Typography>
+                        </Box>
+                      </Collapse>
 
-                      <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rec.approvedBy}</Typography>
-                      <Typography sx={{ fontFamily: 'monospace', fontSize: '0.72rem', color: T.muted, whiteSpace: 'nowrap' }}>{adjDate}</Typography>
+                      {!dateFrom || !dateTo ? (
+                        <Box sx={{ width: '100%', py: 6, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                          <CalendarTodayIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.25) }} />
+                          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: T.muted, fontFamily: T.font }}>
+                            Set a date range to load device attendance insights
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontFamily: T.font }}>
+                            Use the From and To filters above — same range as Attendance Device.
+                          </Typography>
+                        </Box>
+                      ) : deviceLoading ? (
+                        <Box sx={{ width: '100%', py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+                          <CircularProgress size={28} sx={{ color: T.accent }} />
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint, fontFamily: T.font }}>Loading device attendance data…</Typography>
+                        </Box>
+                      ) : deviceChartData.registeredCount === 0 ? (
+                        <Box sx={{ width: '100%', py: 6, textAlign: 'center' }}>
+                          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: T.muted, fontFamily: T.font }}>
+                            No registered users match the current filters
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <>
+                          <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
+                            <StatCard label="Registered Users" value={deviceChartData.registeredCount} color={T.accent} icon={GroupsIcon} />
+                            <StatCard label="With Device Records" value={deviceChartData.withRecords} color="#059669" icon={FingerprintIcon} />
+                            <StatCard label="No Device Records" value={deviceChartData.withoutRecords} color="#64748b" icon={PersonIcon} />
+                            <StatCard label="Total Punch Days" value={deviceChartData.totalPunchDays} color="#2563eb" icon={CalendarTodayIcon} />
+                            <StatCard label="Avg Days / Employee" value={deviceChartData.avgPunchDays} color={T.accentMid} icon={InsightsIcon} />
+                            <StatCard label="Unregistered on Device" value={deviceChartData.unregisteredCount} color="#c2410c" icon={PersonOffIcon} />
+                          </Box>
+
+                          <Box sx={{ width: '100%', display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5, alignItems: 'center' }}>
+                            <FilterListIcon sx={{ fontSize: 14, color: T.accent }} />
+                            <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: T.accent, fontFamily: T.font, mr: 0.5 }}>
+                              Device filters
+                            </Typography>
+                            <FormControl size="small" sx={{ minWidth: 170 }}>
+                              <Select
+                                value={deviceDeptFilter}
+                                onChange={(e) => setDeviceDeptFilter(e.target.value)}
+                                sx={{ ...selectSx, height: 32 }}
+                                displayEmpty
+                              >
+                                <MenuItem value="all" sx={menuItemSx}>All Departments</MenuItem>
+                                <MenuItem value="__UNASSIGNED__" sx={menuItemSx}>Unassigned</MenuItem>
+                                {departmentTable.map((d) => (
+                                  <MenuItem key={d.code} value={d.code} sx={menuItemSx}>
+                                    {d.code}{d.description ? ` — ${d.description}` : ''}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                            <Box sx={{ flex: 1 }} />
+                            {deviceChartData.employeesNotUsingDevice.length > 0 && (
+                              <Tooltip title="Download XLSX — registered employees with no device punches in this period">
+                                <button
+                                  onClick={() => handleExportNonDeviceUsers()}
+                                  disabled={exportLoading}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                                    background: T.accent, color: '#fff', border: 'none',
+                                    borderRadius: '8px', padding: '7px 14px',
+                                    fontWeight: 700, fontSize: '0.72rem', fontFamily: T.font,
+                                    cursor: exportLoading ? 'not-allowed' : 'pointer',
+                                    opacity: exportLoading ? 0.55 : 1,
+                                  }}
+                                >
+                                  <FileDownloadIcon sx={{ fontSize: 14 }} />
+                                  Not Using Device ({deviceChartData.employeesNotUsingDevice.length})
+                                </button>
+                              </Tooltip>
+                            )}
+                          </Box>
+
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                            {deviceChartData.byCoverage.length > 0 && (
+                              <ChartCard
+                                title="Device Record Coverage"
+                                subtitle="Pie · registered users with vs without device punches"
+                                headerAction={deviceChartData.employeesNotUsingDevice.length > 0 ? (
+                                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                    <Tooltip title="View registered employees not using the device">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => { setNoRecordsSearch(''); setNoRecordsDialogOpen(true); }}
+                                        sx={{
+                                          bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`,
+                                          color: T.accent, '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                                        }}
+                                      >
+                                        <ListAltIcon sx={{ fontSize: 16 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Download list as XLSX">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleExportNonDeviceUsers()}
+                                        disabled={exportLoading}
+                                        sx={{
+                                          bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`,
+                                          color: T.accent, '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                                        }}
+                                      >
+                                        <FileDownloadIcon sx={{ fontSize: 16 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Box>
+                                ) : null}
+                              >
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <PieChart>
+                                    <Pie
+                                      data={deviceChartData.byCoverage}
+                                      dataKey="value"
+                                      nameKey="name"
+                                      cx="50%"
+                                      cy="45%"
+                                      innerRadius={48}
+                                      outerRadius={80}
+                                      paddingAngle={3}
+                                    >
+                                      {deviceChartData.byCoverage.map((entry) => (
+                                        <Cell key={entry.name} fill={entry.fill} />
+                                      ))}
+                                    </Pie>
+                                    <RechartTooltip {...chartTooltipStyle} />
+                                    <Legend wrapperStyle={{ fontSize: '0.7rem', fontFamily: T.font }} />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.byEmployee.length > 0 && (
+                              <ChartCard title="Top Employees by Punch Days" subtitle="Bar · top 10 registered users">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={deviceChartData.byEmployee} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                                    <YAxis type="category" dataKey="name" width={72} tick={{ fontSize: 10, fontFamily: T.font }} />
+                                    <RechartTooltip
+                                      {...chartTooltipStyle}
+                                      labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || _}
+                                    />
+                                    <Bar dataKey="value" name="Punch Days" fill="#059669" radius={[0, 6, 6, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.byDepartment.length > 0 && (
+                              <ChartCard
+                                title="Punch Days by Department"
+                                subtitle="Bar · total punch days grouped by department code"
+                              >
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={deviceChartData.byDepartment} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                                    <YAxis type="category" dataKey="name" width={56} tick={{ fontSize: 10, fontFamily: T.font }} />
+                                    <RechartTooltip
+                                      {...chartTooltipStyle}
+                                      labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || _}
+                                    />
+                                    <Bar dataKey="value" name="Punch Days" fill={T.accent} radius={[0, 6, 6, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.byPunchDays.length > 0 && (
+                              <ChartCard title="Punch Day Distribution" subtitle="Bar · employees grouped by days with device records">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={deviceChartData.byPunchDays} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                                    <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: T.font }} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                                    <RechartTooltip {...chartTooltipStyle} />
+                                    <Bar dataKey="value" name="Employees" fill={T.accentMid} radius={[6, 6, 0, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.byPunchConsistencyWide.some((row) => row.Consistent + row.Partial + row.Missing > 0) && (
+                              <ChartCard
+                                title="Punch Consistency by Time Bracket"
+                                subtitle="Stacked · consistent, partial, and missing punches per bracket"
+                              >
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={deviceChartData.byPunchConsistencyWide} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                                    <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: T.font }} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                                    <RechartTooltip {...chartTooltipStyle} />
+                                    <Legend wrapperStyle={{ fontSize: '0.7rem', fontFamily: T.font }} />
+                                    <Bar dataKey="Consistent" name="Consistent" fill="#059669" stackId="a" />
+                                    <Bar dataKey="Partial" name="Partial" fill="#f59e0b" stackId="a" />
+                                    <Bar dataKey="Missing" name="Missing" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.punchConsistency.length > 0 && (
+                              <ChartCard title="Fully Consistent Employees" subtitle="Count · employees who punch every working day per bracket">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={deviceChartData.punchConsistency} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                                    <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: T.font }} />
+                                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fontFamily: T.font }} />
+                                    <RechartTooltip {...chartTooltipStyle} />
+                                    <Bar dataKey="consistent" name="Consistent" fill="#059669" radius={[6, 6, 0, 0]} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.employeesNotUsingDevice.length > 0 && (
+                              <ChartCard
+                                title="Not Using Device"
+                                subtitle="Registered in Users List · zero device punches in period"
+                                headerAction={(
+                                  <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                    <Tooltip title="View full list">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => { setNoRecordsSearch(''); setNoRecordsDialogOpen(true); }}
+                                        sx={{
+                                          bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`,
+                                          color: T.accent, '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                                        }}
+                                      >
+                                        <ListAltIcon sx={{ fontSize: 16 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Download list as XLSX">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleExportNonDeviceUsers()}
+                                        disabled={exportLoading}
+                                        sx={{
+                                          bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`,
+                                          color: T.accent, '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                                        }}
+                                      >
+                                        <FileDownloadIcon sx={{ fontSize: 16 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Box>
+                                )}
+                              >
+                                <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+                                  <PersonIcon sx={{ fontSize: 42, color: alpha(T.accent, 0.35) }} />
+                                  <Typography sx={{ fontSize: '2rem', fontWeight: 800, color: T.accent, fontFamily: T.font }}>
+                                    {deviceChartData.employeesNotUsingDevice.length}
+                                  </Typography>
+                                  <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font, textAlign: 'center', px: 2 }}>
+                                    registered employee{deviceChartData.employeesNotUsingDevice.length === 1 ? '' : 's'} with no Time In, Time Out, Break In, or Break Out
+                                  </Typography>
+                                </Box>
+                              </ChartCard>
+                            )}
+
+                            {deviceChartData.unregisteredCount > 0 && (
+                              <ChartCard
+                                title="Unregistered Device Users"
+                                subtitle="In Attendance Device but not in Users List"
+                                headerAction={(
+                                  <Tooltip title="View unregistered device users">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => { setUnregisteredSearch(''); setUnregisteredDialogOpen(true); }}
+                                      sx={{
+                                        bgcolor: alpha('#c2410c', 0.08), border: `1px solid ${alpha('#c2410c', 0.2)}`,
+                                        color: '#c2410c', '&:hover': { bgcolor: alpha('#c2410c', 0.14) },
+                                      }}
+                                    >
+                                      <ListAltIcon sx={{ fontSize: 16 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                              >
+                                <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+                                  <PersonOffIcon sx={{ fontSize: 42, color: alpha('#c2410c', 0.35) }} />
+                                  <Typography sx={{ fontSize: '2rem', fontWeight: 800, color: '#c2410c', fontFamily: T.font }}>
+                                    {deviceChartData.unregisteredCount}
+                                  </Typography>
+                                  <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font, textAlign: 'center', px: 2 }}>
+                                    device user{deviceChartData.unregisteredCount === 1 ? '' : 's'} not registered in the system
+                                  </Typography>
+                                </Box>
+                              </ChartCard>
+                            )}
+                          </Box>
+                        </>
+                      )}
                     </Box>
-                  );
-                })}
-              </Box>
-            </Box>
-
-          
-
-            {/* Pagination — flexShrink: 0, always at the bottom of the card */}
-            {filtered.length > 0 && (
-              <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}`, flexShrink: 0 }} className="no-print">
-                <TablePagination
-                  component="div"
-                  count={filtered.length}
-                  page={page}
-                  onPageChange={(_, p) => setPage(p)}
-                  rowsPerPage={rowsPerPage}
-                  onRowsPerPageChange={e => { setRowsPerPage(+e.target.value); setPage(0); }}
-                  rowsPerPageOptions={[10, 25, 50, 100]}
-                  sx={{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontSize: '0.78rem', fontWeight: 600, fontFamily: T.font } }}
-                />
               </Box>
             )}
           </SectionCard>
@@ -809,12 +2050,158 @@ const AttendanceAdjustmentReports = () => {
           <Box sx={{ mt: 1.5, px: 0.5, display: 'flex', alignItems: 'center', gap: 0.75 }} className="no-print">
             <InfoIcon sx={{ fontSize: 13, color: T.faint }} />
             <Typography sx={{ fontSize: '0.7rem', color: T.faint, fontFamily: T.font }}>
-              Data sourced from <strong>attendance_adjustment_log</strong> — written every time an admin saves via Attendance Management.
+              Adjustments from <strong>attendance_adjustment_log</strong> · Device insights from <strong>AttendanceRecordInfo</strong>, limited to users in Users List.
             </Typography>
           </Box>
         </Box>
 
         <DetailModal open={detailOpen} onClose={() => setDetailOpen(false)} record={selectedRecord} />
+
+        <Dialog
+          open={noRecordsDialogOpen}
+          onClose={() => setNoRecordsDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: '12px' } }}
+        >
+          <DialogTitle sx={{ fontFamily: T.font, fontWeight: 800, color: T.accent, pb: 1 }}>
+            Employees Not Using Device
+          </DialogTitle>
+          <DialogContent dividers sx={{ p: 0 }}>
+            <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+              <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontFamily: T.font, lineHeight: 1.5 }}>
+                Registered in Users List with no device records in the selected period — no Time In, Time Out, Break Time In, or Break Time Out.
+              </Typography>
+            </Box>
+            <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${T.divider}` }}>
+              <NativeInput
+                value={noRecordsSearch}
+                onChange={(e) => setNoRecordsSearch(e.target.value)}
+                placeholder="Search employee no. or name…"
+                icon={<SearchIcon sx={{ fontSize: 13 }} />}
+              />
+            </Box>
+            <Box sx={{ maxHeight: 420, overflowY: 'auto', ...scrollbarSx }}>
+              {filteredNonDeviceList.length === 0 ? (
+                <Box sx={{ py: 6, textAlign: 'center' }}>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontFamily: T.font }}>
+                    {deviceChartData.employeesNotUsingDevice.length === 0
+                      ? 'All registered employees have device punches in this period.'
+                      : 'No employees match your search.'}
+                  </Typography>
+                </Box>
+              ) : (
+                filteredNonDeviceList.map((row) => (
+                  <Box
+                    key={row.employeeNumber}
+                    sx={{
+                      px: 2, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: 2, borderBottom: `1px solid ${T.divider}`,
+                    }}
+                  >
+                    <Typography sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
+                      {row.employeeNumber}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text, fontFamily: T.font, textAlign: 'right' }}>
+                      {row.displayName}
+                    </Typography>
+                  </Box>
+                ))
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 2, py: 1.5 }}>
+            <Typography sx={{ flex: 1, fontSize: '0.72rem', color: T.faint, fontFamily: T.font }}>
+              {filteredNonDeviceList.length} employee{filteredNonDeviceList.length === 1 ? '' : 's'}
+            </Typography>
+            <button
+              onClick={() => handleExportNonDeviceUsers(filteredNonDeviceList)}
+              disabled={exportLoading || filteredNonDeviceList.length === 0}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: '#fff', color: T.accent, border: `1px solid ${T.accentBorder}`,
+                borderRadius: '8px', padding: '8px 16px', fontWeight: 700,
+                fontSize: '0.82rem', fontFamily: T.font,
+                cursor: exportLoading || filteredNonDeviceList.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: exportLoading || filteredNonDeviceList.length === 0 ? 0.55 : 1,
+              }}
+            >
+              <FileDownloadIcon sx={{ fontSize: 14 }} />
+              Generate Report
+            </button>
+            <button
+              onClick={() => setNoRecordsDialogOpen(false)}
+              style={{
+                background: T.accent, color: '#fff', border: 'none', borderRadius: '8px',
+                padding: '8px 20px', fontWeight: 700, fontSize: '0.82rem', fontFamily: T.font, cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={unregisteredDialogOpen}
+          onClose={() => setUnregisteredDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: '12px' } }}
+        >
+          <DialogTitle sx={{ fontFamily: T.font, fontWeight: 800, color: '#c2410c', pb: 1 }}>
+            Device Users Not in Users List
+          </DialogTitle>
+          <DialogContent dividers sx={{ p: 0 }}>
+            <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${T.divider}` }}>
+              <NativeInput
+                value={unregisteredSearch}
+                onChange={(e) => setUnregisteredSearch(e.target.value)}
+                placeholder="Search employee no. or name…"
+                icon={<SearchIcon sx={{ fontSize: 13 }} />}
+              />
+            </Box>
+            <Box sx={{ maxHeight: 420, overflowY: 'auto', ...scrollbarSx }}>
+              {filteredUnregisteredList.length === 0 ? (
+                <Box sx={{ py: 6, textAlign: 'center' }}>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontFamily: T.font }}>
+                    No unregistered device users match your search.
+                  </Typography>
+                </Box>
+              ) : (
+                filteredUnregisteredList.map((row) => (
+                  <Box
+                    key={row.employeeNumber}
+                    sx={{
+                      px: 2, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: 2, borderBottom: `1px solid ${T.divider}`,
+                    }}
+                  >
+                    <Typography sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 700, color: '#c2410c' }}>
+                      {row.employeeNumber}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text, fontFamily: T.font, textAlign: 'right' }}>
+                      {row.displayName}
+                    </Typography>
+                  </Box>
+                ))
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 2, py: 1.5 }}>
+            <Typography sx={{ flex: 1, fontSize: '0.72rem', color: T.faint, fontFamily: T.font }}>
+              {filteredUnregisteredList.length} unregistered device user{filteredUnregisteredList.length === 1 ? '' : 's'}
+            </Typography>
+            <button
+              onClick={() => setUnregisteredDialogOpen(false)}
+              style={{
+                background: '#c2410c', color: '#fff', border: 'none', borderRadius: '8px',
+                padding: '8px 20px', fontWeight: 700, fontSize: '0.82rem', fontFamily: T.font, cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </Fade>
   );

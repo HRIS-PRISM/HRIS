@@ -104,6 +104,7 @@ import {
   getRowTotalTardinessDisplay,
   resolveEntryRenderedTotal,
   shouldZeroAmPmHalfDayColumns,
+  countSuggestedHalfDays,
 } from '../../utils/halfDayReview';
 import HalfDayReviewDialog from './HalfDayReviewDialog';
 import { EmployeeSearchField } from './attendanceModuleEmployeeSearch';
@@ -1785,6 +1786,10 @@ const FloatingTotalsBar = ({
         Number.isFinite(Number(totals.halfDays)) ? Number(totals.halfDays) : 0,
       ),
       subtitle: totals.halfDayShortfallTime || '00:00:00',
+      statusLine:
+        Number(totals.halfDaysForReview) > 0
+          ? `${Number(totals.halfDaysForReview)} FOR REVIEW`
+          : null,
       style: T.halfDay,
       accent: true,
     },
@@ -1955,7 +1960,7 @@ const FloatingTotalsBar = ({
                 minWidth: 'min-content',
               }}
             >
-              {allItems.map(({ label, value, style, accent, subtitle }) => (
+              {allItems.map(({ label, value, style, accent, subtitle, statusLine }) => (
                 <Box
                   key={label}
                   sx={{
@@ -2011,6 +2016,23 @@ const FloatingTotalsBar = ({
                       }}
                     >
                       {subtitle}
+                    </Typography>
+                  )}
+                  {statusLine != null && (
+                    <Typography
+                      sx={{
+                        fontFamily: T.recordFont,
+                        fontWeight: 500,
+                        fontSize: '0.58rem',
+                        color: T.tardiness.color,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        mt: 0.35,
+                        lineHeight: 1.2,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {statusLine}
                     </Typography>
                   )}
                 </Box>
@@ -3251,6 +3273,12 @@ const AttendanceModuleFacultyDesignated = ({
     return {
       absentDays: buckets.absentDays,
       halfDays: buckets.halfDays,
+      halfDaysForReview: countSuggestedHalfDays(
+        halfDayReviewByDate,
+        attendanceData,
+        MODULE_TYPES.DESIGNATED_40HRS,
+        calendarMaps,
+      ),
       absentTime: buckets.absentTime,
       halfDayShortfallTime: buckets.halfDayShortfallTime,
       lateTotalTime,

@@ -597,6 +597,33 @@ export const countSuggestedHalfDays = (reviewByDate, rows, moduleType, calendarM
   return n;
 };
 
+/** Punch-based late seconds for one row (matches table AM/PM or faculty calc). */
+export function getPunchLateSecondsForModule(row, moduleType) {
+  if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
+    const sysTard =
+      row?.formattedfinalcalcFaculty === 'NaN:NaN:NaN'
+        ? row?.formattedFacultyMaxRenderedTime
+        : row?.formattedfinalcalcFaculty;
+    const sysSec = parseOfficialTimeToSeconds(sysTard);
+    return sysSec != null ? Math.max(0, sysSec) : 0;
+  }
+  if (
+    moduleType === MODULE_TYPES.NON_TEACHING ||
+    moduleType === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return getAmPmSlotLateSecondsFromRow(row);
+  }
+  const schedWorkSec = getOfficialSchedWorkSec(row);
+  if (schedWorkSec == null) return 0;
+  const inSec = parseOfficialTimeToSeconds(row?.timeIN);
+  const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
+  let renderedSec = 0;
+  if (inSec != null && outSec != null) {
+    renderedSec = Math.max(0, outSec - inSec);
+  }
+  return Math.max(0, schedWorkSec - renderedSec);
+}
+
 /** Absent unchanged; half-day buckets only for HR-approved dates. */
 export function computeReviewAwareAbsenceBuckets(
   rows,
@@ -608,7 +635,13 @@ export function computeReviewAwareAbsenceBuckets(
   let halfDays = 0;
   let absentSecTotal = 0;
   let halfDayShortfallSecTotal = 0;
+  /** Late that feeds Overall Tardiness (excludes approved half-day days). */
   let lateShortfallSecTotal = 0;
+  /**
+   * Late Total display — keeps punch late after half-day approve so confirming
+   * a half day only increases Half Days, and does not shrink Late Total.
+   */
+  let lateTotalDisplaySec = 0;
 
   const isFacultyInOut =
     moduleType === MODULE_TYPES.DESIGNATED_40HRS ||
@@ -638,44 +671,21 @@ export function computeReviewAwareAbsenceBuckets(
         entry,
         moduleType,
       );
+      // Do not remove this day's punch late from Late Total on confirm
+      lateTotalDisplaySec += getPunchLateSecondsForModule(row, moduleType);
       return;
     }
 
     if (entry?.status === HALF_DAY_STATUS.REJECTED) {
-      lateShortfallSecTotal += getRejectedHalfDayLateSeconds(entry, moduleType);
+      const rej = getRejectedHalfDayLateSeconds(entry, moduleType);
+      lateShortfallSecTotal += rej;
+      lateTotalDisplaySec += rej;
       return;
     }
 
-    // Faculty 30hrs: use precomputed regular tardiness (matches table).
-    if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
-      const sysTard =
-        row?.formattedfinalcalcFaculty === 'NaN:NaN:NaN'
-          ? row?.formattedFacultyMaxRenderedTime
-          : row?.formattedfinalcalcFaculty;
-      const sysSec = parseOfficialTimeToSeconds(sysTard);
-      if (sysSec != null) {
-        lateShortfallSecTotal += Math.max(0, sysSec);
-        return;
-      }
-    }
-
-    // Non-Teaching / Designated: AM + PM slot tardiness (not full-day IN→OUT span).
-    if (
-      moduleType === MODULE_TYPES.NON_TEACHING ||
-      moduleType === MODULE_TYPES.DESIGNATED_40HRS
-    ) {
-      lateShortfallSecTotal += getAmPmSlotLateSecondsFromRow(row);
-      return;
-    }
-
-    const inSec = parseOfficialTimeToSeconds(row?.timeIN);
-    const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
-    let renderedSec = 0;
-    if (inSec != null && outSec != null) {
-      renderedSec = Math.max(0, outSec - inSec);
-    }
-    const deficit = Math.max(0, schedWorkSec - renderedSec);
-    lateShortfallSecTotal += deficit;
+    const punchLate = getPunchLateSecondsForModule(row, moduleType);
+    lateShortfallSecTotal += punchLate;
+    lateTotalDisplaySec += punchLate;
   });
 
   const overallShortfallSecTotal =
@@ -687,10 +697,12 @@ export function computeReviewAwareAbsenceBuckets(
     absentSecTotal,
     halfDayShortfallSecTotal,
     lateShortfallSecTotal,
+    lateTotalDisplaySec,
     overallShortfallSecTotal,
     absentTime: formatOfficialAttendanceSeconds(absentSecTotal),
     halfDayShortfallTime: formatOfficialAttendanceSeconds(halfDayShortfallSecTotal),
     lateShortfallTime: formatOfficialAttendanceSeconds(lateShortfallSecTotal),
+    lateTotalDisplayTime: formatOfficialAttendanceSeconds(lateTotalDisplaySec),
     overallShortfallTime: formatOfficialAttendanceSeconds(overallShortfallSecTotal),
   };
 }

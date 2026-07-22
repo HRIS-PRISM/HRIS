@@ -1305,7 +1305,18 @@
     });
 
     Promise.all(updatePromises)
-      .then(() => res.send({ message: 'Records updated successfully.' }))
+      .then(() => {
+        const personIDs = Array.isArray(records)
+          ? [...new Set(records.map((r) => r.personID).filter(Boolean))]
+          : [];
+        if (personIDs.length > 0) {
+          notifyAttendanceChanged('updated', {
+            scope: 'attendancerecord',
+            personIDs,
+          });
+        }
+        res.send({ message: 'Records updated successfully.' });
+      })
       .catch((err) => res.status(500).send(err));
   });
 
@@ -2208,6 +2219,52 @@
     });
   });
 
+  // Per-employee punch bracket consistency for a date range
+  router.post('/api/device-punch-insights', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.body || {};
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime();
+    const endTimestamp = new Date(`${endDate}T23:59:59Z`).getTime();
+
+    const sql = `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        COUNT(*) AS totalDays,
+        SUM(CASE WHEN has_t1 = 1 THEN 1 ELSE 0 END) AS daysWithTimeIn,
+        SUM(CASE WHEN has_t2 = 1 THEN 1 ELSE 0 END) AS daysWithBreakIn,
+        SUM(CASE WHEN has_t3 = 1 THEN 1 ELSE 0 END) AS daysWithBreakOut,
+        SUM(CASE WHEN has_t4 = 1 THEN 1 ELSE 0 END) AS daysWithTimeOut
+      FROM (
+        SELECT
+          PersonID,
+          PersonName,
+          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt,
+          MAX(CASE WHEN AttendanceState = 1 THEN 1 ELSE 0 END) AS has_t1,
+          MAX(CASE WHEN AttendanceState = 2 THEN 1 ELSE 0 END) AS has_t2,
+          MAX(CASE WHEN AttendanceState = 3 THEN 1 ELSE 0 END) AS has_t3,
+          MAX(CASE WHEN AttendanceState = 4 THEN 1 ELSE 0 END) AS has_t4
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID, PersonName, dt
+      ) daily
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `;
+
+    db.query(sql, [startTimestamp, endTimestamp], (err, results) => {
+      if (err) {
+        console.error('Error fetching device punch insights:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json(results || []);
+    });
+  });
+
   // Auto-save and fetch attendance records
   router.post('/api/all-attendance', authenticateToken, async (req, res) => {
     const { personID, startDate, endDate } = req.body;
@@ -3103,7 +3160,7 @@
       params.push(dateTo);
     }
 
-    sql += ' ORDER BY aal.adjustedAt DESC LIMIT 2000';
+    sql += ' ORDER BY aal.adjustedAt DESC';
 
     db.query(sql, params, (err, rows) => {
       if (err) {

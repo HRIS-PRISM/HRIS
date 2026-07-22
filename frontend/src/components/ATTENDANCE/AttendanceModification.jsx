@@ -585,10 +585,10 @@ const displayTimeNoSeconds = (val) => {
   if (!val || String(val).trim() === '') return val || '';
   return String(val).replace(/(\d{1,2}:\d{2}):\d{2}/, '$1');
 };
-const parseStoredTime = (val) => {
-  if (!val || String(val).trim() === '') return { digits: '', ampm: 'AM' };
+const parseStoredTime = (val, defaultAmPm = 'AM') => {
+  if (!val || String(val).trim() === '') return { digits: '', ampm: defaultAmPm };
   const str = String(val).trim().toUpperCase();
-  let ampm = 'AM';
+  let ampm = defaultAmPm;
   let timePart = str;
   if (str.endsWith(' PM')) { ampm = 'PM'; timePart = str.slice(0, -3).trim(); }
   else if (str.endsWith(' AM')) { ampm = 'AM'; timePart = str.slice(0, -3).trim(); }
@@ -606,11 +606,23 @@ const buildStoredTime = (digits, ampm) => {
   return `${withSeconds} ${ampm}`;
 };
 
-const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled }) => {
-  const { digits: initDigits, ampm: initAmPm } = parseStoredTime(value);
+/** Empty-field AM/PM defaults — TIME IN stays AM; break + time out default to PM. */
+const DEFAULT_AMPM_BY_FIELD = {
+  timeIN: 'AM',
+  breaktimeIN: 'PM',
+  breaktimeOUT: 'PM',
+  timeOUT: 'PM',
+};
+
+const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled, defaultAmPm = 'AM' }) => {
+  const { digits: initDigits, ampm: initAmPm } = parseStoredTime(value, defaultAmPm);
   const [localDigits, setLocalDigits] = useState(initDigits);
   const [ampm, setAmPm] = useState(initAmPm);
-  useEffect(() => { const { digits, ampm: ap } = parseStoredTime(value); setLocalDigits(digits); setAmPm(ap); }, [value]);
+  useEffect(() => {
+    const { digits, ampm: ap } = parseStoredTime(value, defaultAmPm);
+    setLocalDigits(digits);
+    setAmPm(ap);
+  }, [value, defaultAmPm]);
 
   const borderColor = unsaved ? '#e65100' : savedMod ? '#2e7d32' : autoFilled ? T.accent : isNewRow ? 'rgba(245,158,11,0.4)' : T.accentBorder;
   const bgColor = unsaved ? 'rgba(230,81,0,0.04)' : savedMod ? 'rgba(46,125,50,0.04)' : autoFilled ? T.accentFaint : isNewRow ? 'rgba(245,158,11,0.04)' : '#fff';
@@ -624,6 +636,7 @@ const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled })
   const clearTime = () => {
     if (!localDigits) return;
     setLocalDigits('');
+    setAmPm(defaultAmPm);
     onChange({ target: { value: '' } });
   };
 
@@ -936,6 +949,7 @@ const RecordsRow = memo(function RecordsRow({
                 unsaved={unsaved}
                 savedMod={savedMod}
                 autoFilled={isAutoFilled}
+                defaultAmPm={DEFAULT_AMPM_BY_FIELD[field] || 'AM'}
               />
               {showWas && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.3 }}>
@@ -1121,6 +1135,7 @@ const FullMonthRow = memo(function FullMonthRow({
                 savedMod={savedMod}
                 isNewRow={record.isNew}
                 autoFilled={isAutoFilled}
+                defaultAmPm={DEFAULT_AMPM_BY_FIELD[field] || 'AM'}
               />
               {showWas && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.3 }}>
@@ -2439,6 +2454,37 @@ const AttendanceSearch = ({
     setRemarksDialogOpen(true);
   }, [fillableFullMonthDates, selectedFullMonthDates, showSnackbar]);
 
+  const handleClearSelectedTimesFull = useCallback(() => {
+    const dates = [...selectedFullMonthDates];
+    if (!dates.length) {
+      showSnackbar('Select at least one day to clear.', 'warning');
+      return;
+    }
+    setFullRecords((prev) =>
+      prev.map((row) => {
+        if (!selectedFullMonthDates.has(row.date)) return row;
+        return {
+          ...row,
+          timeIN: '',
+          breaktimeIN: '',
+          breaktimeOUT: '',
+          timeOUT: '',
+        };
+      }),
+    );
+    // Drop auto-fill markers for cleared rows so UI reflects empty times
+    setAutoFilledFullRows((prev) => {
+      if (!prev?.size) return prev;
+      const next = new Map(prev);
+      dates.forEach((date) => next.delete(date));
+      return next;
+    });
+    showSnackbar(
+      `Cleared Time IN / Break / Time OUT on ${dates.length} selected day${dates.length === 1 ? '' : 's'}.`,
+      'info',
+    );
+  }, [selectedFullMonthDates, showSnackbar]);
+
   const handleAutoFillConfirm = useCallback((remarks) => {
     setRemarksDialogOpen(false);
     if (!pendingAutoFill) return;
@@ -2828,6 +2874,30 @@ const AttendanceSearch = ({
                     <EventAvailable sx={{ fontSize: 14 }} />
                     Fill Selected ({selectedFillableCount})
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleClearSelectedTimesFull}
+                    disabled={selectedFullMonthDates.size === 0}
+                    title="Clear Time IN, Break IN/OUT, and Time OUT on selected rows"
+                    style={{
+                      background: selectedFullMonthDates.size > 0 ? '#fff' : T.accentFaint,
+                      border: `1px solid ${selectedFullMonthDates.size > 0 ? '#b71c1c' : T.accentBorder}`,
+                      borderRadius: '6px',
+                      padding: '5px 12px',
+                      cursor: selectedFullMonthDates.size > 0 ? 'pointer' : 'not-allowed',
+                      color: selectedFullMonthDates.size > 0 ? '#b71c1c' : T.accentMid,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                      opacity: selectedFullMonthDates.size > 0 ? 1 : 0.65,
+                    }}
+                  >
+                    <Clear sx={{ fontSize: 14 }} />
+                    Clear All ({selectedFullMonthDates.size})
+                  </button>
                 </Box>
               )}
             </Box>
@@ -2841,7 +2911,7 @@ const AttendanceSearch = ({
                   </Box>
                 ))}
                 <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                  Select rows for bulk fill (PVP / leave with pay) · Fill = auto-fill · Fill Break = quick 12PM–1PM break
+                  Select rows for bulk fill (PVP / leave with pay) · Fill Selected = auto-fill · Clear All = wipe Time IN/Break/Time OUT · Fill Break = quick 12PM–1PM break
                 </Typography>
               </Box>
             )}

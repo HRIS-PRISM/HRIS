@@ -257,10 +257,8 @@ const ATTENDANCE_SILENT_ACTIONS = new Set([
   'suspensions-fetched',
 ]);
 
-/** Actions that only affect late/undertime UI — still emit, but mark as light. */
+/** Actions that only affect print status UI — still emit, but mark as light. */
 const ATTENDANCE_LIGHT_ACTIONS = new Set([
-  'overall-daily-late-updated',
-  'overall-daily-late-created',
   'dtr-printed',
 ]);
 
