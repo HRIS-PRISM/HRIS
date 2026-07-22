@@ -1067,9 +1067,9 @@ const Login = () => {
             alignItems: "center",
             justifyContent: "center",
             overflow: "visible",
-            gap: { xs: 1.5, sm: 2, md: 5, lg: 8, xl: "100px" },
-            px: { xs: 2, sm: 4, md: 4, lg: 8, xl: "160px" },
-            py: { xs: 1.5, sm: 2, md: 0 },
+            gap: { xs: 1, sm: 2, md: 5, lg: 8, xl: "100px" },
+            px: { xs: 1.5, sm: 4, md: 4, lg: 8, xl: "160px" },
+            py: { xs: 1, sm: 2, md: 0 },
             boxSizing: "border-box",
           }}
         >
@@ -1109,13 +1109,13 @@ const Login = () => {
                       alt={item.title || item.type}
                       sx={{
                         width: "100%",
-                        height: { xs: 130, sm: 160 },
+                        height: { xs: 100, sm: 160 },
                         objectFit: "cover",
                         display: "block",
                         filter: "brightness(0.62)",
                       }}
                     />
-                    <Box sx={{ position: "absolute", bottom: 0, width: "100%", background: "linear-gradient(0deg, rgba(0,0,0,0.82) 0%, transparent 100%)", p: "22px 16px 14px" }}>
+                    <Box sx={{ position: "absolute", bottom: 0, width: "100%", background: "linear-gradient(0deg, rgba(0,0,0,0.82) 0%, transparent 100%)", p: { xs: "14px 12px 8px", sm: "22px 16px 14px" } }}>
                       <Chip
                         size="small"
                         label={getTypeLabel(item.type)}
@@ -1127,7 +1127,7 @@ const Login = () => {
                             : <AnnouncementIcon sx={{ fontSize: "12px !important", color: "#fff !important" }} />
                         }
                         sx={{
-                          mb: 0.75,
+                          mb: { xs: 0.4, sm: 0.75 },
                           bgcolor:
                             item.type === "HOLIDAY"
                               ? "rgba(237,108,2,0.85)"
@@ -1136,15 +1136,15 @@ const Login = () => {
                               : "rgba(128,0,32,0.85)",
                           color: "#fff",
                           fontWeight: 700,
-                          fontSize: "0.6rem",
-                          height: 19,
+                          fontSize: { xs: "0.52rem", sm: "0.6rem" },
+                          height: { xs: 16, sm: 19 },
                           "& .MuiChip-icon": { color: "#fff" },
                         }}
                       />
-                      <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.85rem", lineHeight: 1.25, mb: 0.25 }}>
+                      <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: { xs: "0.72rem", sm: "0.85rem" }, lineHeight: 1.25, mb: 0.25 }}>
                         {item.title}
                       </Typography>
-                      <Typography sx={{ color: "rgba(255,255,255,0.7)", fontSize: "0.7rem" }}>
+                      <Typography sx={{ color: "rgba(255,255,255,0.7)", fontSize: { xs: "0.6rem", sm: "0.7rem" } }}>
                         {item.date ? new Date(item.date).toDateString() : ""}
                       </Typography>
                     </Box>
@@ -1152,7 +1152,7 @@ const Login = () => {
                 ))}
               </Box>
               {carouselItems.length > 1 && (
-                <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mt: 1.25 }}>
+                <Box sx={{ display: "flex", justifyContent: "center", gap: 0.75, mt: { xs: 0.75, sm: 1.25 } }}>
                   {carouselItems.map((item) => (
                     <Box key={`dot-${item.id}`} sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.35)" }} />
                   ))}
@@ -1286,13 +1286,13 @@ const Login = () => {
                 backdropFilter: "blur(24px)",
                 WebkitBackdropFilter: "blur(24px)",
                 border: "1px solid rgba(200,180,180,0.35)",
-                borderRadius: { xs: "18px", sm: "24px" },
-                p: { xs: 3, sm: 4.5 },
+                borderRadius: { xs: "16px", sm: "24px" },
+                p: { xs: 2.25, sm: 4.5 },
                 boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
                 position: "relative",
                 overflow: "hidden",
                 height: { xs: "auto", md: CARD_HEIGHT },
-                minHeight: { xs: 420, sm: 460, md: "auto" },
+                minHeight: { xs: 340, sm: 460, md: "auto" },
                 maxHeight: { xs: "none", md: CARD_HEIGHT },
                 boxSizing: "border-box",
                 display: "flex",
@@ -1314,26 +1314,26 @@ const Login = () => {
                 }}
               >
                 {/* Header */}
-                <Box sx={{ mb: { xs: 2.5, sm: 4 }, textAlign: "center" }}>
-                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.22em", color: "rgba(128,0,32,0.55)", textTransform: "uppercase", mb: 0.75 }}>
+                <Box sx={{ mb: { xs: 1.5, sm: 4 }, textAlign: "center" }}>
+                  <Typography sx={{ fontSize: { xs: "0.6rem", sm: "0.68rem" }, fontWeight: 700, letterSpacing: "0.22em", color: "rgba(128,0,32,0.55)", textTransform: "uppercase", mb: { xs: 0.4, sm: 0.75 } }}>
                     Welcome Back
                   </Typography>
-                  <Typography sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" }, fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em" }}>
+                  <Typography sx={{ fontSize: { xs: "1.02rem", sm: "1.5rem" }, fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em" }}>
                     Human Resources
                   </Typography>
-                  <Typography sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" }, fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em", mb: 0.5 }}>
+                  <Typography sx={{ fontSize: { xs: "1.02rem", sm: "1.5rem" }, fontWeight: 800, color: crimsonDark, lineHeight: 1.2, letterSpacing: "-0.01em", mb: { xs: 0.25, sm: 0.5 } }}>
                     Information System
                   </Typography>
-                  <Box sx={{ width: 44, height: 3, background: "linear-gradient(90deg, #800020, #e84a4a)", borderRadius: "2px", mx: "auto", mt: 1.5 }} />
+                  <Box sx={{ width: { xs: 32, sm: 44 }, height: 3, background: "linear-gradient(90deg, #800020, #e84a4a)", borderRadius: "2px", mx: "auto", mt: { xs: 0.75, sm: 1.5 } }} />
                 </Box>
 
                 <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-                  <Box sx={{ mb: 2.5 }}>
-                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "rgba(75,0,0,0.55)", letterSpacing: "0.1em", textTransform: "uppercase", mb: 0.75 }}>
+                  <Box sx={{ mb: { xs: 1.5, sm: 2.5 } }}>
+                    <Typography sx={{ fontSize: { xs: "0.62rem", sm: "0.7rem" }, fontWeight: 600, color: "rgba(75,0,0,0.55)", letterSpacing: "0.1em", textTransform: "uppercase", mb: { xs: 0.4, sm: 0.75 } }}>
                       Employee Number
                     </Typography>
                     <Box sx={{ position: "relative", display: "flex", alignItems: "center" }}>
-                      <BadgeOutlined sx={{ position: "absolute", left: 14, color: "rgba(128,0,32,0.45)", fontSize: 18, zIndex: 1, pointerEvents: "none" }} />
+                      <BadgeOutlined sx={{ position: "absolute", left: { xs: 12, sm: 14 }, color: "rgba(128,0,32,0.45)", fontSize: { xs: 16, sm: 18 }, zIndex: 1, pointerEvents: "none" }} />
                       <Box
                         component="input"
                         placeholder="Enter your employee number"
@@ -1341,20 +1341,20 @@ const Login = () => {
                         maxLength={20}
                         disabled={isLoginLocked}
                         onChange={handleEmployeeNumberChange}
-                        sx={{ width: "100%", height: 50, pl: "44px", pr: "16px", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(128,0,32,0.18)", borderRadius: "12px", color: crimsonDark, fontSize: "0.9rem", outline: "none", transition: "border-color 0.2s, background 0.2s", fontFamily: "inherit", "&::placeholder": { color: "rgba(75,0,0,0.3)" }, "&:focus": { borderColor: "rgba(128,0,32,0.45)", background: "#fff" }, "&:disabled": { opacity: 0.45, cursor: "not-allowed" }, boxSizing: "border-box" }}
+                        sx={{ width: "100%", height: { xs: 42, sm: 50 }, pl: { xs: "38px", sm: "44px" }, pr: "16px", background: "rgba(255,255,255,0.8)", border: "1px solid rgba(128,0,32,0.18)", borderRadius: "12px", color: crimsonDark, fontSize: { xs: "0.82rem", sm: "0.9rem" }, outline: "none", transition: "border-color 0.2s, background 0.2s", fontFamily: "inherit", "&::placeholder": { color: "rgba(75,0,0,0.3)" }, "&:focus": { borderColor: "rgba(128,0,32,0.45)", background: "#fff" }, "&:disabled": { opacity: 0.45, cursor: "not-allowed" }, boxSizing: "border-box" }}
                       />
                     </Box>
                   </Box>
 
-      <Box sx={{ mb: 1 }}>
+      <Box sx={{ mb: { xs: 0.6, sm: 1 } }}>
   <Typography
     sx={{
-      fontSize: "0.7rem",
+      fontSize: { xs: "0.62rem", sm: "0.7rem" },
       fontWeight: 600,
       color: "rgba(75,0,0,0.55)",
       letterSpacing: "0.1em",
       textTransform: "uppercase",
-      mb: 0.75,
+      mb: { xs: 0.4, sm: 0.75 },
     }}
   >
     Password
@@ -1364,9 +1364,9 @@ const Login = () => {
     <LockOutlined
       sx={{
         position: "absolute",
-        left: 14,
+        left: { xs: 12, sm: 14 },
         color: "rgba(128,0,32,0.45)",
-        fontSize: 18,
+        fontSize: { xs: 16, sm: 18 },
         zIndex: 1,
         pointerEvents: "none",
       }}
@@ -1381,14 +1381,14 @@ const Login = () => {
       onChange={handleChanges}
       sx={{
         width: "100%",
-        height: 50,
-        pl: "44px",
+        height: { xs: 42, sm: 50 },
+        pl: { xs: "38px", sm: "44px" },
         pr: "14px", // adjusted since right icon is removed
         background: "rgba(255,255,255,0.8)",
         border: "1px solid rgba(128,0,32,0.18)",
         borderRadius: "12px",
         color: crimsonDark,
-        fontSize: "0.9rem",
+        fontSize: { xs: "0.82rem", sm: "0.9rem" },
         outline: "none",
         transition: "border-color 0.2s, background 0.2s",
         fontFamily: "inherit",
@@ -1408,17 +1408,17 @@ const Login = () => {
     />
   </Box>
 </Box>
-                  <Typography sx={{ fontSize: "0.71rem", color: "rgba(128,0,32,0.45)", fontStyle: "italic", mb: 2.5, pl: 0.5 }}>
+                  <Typography sx={{ fontSize: { xs: "0.62rem", sm: "0.71rem" }, color: "rgba(128,0,32,0.45)", fontStyle: "italic", mb: { xs: 1.25, sm: 2.5 }, pl: 0.5 }}>
                     Default password must be entered in ALL CAPS with NO SPACES.
                   </Typography>
 
-                  <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2.5 }}>
+                  <Box sx={{ display: "flex", justifyContent: "flex-end", mb: { xs: 1.25, sm: 2.5 } }}>
                     <Link
                       component="button"
                       type="button"
                       onClick={() => setShowForgotPassword(true)}
                       underline="none"
-                      sx={{ fontSize: "0.78rem", color: crimson, fontWeight: 500, transition: "color 0.2s", "&:hover": { color: crimsonDark }, background: "none", border: "none", cursor: "pointer" }}
+                      sx={{ fontSize: { xs: "0.72rem", sm: "0.78rem" }, color: crimson, fontWeight: 500, transition: "color 0.2s", "&:hover": { color: crimsonDark }, background: "none", border: "none", cursor: "pointer" }}
                     >
                       Forgot password?
                     </Link>
@@ -1437,9 +1437,9 @@ const Login = () => {
                     component="button"
                     type="submit"
                     disabled={isLoginLocked}
-                    sx={{ width: "100%", height: 52, background: isLoginLocked ? "rgba(128,0,32,0.15)" : "#800020", border: "none", borderRadius: "12px", color: "#fff", fontSize: "0.92rem", fontWeight: 600, letterSpacing: "0.05em", cursor: isLoginLocked ? "not-allowed" : "pointer", opacity: isLoginLocked ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "background 0.2s, opacity 0.2s", boxShadow: "none", fontFamily: "inherit", "&:hover:not(:disabled)": { background: "#6a001a", opacity: 0.92 }, "&:active:not(:disabled)": { background: "#5a0016" } }}
+                    sx={{ width: "100%", height: { xs: 44, sm: 52 }, background: isLoginLocked ? "rgba(128,0,32,0.15)" : "#800020", border: "none", borderRadius: "12px", color: "#fff", fontSize: { xs: "0.82rem", sm: "0.92rem" }, fontWeight: 600, letterSpacing: "0.05em", cursor: isLoginLocked ? "not-allowed" : "pointer", opacity: isLoginLocked ? 0.5 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "background 0.2s, opacity 0.2s", boxShadow: "none", fontFamily: "inherit", "&:hover:not(:disabled)": { background: "#6a001a", opacity: 0.92 }, "&:active:not(:disabled)": { background: "#5a0016" } }}
                   >
-                    <LoginOutlined sx={{ fontSize: 18 }} />
+                    <LoginOutlined sx={{ fontSize: { xs: 16, sm: 18 } }} />
                     {isLoginLocked ? `Locked (${formatTime(loginLockTimer)})` : loading ? "Signing in…" : "Sign In"}
                   </Box>
                 </form>
