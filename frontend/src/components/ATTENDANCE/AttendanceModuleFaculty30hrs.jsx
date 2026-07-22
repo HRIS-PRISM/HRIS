@@ -1836,11 +1836,12 @@ import API_BASE_URL from '../../apiConfig';
         if (isFurlough) return !row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTime);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTime);
       });
-      const regularTardiness = sumTimeRows(attendanceData, (row) => {
+      const rowTardinessSum = sumTimeRows(attendanceData, (row) => {
         const f = Boolean(getStatusLabelForDate(row.date));
         if (f) return null;
         return getCellValue(row, '_tardiness', f, tardinessOverrides, halfDayReviewByDate);
       });
+      const regularTardiness = rowTardinessSum;
       const hnRendered = sumTimeRows(attendanceData, (row) => {
         const isFurlough = Boolean(getStatusLabelForDate(row.date));
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN);
@@ -1885,6 +1886,7 @@ import API_BASE_URL from '../../apiConfig';
         lateTotalTime,
         overallTardiness,
         overallShortfallTime: buckets.overallShortfallTime,
+        rowTardinessSum,
         regularRendered,
         regularTardiness,
         hnRendered,
@@ -1999,7 +2001,11 @@ import API_BASE_URL from '../../apiConfig';
 
     const getTabTotalsValues = (tab) => {
       switch (tab) {
-        case 'regular':       return [totals.regularRendered, totals.regularTardiness];
+        case 'regular':
+          return [
+            totals.regularRendered,
+            totals.overallTardiness || totals.lateTotalTime || ZERO_HM,
+          ];
         case 'honorarium':    return [totals.hnRendered, totals.hnTardiness];
         case 'serviceCredit': return [totals.scRendered, totals.scTardiness];
         case 'overtime':      return [totals.otRendered, totals.otTardiness];
