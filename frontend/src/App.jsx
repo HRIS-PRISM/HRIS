@@ -134,6 +134,7 @@ import LeaveDatePickerModal from "./components/LEAVE/LeaveDatePicker";
 import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
 import LeaveCredits from "./components/LEAVE/LeaveCredits";
 import Leave from "./components/FORMS/Leave";
+import LeaveBack from "./components/FORMS/LeaveBack";
 import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
 import ServiceCredits from "./components/LEAVE/ServiceCredits";
 import LeaveRequestSupervisor from "./components/LEAVE/LeaveRequestSupervisor";
@@ -1420,6 +1421,10 @@ function App() {
             <Route
               path="/leave-form"
               element={adminPage(Leave, 'leave-form', 'You do not have permission to access Leave forms.')}
+            />
+            <Route
+              path="/leave-back"
+              element={adminPage(LeaveBack, 'leave-back', 'You do not have permission to access Leave forms.')}
             />
             <Route
               path="/locator-slip"
