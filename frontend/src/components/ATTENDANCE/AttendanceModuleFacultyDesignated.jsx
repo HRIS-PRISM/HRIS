@@ -116,6 +116,9 @@ import { getHalfDayReviewRowChrome } from './HalfDayApproveCheckboxCell';
 import {
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
+  isHalfDayByPunchPattern,
+  isHalfDayMorningByPunches,
+  isHalfDayAfternoonByPunches,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
   ZERO_HM,
@@ -654,17 +657,9 @@ const attendanceEmptyPunch = (v) =>
   String(v).trim() === '—' ||
   String(v).trim().toUpperCase() === 'N/A';
 
-const isHalfDayByMinuteTardinessThreshold = (row) => {
-  if (!isScheduledByOfficialTime(row)) return false;
-  if (hasNoPunchesTimeInOutOnly(row)) return false;
-  const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
-  if (schedWorkSec == null || schedWorkSec <= 0) return false;
-  return getAmPmSlotLateMinuteSec(row) > schedWorkSec / 2;
-};
-
 const isHalfDayAttendanceRow = (row, fn) => {
   if (!row || fn(row.date)) return false;
-  return isHalfDayByMinuteTardinessThreshold(row);
+  return isHalfDayByPunchPattern(row);
 };
 
 // Designated (40hrs) module rule: ignore breaktime punches for absent.
@@ -697,12 +692,13 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
       return;
     }
 
-    const deficit = getAmPmSlotLateMinuteSec(row);
-    const isHalfDay = deficit > schedWorkSec / 2;
+    const isHalfDay = isHalfDayByPunchPattern(row);
     if (isHalfDay) {
       halfDays += 1;
-      halfDayShortfallSecTotal += deficit;
+      const renderedSec = Math.floor(schedWorkSec / 2);
+      halfDayShortfallSecTotal += Math.max(0, schedWorkSec - renderedSec);
     } else {
+      const deficit = getAmPmSlotLateMinuteSec(row);
       lateShortfallSecTotal += deficit;
     }
   });
@@ -731,7 +727,7 @@ function listHalfDayDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
       .slice(0, 10);
     if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
       return;
-    if (!isHalfDayByMinuteTardinessThreshold(row)) return;
+    if (!isHalfDayByPunchPattern(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
   return [...new Set(dates)].sort();
@@ -2790,38 +2786,19 @@ const AttendanceModuleFacultyDesignated = ({
           officialBreaktimeOUT,
         });
 
-        // Schedule-aware half-day detection: classify a lone timeIN based on the
-        // official break boundary rather than the field name alone.
-        const schedMidpoint = parseAttendanceTimeOn2000(
-          scheduleBreakIn ?? effectiveBreaktimeIN ?? officialBreaktimeIN,
-        );
-        const punchInTime = !noAmPunch
-          ? parseAttendanceTimeOn2000(timeIN)
-          : null;
-        const punchInIsPmSide =
-          punchInTime != null &&
-          !Number.isNaN(schedMidpoint.getTime()) &&
-          punchInTime >= schedMidpoint;
-
-        const pmSideLonePunch = !noAmPunch && noPmPunch && punchInIsPmSide;
-        const effectiveNoPmPunch = noPmPunch && !punchInIsPmSide;
-
         // ── HALF-DAY DETECTION ──────────────────────────────────────────────────
-        // A half-day means exactly one of the two anchors (timeIN / timeOUT) is
-        // present.  In that case we must NOT charge tardiness for the missing half;
-        // only the present half's shortfall is relevant.
-        const hasOnlyMorningPunch = !noAmPunch && noPmPunch && !punchInIsPmSide;
-        const hasOnlyAfternoonPunch =
-          pmSideLonePunch || (noAmPunch && !noPmPunch);
-        const isHalfDayRow = hasOnlyMorningPunch || hasOnlyAfternoonPunch;
+        // Half day: Time IN only or Time OUT only (no break punches).
+        // Time IN + Break IN / Break OUT + Time OUT = late, not half day.
+        const hasOnlyMorningPunch = isHalfDayMorningByPunches(row);
+        const hasOnlyAfternoonPunch = isHalfDayAfternoonByPunches(row);
 
         // ── AM SEGMENT ──────────────────────────────────────────────────────────
         let formattedFacultyRenderedTimeAM = ZERO_HM;
         let formattedFacultyMaxRenderedTimeAM = ZERO_HM;
         let formattedfinalcalcFacultyAM = ZERO_HM;
 
-        // Skip AM computation only for the PM-side lone timeIN case.
-        if (!pmSideLonePunch) {
+        // Skip AM when afternoon-only half day.
+        if (!hasOnlyAfternoonPunch) {
           const startOfficialTimeFacultyAM =
             parseAttendanceTimeOn2000(officialTimeIN);
           const endOfficialTimeFacultyAM = parseAttendanceTimeOn2000(
@@ -2883,8 +2860,8 @@ const AttendanceModuleFacultyDesignated = ({
 
           const midnightFacultyPM = new Date('01/01/2000 00:00:00 PM');
           let timeinfacultyPM, timeoutfacultyPM;
-          if (effectiveNoPmPunch) {
-            // Both absent → full absent row; PM gets full tardiness.
+          if (noPmPunch) {
+            // Missing Time OUT; PM gets full tardiness unless morning-only half day (skipped above).
             timeoutfacultyPM = midnightFacultyPM;
             timeinfacultyPM = midnightFacultyPM;
           } else {

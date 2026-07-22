@@ -79,6 +79,52 @@ export function hasNoPunchesTimeInOutOnly(row) {
   return empty(row?.timeIN) && empty(row?.timeOUT);
 }
 
+/** Raw device punch empty (Time IN / OUT / breaks). */
+export function isEmptyAttendancePunch(v) {
+  return empty(v);
+}
+
+/**
+ * Half day — morning: Time IN only (no break punches, no Time OUT).
+ * Time IN + Break IN = late (not half day).
+ */
+export function isHalfDayMorningByPunches(row) {
+  return (
+    !empty(row?.timeIN) &&
+    empty(row?.breaktimeIN) &&
+    empty(row?.breaktimeOUT) &&
+    empty(row?.timeOUT)
+  );
+}
+
+/**
+ * Half day — afternoon: Time OUT only (no break punches, no Time IN).
+ * Break OUT + Time OUT = late (not half day).
+ */
+export function isHalfDayAfternoonByPunches(row) {
+  return (
+    !empty(row?.timeOUT) &&
+    empty(row?.breaktimeIN) &&
+    empty(row?.breaktimeOUT) &&
+    empty(row?.timeIN)
+  );
+}
+
+/** Suggested half-day when exactly one anchor punch exists without breaks. */
+export function isHalfDayByPunchPattern(row) {
+  return isHalfDayMorningByPunches(row) || isHalfDayAfternoonByPunches(row);
+}
+
+/** Morning segment engaged as late: Time IN + Break IN. */
+export function hasMorningLateSegmentByPunches(row) {
+  return !empty(row?.timeIN) && !empty(row?.breaktimeIN);
+}
+
+/** Afternoon segment engaged as late: Break OUT + Time OUT. */
+export function hasAfternoonLateSegmentByPunches(row) {
+  return !empty(row?.breaktimeOUT) && !empty(row?.timeOUT);
+}
+
 /** Official scheduled work seconds (day span minus official break), or null if not parseable. */
 export function getOfficialSchedWorkSec(row) {
   const offInSec = parseOfficialTimeToSeconds(row?.officialTimeIN);
@@ -227,7 +273,7 @@ export function listHalfDayDatesFromDailyRows(rows, calendarMaps) {
     if (!isScheduledByOfficialTime(row)) return;
     if (getOfficialSchedWorkSec(row) == null) return;
     if (hasNoPunches(row)) return;
-    if (!isHalfDayByTardinessThreshold(row)) return;
+    if (!isHalfDayByPunchPattern(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
   return [...new Set(dates)].sort();
@@ -293,17 +339,22 @@ export function computeOfficialAwareAbsenceAndLate(rows, calendarMaps) {
       return;
     }
 
+    if (isHalfDayByPunchPattern(row)) {
+      halfDays += 1;
+      const renderedSec = Math.floor(schedWorkSec / 2);
+      const deficit = Math.max(0, schedWorkSec - renderedSec);
+      halfDayShortfallSecTotal += deficit;
+      renderedSecTotal += renderedSec;
+      return;
+    }
+
     // Arrival late + early leave (matches DTR Late / Undertime).
     const lateSec = computeArrivalLateSec(row) ?? 0;
     const undertimeSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
     const deficit = lateSec + undertimeSec;
-    const isHalfDay = deficit > schedWorkSec / 2;
-    if (isHalfDay) halfDays += 1;
-
     const renderedSec = Math.max(0, schedWorkSec - deficit);
     renderedSecTotal += renderedSec;
-    if (isHalfDay) halfDayShortfallSecTotal += deficit;
-    else lateShortfallSecTotal += deficit;
+    lateShortfallSecTotal += deficit;
   });
 
   const overallShortfallSecTotal =

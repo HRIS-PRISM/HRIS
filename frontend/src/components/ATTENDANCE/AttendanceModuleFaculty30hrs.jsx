@@ -119,6 +119,8 @@ import API_BASE_URL from '../../apiConfig';
   import {
     isExcludedAttendanceCalendarDate,
     isScheduledByOfficialTime,
+    isHalfDayByPunchPattern,
+    computeOfficialWindowRenderedSec,
   } from '../../utils/officialAttendanceFromDailyRows';
   import {
     ZERO_HM,
@@ -561,12 +563,6 @@ import API_BASE_URL from '../../apiConfig';
   function hasNoPunchesTimeInOutOnly(row) {
     return attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT);
   }
-  function hasMorningPunchTimeInOnly(row) {
-    return !attendanceEmptyPunch(row?.timeIN);
-  }
-  function hasAfternoonPunchTimeOutOnly(row) {
-    return !attendanceEmptyPunch(row?.timeOUT);
-  }
 
   function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     let absentDays = 0;
@@ -590,23 +586,22 @@ import API_BASE_URL from '../../apiConfig';
         return;
       }
 
-      const morning = hasMorningPunchTimeInOnly(row);
-      const afternoon = hasAfternoonPunchTimeOutOnly(row);
-      if (morning !== afternoon) halfDays += 1;
+      const isHalfDay = isHalfDayByPunchPattern(row);
+      if (isHalfDay) halfDays += 1;
 
       const inSec = parseClockToMinuteSec(row?.timeIN);
       const outSec = parseClockToMinuteSec(row?.timeOUT);
 
       let renderedSec = 0;
-      if (inSec != null && outSec != null) {
+      if (inSec != null && outSec != null && !isHalfDay) {
         renderedSec = Math.max(0, outSec - inSec);
-      } else if (morning !== afternoon) {
+      } else if (isHalfDay) {
         renderedSec = Math.floor(schedWorkSec / 2);
       }
 
       renderedSecTotal += renderedSec;
       const deficit = Math.max(0, schedWorkSec - renderedSec);
-      if (morning !== afternoon) halfDayShortfallSecTotal += deficit;
+      if (isHalfDay) halfDayShortfallSecTotal += deficit;
       else lateShortfallSecTotal += deficit;
     });
 
@@ -634,9 +629,7 @@ import API_BASE_URL from '../../apiConfig';
       if (!isScheduledByOfficialTime(row)) return;
       if (getOfficialSchedWorkMinuteSec(row) == null) return;
       if (hasNoPunchesTimeInOutOnly(row)) return;
-      const morning = hasMorningPunchTimeInOnly(row);
-      const afternoon = hasAfternoonPunchTimeOutOnly(row);
-      if (morning === afternoon) return;
+      if (!isHalfDayByPunchPattern(row)) return;
       if (d && d.length >= 8) dates.push(d);
     });
     return [...new Set(dates)].sort();
@@ -1596,11 +1589,8 @@ import API_BASE_URL from '../../apiConfig';
             return { rendered: msToHHMMSS(diffMs), maxRendered: msToHHMMSS(offDiffMs), tardiness: msToHHMMSS(tardMs) };
           };
 
-          if (attendanceEmptyPunch(timeIN) || attendanceEmptyPunch(timeOUT)) {
-            const halfSchedSec =
-              attendanceEmptyPunch(timeIN) && attendanceEmptyPunch(timeOUT)
-                ? diffMsFaculty
-                : Math.floor(diffMsFaculty / 2);
+          if (isHalfDayByPunchPattern(row)) {
+            const halfSchedSec = Math.floor(diffMsFaculty / 2);
             const tardWhenSinglePunch = formatDurationMsNoSeconds(
               Math.max(0, halfSchedSec),
             );
@@ -1630,6 +1620,51 @@ import API_BASE_URL from '../../apiConfig';
               undertimeTotal: ZERO_HM,
               formattedfinalcalcFaculty: tardWhenSinglePunch,
               formattedFacultyRenderedTime: ZERO_HM,
+              formattedFacultyMaxRenderedTime,
+              formattedFacultyRenderedTimeHN: hn.rendered,
+              formattedFacultyMaxRenderedTimeHN: hn.maxRendered,
+              formattedfinalcalcFacultyHN: hn.tardiness,
+              formattedFacultyRenderedTimeSC: sc.rendered,
+              formattedFacultyMaxRenderedTimeSC: sc.maxRendered,
+              formattedfinalcalcFacultySC: sc.tardiness,
+              formattedFacultyRenderedTimeOT: ot.rendered,
+              formattedFacultyMaxRenderedTimeOT: ot.maxRendered,
+              formattedfinalcalcFacultyOT: ot.tardiness,
+            };
+          }
+
+          if (attendanceEmptyPunch(timeIN) || attendanceEmptyPunch(timeOUT)) {
+            const schedSec = Math.round(diffMsFaculty / 1000);
+            const renderedSec = computeOfficialWindowRenderedSec(row) ?? 0;
+            const tardSec = Math.max(0, schedSec - renderedSec);
+            const tardWhenPartial = formatDurationMsNoSeconds(tardSec * 1000);
+            const renderedDisplay = formatDurationMsNoSeconds(renderedSec * 1000);
+            const hn = calcSeg(
+              row.specialType === 'HONORARIUM' && row.specialTimeIN ? row.specialTimeIN : timeIN,
+              row.specialType === 'HONORARIUM' && row.specialTimeOUT ? row.specialTimeOUT : timeOUT,
+              officialHonorariumTimeIN,
+              officialHonorariumTimeOUT,
+            );
+            const sc = calcSeg(
+              row.specialType === 'SERVICE' && row.specialTimeIN ? row.specialTimeIN : timeIN,
+              row.specialType === 'SERVICE' && row.specialTimeOUT ? row.specialTimeOUT : timeOUT,
+              officialServiceCreditTimeIN,
+              officialServiceCreditTimeOUT,
+            );
+            const ot = calcSeg(
+              row.specialType === 'OVERTIME' && row.specialTimeIN ? row.specialTimeIN : timeIN,
+              row.specialType === 'OVERTIME' && row.specialTimeOUT ? row.specialTimeOUT : timeOUT,
+              officialOverTimeIN,
+              officialOverTimeOUT,
+            );
+            return {
+              ...row,
+              breaktimeIN: displayBreaktimeIN,
+              breaktimeOUT: displayBreaktimeOUT,
+              lateTotal: tardWhenPartial,
+              undertimeTotal: ZERO_HM,
+              formattedfinalcalcFaculty: tardWhenPartial,
+              formattedFacultyRenderedTime: renderedDisplay,
               formattedFacultyMaxRenderedTime,
               formattedFacultyRenderedTimeHN: hn.rendered,
               formattedFacultyMaxRenderedTimeHN: hn.maxRendered,
@@ -1827,8 +1862,6 @@ import API_BASE_URL from '../../apiConfig';
         calendarMaps,
         {
           hasNoPunchesFn: hasNoPunchesTimeInOutOnly,
-          hasMorningPunchFn: hasMorningPunchTimeInOnly,
-          hasAfternoonPunchFn: hasAfternoonPunchTimeOutOnly,
         },
       );
       const regularRendered = sumTimeRows(attendanceData, (row) => {
@@ -2040,8 +2073,6 @@ import API_BASE_URL from '../../apiConfig';
           calendarMaps,
           {
             hasNoPunchesFn: hasNoPunchesTimeInOutOnly,
-            hasMorningPunchFn: hasMorningPunchTimeInOnly,
-            hasAfternoonPunchFn: hasAfternoonPunchTimeOutOnly,
           },
         );
         const absentList = listAbsentDatesFromDailyRows_TimeInOutOnly(attendanceData, calendarMaps);
