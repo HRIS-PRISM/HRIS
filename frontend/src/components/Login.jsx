@@ -580,17 +580,26 @@ const Login = () => {
   const shouldAnimate = carouselItems.length > 1;
 
   useEffect(() => {
-    // Only lock page scroll on larger screens where the layout is a fixed
-    // single-viewport, two-column composition. Below md the card stacks and
-    // auto-sizes to its content, which can exceed 100vh, so allow natural
-    // scrolling there instead of clipping anything.
+    // Horizontal overflow should never be allowed to produce a scrollbar,
+    // regardless of viewport width/zoom or what other components on the
+    // page render. Only vertical scrolling toggles with the layout mode.
+    document.documentElement.style.overflowX = "hidden";
+    document.body.style.overflowX = "hidden";
+
     if (isCompact) {
-      document.body.style.overflow = "";
-      document.documentElement.style.overflow = "";
-      return;
+      // Below md the card stacks and auto-sizes to its content, which can
+      // exceed 100vh, so allow natural vertical scrolling there instead of
+      // clipping anything.
+      document.body.style.overflowY = "";
+      document.documentElement.style.overflowY = "";
+      return () => {
+        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
+      };
     }
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
+
+    document.body.style.overflowY = "hidden";
+    document.documentElement.style.overflowY = "hidden";
     return () => {
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
@@ -1046,7 +1055,7 @@ const Login = () => {
       <Box sx={{ position: "fixed", inset: 0, backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center", animation: "zoomPulse 20s ease-in-out infinite", "@keyframes zoomPulse": { "0%,100%": { transform: "scale(1)" }, "50%": { transform: "scale(1.05)" } } }} />
       <Box sx={{ position: "fixed", inset: 0, background: "linear-gradient(135deg, rgba(75,0,0,0.84) 0%, rgba(0,0,0,0.90) 100%)" }} />
 
-      <Box sx={{ position: "fixed", inset: 0, zIndex: 10, overflow: isCompact ? "auto" : "hidden" }}>
+      <Box sx={{ position: "fixed", inset: 0, zIndex: 10, overflowX: "hidden", overflowY: isCompact ? "auto" : "hidden" }}>
         <LoadingOverlay open={loading} message="Please wait..." />
 
         <Box
