@@ -3197,8 +3197,8 @@ const AttendanceModuleFacultyDesignated = ({
         ),
       ),
     );
-    const lateTotalTime = buckets.lateTotalDisplayTime;
-    const overallTardiness = buckets.overallShortfallTime;
+    const lateTotalTime = rowTardinessSum;
+    const overallTardiness = rowTardinessSum;
     const hnRendered = sumTime(
       attendanceData.map((r) =>
         getCellValue(r, '_hnRendered', Boolean(getStatusLabelForDate(r.date))),
@@ -5262,7 +5262,8 @@ const AttendanceModuleFacultyDesignated = ({
                                               }}
                                             >
                                               {formatTardinessAsDaysHoursWithHoursPerDay(
-                                                totals.overallTardiness ||
+                                                totals.rowTardinessSum ||
+                                                  totals.overallTardiness ||
                                                   ZERO_HM,
                                                 officialHoursPerDay,
                                               )}{' '}
@@ -5276,7 +5277,8 @@ const AttendanceModuleFacultyDesignated = ({
                                                 }}
                                               >
                                                 (
-                                                {totals.overallTardiness ||
+                                                {totals.rowTardinessSum ||
+                                                  totals.overallTardiness ||
                                                   ZERO_HM}
                                                 )
                                               </Typography>
@@ -5348,7 +5350,8 @@ const AttendanceModuleFacultyDesignated = ({
                                             }}
                                           >
                                             {formatTardinessAsDaysHoursWithHoursPerDay(
-                                              totals.overallTardiness ||
+                                              totals.rowTardinessSum ||
+                                                totals.overallTardiness ||
                                                 ZERO_HM,
                                               officialHoursPerDay,
                                             )}
@@ -5361,7 +5364,8 @@ const AttendanceModuleFacultyDesignated = ({
                                               opacity: 0.55,
                                             }}
                                           >
-                                            {totals.overallTardiness ||
+                                            {totals.rowTardinessSum ||
+                                              totals.overallTardiness ||
                                               ZERO_HM}
                                           </Typography>
                                         </TableCell>
