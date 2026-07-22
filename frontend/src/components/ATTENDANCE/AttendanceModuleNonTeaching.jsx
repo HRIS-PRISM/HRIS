@@ -101,14 +101,15 @@ import {
   buildHalfDayReviewArray,
   migrateLegacyHalfDayReview,
   getApprovedHalfDayDatesSet,
-  computeReviewAwareAbsenceBuckets,
   getEffectiveTardinessFromReview,
   getEffectiveTardinessFromApproved,
   getRowHalfDayUiStatus,
-  getRowTotalRenderedDisplay,
-  getRowTotalTardinessDisplay,
   shouldZeroAmPmHalfDayColumns,
   countSuggestedHalfDays,
+  hasHrHalfDayConfirmation,
+  resolveEntryRenderedTotal,
+  isHalfDayPendingHrReview,
+  getRowMaxRenderedTotal,
 } from '../../utils/halfDayReview';
 import HalfDayReviewDialog from './HalfDayReviewDialog';
 import { EmployeeSearchField } from './attendanceModuleEmployeeSearch';
@@ -124,14 +125,7 @@ import {
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
   hasNoPunches,
-  computeArrivalLateSec,
-  computeEarlyLeaveUndertimeSec,
 } from '../../utils/officialAttendanceFromDailyRows';
-import {
-  sumHmsDurationStrings,
-  computeLateTotalTimeFromTardiness,
-  computeOverallTardinessFromBuckets,
-} from '../../utils/attendanceLateTotals';
 import {
   postAttendanceDevicePreflightNoSync,
   fetchAttendanceCalendarMaps,
@@ -212,6 +206,237 @@ const displayDurationHhMm = (v) => {
   }
   return normalizeDurationInput(v) || ZERO_HM;
 };
+
+/** Clock punch → seconds at minute precision (seconds ignored). */
+const parseClockToMinuteSec = (timeStr) => {
+  if (!timeStr) return null;
+  const trimmed = String(timeStr).trim();
+  if (!trimmed || trimmed === '—') return null;
+  const m = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i);
+  if (!m) return null;
+  let hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const mer = (m[4] || '').toUpperCase();
+  if ([hh, mm].some(Number.isNaN)) return null;
+  if (mer) { if (hh === 12) hh = 0; if (mer === 'PM') hh += 12; }
+  return hh * 3600 + mm * 60;
+};
+
+/** Duration string → seconds at minute precision (seconds ignored). */
+const parseDurationToMinuteSec = (raw) => {
+  const hm = normalizeDurationInput(raw);
+  if (!hm) return 0;
+  const [h, m] = hm.split(':').map(Number);
+  return (h || 0) * 3600 + (m || 0) * 60;
+};
+
+const sumDurationHhMm = (values) => {
+  let total = 0;
+  (values || []).forEach((v) => { total += parseDurationToMinuteSec(v); });
+  return formatDurationHhMm(total);
+};
+
+const getEffectiveArrivalMinuteSec = (row) => {
+  const timeIn = parseClockToMinuteSec(row?.timeIN);
+  if (timeIn != null) return timeIn;
+  const candidates = [
+    parseClockToMinuteSec(row?.breaktimeIN),
+    parseClockToMinuteSec(row?.breaktimeOUT),
+  ].filter((s) => s != null);
+  if (!candidates.length) return null;
+  return Math.min(...candidates);
+};
+
+const getEffectiveDepartureMinuteSec = (row) => {
+  const timeOut = parseClockToMinuteSec(row?.timeOUT);
+  if (timeOut != null) return timeOut;
+  const candidates = [
+    parseClockToMinuteSec(row?.breaktimeOUT),
+    parseClockToMinuteSec(row?.breaktimeIN),
+  ].filter((s) => s != null);
+  if (!candidates.length) return null;
+  return Math.max(...candidates);
+};
+
+const computeArrivalLateMinuteSec = (row) => {
+  const offIn = parseClockToMinuteSec(row?.officialTimeIN);
+  if (offIn == null) return null;
+  const arrival = getEffectiveArrivalMinuteSec(row);
+  if (arrival == null) return null;
+  return Math.max(0, arrival - offIn);
+};
+
+const computeEarlyLeaveUndertimeMinuteSec = (row) => {
+  const offOut = parseClockToMinuteSec(row?.officialTimeOUT);
+  if (offOut == null) return null;
+  const departure = getEffectiveDepartureMinuteSec(row);
+  if (departure == null) return null;
+  return Math.max(0, offOut - departure);
+};
+
+const getAmPmSlotLateMinuteSec = (row) =>
+  (computeArrivalLateMinuteSec(row) ?? 0) + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0);
+
+const getOfficialSchedWorkMinuteSec = (row) => {
+  const offInSec = parseClockToMinuteSec(row?.officialTimeIN);
+  const offOutSec = parseClockToMinuteSec(row?.officialTimeOUT);
+  if (offInSec == null || offOutSec == null) return null;
+  const schedTotal = Math.max(0, offOutSec - offInSec);
+  const offBreakInSec = parseClockToMinuteSec(row?.officialBreaktimeIN);
+  const offBreakOutSec = parseClockToMinuteSec(row?.officialBreaktimeOUT);
+  const breakSec =
+    offBreakInSec != null && offBreakOutSec != null
+      ? Math.max(0, offBreakOutSec - offBreakInSec)
+      : 0;
+  return Math.max(0, schedTotal - breakSec);
+};
+
+const getRejectedHalfDayLateMinuteSec = (entry) => {
+  const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.NON_TEACHING);
+  if (!eff) return 0;
+  const am = parseDurationToMinuteSec(eff.morning);
+  const pm = parseDurationToMinuteSec(eff.afternoon);
+  if (am > 0 || pm > 0) return am + pm;
+  return parseDurationToMinuteSec(eff.total);
+};
+
+const computeApprovedHalfDayShortfallMinuteSec = (row, entry) => {
+  const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
+  if (schedWorkSec == null) return 0;
+  const rendSec = parseDurationToMinuteSec(resolveEntryRenderedTotal(entry, MODULE_TYPES.NON_TEACHING));
+  return Math.max(0, schedWorkSec - rendSec);
+};
+
+/** Minute-only absence / half-day / late buckets for Non-Teaching totals. */
+const computeNonTeachingMinuteBuckets = (rows, reviewByDate, calendarMaps) => {
+  let absentDays = 0;
+  let halfDays = 0;
+  let absentSecTotal = 0;
+  let halfDayShortfallSecTotal = 0;
+  let lateShortfallSecTotal = 0;
+  let lateTotalDisplaySec = 0;
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const d = normalizeReviewDate(row?.date);
+    if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps)) return;
+    if (!isScheduledByOfficialTime(row)) return;
+    const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
+    if (schedWorkSec == null) return;
+
+    if (hasNoPunches(row)) {
+      absentDays += 1;
+      absentSecTotal += schedWorkSec;
+      return;
+    }
+
+    const entry = reviewByDate?.[d];
+    if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
+      halfDays += 1;
+      halfDayShortfallSecTotal += computeApprovedHalfDayShortfallMinuteSec(row, entry);
+      lateTotalDisplaySec += getAmPmSlotLateMinuteSec(row);
+      return;
+    }
+
+    if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+      const rej = getRejectedHalfDayLateMinuteSec(entry);
+      lateShortfallSecTotal += rej;
+      lateTotalDisplaySec += rej;
+      return;
+    }
+
+    const punchLate = getAmPmSlotLateMinuteSec(row);
+    lateShortfallSecTotal += punchLate;
+    lateTotalDisplaySec += punchLate;
+  });
+
+  const overallShortfallSecTotal =
+    absentSecTotal + halfDayShortfallSecTotal + lateShortfallSecTotal;
+
+  return {
+    absentDays,
+    halfDays,
+    absentSecTotal,
+    halfDayShortfallSecTotal,
+    lateShortfallSecTotal,
+    lateTotalDisplaySec,
+    overallShortfallSecTotal,
+    absentTime: formatDurationHhMm(absentSecTotal),
+    halfDayShortfallTime: formatDurationHhMm(halfDayShortfallSecTotal),
+    lateShortfallTime: formatDurationHhMm(lateShortfallSecTotal),
+    lateTotalDisplayTime: formatDurationHhMm(lateTotalDisplaySec),
+    overallShortfallTime: formatDurationHhMm(overallShortfallSecTotal),
+  };
+};
+
+const getRowTotalRenderedMinuteDisplay = (row, reviewByDate, isFurlough, calendarMaps = null) => {
+  if (isFurlough) {
+    return displayDurationHhMm(getRowMaxRenderedTotal(row, MODULE_TYPES.NON_TEACHING));
+  }
+  const d = normalizeReviewDate(row?.date);
+  const entry = reviewByDate?.[d];
+  if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
+    const hr = entry?.renderedTotal ?? entry?.renderedRegular ?? entry?.renderedMorning;
+    if (hr) return displayDurationHhMm(hr);
+  }
+  if (isHalfDayPendingHrReview(row, reviewByDate, MODULE_TYPES.NON_TEACHING, calendarMaps)) {
+    return ZERO_HM;
+  }
+  const am =
+    !row?.officialTimeIN || !row?.breaktimeIN || row?.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN'
+      ? ZERO_HM
+      : displayDurationHhMm(row.formattedFacultyRenderedTimeAM);
+  const pm =
+    !row?.officialBreaktimeOUT || !row?.timeOUT || row?.formattedFacultyRenderedTimePM === 'NaN:NaN:NaN'
+      ? ZERO_HM
+      : displayDurationHhMm(row.formattedFacultyRenderedTimePM);
+  return addTimeHhMmOnly(am, pm);
+};
+
+const getRowTotalTardinessMinuteDisplay = (
+  row,
+  reviewByDate,
+  isFurlough,
+  fallbackTotal,
+  calendarMaps = null,
+) => {
+  if (isFurlough) return ZERO_HM;
+  const d = normalizeReviewDate(row?.date);
+  if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps)) return ZERO_HM;
+  if (isScheduledByOfficialTime(row) && hasNoPunches(row)) {
+    const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
+    if (schedWorkSec != null) return formatDurationHhMm(schedWorkSec);
+  }
+  const entry = reviewByDate?.[d];
+  if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+    const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.NON_TEACHING);
+    if (eff?.total) return displayDurationHhMm(eff.total);
+  }
+  if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
+    return formatDurationHhMm(computeApprovedHalfDayShortfallMinuteSec(row, entry));
+  }
+  return displayDurationHhMm(fallbackTotal ?? ZERO_HM);
+};
+
+const normalizeNonTeachingRowDurations = (row) => ({
+  ...row,
+  lateTotal: displayDurationHhMm(row.lateTotal),
+  undertimeTotal: displayDurationHhMm(row.undertimeTotal),
+  formattedfinalcalcFacultyAM: displayDurationHhMm(row.formattedfinalcalcFacultyAM),
+  formattedfinalcalcFacultyPM: displayDurationHhMm(row.formattedfinalcalcFacultyPM),
+  formattedFacultyRenderedTimeAM: displayDurationHhMm(row.formattedFacultyRenderedTimeAM),
+  formattedFacultyRenderedTimePM: displayDurationHhMm(row.formattedFacultyRenderedTimePM),
+  formattedFacultyMaxRenderedTimeAM: displayDurationHhMm(row.formattedFacultyMaxRenderedTimeAM),
+  formattedFacultyMaxRenderedTimePM: displayDurationHhMm(row.formattedFacultyMaxRenderedTimePM),
+  formattedFacultyRenderedTimeHN: displayDurationHhMm(row.formattedFacultyRenderedTimeHN),
+  formattedFacultyMaxRenderedTimeHN: displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN),
+  formattedfinalcalcFacultyHN: displayDurationHhMm(row.formattedfinalcalcFacultyHN),
+  formattedFacultyRenderedTimeSC: displayDurationHhMm(row.formattedFacultyRenderedTimeSC),
+  formattedFacultyMaxRenderedTimeSC: displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC),
+  formattedfinalcalcFacultySC: displayDurationHhMm(row.formattedfinalcalcFacultySC),
+  formattedFacultyRenderedTimeOT: displayDurationHhMm(row.formattedFacultyRenderedTimeOT),
+  formattedFacultyMaxRenderedTimeOT: displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT),
+  formattedfinalcalcFacultyOT: displayDurationHhMm(row.formattedfinalcalcFacultyOT),
+});
 
 // ─── Shimmer keyframes ────────────────────────────────────────────────────
 const shimmerKf = `
@@ -473,12 +698,12 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
         : displayDurationHhMm(row.formattedfinalcalcFacultyAM);
     }
     case '_totalRendered':
-      return displayDurationHhMm(getRowTotalRenderedDisplay(
+      return getRowTotalRenderedMinuteDisplay(
         row,
         reviewByDate,
-        MODULE_TYPES.NON_TEACHING,
         isFurlough,
-      ));
+        null,
+      );
     case '_afternoonRendered':
       if (zeroAmPmHalfDay) return ZERO_HM;
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimePM || row.formattedFacultyMaxRenderedTimePM === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimePM);
@@ -502,16 +727,16 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
     }
     case '_totalTardiness': {
       if (isFurlough) return ZERO_HM;
-      return displayDurationHhMm(getRowTotalTardinessDisplay(
+      return getRowTotalTardinessMinuteDisplay(
         row,
         reviewByDate,
-        MODULE_TYPES.NON_TEACHING,
         isFurlough,
         addTimeHhMmOnly(
           getCellValue(row, '_morningTardiness', isFurlough, tardOverrides, reviewByDate),
           getCellValue(row, '_afternoonTardiness', isFurlough, tardOverrides, reviewByDate),
         ),
-      ));
+        null,
+      );
     }
     case '_hnTimeIN':  return isNA(row.officialHonorariumTimeIN)  ? NA : row.timeIN;
     case '_hnTimeOUT': return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
@@ -1067,16 +1292,6 @@ const AttendanceModuleNonTeachingStaff = ({
   }, [attendanceData, getStatusLabelForDate]);
 
   const calcSegment = (startStr, endStr, officialStartStr, officialEndStr) => {
-    const parseTimeToSeconds = (timeStr) => {
-      if (!timeStr || timeStr === '—') return null;
-      const trimmed = String(timeStr).trim();
-      const m = trimmed.match(/^(\d{1,2}):(\d{2}):(\d{2})(?:\s*(AM|PM))?$/i);
-      if (!m) return null;
-      let hh = Number(m[1]); const mm = Number(m[2]); const ss = Number(m[3]); const mer = (m[4] || '').toUpperCase();
-      if ([hh, mm, ss].some(Number.isNaN)) return null;
-      if (mer) { if (hh === 12) hh = 0; if (mer === 'PM') hh += 12; }
-      return hh * 3600 + mm * 60;
-    };
     const formatSeconds = (secs) => formatDurationHhMm(secs);
     const normalizeEnd = (startSec, endSec) => {
       if (startSec == null || endSec == null) return endSec;
@@ -1084,10 +1299,10 @@ const AttendanceModuleNonTeachingStaff = ({
       while (fixedEnd <= startSec) fixedEnd += 12 * 3600;
       return fixedEnd;
     };
-    const startSec = parseTimeToSeconds(startStr);
-    const endSecRaw = parseTimeToSeconds(endStr);
-    const offStartSec = parseTimeToSeconds(officialStartStr);
-    const offEndSecRaw = parseTimeToSeconds(officialEndStr);
+    const startSec = parseClockToMinuteSec(startStr);
+    const endSecRaw = parseClockToMinuteSec(endStr);
+    const offStartSec = parseClockToMinuteSec(officialStartStr);
+    const offEndSecRaw = parseClockToMinuteSec(officialEndStr);
     if (offStartSec == null || offEndSecRaw == null) return { rendered: ZERO_HM, maxRendered: ZERO_HM, tardiness: ZERO_HM };
     const offEndSec = normalizeEnd(offStartSec, offEndSecRaw);
     const endSec = normalizeEnd(startSec ?? offStartSec, endSecRaw);
@@ -1132,12 +1347,12 @@ if (rawRows.length === 0) {
         const hn = calcSegment(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
         const sc = calcSegment(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
         const ot = calcSegment(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
-        // Late = arrival − official Time IN; Undertime = official Time OUT − departure.
-        const arrivalLateSec = computeArrivalLateSec(row) ?? 0;
-        const earlyLeaveSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
+        // Late = arrival − official Time IN; Undertime = official Time OUT − departure (minute precision).
+        const arrivalLateSec = computeArrivalLateMinuteSec(row) ?? 0;
+        const earlyLeaveSec = computeEarlyLeaveUndertimeMinuteSec(row) ?? 0;
         const amTardiness = formatDurationHhMm(arrivalLateSec);
         const pmTardiness = formatDurationHhMm(earlyLeaveSec);
-        return {
+        return normalizeNonTeachingRowDurations({
           ...row,
           lateTotal: amTardiness,
           undertimeTotal: pmTardiness,
@@ -1146,7 +1361,7 @@ if (rawRows.length === 0) {
           formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
           formattedFacultyRenderedTimeSC: sc.rendered,  formattedFacultyMaxRenderedTimeSC: sc.maxRendered, formattedfinalcalcFacultySC: sc.tardiness,
           formattedFacultyRenderedTimeOT: ot.rendered,  formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
-        };
+        });
       });
       const calendarMaps = {
         suspensionByDate: maps.suspensionByDate,
@@ -1175,23 +1390,14 @@ if (rawRows.length === 0) {
       setAttendanceData(processedData);
       setHalfDayReviewByDate(initialReviewMap);
 
-      const parseLateToSeconds = (t) => {
-        if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
-        const parts = String(t).split(':').map(Number);
-        if (parts.length < 2 || [parts[0], parts[1]].some(Number.isNaN)) return 0;
-        return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
-      };
       const totalLateSec = processedData.reduce(
         (sum, row) =>
           sum +
-          parseLateToSeconds(row.lateTotal) +
-          parseLateToSeconds(row.undertimeTotal),
+          parseDurationToMinuteSec(row.lateTotal) +
+          parseDurationToMinuteSec(row.undertimeTotal),
         0,
       );
-      const th = Math.floor(totalLateSec / 3600);
-      const tm = Math.floor((totalLateSec % 3600) / 60);
-      const ts = totalLateSec % 60;
-      const totalLateLabel = `${String(th).padStart(2, '0')}:${String(tm).padStart(2, '0')}:${String(ts).padStart(2, '0')}`;
+      const totalLateLabel = formatDurationHhMm(totalLateSec);
 
       logAttendanceModuleAction({
         module: 'Attendance Module (Non-Teaching)',
@@ -1224,7 +1430,7 @@ if (rawRows.length === 0) {
             applyStoredLateUndertimeToAttendanceRows(
               processedData,
               stored?.byDate || {},
-            ),
+            ).map(normalizeNonTeachingRowDurations),
           );
         } catch (err) {
           console.warn(
@@ -1243,27 +1449,17 @@ if (rawRows.length === 0) {
     }
   };
 
-  const sumTime = useCallback((values) => {
-    let total = 0;
-    values.forEach((t) => {
-      if (!t || t === 'NaN:NaN:NaN' || t === '—') return;
-      const parts = t.split(':').map(Number);
-      if (parts.length >= 2 && [parts[0], parts[1]].every((n) => !Number.isNaN(n)))
-        total += parts[0] * 3600 + parts[1] * 60;
-    });
-    return formatDurationHhMm(total);
-  }, []);
+  const sumTime = useCallback((values) => sumDurationHhMm(values), []);
 
   const addTimes = useCallback((a, b) => addTimeHhMmOnly(a, b), []);
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    const buckets = computeReviewAwareAbsenceBuckets(
+    const buckets = computeNonTeachingMinuteBuckets(
       attendanceData,
       halfDayReviewByDate,
       calendarMaps,
-      MODULE_TYPES.NON_TEACHING,
     );
     const ov = tardinessOverrides;
     const rv = halfDayReviewByDate;
@@ -1273,7 +1469,7 @@ if (rawRows.length === 0) {
     const totalRendered      = sumTime(attendanceData.map(r => getCellValue(r, '_totalRendered',      Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     const afternoonTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     const overallRendered    = addTimes(morningRendered,  afternoonRendered);
-    const rowTardinessSum = sumHmsDurationStrings(
+    const rowTardinessSum = sumDurationHhMm(
       attendanceData.map((r) =>
         getCellValue(
           r,
@@ -1284,8 +1480,8 @@ if (rawRows.length === 0) {
         ),
       ),
     );
-    const lateTotalTime = computeLateTotalTimeFromTardiness(null, buckets);
-    const overallTardiness = computeOverallTardinessFromBuckets(buckets);
+    const lateTotalTime = buckets.lateTotalDisplayTime;
+    const overallTardiness = buckets.overallShortfallTime;
     const hnRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_hnRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     const hnTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     const scRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_scRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
@@ -1301,12 +1497,12 @@ if (rawRows.length === 0) {
         MODULE_TYPES.NON_TEACHING,
         calendarMaps,
       ),
-      absentTime: displayDurationHhMm(buckets.absentTime),
-      halfDayShortfallTime: displayDurationHhMm(buckets.halfDayShortfallTime),
-      lateTotalTime: displayDurationHhMm(lateTotalTime),
-      overallTardiness: displayDurationHhMm(overallTardiness),
-      overallShortfallTime: displayDurationHhMm(overallTardiness),
-      rowTardinessSum: displayDurationHhMm(rowTardinessSum),
+      absentTime: buckets.absentTime,
+      halfDayShortfallTime: buckets.halfDayShortfallTime,
+      lateTotalTime,
+      overallTardiness,
+      overallShortfallTime: overallTardiness,
+      rowTardinessSum,
       morningRendered,
       morningTardiness,
       afternoonRendered,
@@ -1441,19 +1637,18 @@ if (rawRows.length === 0) {
     );
     return {
     ...(function computeAbsentHalfBuckets() {
-      const c = computeReviewAwareAbsenceBuckets(
+      const c = computeNonTeachingMinuteBuckets(
         attendanceData,
         halfDayReviewByDate,
         calendarMaps,
-        MODULE_TYPES.NON_TEACHING,
       );
       const absentList = listAbsentDatesFromDailyRows(attendanceData, calendarMaps);
       return {
         absentDays: c.absentDays,
         halfDays: c.halfDays,
-        lateTotalTime: displayDurationHhMm(totals.lateTotalTime),
-        absentTime: displayDurationHhMm(c.absentTime),
-        halfDayShortfallTime: displayDurationHhMm(c.halfDayShortfallTime),
+        lateTotalTime: c.lateTotalDisplayTime,
+        absentTime: c.absentTime,
+        halfDayShortfallTime: c.halfDayShortfallTime,
         absentDates: absentList.join(', '),
         halfDayDates: [...approvedSet].join(', '),
         half_day_review: buildHalfDayReviewArray(halfDayReviewByDate),
