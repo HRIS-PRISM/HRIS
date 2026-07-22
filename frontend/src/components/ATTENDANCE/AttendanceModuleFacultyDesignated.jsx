@@ -96,13 +96,10 @@ import {
   buildHalfDayReviewArray,
   migrateLegacyHalfDayReview,
   getApprovedHalfDayDatesSet,
-  computeReviewAwareAbsenceBuckets,
   getEffectiveTardinessFromReview,
   getEffectiveTardinessFromApproved,
   getRowHalfDayUiStatus,
   hasHrHalfDayConfirmation,
-  getRowTotalRenderedDisplay,
-  getRowTotalTardinessDisplay,
   resolveEntryRenderedTotal,
   shouldZeroAmPmHalfDayColumns,
   countSuggestedHalfDays,
@@ -117,20 +114,28 @@ import {
 } from './HalfDayTotalColumnHints';
 import { getHalfDayReviewRowChrome } from './HalfDayApproveCheckboxCell';
 import {
-  formatOfficialAttendanceSeconds,
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
-  getOfficialSchedWorkSec,
-  isHalfDayByTardinessThreshold,
-  computePunchTardinessSec,
-  computeArrivalLateSec,
-  computeEarlyLeaveUndertimeSec,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
-  sumHmsDurationStrings,
-  computeLateTotalTimeFromTardiness,
-  computeOverallTardinessFromBuckets,
-} from '../../utils/attendanceLateTotals';
+  ZERO_HM,
+  formatDurationHhMm,
+  formatDurationMsToHhMm,
+  normalizeDurationInput,
+  canonicalTardDisplay,
+  displayDurationHhMm,
+  sumDurationHhMm,
+  addTimeHhMmOnly,
+  computeArrivalLateMinuteSec,
+  computeEarlyLeaveUndertimeMinuteSec,
+  computeAmPmMinuteBuckets,
+  getRowTotalRenderedMinuteDisplay,
+  getRowTotalTardinessMinuteDisplay,
+  normalizeFacultyRowDurations,
+  parseDurationToMinuteSec,
+  getAmPmSlotLateMinuteSec,
+  getOfficialSchedWorkMinuteSec,
+} from '../../utils/attendanceDurationHhMm';
 import {
   postAttendanceDevicePreflightNoSync,
   fetchAttendanceCalendarMaps,
@@ -174,26 +179,17 @@ function formatDateMmDdYy(dateStr) {
   return `${mm}-${dd}-${yy}`;
 }
 
-/** Millisecond delta → `HH:MM:SS`; non-finite → `00:00:00`. */
-function formatDurationMsToHhMmSs(diffMs) {
-  if (!Number.isFinite(diffMs)) return '00:00:00';
-  return [
-    Math.floor(diffMs / 3600000),
-    Math.floor((diffMs % 3600000) / 60000),
-    Math.floor((diffMs % 60000) / 1000),
-  ]
-    .map((x) => String(x).padStart(2, '0'))
-    .join(':');
-}
+/** Millisecond delta → `HH:MM`; non-finite → `00:00`. */
+const formatDurationMsToHhMmSs = formatDurationMsToHhMm;
 
 function normalizeBadHhMmSsDisplay(v) {
-  if (v === 'NaN:NaN:NaN') return '00:00:00';
-  return v;
+  if (v === 'NaN:NaN:NaN') return ZERO_HM;
+  return displayDurationHhMm(v);
 }
 
-function formatTardinessAsDaysHoursWithHoursPerDay(hhmmss, hoursPerDay) {
-  if (!hhmmss || hhmmss === '00:00:00') return '0m';
-  const parts = String(hhmmss).split(':').map(Number);
+function formatTardinessAsDaysHoursWithHoursPerDay(hhmm, hoursPerDay) {
+  if (!hhmm || hhmm === ZERO_HM || hhmm === '00:00:00') return '0m';
+  const parts = String(hhmm).split(':').map(Number);
   const totalMinutes = (parts[0] || 0) * 60 + (parts[1] || 0);
   if (totalMinutes === 0) return '0m';
 
@@ -658,10 +654,17 @@ const attendanceEmptyPunch = (v) =>
   String(v).trim() === '—' ||
   String(v).trim().toUpperCase() === 'N/A';
 
+const isHalfDayByMinuteTardinessThreshold = (row) => {
+  if (!isScheduledByOfficialTime(row)) return false;
+  if (hasNoPunchesTimeInOutOnly(row)) return false;
+  const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
+  if (schedWorkSec == null || schedWorkSec <= 0) return false;
+  return getAmPmSlotLateMinuteSec(row) > schedWorkSec / 2;
+};
+
 const isHalfDayAttendanceRow = (row, fn) => {
   if (!row || fn(row.date)) return false;
-  // Designated (40hrs): half-day when shortfall > half of official scheduled work.
-  return isHalfDayByTardinessThreshold(row);
+  return isHalfDayByMinuteTardinessThreshold(row);
 };
 
 // Designated (40hrs) module rule: ignore breaktime punches for absent.
@@ -685,7 +688,7 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
       return;
     if (!isScheduledByOfficialTime(row)) return;
-    const schedWorkSec = getOfficialSchedWorkSec(row);
+    const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
     if (schedWorkSec == null) return;
 
     if (hasNoPunchesTimeInOutOnly(row)) {
@@ -694,7 +697,7 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
       return;
     }
 
-    const deficit = computePunchTardinessSec(row);
+    const deficit = getAmPmSlotLateMinuteSec(row);
     const isHalfDay = deficit > schedWorkSec / 2;
     if (isHalfDay) {
       halfDays += 1;
@@ -713,14 +716,10 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     halfDayShortfallSecTotal,
     lateShortfallSecTotal,
     overallShortfallSecTotal,
-    absentTime: formatOfficialAttendanceSeconds(absentSecTotal),
-    halfDayShortfallTime: formatOfficialAttendanceSeconds(
-      halfDayShortfallSecTotal,
-    ),
-    lateShortfallTime: formatOfficialAttendanceSeconds(lateShortfallSecTotal),
-    overallShortfallTime: formatOfficialAttendanceSeconds(
-      overallShortfallSecTotal,
-    ),
+    absentTime: formatDurationHhMm(absentSecTotal),
+    halfDayShortfallTime: formatDurationHhMm(halfDayShortfallSecTotal),
+    lateShortfallTime: formatDurationHhMm(lateShortfallSecTotal),
+    overallShortfallTime: formatDurationHhMm(overallShortfallSecTotal),
   };
 }
 
@@ -732,7 +731,7 @@ function listHalfDayDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
       .slice(0, 10);
     if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
       return;
-    if (!isHalfDayByTardinessThreshold(row)) return;
+    if (!isHalfDayByMinuteTardinessThreshold(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
   return [...new Set(dates)].sort();
@@ -747,7 +746,7 @@ function listAbsentDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
     if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
       return;
     if (!isScheduledByOfficialTime(row)) return;
-    if (getOfficialSchedWorkSec(row) == null) return;
+    if (getOfficialSchedWorkMinuteSec(row) == null) return;
     if (!hasNoPunchesTimeInOutOnly(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
@@ -1138,27 +1137,6 @@ const COL_GROUP_META = {
 };
 
 // ─── Tardiness duration helpers (HR overrides on AM/PM tardiness) ───────
-/** Parse HH:MM or HH:MM:SS → HH:MM:SS; returns null if invalid. */
-const normalizeDurationInput = (raw) => {
-  const s = String(raw ?? '').trim();
-  if (!s || s === '—') return null;
-  const parts = s.split(':').map((p) => Number(String(p).trim()));
-  if (parts.some((n) => Number.isNaN(n))) return null;
-  if (parts.length === 2)
-    return `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}:00`;
-  if (parts.length >= 3)
-    return `${String(parts[0]).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}:${String(parts[2]).padStart(2, '0')}`;
-  return null;
-};
-
-const canonicalTardDisplay = (v) => {
-  const n = normalizeDurationInput(v);
-  if (n) return n;
-  if (v == null || v === '' || v === '—' || v === 'NaN:NaN:NaN')
-    return '00:00:00';
-  return '00:00:00';
-};
-
 /** Return displayed value for a column, considering rendered & tardiness overrides. */
 const getDisplayedCellValue = (
   row,
@@ -1190,11 +1168,11 @@ const getDisplayedCellValue = (
       colKey === '_morningTardiness' ||
       colKey === '_afternoonTardiness')
   ) {
-    return '00:00:00';
+    return ZERO_HM;
   }
 
   if (colKey === '_totalRendered') {
-    return getRowTotalRenderedDisplay(
+    return getRowTotalRenderedMinuteDisplay(
       row,
       reviewByDate,
       MODULE_TYPES.DESIGNATED_40HRS,
@@ -1234,19 +1212,17 @@ const getDisplayedCellValue = (
         part === 'morning'
           ? 'formattedFacultyMaxRenderedTimeAM'
           : 'formattedFacultyMaxRenderedTimePM';
-      const maxRendered = row?.[maxKey] || '00:00:00';
+      const maxRendered = row?.[maxKey] || ZERO_HM;
       const diff =
         parseAttendanceTimeOn2000(maxRendered) -
         parseAttendanceTimeOn2000(renderedStored);
-      return formatOfficialAttendanceSeconds(
-        Math.max(0, Math.floor(diff / 1000)),
-      );
+      return formatDurationMsToHhMm(Math.max(0, diff));
     }
     return getCellValue(row, colKey, isFurlough, null, reviewByDate);
   }
 
   if (colKey === '_totalTardiness') {
-    return getRowTotalTardinessDisplay(
+    return getRowTotalTardinessMinuteDisplay(
       row,
       reviewByDate,
       MODULE_TYPES.DESIGNATED_40HRS,
@@ -1269,6 +1245,8 @@ const getDisplayedCellValue = (
           reviewByDate,
         ),
       ),
+      calendarMaps,
+      { hasNoPunchesFn: hasNoPunchesTimeInOutOnly },
     );
   }
 
@@ -1295,7 +1273,7 @@ const EditableRenderedCell = ({
   onInvalid,
 }) => {
   const colKey = part === 'morning' ? '_morningRendered' : '_afternoonRendered';
-  const systemVal = getCellValue(row, colKey, isFurlough, null) || '00:00:00';
+  const systemVal = getCellValue(row, colKey, isFurlough, null) || ZERO_HM;
   const [local, setLocal] = React.useState(() => storedOverride ?? systemVal);
   React.useEffect(() => {
     setLocal(storedOverride ?? systemVal);
@@ -1391,20 +1369,6 @@ const EditableRenderedCell = ({
   );
 };
 
-const addTimeHhMmOnly = (a, b) => {
-  const toSec = (t) => {
-    if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
-    const parts = String(t).split(':').map(Number);
-    if (parts.length < 2 || [parts[0], parts[1]].some((n) => Number.isNaN(n)))
-      return 0;
-    return parts[0] * 3600 + parts[1] * 60;
-  };
-  const total = toSec(a) + toSec(b);
-  const h = Math.floor(total / 3600);
-  const m2 = Math.floor((total % 3600) / 60);
-  return `${String(h).padStart(2, '0')}:${String(m2).padStart(2, '0')}:00`;
-};
-
 // ─── getCellValue ─────────────────────────────────────────────────────────
 /** @param {Record<string, { morning?: string, afternoon?: string }> | null} [tardOverrides] HR edits for Regular Time AM/PM tardiness. */
 const getCellValue = (
@@ -1446,73 +1410,73 @@ const getCellValue = (
     );
   switch (colKey) {
     case '_morningRendered':
-      if (zeroAmPmHalfDay) return '00:00:00';
+      if (zeroAmPmHalfDay) return ZERO_HM;
       if (isFurlough)
         return !row.formattedFacultyMaxRenderedTimeAM ||
           row.formattedFacultyMaxRenderedTimeAM === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyMaxRenderedTimeAM;
+          ? ZERO_HM
+          : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeAM);
       return !row.officialTimeIN ||
         row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN'
-        ? '00:00:00'
-        : row.formattedFacultyRenderedTimeAM;
+        ? ZERO_HM
+        : displayDurationHhMm(row.formattedFacultyRenderedTimeAM);
     case '_morningTardiness': {
-      if (zeroAmPmHalfDay || isFurlough) return '00:00:00';
+      if (zeroAmPmHalfDay || isFurlough) return ZERO_HM;
       const d = normalizeReviewDate(row?.date);
       const entry = reviewByDate?.[d];
       if (entry?.status === HALF_DAY_STATUS.REJECTED) {
         const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.DESIGNATED_40HRS);
-        if (eff?.morning) return eff.morning;
+        if (eff?.morning) return displayDurationHhMm(eff.morning);
       }
       if (entry?.status === HALF_DAY_STATUS.APPROVED) {
         const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.DESIGNATED_40HRS);
-        if (eff?.morning) return eff.morning;
+        if (eff?.morning) return displayDurationHhMm(eff.morning);
       }
       return !row.officialTimeIN ||
         row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
-        ? row.formattedFacultyMaxRenderedTimeAM
-        : row.formattedfinalcalcFacultyAM;
+        ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeAM)
+        : displayDurationHhMm(row.formattedfinalcalcFacultyAM);
     }
     case '_afternoonRendered':
-      if (zeroAmPmHalfDay) return '00:00:00';
+      if (zeroAmPmHalfDay) return ZERO_HM;
       if (isFurlough)
         return !row.formattedFacultyMaxRenderedTimePM ||
           row.formattedFacultyMaxRenderedTimePM === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyMaxRenderedTimePM;
+          ? ZERO_HM
+          : displayDurationHhMm(row.formattedFacultyMaxRenderedTimePM);
       return !row.officialTimeOUT ||
         !row.timeOUT ||
         row.formattedFacultyRenderedTimePM === 'NaN:NaN:NaN'
-        ? '00:00:00'
-        : row.formattedFacultyRenderedTimePM;
+        ? ZERO_HM
+        : displayDurationHhMm(row.formattedFacultyRenderedTimePM);
     case '_afternoonTardiness': {
-      if (zeroAmPmHalfDay || isFurlough) return '00:00:00';
+      if (zeroAmPmHalfDay || isFurlough) return ZERO_HM;
       const d = normalizeReviewDate(row?.date);
       const entry = reviewByDate?.[d];
       if (entry?.status === HALF_DAY_STATUS.REJECTED) {
         const eff = getEffectiveTardinessFromReview(entry, MODULE_TYPES.DESIGNATED_40HRS);
-        if (eff?.afternoon) return eff.afternoon;
+        if (eff?.afternoon) return displayDurationHhMm(eff.afternoon);
       }
       if (entry?.status === HALF_DAY_STATUS.APPROVED) {
         const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.DESIGNATED_40HRS);
-        if (eff?.afternoon) return eff.afternoon;
+        if (eff?.afternoon) return displayDurationHhMm(eff.afternoon);
       }
       return !row.officialTimeOUT ||
         !row.timeOUT ||
         row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
-        ? row.formattedFacultyMaxRenderedTimePM
-        : row.formattedfinalcalcFacultyPM;
+        ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimePM)
+        : displayDurationHhMm(row.formattedfinalcalcFacultyPM);
     }
     case '_totalRendered':
-      return getRowTotalRenderedDisplay(
+      return getRowTotalRenderedMinuteDisplay(
         row,
         reviewByDate,
         MODULE_TYPES.DESIGNATED_40HRS,
         isFurlough,
       );
     case '_totalTardiness': {
-      if (isFurlough) return '00:00:00';
-      return getRowTotalTardinessDisplay(
+      if (isFurlough) return ZERO_HM;
+      return getRowTotalTardinessMinuteDisplay(
         row,
         reviewByDate,
         MODULE_TYPES.DESIGNATED_40HRS,
@@ -1521,6 +1485,8 @@ const getCellValue = (
           getCellValue(row, '_morningTardiness', isFurlough, tardOverrides, reviewByDate),
           getCellValue(row, '_afternoonTardiness', isFurlough, tardOverrides, reviewByDate),
         ),
+        null,
+        { hasNoPunchesFn: hasNoPunchesTimeInOutOnly },
       );
     }
     case '_hnTimeIN':
@@ -1531,20 +1497,20 @@ const getCellValue = (
       if (isFurlough)
         return !row.formattedFacultyMaxRenderedTimeHN ||
           row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyMaxRenderedTimeHN;
+          ? ZERO_HM
+          : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN);
       return !row.officialTimeIN ||
         !row.timeOUT ||
         row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN'
-        ? '00:00:00'
-        : row.formattedFacultyRenderedTimeHN;
+        ? ZERO_HM
+        : displayDurationHhMm(row.formattedFacultyRenderedTimeHN);
     case '_hnTardiness':
-      if (isFurlough) return '00:00:00';
+      if (isFurlough) return ZERO_HM;
       return !row.officialTimeIN ||
         !row.timeOUT ||
         row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN'
-        ? row.formattedFacultyMaxRenderedTimeHN
-        : row.formattedfinalcalcFacultyHN;
+        ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN)
+        : displayDurationHhMm(row.formattedfinalcalcFacultyHN);
     case '_scTimeIN':
       return isNA(row.officialServiceCreditTimeIN) ? NA : row.timeIN;
     case '_scTimeOUT':
@@ -1553,20 +1519,20 @@ const getCellValue = (
       if (isFurlough)
         return !row.formattedFacultyMaxRenderedTimeSC ||
           row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyMaxRenderedTimeSC;
+          ? ZERO_HM
+          : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC);
       return !row.officialTimeSC ||
         !row.timeOUT ||
         row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN'
-        ? '00:00:00'
-        : row.formattedFacultyRenderedTimeSC;
+        ? ZERO_HM
+        : displayDurationHhMm(row.formattedFacultyRenderedTimeSC);
     case '_scTardiness':
-      if (isFurlough) return '00:00:00';
+      if (isFurlough) return ZERO_HM;
       return !row.officialTimeIN ||
         !row.timeOUT ||
         row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN'
-        ? row.formattedFacultyMaxRenderedTimeSC
-        : row.formattedfinalcalcFacultySC;
+        ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC)
+        : displayDurationHhMm(row.formattedfinalcalcFacultySC);
     case '_otTimeIN':
       return isNA(row.officialOverTimeIN) ? NA : row.timeIN;
     case '_otTimeOUT':
@@ -1575,20 +1541,20 @@ const getCellValue = (
       if (isFurlough)
         return !row.formattedFacultyMaxRenderedTimeOT ||
           row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN'
-          ? '00:00:00'
-          : row.formattedFacultyMaxRenderedTimeOT;
+          ? ZERO_HM
+          : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT);
       return !row.officialTimeIN ||
         !row.timeOUT ||
         row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN'
-        ? '00:00:00'
-        : row.formattedFacultyRenderedTimeOT;
+        ? ZERO_HM
+        : displayDurationHhMm(row.formattedFacultyRenderedTimeOT);
     case '_otTardiness':
-      if (isFurlough) return '00:00:00';
+      if (isFurlough) return ZERO_HM;
       return !row.officialTimeIN ||
         !row.timeOUT ||
         row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN'
-        ? row.formattedFacultyMaxRenderedTimeOT
-        : row.formattedfinalcalcFacultyOT;
+        ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT)
+        : displayDurationHhMm(row.formattedfinalcalcFacultyOT);
     case 'officialHonorariumTimeIN':
     case 'officialHonorariumTimeOUT':
     case 'officialServiceCreditTimeIN':
@@ -1763,7 +1729,7 @@ const FloatingTotalsBar = ({
           ? Number(totals.absentDays)
           : 0,
       ),
-      subtitle: totals.absentTime || '00:00:00',
+      subtitle: totals.absentTime || ZERO_HM,
       style: T.absent,
       accent: true,
     },
@@ -1772,7 +1738,7 @@ const FloatingTotalsBar = ({
       value: String(
         Number.isFinite(Number(totals.halfDays)) ? Number(totals.halfDays) : 0,
       ),
-      subtitle: totals.halfDayShortfallTime || '00:00:00',
+      subtitle: totals.halfDayShortfallTime || ZERO_HM,
       statusLine:
         Number(totals.halfDaysForReview) > 0
           ? `${Number(totals.halfDaysForReview)} FOR REVIEW`
@@ -1782,36 +1748,36 @@ const FloatingTotalsBar = ({
     },
     {
       label: 'Late Total',
-      value: totals.lateTotalTime || '00:00:00',
+      value: totals.lateTotalTime || ZERO_HM,
       style: T.tardiness,
       accent: true,
     },
     {
       label: 'Overall Rendered',
-      value: totals.overallRendered || '00:00:00',
+      value: totals.overallRendered || ZERO_HM,
       style: T.rendered,
       accent: true,
     },
     {
       label: 'Overall Tardiness',
       value: formatTardinessAsDaysHoursWithHoursPerDay(
-        totals.overallTardiness || '00:00:00',
+        totals.overallTardiness || ZERO_HM,
         officialHoursPerDay,
       ),
-      subtitle: `${totals.overallTardiness || '00:00:00'} · Absent + Half + Late`,
+      subtitle: `${totals.overallTardiness || ZERO_HM} · Absent + Half + Late`,
       style: T.tardiness,
       accent: true,
     },
-    { label: 'AM Rendered', value: totals.morningRendered || '00:00:00' },
-    { label: 'AM Tardiness', value: totals.morningTardiness || '00:00:00' },
-    { label: 'PM Rendered', value: totals.afternoonRendered || '00:00:00' },
-    { label: 'PM Tardiness', value: totals.afternoonTardiness || '00:00:00' },
-    { label: 'HN Rendered', value: totals.hnRendered || '00:00:00' },
-    { label: 'HN Tardiness', value: totals.hnTardiness || '00:00:00' },
-    { label: 'SC Rendered', value: totals.scRendered || '00:00:00' },
-    { label: 'SC Tardiness', value: totals.scTardiness || '00:00:00' },
-    { label: 'OT Rendered', value: totals.otRendered || '00:00:00' },
-    { label: 'OT Tardiness', value: totals.otTardiness || '00:00:00' },
+    { label: 'AM Rendered', value: totals.morningRendered || ZERO_HM },
+    { label: 'AM Tardiness', value: totals.morningTardiness || ZERO_HM },
+    { label: 'PM Rendered', value: totals.afternoonRendered || ZERO_HM },
+    { label: 'PM Tardiness', value: totals.afternoonTardiness || ZERO_HM },
+    { label: 'HN Rendered', value: totals.hnRendered || ZERO_HM },
+    { label: 'HN Tardiness', value: totals.hnTardiness || ZERO_HM },
+    { label: 'SC Rendered', value: totals.scRendered || ZERO_HM },
+    { label: 'SC Tardiness', value: totals.scTardiness || ZERO_HM },
+    { label: 'OT Rendered', value: totals.otRendered || ZERO_HM },
+    { label: 'OT Tardiness', value: totals.otTardiness || ZERO_HM },
   ];
 
   return (
@@ -2850,9 +2816,9 @@ const AttendanceModuleFacultyDesignated = ({
         const isHalfDayRow = hasOnlyMorningPunch || hasOnlyAfternoonPunch;
 
         // ── AM SEGMENT ──────────────────────────────────────────────────────────
-        let formattedFacultyRenderedTimeAM = '00:00:00';
-        let formattedFacultyMaxRenderedTimeAM = '00:00:00';
-        let formattedfinalcalcFacultyAM = '00:00:00';
+        let formattedFacultyRenderedTimeAM = ZERO_HM;
+        let formattedFacultyMaxRenderedTimeAM = ZERO_HM;
+        let formattedfinalcalcFacultyAM = ZERO_HM;
 
         // Skip AM computation only for the PM-side lone timeIN case.
         if (!pmSideLonePunch) {
@@ -2897,9 +2863,9 @@ const AttendanceModuleFacultyDesignated = ({
         }
 
         // ── PM SEGMENT ──────────────────────────────────────────────────────────
-        let formattedFacultyRenderedTimePM = '00:00:00';
-        let formattedFacultyMaxRenderedTimePM = '00:00:00';
-        let formattedfinalcalcFacultyPM = '00:00:00';
+        let formattedFacultyRenderedTimePM = ZERO_HM;
+        let formattedFacultyMaxRenderedTimePM = ZERO_HM;
+        let formattedfinalcalcFacultyPM = ZERO_HM;
 
         // Skip PM computation entirely when the employee only punched IN (AM half-day).
         if (!hasOnlyMorningPunch) {
@@ -2960,14 +2926,14 @@ const AttendanceModuleFacultyDesignated = ({
               oe <= os
             )
               return {
-                rendered: '00:00:00',
-                maxRendered: '00:00:00',
-                tardiness: '00:00:00',
+                rendered: ZERO_HM,
+                maxRendered: ZERO_HM,
+                tardiness: ZERO_HM,
               };
             const offDiff = oe - os;
             const maxRendered = formatDurationMsToHhMmSs(offDiff);
             return {
-              rendered: '00:00:00',
+              rendered: ZERO_HM,
               maxRendered,
               tardiness: maxRendered,
             };
@@ -3010,7 +2976,7 @@ const AttendanceModuleFacultyDesignated = ({
         );
 
         // Late = arrival − official Time IN; Undertime = official Time OUT − departure.
-        const arrivalLateSec = computeArrivalLateSec({
+        const arrivalLateSec = computeArrivalLateMinuteSec({
           timeIN,
           timeOUT,
           breaktimeIN,
@@ -3018,7 +2984,7 @@ const AttendanceModuleFacultyDesignated = ({
           officialTimeIN,
           officialTimeOUT,
         }) ?? 0;
-        const earlyLeaveSec = computeEarlyLeaveUndertimeSec({
+        const earlyLeaveSec = computeEarlyLeaveUndertimeMinuteSec({
           timeIN,
           timeOUT,
           breaktimeIN,
@@ -3026,10 +2992,8 @@ const AttendanceModuleFacultyDesignated = ({
           officialTimeIN,
           officialTimeOUT,
         }) ?? 0;
-        formattedfinalcalcFacultyAM =
-          formatOfficialAttendanceSeconds(arrivalLateSec);
-        formattedfinalcalcFacultyPM =
-          formatOfficialAttendanceSeconds(earlyLeaveSec);
+        formattedfinalcalcFacultyAM = formatDurationHhMm(arrivalLateSec);
+        formattedfinalcalcFacultyPM = formatDurationHhMm(earlyLeaveSec);
 
         return {
           ...row,
@@ -3078,27 +3042,20 @@ const AttendanceModuleFacultyDesignated = ({
         halfDayDates: '',
       });
 
+      const normalizedProcessed = processedData.map(normalizeFacultyRowDurations);
+
       setSuspensionByDate(maps.suspensionByDate);
       setLeaveByDate(maps.leaveByDate);
       setHolidayByDate(maps.holidayByDate);
       setTardinessOverrides({});
-      setAttendanceData(processedData);
+      setAttendanceData(normalizedProcessed);
       setHalfDayReviewByDate(initialReviewMap);
 
-      const parseLateToSeconds = (t) => {
-        if (!t || t === 'NaN:NaN:NaN' || t === '—' || t === 'N/A') return 0;
-        const parts = String(t).split(':').map(Number);
-        if (parts.length < 2 || [parts[0], parts[1]].some(Number.isNaN)) return 0;
-        return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
-      };
-      const totalLateSec = processedData.reduce(
-        (sum, row) => sum + parseLateToSeconds(row.lateTotal),
+      const totalLateSec = normalizedProcessed.reduce(
+        (sum, row) => sum + parseDurationToMinuteSec(row.lateTotal),
         0,
       );
-      const th = Math.floor(totalLateSec / 3600);
-      const tm = Math.floor((totalLateSec % 3600) / 60);
-      const ts = totalLateSec % 60;
-      const totalLateLabel = `${String(th).padStart(2, '0')}:${String(tm).padStart(2, '0')}:${String(ts).padStart(2, '0')}`;
+      const totalLateLabel = formatDurationHhMm(totalLateSec);
 
       logAttendanceModuleAction({
         module: 'Attendance Module (Faculty Designated)',
@@ -3130,9 +3087,9 @@ const AttendanceModuleFacultyDesignated = ({
           setHalfDayReviewByDate(serverReviewMap);
           setAttendanceData(
             applyStoredLateUndertimeToAttendanceRows(
-              processedData,
+              normalizedProcessed,
               stored?.byDate || {},
-            ),
+            ).map(normalizeFacultyRowDurations),
           );
         } catch (err) {
           console.warn(
@@ -3153,40 +3110,19 @@ const AttendanceModuleFacultyDesignated = ({
   };
 
   // ── Totals ─────────────────────────────────────────────────────────────────
-  const sumTime = useCallback((values) => {
-    let total = 0;
-    values.forEach((t) => {
-      if (!t || t === 'NaN:NaN:NaN' || t === '—' || t === 'N/A') return;
-      const parts = t.split(':').map(Number);
-      if (parts.length >= 2 && parts.slice(0, 2).every((n) => !isNaN(n)))
-        total += parts[0] * 3600 + parts[1] * 60;
-    });
-    const h = Math.floor(total / 3600),
-      m = Math.floor((total % 3600) / 60);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
-  }, []);
+  const sumTime = useCallback((values) => sumDurationHhMm(values), []);
 
-  const addTimes = useCallback((a, b) => {
-    const parse = (t) => {
-      const [h, m] = (t || '00:00:00').split(':').map(Number);
-      const hh = Number.isFinite(h) ? h : 0,
-        mm = Number.isFinite(m) ? m : 0;
-      return hh * 3600 + mm * 60;
-    };
-    const total = parse(a) + parse(b);
-    const h = Math.floor(total / 3600),
-      m = Math.floor((total % 3600) / 60);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
-  }, []);
+  const addTimes = useCallback((a, b) => addTimeHhMmOnly(a, b), []);
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
-    const buckets = computeReviewAwareAbsenceBuckets(
+    const buckets = computeAmPmMinuteBuckets(
       attendanceData,
       halfDayReviewByDate,
       calendarMaps,
       MODULE_TYPES.DESIGNATED_40HRS,
+      { hasNoPunchesFn: hasNoPunchesTimeInOutOnly },
     );
     const morningRendered = sumTime(
       attendanceData.map((r) =>
@@ -3249,7 +3185,7 @@ const AttendanceModuleFacultyDesignated = ({
       ),
     );
     const overallRendered = addTimes(morningRendered, afternoonRendered);
-    const rowTardinessSum = sumHmsDurationStrings(
+    const rowTardinessSum = sumDurationHhMm(
       attendanceData.map((r) =>
         getDisplayedCellValue(
           r,
@@ -3261,8 +3197,8 @@ const AttendanceModuleFacultyDesignated = ({
         ),
       ),
     );
-    const lateTotalTime = computeLateTotalTimeFromTardiness(null, buckets);
-    const overallTardiness = computeOverallTardinessFromBuckets(buckets);
+    const lateTotalTime = buckets.lateTotalDisplayTime;
+    const overallTardiness = buckets.overallShortfallTime;
     const hnRendered = sumTime(
       attendanceData.map((r) =>
         getCellValue(r, '_hnRendered', Boolean(getStatusLabelForDate(r.date))),
@@ -3508,11 +3444,12 @@ const AttendanceModuleFacultyDesignated = ({
     );
     return {
     ...(function computeAbsentHalfBuckets() {
-      const c = computeReviewAwareAbsenceBuckets(
+      const c = computeAmPmMinuteBuckets(
         attendanceData,
         halfDayReviewByDate,
         calendarMaps,
         MODULE_TYPES.DESIGNATED_40HRS,
+        { hasNoPunchesFn: hasNoPunchesTimeInOutOnly },
       );
       const absentList = listAbsentDatesFromDailyRows_TimeInOutOnly(
         attendanceData,
@@ -3521,7 +3458,7 @@ const AttendanceModuleFacultyDesignated = ({
       return {
         absentDays: c.absentDays,
         halfDays: c.halfDays,
-        lateTotalTime: totals.lateTotalTime || '00:00:00',
+        lateTotalTime: totals.lateTotalTime || ZERO_HM,
         absentTime: c.absentTime,
         halfDayShortfallTime: c.halfDayShortfallTime,
         absentDates: absentList.join(', '),
@@ -4121,7 +4058,7 @@ const AttendanceModuleFacultyDesignated = ({
                   bgcolor: T.rendered.bg,
                 }}
               >
-                {renderedVal || '00:00:00'}
+                {renderedVal || ZERO_HM}
               </TableCell>
             );
           if (showTardiness)
@@ -4139,7 +4076,7 @@ const AttendanceModuleFacultyDesignated = ({
                   bgcolor: T.tardiness.bg,
                 }}
               >
-                {tardinessVal || '00:00:00'}
+                {tardinessVal || ZERO_HM}
               </TableCell>
             );
           return (
@@ -5301,7 +5238,7 @@ const AttendanceModuleFacultyDesignated = ({
                                               {(overallRenderedKey === '_totalRendered'
                                                 ? totals.totalRendered
                                                 : totals.overallRendered) ||
-                                                '00:00:00'}{' '}
+                                                ZERO_HM}{' '}
                                               <Typography
                                                 component="span"
                                                 sx={{
@@ -5326,7 +5263,7 @@ const AttendanceModuleFacultyDesignated = ({
                                             >
                                               {formatTardinessAsDaysHoursWithHoursPerDay(
                                                 totals.overallTardiness ||
-                                                  '00:00:00',
+                                                  ZERO_HM,
                                                 officialHoursPerDay,
                                               )}{' '}
                                               <Typography
@@ -5340,7 +5277,7 @@ const AttendanceModuleFacultyDesignated = ({
                                               >
                                                 (
                                                 {totals.overallTardiness ||
-                                                  '00:00:00'}
+                                                  ZERO_HM}
                                                 )
                                               </Typography>
                                             </Typography>
@@ -5388,7 +5325,7 @@ const AttendanceModuleFacultyDesignated = ({
                                         >
                                           {(overallRenderedKey === '_totalRendered'
                                             ? totals.totalRendered
-                                            : totals.overallRendered) || '00:00:00'}
+                                            : totals.overallRendered) || ZERO_HM}
                                         </TableCell>
                                       );
                                     if (isOverallTardiness)
@@ -5412,7 +5349,7 @@ const AttendanceModuleFacultyDesignated = ({
                                           >
                                             {formatTardinessAsDaysHoursWithHoursPerDay(
                                               totals.overallTardiness ||
-                                                '00:00:00',
+                                                ZERO_HM,
                                               officialHoursPerDay,
                                             )}
                                           </Typography>
@@ -5425,7 +5362,7 @@ const AttendanceModuleFacultyDesignated = ({
                                             }}
                                           >
                                             {totals.overallTardiness ||
-                                              '00:00:00'}
+                                              ZERO_HM}
                                           </Typography>
                                         </TableCell>
                                       );

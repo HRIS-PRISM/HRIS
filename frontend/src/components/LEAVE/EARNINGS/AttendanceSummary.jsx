@@ -272,14 +272,14 @@ const ATTENDANCE_MODULES = [
   {
     key: "non-teaching",
     label: "Non-Teaching",
-    sublabel: "8hrs staff",
+    sublabel: "Non-teaching & JO",
     path: "/attendance_module",
     lsPrefix: "attendanceNonTeaching",
   },
   {
     key: "faculty-30",
     label: "Faculty 30hrs",
-    sublabel: "JO faculty",
+    sublabel: "30-hour faculty",
     path: "/attendance_module_faculty",
     lsPrefix: "attendanceFaculty30",
   },

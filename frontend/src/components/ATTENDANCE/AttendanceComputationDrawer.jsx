@@ -7,7 +7,7 @@ import AttendanceModuleFacultyDesignated from './AttendanceModuleFacultyDesignat
 const DRAWER_MODULES = {
   nonTeaching: {
     Component: AttendanceModuleNonTeachingStaff,
-    title: 'Non-Teaching Computation',
+    title: 'Non-Teaching | JO Computation',
   },
   faculty30: {
     Component: AttendanceModuleFaculty,
