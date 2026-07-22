@@ -1386,11 +1386,16 @@
   const serializeDailyLateRows = (rows) => {
     const list = Array.isArray(rows) ? rows : [];
     return JSON.stringify(
-      list.map((r) => ({
-        date: normalizeYmd(r.date),
-        lateTotal: String(r.lateTotal || '00:00:00').trim(),
-        undertimeTotal: String(r.undertimeTotal || '00:00:00').trim(),
-      })).filter((r) => r.date),
+      list.map((r) => {
+        const row = {
+          date: normalizeYmd(r.date),
+          lateTotal: String(r.lateTotal || '00:00:00').trim(),
+          undertimeTotal: String(r.undertimeTotal || '00:00:00').trim(),
+        };
+        const hash = String(r.inputHash || '').trim();
+        if (hash) row.inputHash = hash;
+        return row;
+      }).filter((r) => r.date),
     );
   };
 
@@ -2196,8 +2201,9 @@
 
     const sql = `
       SELECT
-        PersonID,
-        COUNT(*) AS recordsCount
+        daily.PersonID,
+        COUNT(*) AS recordsCount,
+        IFNULL(raw.rawRecordCount, 0) AS rawRecordCount
       FROM (
         SELECT
           PersonID,
@@ -2206,12 +2212,45 @@
         WHERE AttendanceDateTime BETWEEN ? AND ?
         GROUP BY PersonID, dt
       ) daily
-      GROUP BY PersonID
+      LEFT JOIN (
+        SELECT PersonID, COUNT(*) AS rawRecordCount
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID
+      ) raw ON daily.PersonID = raw.PersonID
+      GROUP BY daily.PersonID, raw.rawRecordCount
     `;
 
-    db.query(sql, [startTimestamp, endTimestamp], (err, results) => {
+    db.query(sql, [startTimestamp, endTimestamp, startTimestamp, endTimestamp], (err, results) => {
       if (err) {
         console.error('Error fetching device attendance summary:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json(results);
+    });
+  });
+
+  // Modification record counts per employee from attendancerecord for a date range
+  router.post('/api/device-modification-summary', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.body || {};
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const sql = `
+      SELECT
+        personID AS PersonID,
+        COUNT(*) AS modRecordCount
+      FROM attendancerecord
+      WHERE date BETWEEN ? AND ?
+      GROUP BY personID
+    `;
+
+    db.query(sql, [startDate, endDate], (err, results) => {
+      if (err) {
+        console.error('Error fetching device modification summary:', err);
         return res.status(500).json({ error: err.message });
       }
 
@@ -2718,7 +2757,7 @@
     }
 
     let leaveQuery = `
-      SELECT lr.id, lr.leave_date, lt.leave_description
+      SELECT lr.id, lr.leave_date, lr.leave_code, lt.leave_description
       FROM leave_request lr
       JOIN leave_table lt ON lr.leave_code = lt.leave_code
       WHERE lr.status = 2
@@ -2746,7 +2785,17 @@
       (rows || []).forEach((leave) => {
         const leaveDate = toISO(leave.leave_date);
         if (!leaveDate || byDate[leaveDate]) return;
-        byDate[leaveDate] = { label: 'ON LEAVE', title: leave.leave_description, reason: 'Approved Leave', id: leave.id };
+        const leaveLabel =
+          String(leave.leave_description || leave.leave_code || 'ON LEAVE').trim() ||
+          'ON LEAVE';
+        byDate[leaveDate] = {
+          label: leaveLabel,
+          title: leaveLabel,
+          leave_description: leave.leave_description,
+          leave_code: leave.leave_code,
+          reason: 'Approved Leave',
+          id: leave.id,
+        };
       });
 
       const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';

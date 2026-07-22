@@ -41,18 +41,31 @@ export const getDayNameFromYmd = (ymd) => {
   }
 };
 
-/** True when Official Time Form covers this calendar day (matches attendance modules). */
+/** True when at least one weekday in the map has official Time IN/OUT. */
+export const hasAnyOfficialScheduleDay = (officialTimesByDay) => {
+  if (!officialTimesByDay || typeof officialTimesByDay !== 'object') return false;
+  return Object.values(officialTimesByDay).some((row) =>
+    isScheduledByOfficialTime(row),
+  );
+};
+
+/**
+ * True when Official Time Form covers this calendar day (matches attendance modules).
+ * If no official schedule is loaded/configured at all, returns true so DTR keeps the
+ * blank original grid instead of marking every day as NON-WORKING DAY.
+ */
 export const isDtrDateScheduledByOfficialTime = ({
   record,
   officialTimesByDay,
   fullDate,
 }) => {
   if (isScheduledByOfficialTime(record)) return true;
+  if (!hasAnyOfficialScheduleDay(officialTimesByDay)) return true;
   const dayName = getDayNameFromYmd(fullDate);
-  if (dayName && officialTimesByDay && typeof officialTimesByDay === 'object') {
+  if (dayName) {
     return isScheduledByOfficialTime(officialTimesByDay[dayName]);
   }
-  return false;
+  return true;
 };
 
 /** Half-day suggested or not HR-confirmed — DTR must not show late/undertime yet. */
@@ -149,13 +162,110 @@ export const rowsToByDateMap = (rows) => {
   (rows || []).forEach((r) => {
     const d = String(r.date || '').slice(0, 10);
     if (!d) return;
-    map[d] = {
+    const entry = {
       lateTotal: sanitizeDurationHhMmSs(r.lateTotal),
       undertimeTotal: sanitizeDurationHhMmSs(r.undertimeTotal),
     };
+    const hash = String(r.inputHash || '').trim();
+    if (hash) entry.inputHash = hash;
+    map[d] = entry;
   });
   return map;
 };
+
+/**
+ * Bump when late/undertime formula changes so stored values recompute.
+ * Values stay sticky when punches + official times are unchanged.
+ */
+export const LATE_UNDERTIME_FORMULA_VERSION = 'v2-arrival-earlyleave';
+
+const normLateInputClock = (v) => {
+  if (v == null) return '';
+  const s = String(v).trim();
+  if (!s) return '';
+  const lower = s.replace(/\s+/g, ' ').toLowerCase();
+  if (
+    lower === '—' ||
+    lower === '-' ||
+    lower === '--' ||
+    lower === 'n/a' ||
+    lower === 'na'
+  ) {
+    return '';
+  }
+  return s;
+};
+
+/** Fingerprint of inputs that drive late/undertime (not the computed result). */
+export const buildLateUndertimeInputHash = (row) =>
+  [
+    LATE_UNDERTIME_FORMULA_VERSION,
+    normLateInputClock(row?.timeIN),
+    normLateInputClock(row?.breaktimeIN),
+    normLateInputClock(row?.breaktimeOUT),
+    normLateInputClock(row?.timeOUT),
+    normLateInputClock(row?.officialTimeIN),
+    normLateInputClock(row?.officialBreaktimeIN),
+    normLateInputClock(row?.officialBreaktimeOUT),
+    normLateInputClock(row?.officialTimeOUT),
+  ].join('|');
+
+/**
+ * Keep stored late/undertime when input hash matches; otherwise use freshly computed.
+ * Review overrides (approved / rejected / pending) always win (`skipStorageMerge`).
+ */
+export const mergeDailyLateUndertimeRowsWithStored = (rows, storedByDate) =>
+  (rows || []).map((r) => {
+    const date = String(r.date || '').slice(0, 10);
+    const inputHash = r.inputHash || buildLateUndertimeInputHash(r);
+    if (r.skipStorageMerge) {
+      return { ...r, date, inputHash };
+    }
+    const stored = storedByDate?.[date];
+    if (
+      stored &&
+      stored.inputHash &&
+      stored.inputHash === inputHash &&
+      stored.lateTotal != null
+    ) {
+      return {
+        ...r,
+        date,
+        inputHash,
+        lateTotal: sanitizeDurationHhMmSs(stored.lateTotal),
+        undertimeTotal: sanitizeDurationHhMmSs(stored.undertimeTotal),
+      };
+    }
+    return { ...r, date, inputHash };
+  });
+
+/**
+ * Re-apply stored late/undertime onto module attendance rows when inputs unchanged.
+ */
+export const applyStoredLateUndertimeToAttendanceRows = (rows, storedByDate) =>
+  (rows || []).map((row) => {
+    const date = normalizeReviewDate(row?.date);
+    const inputHash = buildLateUndertimeInputHash(row);
+    const stored = date ? storedByDate?.[date] : null;
+    if (
+      !stored ||
+      !stored.inputHash ||
+      stored.inputHash !== inputHash ||
+      stored.lateTotal == null
+    ) {
+      return { ...row, inputHash };
+    }
+    const lateTotal = sanitizeDurationHhMmSs(stored.lateTotal);
+    const undertimeTotal = sanitizeDurationHhMmSs(stored.undertimeTotal);
+    return {
+      ...row,
+      inputHash,
+      lateTotal,
+      undertimeTotal,
+      formattedfinalcalcFacultyAM: lateTotal,
+      formattedfinalcalcFacultyPM: undertimeTotal,
+    };
+  });
 
 /** Parse halfDayDates string from overall_attendance_record (comma-separated YYYY-MM-DD). */
 export const parseHalfDayDatesSet = (halfDayDatesStr) => {
@@ -205,8 +315,15 @@ export const buildDailyLateUndertimeRows = (
 ) => {
   return (processedData || []).map((r) => {
     const date = normalizeReviewDate(r.date);
+    const inputHash = buildLateUndertimeInputHash(r);
     if (!isScheduledByOfficialTime(r)) {
-      return { date, lateTotal: '00:00:00', undertimeTotal: '00:00:00' };
+      return {
+        date,
+        lateTotal: '00:00:00',
+        undertimeTotal: '00:00:00',
+        inputHash,
+        skipStorageMerge: true,
+      };
     }
     const entry = reviewByDate?.[date];
     if (
@@ -221,6 +338,8 @@ export const buildDailyLateUndertimeRows = (
           date,
           lateTotal: approved.lateTotal,
           undertimeTotal: approved.undertimeTotal,
+          inputHash,
+          skipStorageMerge: true,
         };
       }
     }
@@ -231,6 +350,8 @@ export const buildDailyLateUndertimeRows = (
           date,
           lateTotal: eff?.regular || eff?.total || '00:00:00',
           undertimeTotal: '00:00:00',
+          inputHash,
+          skipStorageMerge: true,
         };
       }
       const am = eff?.morning;
@@ -243,21 +364,32 @@ export const buildDailyLateUndertimeRows = (
           date,
           lateTotal: am || '00:00:00',
           undertimeTotal: pm || '00:00:00',
+          inputHash,
+          skipStorageMerge: true,
         };
       }
       return {
         date,
         lateTotal: eff?.total || '00:00:00',
         undertimeTotal: '00:00:00',
+        inputHash,
+        skipStorageMerge: true,
       };
     }
     if (isHalfDayPendingHrReview(r, reviewByDate || {}, moduleType)) {
-      return { date, lateTotal: '00:00:00', undertimeTotal: '00:00:00' };
+      return {
+        date,
+        lateTotal: '00:00:00',
+        undertimeTotal: '00:00:00',
+        inputHash,
+        skipStorageMerge: true,
+      };
     }
     return {
       date,
       lateTotal: sanitizeDurationHhMmSs(r.lateTotal),
       undertimeTotal: sanitizeDurationHhMmSs(r.undertimeTotal),
+      inputHash,
     };
   });
 };
@@ -295,10 +427,15 @@ export const persistHalfDayReviewDailyLate = async ({
     rows,
     halfDayDates: [...approvedSet].join(', '),
     half_day_review: buildHalfDayReviewArray(review),
+    /** Half-day confirm must write review overrides, not revive old punch late. */
+    forceOverwrite: true,
   });
 };
 
-/** Upsert daily late/undertime on overall_attendance_record (on module load; no full save required). */
+/**
+ * Upsert daily late/undertime on overall_attendance_record.
+ * By default keeps stored late/undertime when input hash is unchanged.
+ */
 export const persistDailyLateUndertimeFromModule = async ({
   personID,
   startDate,
@@ -307,16 +444,44 @@ export const persistDailyLateUndertimeFromModule = async ({
   rows,
   halfDayDates,
   half_day_review,
+  forceOverwrite = false,
+  storedByDate = null,
 }) => {
+  let mergedRows = (rows || []).map((r) => ({
+    date: String(r.date).slice(0, 10),
+    lateTotal: sanitizeDurationHhMmSs(r.lateTotal),
+    undertimeTotal: sanitizeDurationHhMmSs(r.undertimeTotal),
+    inputHash: r.inputHash || buildLateUndertimeInputHash(r),
+    skipStorageMerge: Boolean(r.skipStorageMerge),
+  }));
+
+  if (!forceOverwrite) {
+    let byDate = storedByDate;
+    if (!byDate) {
+      try {
+        const stored = await fetchDailyLateUndertime(
+          personID,
+          startDate,
+          endDate,
+        );
+        byDate = stored?.byDate || {};
+      } catch {
+        byDate = {};
+      }
+    }
+    mergedRows = mergeDailyLateUndertimeRowsWithStored(mergedRows, byDate);
+  }
+
   const payload = {
     personID: String(personID),
     startDate,
     endDate,
     moduleType,
-    rows: (rows || []).map((r) => ({
-      date: String(r.date).slice(0, 10),
+    rows: mergedRows.map((r) => ({
+      date: r.date,
       lateTotal: sanitizeDurationHhMmSs(r.lateTotal),
       undertimeTotal: sanitizeDurationHhMmSs(r.undertimeTotal),
+      inputHash: r.inputHash || undefined,
     })),
     halfDayDates:
       halfDayDates != null && String(halfDayDates).trim() !== ''

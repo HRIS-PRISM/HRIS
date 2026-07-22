@@ -90,6 +90,7 @@ import API_BASE_URL from '../../apiConfig';
     persistDailyLateUndertimeFromModule,
     persistHalfDayReviewDailyLate,
     fetchDailyLateUndertime,
+    applyStoredLateUndertimeToAttendanceRows,
   } from '../../utils/dtrLateUndertimeFromOverall';
   import {
     MODULE_TYPES,
@@ -1455,13 +1456,14 @@ import API_BASE_URL from '../../apiConfig';
     useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
     useEffect(() => {
+      if (embedded) return;
       const en = localStorage.getItem('attendanceFaculty30EmployeeNumber');
       const sd = localStorage.getItem('attendanceFaculty30StartDate');
       const ed = localStorage.getItem('attendanceFaculty30EndDate');
       if (en) setEmployeeNumber(en);
       if (sd) setStartDate(sd);
       if (ed) setEndDate(ed);
-    }, []);
+    }, [embedded]);
 
     useEffect(() => {
       if (attendanceData.length === 0) return;
@@ -1480,6 +1482,9 @@ import API_BASE_URL from '../../apiConfig';
     }, []);
 
     useEffect(() => {
+      // Hub drawer uses initialContext + remount; do not let router state
+      // overwrite the seeded employee/period or race the embedded reload.
+      if (embedded) return;
       const s = location.state;
 
       if (!s?.fromDevice) return;
@@ -1491,7 +1496,7 @@ import API_BASE_URL from '../../apiConfig';
       setTimeout(() => {
         if (handleSubmitRef.current) handleSubmitRef.current();
       }, 300);
-    }, [location.state]);
+    }, [embedded, location.state]);
 
     const isFurloughDate = (date, suspMap, leaveMap, holidayMap) =>
       Boolean(suspMap?.[date] || leaveMap?.[date] || holidayMap?.[date]);
@@ -1563,39 +1568,12 @@ import API_BASE_URL from '../../apiConfig';
           );
           return;
         }
-        const dateOnly = (val) => (val ? String(val).split('T')[0] : '');
-        const byDateRange = rawRows.filter((row) => {
-          const d = dateOnly(row.date), start = dateOnly(row.startDate), end = dateOnly(row.endDate);
-          if (!d) return true;
-          if (!start || !end) return true;
-          return d >= start && d <= end;
-        });
-        const seen = new Set();
-        const onePerDate = byDateRange.filter((row) => {
-          const d = dateOnly(row.date);
-          if (seen.has(d)) return false;
-          seen.add(d);
-          return true;
-        });
-        const hasOfficialTime = onePerDate.some(
+        const hasOfficialTime = rawRows.some(
           (row) => row.officialTimeIN && row.officialTimeOUT && row.officialTimeIN !== '00:00:00 AM' && row.officialTimeOUT !== '00:00:00 AM',
         );
-        if (onePerDate.length === 0) {
-          setAttendanceData([]);
-          setSuspensionByDate({});
-          setLeaveByDate({});
-          setHolidayByDate({});
-          showModal(
-            'No Official Time Schedule',
-            `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no rows remained after filtering for this period.\n\nPlease verify official time and date range.\n\nPress OK to open Official Time Management.`,
-            'warning',
-            () => { closeModal(); navigate('/official_time'); },
-          );
-          return;
-        }
         if (!hasOfficialTime) { setShowNoOfficialTimeModal(true); return; }
 
-        const processedData = onePerDate.map((row) => {
+        const processedData = rawRows.map((row) => {
           const {
             timeIN,
             timeOUT,
@@ -1821,6 +1799,12 @@ import API_BASE_URL from '../../apiConfig';
               endDate,
             );
             setHalfDayReviewByDate(buildReviewMapFromStored(stored));
+            setAttendanceData(
+              applyStoredLateUndertimeToAttendanceRows(
+                processedData,
+                stored?.byDate || {},
+              ),
+            );
           } catch (err) {
             console.warn(
               'Half-day review fetch failed; using local cache:',

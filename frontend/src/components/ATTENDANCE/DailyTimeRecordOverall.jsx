@@ -136,6 +136,9 @@ import {
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
   openPdfBlobForPrint,
+  formatDtrLeaveLabel,
+  findApprovedLeaveForDate,
+  isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
 const COMPUTATION_DRAWER_KEYS = new Set([
   'nonTeaching',
@@ -677,6 +680,8 @@ const DailyTimeRecordFaculty = ({
   const [lateComputeLoading, setLateComputeLoading] = useState(null);
   const [computationSaveSignal, setComputationSaveSignal] = useState(0);
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
+  /** Bumped after Attendance Modification saves so computation modules remount + refetch. */
+  const [attendanceRevision, setAttendanceRevision] = useState(0);
 
   const { hasAccess, loading: accessLoading } = usePageAccess(pageAccessIdentifier);
 
@@ -2620,10 +2625,11 @@ const DailyTimeRecordFaculty = ({
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    if (isApprovedLeaveDate(date))
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
       return {
         type: 'leave',
-        label: 'ON LEAVE',
+        label: formatDtrLeaveLabel(leaveReq),
         bgColor: 'rgba(46,125,50,0.2)',
         textColor: '#000',
         borderColor: '#2e7d32',
@@ -3379,7 +3385,9 @@ const DailyTimeRecordFaculty = ({
         breaktimeOUT: tf.breaktimeOUT,
         timeOUT: tf.timeOUT,
       };
-      // Scheduled workday + no punches on DTR = absent
+      const hasPeriodRecords =
+        Array.isArray(sourceRecords) && sourceRecords.length > 0;
+      // Scheduled workday + no punches on DTR = absent (only when period has data)
       const rowIsAbsent =
         type === 'regular' &&
         isDtrAbsentRow({
@@ -3387,6 +3395,7 @@ const DailyTimeRecordFaculty = ({
           dateIndicator,
           isNotScheduledDay,
           moduleType,
+          hasPeriodRecords,
         });
       const halfUi =
         type === 'regular' && !dateIndicator && !rowIsAbsent
@@ -3445,11 +3454,42 @@ const DailyTimeRecordFaculty = ({
         isNotScheduledDay && !dateIndicator
           ? 'rgba(128, 128, 128, 0.06)'
           : rowTint;
+      if (isDtrCalendarBannerRow(dateIndicator)) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{dateIndicator.label}</span>
+            </td>
+          </tr>
+        );
+      }
       if (
         isDtrNonWorkingDayRow({
           isNotScheduledDay,
           indicator: dateIndicator,
           timeFields: tf,
+          hasPeriodRecords,
         })
       ) {
         return (
@@ -6456,6 +6496,10 @@ const DailyTimeRecordFaculty = ({
               key={`mod-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}`}
               embedded
               onClose={() => setModuleDrawer(null)}
+              onRecordsSaved={() => {
+                setAttendanceRevision((n) => n + 1);
+                fetchRecordsRef.current?.();
+              }}
               initialContext={{
                 employeeNumber: personID || '',
                 startDate: startDate || '',
@@ -6508,6 +6552,7 @@ const DailyTimeRecordFaculty = ({
             drawerKey={moduleDrawer}
             initialContext={hubDrawerInitialContext}
             saveSignal={computationSaveSignal}
+            refreshEpoch={attendanceRevision}
             onClose={() => setModuleDrawer(null)}
             onSavedToSummary={handleSavedToSummary}
           />

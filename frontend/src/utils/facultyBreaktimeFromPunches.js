@@ -12,8 +12,10 @@ export function isEmptyAttendancePunch(t) {
 }
 
 function resolveScheduleBreak(official, device) {
-  if (!isEmptyAttendanceClock(official)) return official;
+  // Prefer the real device/Modification punch so hub edits are not hidden
+  // behind official lunch times (which also skews Designated half-day math).
   if (!isEmptyAttendanceClock(device)) return device;
+  if (!isEmptyAttendanceClock(official)) return official;
   return null;
 }
 

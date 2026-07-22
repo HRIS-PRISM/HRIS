@@ -11,7 +11,9 @@ import {
   hasNoPunches,
   hasMorningPunch,
   hasAfternoonPunch,
-  isNonTeachingHalfDayByPunches,
+  isHalfDayByTardinessThreshold,
+  computeArrivalLateSec,
+  computeEarlyLeaveUndertimeSec,
 } from './officialAttendanceFromDailyRows';
 import { sanitizeDurationHhMmSs } from './dtrLateUndertimeFromOverall';
 
@@ -418,10 +420,15 @@ export function detectSuggestedHalfDay(row, moduleType, calendarMaps) {
   if (!isScheduledByOfficialTime(row)) return false;
   if (getOfficialSchedWorkSec(row) == null) return false;
 
-  if (moduleType === MODULE_TYPES.NON_TEACHING) {
-    return isNonTeachingHalfDayByPunches(row);
+  // Non-teaching + designated 40hrs: half-day when shortfall > half of official work.
+  if (
+    moduleType === MODULE_TYPES.NON_TEACHING ||
+    moduleType === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return isHalfDayByTardinessThreshold(row);
   }
 
+  // Faculty 30hrs: keep Time IN / Time OUT XOR half-day detection.
   if (hasNoPunchesTimeInOutOnly(row)) return false;
   const morning = !EMPTY_PUNCH(row?.timeIN);
   const afternoon = !EMPTY_PUNCH(row?.timeOUT);
@@ -435,8 +442,9 @@ function hasNoPunchesTimeInOutOnly(row) {
 export function createSuggestedEntry(row, moduleType) {
   const suggested = computeSuggestedTardinessFromPunches(row, moduleType);
   const detectedReason =
-    moduleType === MODULE_TYPES.NON_TEACHING
-      ? 'xor_time_in_out'
+    moduleType === MODULE_TYPES.NON_TEACHING ||
+    moduleType === MODULE_TYPES.DESIGNATED_40HRS
+      ? 'tardiness_over_half'
       : 'xor_punch';
   return {
     date: normalizeReviewDate(row.date),
@@ -827,27 +835,12 @@ export function getRowTotalRenderedDisplay(
 }
 
 /**
- * Non-Teaching / Designated late seconds from AM + PM slots (matches table cells).
+ * Non-Teaching / Designated late seconds: arrival late + early-leave undertime.
  */
 export function getAmPmSlotLateSecondsFromRow(row) {
-  const amRaw =
-    !row?.officialTimeIN ||
-    !row?.breaktimeIN ||
-    row?.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
-      ? row?.formattedFacultyMaxRenderedTimeAM
-      : row?.formattedfinalcalcFacultyAM;
-  const pmRaw =
-    !row?.officialBreaktimeOUT ||
-    !row?.timeOUT ||
-    row?.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
-      ? row?.formattedFacultyMaxRenderedTimePM
-      : row?.formattedfinalcalcFacultyPM;
-  const amSec = parseOfficialTimeToSeconds(amRaw);
-  const pmSec = parseOfficialTimeToSeconds(pmRaw);
-  let total = 0;
-  if (amSec != null) total += Math.max(0, amSec);
-  if (pmSec != null) total += Math.max(0, pmSec);
-  return total;
+  return (
+    (computeArrivalLateSec(row) ?? 0) + (computeEarlyLeaveUndertimeSec(row) ?? 0)
+  );
 }
 
 /** Absent-day shortfall for Total Tardiness column (counts toward Overall, not Late Total). */
@@ -993,16 +986,18 @@ export function getDtrAbsentIndicator() {
 }
 
 /**
- * Scheduled work day with no punches (matches attendance module absent rows).
- * Uses `isNotScheduledDay` from Official Time Form — DTR punch rows often lack
- * officialTimeIN/OUT on the record itself.
+ * Scheduled work day with no punches → ABSENT on DTR.
+ * Only when the period has attendance records (`hasPeriodRecords`).
+ * Empty DTR (no data) stays blank — holidays still come from `dateIndicator`.
  */
 export function isDtrAbsentRow({
   record,
   dateIndicator,
   isNotScheduledDay,
   moduleType = MODULE_TYPES.NON_TEACHING,
+  hasPeriodRecords = true,
 }) {
+  if (!hasPeriodRecords) return false;
   if (dateIndicator || isNotScheduledDay) return false;
   const row = record || {};
   return moduleType === MODULE_TYPES.NON_TEACHING

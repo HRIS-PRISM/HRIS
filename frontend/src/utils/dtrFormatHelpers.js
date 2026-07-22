@@ -14,15 +14,38 @@ export const DTR_CELL_WATERMARK_LABELS = [
   DTR_NON_WORKING_DAY_LABEL,
 ];
 
+export const isDtrCellWatermarkText = (text) => {
+  const t = String(text || '').trim().toUpperCase();
+  if (!t) return false;
+  if (DTR_CELL_WATERMARK_LABELS.includes(t)) return true;
+  // Leave types e.g. VACATION LEAVE, SICK LEAVE
+  return /\bLEAVE\b/.test(t);
+};
+
+/** Leave / holiday / suspension → one merged banner row (like NON-WORKING DAY). */
+export const isDtrCalendarBannerRow = (indicator) =>
+  Boolean(
+    indicator?.label &&
+      (indicator.type === 'leave' ||
+        indicator.type === 'holiday' ||
+        indicator.type === 'suspension'),
+  );
+
 export const dtrTimeValueEmpty = (v) =>
   v == null || (typeof v === 'string' && v.trim() === '');
 
-/** Inline cell text — html2canvas captures plain span text reliably (no absolute overlays). */
+/**
+ * Unscheduled day (e.g. weekend) with no punches → NON-WORKING DAY merged row.
+ * Only when the period has attendance/schedule context (`hasPeriodRecords`).
+ * With no data at all, keep the blank 6-column DTR grid.
+ */
 export const isDtrNonWorkingDayRow = ({
   isNotScheduledDay,
   indicator,
   timeFields,
+  hasPeriodRecords = true,
 }) => {
+  if (!hasPeriodRecords) return false;
   if (!isNotScheduledDay || indicator?.label) return false;
   const { timeIN, breaktimeIN, breaktimeOUT, timeOUT } = timeFields || {};
   return (
@@ -34,6 +57,15 @@ export const isDtrNonWorkingDayRow = ({
 };
 
 export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
+  // Leave / holiday / suspension always win — do not show official-time autofill punches
+  if (
+    indicator?.label &&
+    (indicator.type === 'leave' ||
+      indicator.type === 'holiday' ||
+      indicator.type === 'suspension')
+  ) {
+    return { text: indicator.label, isWatermark: true };
+  }
   if (!dtrTimeValueEmpty(rawVal)) {
     return { text: displayText, isWatermark: false };
   }
@@ -42,9 +74,6 @@ export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
   }
   return { text: '', isWatermark: false };
 };
-
-export const isDtrCellWatermarkText = (text) =>
-  DTR_CELL_WATERMARK_LABELS.includes(String(text || '').trim().toUpperCase());
 
 export const DTR_WM_INLINE_STYLE = {
   fontSize: '8.5px',
@@ -127,6 +156,34 @@ export const toPhCalendarYmd = (value) => {
     /* ignore */
   }
   return s.split('T')[0];
+};
+
+/** Label for DTR leave watermark (e.g. Vacation Leave, Sick Leave). */
+export const formatDtrLeaveLabel = (leaveReq) => {
+  const desc = String(
+    leaveReq?.leave_description || leaveReq?.title || leaveReq?.label || '',
+  ).trim();
+  const code = String(leaveReq?.leave_code || '').trim();
+  if (desc) return desc.toUpperCase();
+  if (code) return code.toUpperCase();
+  return 'ON LEAVE';
+};
+
+/** Find HR-approved leave covering YYYY-MM-DD from leave_request rows. */
+export const findApprovedLeaveForDate = (dateString, approvedLeaves) => {
+  const check = toPhCalendarYmd(dateString);
+  if (!check || !Array.isArray(approvedLeaves) || !approvedLeaves.length)
+    return null;
+  return (
+    approvedLeaves.find((req) => {
+      const dates = Array.isArray(req.leave_date)
+        ? req.leave_date
+        : String(req.leave_date || '')
+            .split(',')
+            .map((d) => d.trim());
+      return dates.some((d) => toPhCalendarYmd(d) === check);
+    }) || null
+  );
 };
 
 export const normRecordYmd = (dateVal) => toPhCalendarYmd(dateVal);
