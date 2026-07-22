@@ -1869,8 +1869,8 @@ import API_BASE_URL from '../../apiConfig';
         if (Boolean(getStatusLabelForDate(row.date))) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT) : displayDurationHhMm(row.formattedfinalcalcFacultyOT);
       });
-      const lateTotalTime = buckets.lateTotalDisplayTime;
-      const overallTardiness = buckets.overallShortfallTime;
+      const lateTotalTime = rowTardinessSum;
+      const overallTardiness = rowTardinessSum;
 
       return {
         absentDays: buckets.absentDays,
@@ -2002,10 +2002,7 @@ import API_BASE_URL from '../../apiConfig';
     const getTabTotalsValues = (tab) => {
       switch (tab) {
         case 'regular':
-          return [
-            totals.regularRendered,
-            totals.overallTardiness || totals.lateTotalTime || ZERO_HM,
-          ];
+          return [totals.regularRendered, totals.regularTardiness || totals.rowTardinessSum || ZERO_HM];
         case 'honorarium':    return [totals.hnRendered, totals.hnTardiness];
         case 'serviceCredit': return [totals.scRendered, totals.scTardiness];
         case 'overtime':      return [totals.otRendered, totals.otTardiness];
