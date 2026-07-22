@@ -2798,11 +2798,23 @@ const LeaveAssignment = () => {
   const [viewMode,            setViewMode]            = useState("grid");
 
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
-      await Promise.all([fetchAssignments(), fetchApprovedEarnings(), fetchLeaveTypes(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
-      setPageLoading(false);
+      // Critical path: show Records as soon as assignments + leave types arrive.
+      await Promise.all([fetchAssignments(), fetchLeaveTypes()]);
+      if (!cancelled) setPageLoading(false);
+      // Deferred: employee picker / filters / remaining-balance math.
+      void Promise.all([
+        fetchApprovedEarnings(),
+        fetchEmployees(),
+        fetchDeptMap(),
+        fetchEmpCatMap(),
+      ]);
     };
     init();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter]);
@@ -3029,20 +3041,15 @@ assignments.forEach((a) => {
     };
   }, [socket, connected, refreshLeaveAssignmentData]);
 
-  useEffect(() => {
-    if (!selectedEmployee?.employeeNumber) return;
-    refreshLeaveAssignmentData();
-  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, refreshLeaveAssignmentData]);
-
+  // Selecting employee/period filters client-side — do not re-download full tables.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      if (!selectedEmployee?.employeeNumber) return;
       refreshLeaveAssignmentData();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [selectedEmployee?.employeeNumber, refreshLeaveAssignmentData]);
+  }, [refreshLeaveAssignmentData]);
 
   const fetchLeaveTypes = async () => {
     try { const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`); setLeaveTypes(Array.isArray(r.data) ? r.data : []); }
@@ -3467,19 +3474,59 @@ assignments.forEach((a) => {
     });
   }, [assignments, searchTerm, deptFilter, deptMap]);
 
-  const getEmployeeInfo = (num) => employees.find((e) => e.employeeNumber?.toString() === num?.toString()) || { fullName: num || "Unknown" };
+  const employeeByNumber = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(employees) ? employees : []).forEach((e) => {
+      const num = e?.employeeNumber?.toString();
+      if (num) map.set(num, e);
+    });
+    return map;
+  }, [employees]);
 
-  const groupedByEmployee = filteredAssignments.reduce((acc, a) => {
-    const num = a.employeeNumber?.toString() || "Unknown";
-    if (!acc[num]) { const info = getEmployeeInfo(num); acc[num] = { employeeNumber: num, fullName: buildDisplayName(info) || num, firstName: info.firstName, lastName: info.lastName, leaveTypes: {} }; }
-    const lc = a.leave_code;
-    if (!acc[num].leaveTypes[lc]) acc[num].leaveTypes[lc] = { leave_code: lc, periods: [] };
-    acc[num].leaveTypes[lc].periods.push(a);
-    return acc;
-  }, {});
+  const employeeGroups = useMemo(() => {
+    const grouped = {};
+    filteredAssignments.forEach((a) => {
+      const num = a.employeeNumber?.toString() || "Unknown";
+      if (!grouped[num]) {
+        const info =
+          employeeByNumber.get(num) || {
+            fullName: a.fullName || num,
+            firstName: a.firstName,
+            lastName: a.lastName,
+            employeeNumber: num,
+          };
+        grouped[num] = {
+          employeeNumber: num,
+          fullName: buildDisplayName(info) || a.fullName || num,
+          firstName: info.firstName || a.firstName,
+          lastName: info.lastName || a.lastName,
+          leaveTypes: {},
+        };
+      }
+      const lc = a.leave_code;
+      if (!grouped[num].leaveTypes[lc]) {
+        grouped[num].leaveTypes[lc] = { leave_code: lc, periods: [] };
+      }
+      grouped[num].leaveTypes[lc].periods.push(a);
+    });
+    return Object.values(grouped)
+      .map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) }))
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+  }, [filteredAssignments, employeeByNumber, buildDisplayName]);
 
-  const employeeGroups  = Object.values(groupedByEmployee).map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) })).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
-  const paginatedGroups = useMemo(() => { const s = recordsPage * recordsRowsPerPage; return employeeGroups.slice(s, s + recordsRowsPerPage); }, [employeeGroups, recordsPage, recordsRowsPerPage]);
+  const paginatedGroups = useMemo(() => {
+    const s = recordsPage * recordsRowsPerPage;
+    return employeeGroups.slice(s, s + recordsRowsPerPage);
+  }, [employeeGroups, recordsPage, recordsRowsPerPage]);
+
+  const getEmployeeInfo = useCallback(
+    (num) =>
+      employeeByNumber.get(num?.toString()) || {
+        fullName: num || "Unknown",
+        employeeNumber: num,
+      },
+    [employeeByNumber],
+  );
 
   const getAssignRemainingHours = useCallback((leaveCode) => {
     return getAssignFormRemainingHours({
