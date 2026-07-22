@@ -217,11 +217,13 @@ router.delete('/leave_assignment/:id', (req, res) => {
 
 router.get('/leave_request', (req, res) => {
   const query = `
-    SELECT id, employeeNumber, leave_code,
-           DATE_FORMAT(leave_date, '%Y-%m-%d') AS leave_date,
-           status, created_at
-    FROM leave_request
-    ORDER BY leave_date DESC
+    SELECT lr.id, lr.employeeNumber, lr.leave_code,
+           lt.leave_description,
+           DATE_FORMAT(lr.leave_date, '%Y-%m-%d') AS leave_date,
+           lr.status, lr.created_at
+    FROM leave_request lr
+    LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code
+    ORDER BY lr.leave_date DESC
   `;
   db.query(query, (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -232,12 +234,14 @@ router.get('/leave_request', (req, res) => {
 router.get('/leave_request/:employeeNumber', (req, res) => {
   const { employeeNumber } = req.params;
   const query = `
-    SELECT id, employeeNumber, leave_code,
-           DATE_FORMAT(leave_date, '%Y-%m-%d') AS leave_date,
-           status, created_at
-    FROM leave_request
-    WHERE employeeNumber = ?
-    ORDER BY leave_date DESC
+    SELECT lr.id, lr.employeeNumber, lr.leave_code,
+           lt.leave_description,
+           DATE_FORMAT(lr.leave_date, '%Y-%m-%d') AS leave_date,
+           lr.status, lr.created_at
+    FROM leave_request lr
+    LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code
+    WHERE lr.employeeNumber = ?
+    ORDER BY lr.leave_date DESC
   `;
   db.query(query, [employeeNumber], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });

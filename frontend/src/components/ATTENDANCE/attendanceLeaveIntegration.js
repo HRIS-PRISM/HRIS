@@ -72,7 +72,13 @@ export function getLeaveStatusLabelForDate(date, maps) {
   } = maps || {};
   if (suspensionByDate[date]) return 'WORK SUSPENDED';
   if (holidayByDate[date]) return 'HOLIDAY';
-  if (leaveByDate[date]) return 'ON LEAVE';
+  if (leaveByDate[date]) {
+    const leave = leaveByDate[date];
+    return (
+      String(leave.title || leave.leave_description || leave.label || 'ON LEAVE').trim() ||
+      'ON LEAVE'
+    );
+  }
   return '';
 }
 

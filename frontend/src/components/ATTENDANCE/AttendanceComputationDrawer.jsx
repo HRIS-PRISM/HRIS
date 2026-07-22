@@ -23,6 +23,7 @@ const AttendanceComputationDrawer = ({
   drawerKey,
   initialContext,
   saveSignal = 0,
+  refreshEpoch = 0,
   onClose,
   onSavedToSummary,
 }) => {
@@ -57,10 +58,11 @@ const AttendanceComputationDrawer = ({
         }}
       >
         <Component
-          key={`${drawerKey}-${initialContext?.employeeNumber || ''}-${initialContext?.startDate || ''}`}
+          key={`${drawerKey}-${initialContext?.employeeNumber || ''}-${initialContext?.startDate || ''}-${initialContext?.endDate || ''}-r${refreshEpoch}`}
           embedded
           initialContext={initialContext}
           saveSignal={saveSignal}
+          refreshEpoch={refreshEpoch}
           onClose={onClose}
           onSavedToSummary={onSavedToSummary}
         />

@@ -79,17 +79,6 @@ export function hasNoPunchesTimeInOutOnly(row) {
   return empty(row?.timeIN) && empty(row?.timeOUT);
 }
 
-/**
- * Non-teaching half-day: Time IN and Time OUT only — one present, one missing.
- * Break IN / Break OUT are not used for half-day detection.
- */
-export function isNonTeachingHalfDayByPunches(row) {
-  if (hasNoPunchesTimeInOutOnly(row)) return false;
-  const hasIn = !empty(row?.timeIN);
-  const hasOut = !empty(row?.timeOUT);
-  return hasIn !== hasOut;
-}
-
 /** Official scheduled work seconds (day span minus official break), or null if not parseable. */
 export function getOfficialSchedWorkSec(row) {
   const offInSec = parseOfficialTimeToSeconds(row?.officialTimeIN);
@@ -103,6 +92,116 @@ export function getOfficialSchedWorkSec(row) {
       ? Math.max(0, offBreakOutSec - offBreakInSec)
       : 0;
   return Math.max(0, schedTotal - breakSec);
+}
+
+/**
+ * Work seconds rendered inside official schedule windows using Time IN / Time OUT.
+ * Clamps to official AM (Time IN→Break IN) and PM (Break OUT→Time OUT) windows so
+ * lunch is excluded. Returns 0 when either punch is missing; null if no official schedule.
+ */
+export function computeOfficialWindowRenderedSec(row) {
+  const offIn = parseOfficialTimeToSeconds(row?.officialTimeIN);
+  const offOut = parseOfficialTimeToSeconds(row?.officialTimeOUT);
+  if (offIn == null || offOut == null) return null;
+
+  const inSec = parseOfficialTimeToSeconds(row?.timeIN);
+  const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
+  if (inSec == null || outSec == null) return 0;
+
+  const offBrkIn = parseOfficialTimeToSeconds(row?.officialBreaktimeIN);
+  const offBrkOut = parseOfficialTimeToSeconds(row?.officialBreaktimeOUT);
+
+  if (offBrkIn != null && offBrkOut != null && offBrkOut >= offBrkIn) {
+    const am = Math.max(
+      0,
+      Math.min(outSec, offBrkIn) - Math.max(inSec, offIn),
+    );
+    const pm = Math.max(
+      0,
+      Math.min(outSec, offOut) - Math.max(inSec, offBrkOut),
+    );
+    return am + pm;
+  }
+
+  return Math.max(0, Math.min(outSec, offOut) - Math.max(inSec, offIn));
+}
+
+/**
+ * Effective day arrival: Time IN, else earliest break punch (DTR PM-only layout).
+ */
+export function getEffectiveArrivalSec(row) {
+  const timeIn = parseOfficialTimeToSeconds(row?.timeIN);
+  if (timeIn != null) return timeIn;
+  const candidates = [
+    parseOfficialTimeToSeconds(row?.breaktimeIN),
+    parseOfficialTimeToSeconds(row?.breaktimeOUT),
+  ].filter((s) => s != null);
+  if (!candidates.length) return null;
+  return Math.min(...candidates);
+}
+
+/**
+ * Effective day departure: Time OUT, else latest break punch.
+ */
+export function getEffectiveDepartureSec(row) {
+  const timeOut = parseOfficialTimeToSeconds(row?.timeOUT);
+  if (timeOut != null) return timeOut;
+  const candidates = [
+    parseOfficialTimeToSeconds(row?.breaktimeOUT),
+    parseOfficialTimeToSeconds(row?.breaktimeIN),
+  ].filter((s) => s != null);
+  if (!candidates.length) return null;
+  return Math.max(...candidates);
+}
+
+/**
+ * Late/tardiness from clock-in: max(0, arrival − official Time IN).
+ */
+export function computeArrivalLateSec(row) {
+  const offIn = parseOfficialTimeToSeconds(row?.officialTimeIN);
+  if (offIn == null) return null;
+  const arrival = getEffectiveArrivalSec(row);
+  if (arrival == null) return null;
+  return Math.max(0, arrival - offIn);
+}
+
+/**
+ * Undertime from early leave: max(0, official Time OUT − departure).
+ */
+export function computeEarlyLeaveUndertimeSec(row) {
+  const offOut = parseOfficialTimeToSeconds(row?.officialTimeOUT);
+  if (offOut == null) return null;
+  const departure = getEffectiveDepartureSec(row);
+  if (departure == null) return null;
+  return Math.max(0, offOut - departure);
+}
+
+/** Arrival late + early-leave undertime (seconds). */
+export function computePunchTardinessSec(row) {
+  return (computeArrivalLateSec(row) ?? 0) + (computeEarlyLeaveUndertimeSec(row) ?? 0);
+}
+
+/**
+ * Half-day when punch tardiness (arrival late + early leave) is **more than half**
+ * of official scheduled work. ≤ half counts as late/tardiness only.
+ */
+export function isHalfDayByTardinessThreshold(row) {
+  if (!isScheduledByOfficialTime(row)) return false;
+  if (hasNoPunches(row) && hasNoPunchesTimeInOutOnly(row)) return false;
+  const schedWorkSec = getOfficialSchedWorkSec(row);
+  if (schedWorkSec == null || schedWorkSec <= 0) return false;
+  if (
+    getEffectiveArrivalSec(row) == null &&
+    getEffectiveDepartureSec(row) == null
+  ) {
+    return false;
+  }
+  return computePunchTardinessSec(row) > schedWorkSec / 2;
+}
+
+/** @deprecated Use {@link isHalfDayByTardinessThreshold} — same rule. */
+export function isNonTeachingHalfDayByPunches(row) {
+  return isHalfDayByTardinessThreshold(row);
 }
 
 /**
@@ -128,7 +227,7 @@ export function listHalfDayDatesFromDailyRows(rows, calendarMaps) {
     if (!isScheduledByOfficialTime(row)) return;
     if (getOfficialSchedWorkSec(row) == null) return;
     if (hasNoPunches(row)) return;
-    if (!isNonTeachingHalfDayByPunches(row)) return;
+    if (!isHalfDayByTardinessThreshold(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
   return [...new Set(dates)].sort();
@@ -194,27 +293,15 @@ export function computeOfficialAwareAbsenceAndLate(rows, calendarMaps) {
       return;
     }
 
-    const isHalfDay = isNonTeachingHalfDayByPunches(row);
+    // Arrival late + early leave (matches DTR Late / Undertime).
+    const lateSec = computeArrivalLateSec(row) ?? 0;
+    const undertimeSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
+    const deficit = lateSec + undertimeSec;
+    const isHalfDay = deficit > schedWorkSec / 2;
     if (isHalfDay) halfDays += 1;
 
-    const inSec = parseOfficialTimeToSeconds(row?.timeIN);
-    const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
-    const breakInSec = parseOfficialTimeToSeconds(row?.breaktimeIN);
-    const breakOutSec = parseOfficialTimeToSeconds(row?.breaktimeOUT);
-
-    let renderedSec = 0;
-    if (!isHalfDay && inSec != null && outSec != null) {
-      if (breakInSec != null && breakOutSec != null && breakOutSec >= breakInSec) {
-        renderedSec = Math.max(0, breakInSec - inSec) + Math.max(0, outSec - breakOutSec);
-      } else {
-        renderedSec = Math.max(0, outSec - inSec);
-      }
-    } else if (isHalfDay) {
-      renderedSec = Math.floor(schedWorkSec / 2);
-    }
-
+    const renderedSec = Math.max(0, schedWorkSec - deficit);
     renderedSecTotal += renderedSec;
-    const deficit = Math.max(0, schedWorkSec - renderedSec);
     if (isHalfDay) halfDayShortfallSecTotal += deficit;
     else lateShortfallSecTotal += deficit;
   });

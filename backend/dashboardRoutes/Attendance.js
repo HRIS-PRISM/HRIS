@@ -1386,11 +1386,16 @@
   const serializeDailyLateRows = (rows) => {
     const list = Array.isArray(rows) ? rows : [];
     return JSON.stringify(
-      list.map((r) => ({
-        date: normalizeYmd(r.date),
-        lateTotal: String(r.lateTotal || '00:00:00').trim(),
-        undertimeTotal: String(r.undertimeTotal || '00:00:00').trim(),
-      })).filter((r) => r.date),
+      list.map((r) => {
+        const row = {
+          date: normalizeYmd(r.date),
+          lateTotal: String(r.lateTotal || '00:00:00').trim(),
+          undertimeTotal: String(r.undertimeTotal || '00:00:00').trim(),
+        };
+        const hash = String(r.inputHash || '').trim();
+        if (hash) row.inputHash = hash;
+        return row;
+      }).filter((r) => r.date),
     );
   };
 
@@ -2752,7 +2757,7 @@
     }
 
     let leaveQuery = `
-      SELECT lr.id, lr.leave_date, lt.leave_description
+      SELECT lr.id, lr.leave_date, lr.leave_code, lt.leave_description
       FROM leave_request lr
       JOIN leave_table lt ON lr.leave_code = lt.leave_code
       WHERE lr.status = 2
@@ -2780,7 +2785,17 @@
       (rows || []).forEach((leave) => {
         const leaveDate = toISO(leave.leave_date);
         if (!leaveDate || byDate[leaveDate]) return;
-        byDate[leaveDate] = { label: 'ON LEAVE', title: leave.leave_description, reason: 'Approved Leave', id: leave.id };
+        const leaveLabel =
+          String(leave.leave_description || leave.leave_code || 'ON LEAVE').trim() ||
+          'ON LEAVE';
+        byDate[leaveDate] = {
+          label: leaveLabel,
+          title: leaveLabel,
+          leave_description: leave.leave_description,
+          leave_code: leave.leave_code,
+          reason: 'Approved Leave',
+          id: leave.id,
+        };
       });
 
       const requestedBy = req.user?.employeeNumber || req.user?.username || 'unknown';

@@ -1718,11 +1718,12 @@ const AuthorizationDialog = ({
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
-/** @param {{ embedded?: boolean, initialContext?: object|null, onClose?: () => void }} props */
+/** @param {{ embedded?: boolean, initialContext?: object|null, onClose?: () => void, onRecordsSaved?: () => void }} props */
 const AttendanceSearch = ({
   embedded = false,
   initialContext = null,
   onClose,
+  onRecordsSaved,
 } = {}) => {
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
@@ -2273,6 +2274,7 @@ const AttendanceSearch = ({
           viewType: 'records',
         });
       }
+      if (typeof onRecordsSaved === 'function') onRecordsSaved();
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save records. Please try again.';
       setError(msg); showSnackbar(msg, 'error');
@@ -2354,6 +2356,7 @@ const AttendanceSearch = ({
         saveRemarks: remarks || null,
         viewType: 'full_month',
       });
+      if (typeof onRecordsSaved === 'function') onRecordsSaved();
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save records. Please try again.';
       setError(msg); showSnackbar(msg, 'error');

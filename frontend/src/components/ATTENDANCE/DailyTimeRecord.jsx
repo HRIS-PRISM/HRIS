@@ -60,6 +60,9 @@ import {
   openPdfBlobForPrint,
   DTR_NON_WORKING_DAY_LABEL,
   isDtrNonWorkingDayRow,
+  formatDtrLeaveLabel,
+  findApprovedLeaveForDate,
+  isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1266,10 +1269,11 @@ const DailyTimeRecord = () => {
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    if (isApprovedLeaveDate(date))
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
       return {
         type: 'leave',
-        label: 'ON LEAVE',
+        label: formatDtrLeaveLabel(leaveReq),
         bgColor: 'rgba(46,125,50,0.2)',
         textColor: '#000',
         borderColor: '#2e7d32',
@@ -1762,7 +1766,12 @@ const DailyTimeRecord = () => {
     indicator,
     colKey,
   ) => {
-    const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
+    const calendarWm =
+      indicator?.label &&
+      (indicator.type === 'leave' ||
+        indicator.type === 'holiday' ||
+        indicator.type === 'suspension');
+    const showWm = Boolean(calendarWm || (indicator && dtrRawEmpty(rawVal)));
     return (
       <td
         key={colKey}
@@ -1798,9 +1807,14 @@ const DailyTimeRecord = () => {
         )}
         <span
           className="dtr-actual-time"
-          style={{ position: 'relative', zIndex: 1 }}
+          style={{
+            position: 'relative',
+            zIndex: 1,
+            // Hide official-time autofill under leave / holiday / suspension
+            visibility: calendarWm ? 'hidden' : 'visible',
+          }}
         >
-          {displayText}
+          {calendarWm ? '' : displayText}
         </span>
       </td>
     );
@@ -1839,6 +1853,7 @@ const DailyTimeRecord = () => {
         officialTimesByDay: officialTimes,
         fullDate,
       });
+      const hasPeriodRecords = Array.isArray(records) && records.length > 0;
       const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
         record,
         fullDate,
@@ -1863,11 +1878,42 @@ const DailyTimeRecord = () => {
         breaktimeOUT: record?.breaktimeOUT,
         timeOUT: record?.timeOUT,
       };
+      if (isDtrCalendarBannerRow(indicator)) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={dtrWmSpanStyle}>{indicator.label}</span>
+            </td>
+          </tr>
+        );
+      }
       if (
         isDtrNonWorkingDayRow({
           isNotScheduledDay,
           indicator,
           timeFields,
+          hasPeriodRecords,
         })
       ) {
         return (

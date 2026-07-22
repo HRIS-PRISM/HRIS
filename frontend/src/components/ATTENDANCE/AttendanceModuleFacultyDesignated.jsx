@@ -85,6 +85,7 @@ import {
   persistDailyLateUndertimeFromModule,
   persistHalfDayReviewDailyLate,
   fetchDailyLateUndertime,
+  applyStoredLateUndertimeToAttendanceRows,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import {
   MODULE_TYPES,
@@ -116,14 +117,14 @@ import {
 } from './HalfDayTotalColumnHints';
 import { getHalfDayReviewRowChrome } from './HalfDayApproveCheckboxCell';
 import {
-  computeOfficialAwareAbsenceAndLate,
-  listAbsentDatesFromDailyRows,
-  listHalfDayDatesFromDailyRows,
-  parseOfficialTimeToSeconds,
   formatOfficialAttendanceSeconds,
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
   getOfficialSchedWorkSec,
+  isHalfDayByTardinessThreshold,
+  computePunchTardinessSec,
+  computeArrivalLateSec,
+  computeEarlyLeaveUndertimeSec,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
   sumHmsDurationStrings,
@@ -659,23 +660,15 @@ const attendanceEmptyPunch = (v) =>
 
 const isHalfDayAttendanceRow = (row, fn) => {
   if (!row || fn(row.date)) return false;
-  // Designated (40hrs) module: half-day depends on timeIN/timeOUT only.
-  const morning = !attendanceEmptyPunch(row.timeIN);
-  const afternoon = !attendanceEmptyPunch(row.timeOUT);
-  return morning !== afternoon;
+  // Designated (40hrs): half-day when shortfall > half of official scheduled work.
+  return isHalfDayByTardinessThreshold(row);
 };
 
-// Designated (40hrs) module rule: ignore breaktime punches for absent/half-day.
+// Designated (40hrs) module rule: ignore breaktime punches for absent.
 function hasNoPunchesTimeInOutOnly(row) {
   return (
     attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT)
   );
-}
-function hasMorningPunchTimeInOnly(row) {
-  return !attendanceEmptyPunch(row?.timeIN);
-}
-function hasAfternoonPunchTimeOutOnly(row) {
-  return !attendanceEmptyPunch(row?.timeOUT);
 }
 
 function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
@@ -701,23 +694,14 @@ function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
       return;
     }
 
-    const morning = hasMorningPunchTimeInOnly(row);
-    const afternoon = hasAfternoonPunchTimeOutOnly(row);
-    if (morning !== afternoon) halfDays += 1;
-
-    const inSec = parseOfficialTimeToSeconds(row?.timeIN);
-    const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
-
-    let renderedSec = 0;
-    if (inSec != null && outSec != null) {
-      renderedSec = Math.max(0, outSec - inSec);
-    } else if (morning !== afternoon) {
-      renderedSec = Math.floor(schedWorkSec / 2);
+    const deficit = computePunchTardinessSec(row);
+    const isHalfDay = deficit > schedWorkSec / 2;
+    if (isHalfDay) {
+      halfDays += 1;
+      halfDayShortfallSecTotal += deficit;
+    } else {
+      lateShortfallSecTotal += deficit;
     }
-
-    const deficit = Math.max(0, schedWorkSec - renderedSec);
-    if (morning !== afternoon) halfDayShortfallSecTotal += deficit;
-    else lateShortfallSecTotal += deficit;
   });
 
   const overallShortfallSecTotal =
@@ -748,12 +732,7 @@ function listHalfDayDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
       .slice(0, 10);
     if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps))
       return;
-    if (!isScheduledByOfficialTime(row)) return;
-    if (getOfficialSchedWorkSec(row) == null) return;
-    if (hasNoPunchesTimeInOutOnly(row)) return;
-    const hasMorning = hasMorningPunchTimeInOnly(row);
-    const hasAfternoon = hasAfternoonPunchTimeOutOnly(row);
-    if (hasMorning === hasAfternoon) return;
+    if (!isHalfDayByTardinessThreshold(row)) return;
     if (d && d.length >= 8) dates.push(d);
   });
   return [...new Set(dates)].sort();
@@ -1291,6 +1270,14 @@ const getDisplayedCellValue = (
         ),
       ),
     );
+  }
+
+  // Gated break display (official autofill) — raw punches stay on the row for half-day.
+  if (colKey === 'breaktimeIN' && row?.displayBreaktimeIN != null) {
+    return row.displayBreaktimeIN;
+  }
+  if (colKey === 'breaktimeOUT' && row?.displayBreaktimeOUT != null) {
+    return row.displayBreaktimeOUT;
   }
 
   // default: use original getter (honor tardinessOverrides where applicable)
@@ -2451,6 +2438,7 @@ const AttendanceModuleFacultyDesignated = ({
   onClose,
   onSavedToSummary,
   saveSignal = 0,
+  refreshEpoch = 0,
 } = {}) => {
   const seedEmp = String(initialContext?.employeeNumber || '').trim();
   const seedStart = initialContext?.startDate || '';
@@ -2611,13 +2599,14 @@ const AttendanceModuleFacultyDesignated = ({
   }, [accessLoading]);
 
   useEffect(() => {
+    if (embedded) return;
     const en = localStorage.getItem('attendanceDesignatedEmployeeNumber');
     const sd = localStorage.getItem('attendanceDesignatedStartDate');
     const ed = localStorage.getItem('attendanceDesignatedEndDate');
     if (en) setEmployeeNumber(en);
     if (sd) setStartDate(sd);
     if (ed) setEndDate(ed);
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     if (attendanceData.length === 0) return;
@@ -2638,6 +2627,8 @@ const AttendanceModuleFacultyDesignated = ({
   }, []);
 
   useEffect(() => {
+    // Hub drawer uses initialContext + remount; skip router hydration when embedded.
+    if (embedded) return;
     const s = location.state;
     if (!s?.fromAttendanceWorkflow && !s?.fromDevice) return;
 
@@ -2655,6 +2646,7 @@ const AttendanceModuleFacultyDesignated = ({
     }, 300);
     return () => clearTimeout(t);
   }, [
+    embedded,
     location.state?.employeeNumber,
     location.state?.startDate,
     location.state?.endDate,
@@ -3017,10 +3009,35 @@ const AttendanceModuleFacultyDesignated = ({
           officialOverTimeOUT,
         );
 
+        // Late = arrival − official Time IN; Undertime = official Time OUT − departure.
+        const arrivalLateSec = computeArrivalLateSec({
+          timeIN,
+          timeOUT,
+          breaktimeIN,
+          breaktimeOUT,
+          officialTimeIN,
+          officialTimeOUT,
+        }) ?? 0;
+        const earlyLeaveSec = computeEarlyLeaveUndertimeSec({
+          timeIN,
+          timeOUT,
+          breaktimeIN,
+          breaktimeOUT,
+          officialTimeIN,
+          officialTimeOUT,
+        }) ?? 0;
+        formattedfinalcalcFacultyAM =
+          formatOfficialAttendanceSeconds(arrivalLateSec);
+        formattedfinalcalcFacultyPM =
+          formatOfficialAttendanceSeconds(earlyLeaveSec);
+
         return {
           ...row,
-          breaktimeIN: displayBreaktimeIN,
-          breaktimeOUT: displayBreaktimeOUT,
+          // Raw punches for half-day / late (match DTR Apply Designated).
+          breaktimeIN: breaktimeIN || '',
+          breaktimeOUT: breaktimeOUT || '',
+          displayBreaktimeIN,
+          displayBreaktimeOUT,
           lateTotal: formattedfinalcalcFacultyAM,
           undertimeTotal: formattedfinalcalcFacultyPM,
           formattedFacultyRenderedTimeAM,
@@ -3111,6 +3128,12 @@ const AttendanceModuleFacultyDesignated = ({
           );
           const serverReviewMap = buildReviewMapFromStored(stored);
           setHalfDayReviewByDate(serverReviewMap);
+          setAttendanceData(
+            applyStoredLateUndertimeToAttendanceRows(
+              processedData,
+              stored?.byDate || {},
+            ),
+          );
         } catch (err) {
           console.warn(
             'Half-day review fetch failed; using local cache:',
@@ -3683,6 +3706,18 @@ const AttendanceModuleFacultyDesignated = ({
       handleSubmitRef.current?.();
     }, 350);
   }, [embedded, initialContext]);
+
+  // Hub Modification save bumps refreshEpoch → remount + reload latest punches.
+  const lastRefreshEpochRef = useRef(refreshEpoch);
+  useEffect(() => {
+    if (!embedded) return;
+    if (refreshEpoch === lastRefreshEpochRef.current) return;
+    lastRefreshEpochRef.current = refreshEpoch;
+    if (!employeeNumber || !startDate || !endDate) return;
+    setTimeout(() => {
+      handleSubmitRef.current?.();
+    }, 50);
+  }, [embedded, refreshEpoch, employeeNumber, startDate, endDate]);
 
   const handleWorkflowHydrate = useCallback((payload) => {
     setEmployeeNumber(payload.employeeNumber || '');

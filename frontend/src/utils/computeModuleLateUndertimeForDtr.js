@@ -22,6 +22,11 @@ import {
 } from './dtrLateUndertimeFromOverall';
 import { applyFacultyPunchGatedBreaktimes } from './facultyBreaktimeFromPunches';
 import { fetchAttendanceCalendarMaps } from '../components/ATTENDANCE/attendanceLeaveIntegration';
+import {
+  computeArrivalLateSec,
+  computeEarlyLeaveUndertimeSec,
+  formatOfficialAttendanceSeconds,
+} from './officialAttendanceFromDailyRows';
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -130,35 +135,16 @@ const formatSecondsHms = (totalSeconds) => {
 
 export const processNonTeachingLateUndertimeRows = (rawRows) =>
   (rawRows || []).map((row) => {
-    const {
-      timeIN,
-      timeOUT,
-      breaktimeIN,
-      breaktimeOUT,
-      officialBreaktimeIN,
-      officialBreaktimeOUT,
-      officialTimeIN,
-      officialTimeOUT,
-    } = row;
-    const am = calcNonTeachingSegment(
-      timeIN,
-      breaktimeIN,
-      officialTimeIN,
-      officialBreaktimeIN,
-    );
-    const pm = calcNonTeachingSegment(
-      breaktimeOUT,
-      timeOUT,
-      officialBreaktimeOUT,
-      officialTimeOUT,
-    );
-    const lateTotal = formatSecondsHms(
-      parseTardinessToSeconds(am.tardiness) + parseTardinessToSeconds(pm.tardiness),
-    );
+    const arrivalLateSec = computeArrivalLateSec(row) ?? 0;
+    const earlyLeaveSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
+    const lateTotal = formatOfficialAttendanceSeconds(arrivalLateSec);
+    const undertimeTotal = formatOfficialAttendanceSeconds(earlyLeaveSec);
     return {
       ...row,
       lateTotal,
-      undertimeTotal: row._undertimeTotal || ZERO,
+      undertimeTotal,
+      formattedfinalcalcFacultyAM: lateTotal,
+      formattedfinalcalcFacultyPM: undertimeTotal,
     };
   });
 
@@ -291,129 +277,16 @@ const formatDurationMsToHhMmSs = (diffMs) => {
 
 export const processDesignatedLateUndertimeRows = (rawRows) =>
   (rawRows || []).map((row) => {
-    const {
-      timeIN,
-      timeOUT,
-      breaktimeIN,
-      breaktimeOUT,
-      officialBreaktimeIN,
-      officialBreaktimeOUT,
-      officialTimeIN,
-      officialTimeOUT,
-    } = row;
-
-    const {
-      noTimeIn: noAmPunch,
-      noTimeOut: noPmPunch,
-      scheduleBreakIn,
-      scheduleBreakOut,
-      effectiveBreaktimeIN,
-      effectiveBreaktimeOUT,
-    } = applyFacultyPunchGatedBreaktimes({
-      timeIN,
-      timeOUT,
-      breaktimeIN,
-      breaktimeOUT,
-      officialBreaktimeIN,
-      officialBreaktimeOUT,
-    });
-
-    const schedMidpoint = parseAttendanceTimeOn2000(
-      scheduleBreakIn ?? effectiveBreaktimeIN ?? officialBreaktimeIN,
+    const lateTotal = formatOfficialAttendanceSeconds(
+      computeArrivalLateSec(row) ?? 0,
     );
-    const punchInTime = !noAmPunch ? parseAttendanceTimeOn2000(timeIN) : null;
-    const punchInIsPmSide =
-      punchInTime != null &&
-      !Number.isNaN(schedMidpoint.getTime()) &&
-      punchInTime >= schedMidpoint;
-
-    const pmSideLonePunch = !noAmPunch && noPmPunch && punchInIsPmSide;
-    const effectiveNoPmPunch = noPmPunch && !punchInIsPmSide;
-    const hasOnlyMorningPunch = !noAmPunch && noPmPunch && !punchInIsPmSide;
-
-    let formattedfinalcalcFacultyAM = ZERO;
-    if (!pmSideLonePunch) {
-      const startOfficialTimeFacultyAM = parseAttendanceTimeOn2000(officialTimeIN);
-      const endOfficialTimeFacultyAM = parseAttendanceTimeOn2000(
-        effectiveBreaktimeIN ?? scheduleBreakIn ?? officialBreaktimeIN,
-      );
-      const diffMsAMMax = endOfficialTimeFacultyAM - startOfficialTimeFacultyAM;
-      const formattedFacultyMaxRenderedTimeAM = formatDurationMsToHhMmSs(diffMsAMMax);
-      const midnightFacultyAM = new Date('01/01/2000 00:00:00 AM');
-      let timeinfacultyAM;
-      let timeoutfacultyAM;
-      if (noAmPunch) {
-        timeinfacultyAM = midnightFacultyAM;
-        timeoutfacultyAM = midnightFacultyAM;
-      } else {
-        const startDateFacultyAM = parseAttendanceTimeOn2000(timeIN);
-        const endDateFacultyAM = parseAttendanceTimeOn2000(
-          effectiveBreaktimeIN ?? scheduleBreakIn ?? officialBreaktimeIN,
-        );
-        timeinfacultyAM =
-          startDateFacultyAM > endOfficialTimeFacultyAM
-            ? midnightFacultyAM
-            : startDateFacultyAM < startOfficialTimeFacultyAM
-              ? startOfficialTimeFacultyAM
-              : startDateFacultyAM;
-        timeoutfacultyAM =
-          timeinfacultyAM === midnightFacultyAM
-            ? midnightFacultyAM
-            : endDateFacultyAM;
-      }
-      const formattedFacultyRenderedTimeAM = formatDurationMsToHhMmSs(
-        timeoutfacultyAM - timeinfacultyAM,
-      );
-      const tardAM =
-        parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimeAM) -
-        parseAttendanceTimeOn2000(formattedFacultyRenderedTimeAM);
-      formattedfinalcalcFacultyAM = formatDurationMsToHhMmSs(tardAM);
-    }
-
-    let formattedfinalcalcFacultyPM = ZERO;
-    if (!hasOnlyMorningPunch) {
-      const startOfficialTimeFacultyPM = parseAttendanceTimeOn2000(
-        effectiveBreaktimeOUT ?? scheduleBreakOut ?? officialBreaktimeOUT,
-      );
-      const endOfficialTimeFacultyPM = parseAttendanceTimeOn2000(officialTimeOUT);
-      const formattedFacultyMaxRenderedTimePM = formatDurationMsToHhMmSs(
-        endOfficialTimeFacultyPM - startOfficialTimeFacultyPM,
-      );
-      const midnightFacultyPM = new Date('01/01/2000 00:00:00 PM');
-      let timeinfacultyPM;
-      let timeoutfacultyPM;
-      if (effectiveNoPmPunch) {
-        timeoutfacultyPM = midnightFacultyPM;
-        timeinfacultyPM = midnightFacultyPM;
-      } else {
-        const startDateFacultyPM = parseAttendanceTimeOn2000(
-          effectiveBreaktimeOUT ?? scheduleBreakOut ?? officialBreaktimeOUT,
-        );
-        const endDateFacultyPM = parseAttendanceTimeOn2000(timeOUT);
-        timeoutfacultyPM =
-          endDateFacultyPM < startOfficialTimeFacultyPM
-            ? midnightFacultyPM
-            : endDateFacultyPM > endOfficialTimeFacultyPM
-              ? endOfficialTimeFacultyPM
-              : endDateFacultyPM;
-        timeinfacultyPM =
-          timeoutfacultyPM === midnightFacultyPM
-            ? midnightFacultyPM
-            : startDateFacultyPM;
-      }
-      const formattedFacultyRenderedTimePM = formatDurationMsToHhMmSs(
-        timeoutfacultyPM - timeinfacultyPM,
-      );
-      const tardPM =
-        parseAttendanceTimeOn2000(formattedFacultyMaxRenderedTimePM) -
-        parseAttendanceTimeOn2000(formattedFacultyRenderedTimePM);
-      formattedfinalcalcFacultyPM = formatDurationMsToHhMmSs(tardPM);
-    }
-
+    const undertimeTotal = formatOfficialAttendanceSeconds(
+      computeEarlyLeaveUndertimeSec(row) ?? 0,
+    );
     return {
       ...row,
-      lateTotal: formattedfinalcalcFacultyAM,
-      undertimeTotal: formattedfinalcalcFacultyPM,
+      lateTotal,
+      undertimeTotal,
     };
   });
 
@@ -553,6 +426,8 @@ export async function computeAndApplyModuleLateUndertime({
     rows,
     halfDayDates: [...approvedSet].join(', '),
     half_day_review: buildHalfDayReviewArray(reviewByDate),
+    /** Explicit DTR "Apply" always recalculates from current punches. */
+    forceOverwrite: true,
   });
 
   return {

@@ -90,6 +90,7 @@ import {
   persistDailyLateUndertimeFromModule,
   persistHalfDayReviewDailyLate,
   fetchDailyLateUndertime,
+  applyStoredLateUndertimeToAttendanceRows,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import {
   MODULE_TYPES,
@@ -119,15 +120,13 @@ import {
 } from './HalfDayTotalColumnHints';
 import { getHalfDayReviewRowChrome } from './HalfDayApproveCheckboxCell';
 import {
-  computeOfficialAwareAbsenceAndLate,
   listAbsentDatesFromDailyRows,
-  listHalfDayDatesFromDailyRows,
-  parseOfficialTimeToSeconds,
-  formatOfficialAttendanceSeconds,
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
   hasNoPunches,
-  isNonTeachingHalfDayByPunches,
+  computeArrivalLateSec,
+  computeEarlyLeaveUndertimeSec,
+  formatOfficialAttendanceSeconds,
 } from '../../utils/officialAttendanceFromDailyRows';
 import {
   sumHmsDurationStrings,
@@ -461,7 +460,10 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
         const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.NON_TEACHING);
         if (eff?.morning) return eff.morning;
       }
-      return !row.officialTimeIN || !row.breaktimeIN || row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimeAM : row.formattedfinalcalcFacultyAM;
+      return !row.officialTimeIN ||
+        row.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimeAM
+        : row.formattedfinalcalcFacultyAM;
     }
     case '_totalRendered':
       return getRowTotalRenderedDisplay(
@@ -486,7 +488,10 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
         const eff = getEffectiveTardinessFromApproved(entry, MODULE_TYPES.NON_TEACHING);
         if (eff?.afternoon) return eff.afternoon;
       }
-      return !row.officialBreaktimeOUT || !row.timeOUT || row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN' ? row.formattedFacultyMaxRenderedTimePM : row.formattedfinalcalcFacultyPM;
+      return !row.officialTimeOUT ||
+        row.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
+        ? row.formattedFacultyMaxRenderedTimePM
+        : row.formattedfinalcalcFacultyPM;
     }
     case '_totalTardiness': {
       if (isFurlough) return '00:00:00';
@@ -993,13 +998,14 @@ const AttendanceModuleNonTeachingStaff = ({
   useEffect(() => { if (!accessLoading) setPageLoading(false); }, [accessLoading]);
 
   useEffect(() => {
+    if (embedded) return;
     const en = localStorage.getItem('attendanceNonTeachingEmployeeNumber');
     const sd = localStorage.getItem('attendanceNonTeachingStartDate');
     const ed = localStorage.getItem('attendanceNonTeachingEndDate');
     if (en) setEmployeeNumber(en);
     if (sd) setStartDate(sd);
     if (ed) setEndDate(ed);
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     if (attendanceData.length === 0) return;
@@ -1114,26 +1120,17 @@ if (rawRows.length === 0) {
         const hn = calcSegment(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
         const sc = calcSegment(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
         const ot = calcSegment(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
-        const parseTardiness = (t) => {
-          if (!t || t === 'NaN:NaN:NaN' || t === '—') return 0;
-          const parts = (t || '00:00:00').split(':').map(Number);
-          const h = parts[0] || 0;
-          const m = parts[1] || 0;
-          if (Number.isNaN(h) || Number.isNaN(m)) return 0;
-          return h * 3600 + m * 60;
-        };
-        const totalTardinessSeconds =
-          parseTardiness(am.tardiness) + parseTardiness(pm.tardiness);
-        const h = Math.floor(totalTardinessSeconds / 3600);
-        const m = Math.floor((totalTardinessSeconds % 3600) / 60);
-        const s = totalTardinessSeconds % 60;
-        const lateTotal = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '00')}`;
+        // Late = arrival − official Time IN; Undertime = official Time OUT − departure.
+        const arrivalLateSec = computeArrivalLateSec(row) ?? 0;
+        const earlyLeaveSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
+        const amTardiness = formatOfficialAttendanceSeconds(arrivalLateSec);
+        const pmTardiness = formatOfficialAttendanceSeconds(earlyLeaveSec);
         return {
           ...row,
-          lateTotal,
-          undertimeTotal: row._undertimeTotal || '00:00:00',
-          formattedFacultyRenderedTimeAM: am.rendered,  formattedFacultyMaxRenderedTimeAM: am.maxRendered, formattedfinalcalcFacultyAM: am.tardiness,
-          formattedFacultyRenderedTimePM: pm.rendered,  formattedFacultyMaxRenderedTimePM: pm.maxRendered, formattedfinalcalcFacultyPM: pm.tardiness,
+          lateTotal: amTardiness,
+          undertimeTotal: pmTardiness,
+          formattedFacultyRenderedTimeAM: am.rendered,  formattedFacultyMaxRenderedTimeAM: am.maxRendered, formattedfinalcalcFacultyAM: amTardiness,
+          formattedFacultyRenderedTimePM: pm.rendered,  formattedFacultyMaxRenderedTimePM: pm.maxRendered, formattedfinalcalcFacultyPM: pmTardiness,
           formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
           formattedFacultyRenderedTimeSC: sc.rendered,  formattedFacultyMaxRenderedTimeSC: sc.maxRendered, formattedfinalcalcFacultySC: sc.tardiness,
           formattedFacultyRenderedTimeOT: ot.rendered,  formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
@@ -1173,7 +1170,10 @@ if (rawRows.length === 0) {
         return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
       };
       const totalLateSec = processedData.reduce(
-        (sum, row) => sum + parseLateToSeconds(row.lateTotal),
+        (sum, row) =>
+          sum +
+          parseLateToSeconds(row.lateTotal) +
+          parseLateToSeconds(row.undertimeTotal),
         0,
       );
       const th = Math.floor(totalLateSec / 3600);
@@ -1208,6 +1208,12 @@ if (rawRows.length === 0) {
             endDate,
           );
           setHalfDayReviewByDate(buildReviewMapFromStored(stored));
+          setAttendanceData(
+            applyStoredLateUndertimeToAttendanceRows(
+              processedData,
+              stored?.byDate || {},
+            ),
+          );
         } catch (err) {
           console.warn(
             'Half-day review fetch failed; using local cache:',

@@ -20,6 +20,9 @@ import {
   formatMonth,
   formatStartDate,
   formatEndDate,
+  formatDtrLeaveLabel,
+  findApprovedLeaveForDate,
+  isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
 
 // ─── Official-time helpers (ported from DailyTimeRecordOverall) ───────────
@@ -217,10 +220,11 @@ export default function DtrTablePairView({
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    if (isApprovedLeaveDate(date))
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
       return {
         type: 'leave',
-        label: 'ON LEAVE',
+        label: formatDtrLeaveLabel(leaveReq),
         bgColor: 'rgba(46,125,50,0.2)',
         textColor: '#000',
         borderColor: '#2e7d32',
@@ -892,6 +896,7 @@ export default function DtrTablePairView({
         officialTimesByDay: officialTimes,
         fullDate,
       });
+      const hasPeriodRecords = Array.isArray(sourceRecords) && sourceRecords.length > 0;
       const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
         record,
         fullDate,
@@ -918,11 +923,42 @@ export default function DtrTablePairView({
         isNotScheduledDay && !indicator
           ? 'rgba(128, 128, 128, 0.06)'
           : rowTint;
+      if (isDtrCalendarBannerRow(indicator)) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{indicator.label}</span>
+            </td>
+          </tr>
+        );
+      }
       if (
         isDtrNonWorkingDayRow({
           isNotScheduledDay,
           indicator,
           timeFields: tf,
+          hasPeriodRecords,
         })
       ) {
         return (
