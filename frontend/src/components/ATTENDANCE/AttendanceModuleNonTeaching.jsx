@@ -2086,7 +2086,7 @@ if (rawRows.length === 0) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
               <WorkHistory sx={{ fontSize: 20, color: T.accent }} />
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15 }}>Non-Teaching Computation</Typography>
+                <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15 }}>Non-Teaching | JO Computation</Typography>
                 <Typography sx={{ fontSize: '0.68rem', color: T.accentMid, fontWeight: 600 }}>Review tardiness, then Save to Summary</Typography>
               </Box>
             </Box>
@@ -2105,8 +2105,8 @@ if (rawRows.length === 0) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
               <WorkHistory sx={{ fontSize: 30, color: T.accent }} />
               <Box>
-                <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>Attendance Records (Non-Teaching)</Typography>
-                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>Non-Teaching Staff · Generate and review attendance records</Typography>
+                <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>Attendance Records (Non-Teaching | JO)</Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600 }}>Non-Teaching & Job Order (JO) Staff · Generate and review attendance records</Typography>
               </Box>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
@@ -2119,7 +2119,7 @@ if (rawRows.length === 0) {
               />
               <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha('#4caf50', 0.12), border: '1px solid rgba(76,175,80,0.25)' }}>
                 <Typography sx={{ fontSize: '0.72rem', color: '#2e7d32', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <CheckCircleIcon sx={{ fontSize: 12 }} /> Non-Teaching
+                  <CheckCircleIcon sx={{ fontSize: 12 }} /> Non-Teaching | JO
                 </Typography>
               </Box>
               <button onClick={handleSubmit} disabled={!employeeNumber || !startDate || !endDate}
