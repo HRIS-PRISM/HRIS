@@ -293,25 +293,18 @@ export const computeFaculty30MinuteBuckets = (
     }
 
     const isHalfDay = isHalfDayByTimeInOutOnly(row);
-    const inSec = parseClockToMinuteSec(row?.timeIN);
-    const outSec = parseClockToMinuteSec(row?.timeOUT);
-
-    let renderedSec = 0;
-    if (inSec != null && outSec != null && !isHalfDay) {
-      renderedSec = Math.max(0, outSec - inSec);
-    } else if (isHalfDay) {
-      renderedSec = Math.floor(schedWorkSec / 2);
-    }
-
-    const deficit = Math.max(0, schedWorkSec - renderedSec);
     if (isHalfDay) {
       halfDays += 1;
-      halfDayShortfallSecTotal += deficit;
+      halfDayShortfallSecTotal += Math.max(0, schedWorkSec - Math.floor(schedWorkSec / 2));
       // Suggested / punch half-day shortfall is Half Days, not Late Total
-    } else {
-      lateShortfallSecTotal += deficit;
-      lateTotalDisplaySec += deficit;
+      return;
     }
+
+    // Full day: use the same late as the table (arrival late + early leave),
+    // not schedule-duration minus (Time OUT − Time IN).
+    const punchLate = getFaculty30TableLateMinuteSec(row);
+    lateShortfallSecTotal += punchLate;
+    lateTotalDisplaySec += punchLate;
   });
 
   return buildMinuteBucketResult({
@@ -322,6 +315,26 @@ export const computeFaculty30MinuteBuckets = (
     lateShortfallSecTotal,
     lateTotalDisplaySec,
   });
+};
+
+/** Match Faculty 30hrs table Total Tardiness (lateTotal / final calc). */
+export const getFaculty30TableLateMinuteSec = (row) => {
+  if (row?.lateTotal != null && String(row.lateTotal).trim() !== '') {
+    return parseDurationToMinuteSec(row.lateTotal);
+  }
+  if (
+    row?.formattedfinalcalcFaculty != null &&
+    String(row.formattedfinalcalcFaculty).trim() !== '' &&
+    row.formattedfinalcalcFaculty !== 'NaN:NaN:NaN'
+  ) {
+    return parseDurationToMinuteSec(row.formattedfinalcalcFaculty);
+  }
+  const offIn = parseClockToMinuteSec(row?.officialTimeIN);
+  const offOut = parseClockToMinuteSec(row?.officialTimeOUT);
+  const inSec = parseClockToMinuteSec(row?.timeIN);
+  const outSec = parseClockToMinuteSec(row?.timeOUT);
+  if (offIn == null || offOut == null || inSec == null || outSec == null) return 0;
+  return Math.max(0, inSec - offIn) + Math.max(0, offOut - outSec);
 };
 
 export const getRowTotalRenderedMinuteDisplay = (
