@@ -637,6 +637,8 @@ const DailyTimeRecordFaculty = ({
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [previewUsers, setPreviewUsers] = useState([]);
+  /** Only one off-screen DTR at a time for capture (avoids mounting N tables on Bulk Print). */
+  const [captureUser, setCaptureUser] = useState(null);
   const [printingAll, setPrintingAll] = useState(false);
   const [printingStatus, setPrintingStatus] = useState('');
 
@@ -1615,7 +1617,10 @@ const DailyTimeRecordFaculty = ({
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (changedIDs.length === 0 && !isBulk) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 1500);
+      debounceTimer = setTimeout(
+        () => fetchAllUsersDTRRef.current?.({ quiet: true }),
+        1500,
+      );
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
@@ -1650,7 +1655,8 @@ const DailyTimeRecordFaculty = ({
         return;
       }
       if (startDate && endDate && allUsersDTR.length > 0) {
-        fetchAllUsersDTRRef.current?.();
+        // Keep the table visible — background refresh only
+        fetchAllUsersDTRRef.current?.({ quiet: true });
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
@@ -1665,22 +1671,30 @@ const DailyTimeRecordFaculty = ({
   ]);
 
   // ─── Batch fetch ───────────────────────────────────────────────────────
-  const fetchAllUsersDTR = useCallback(async () => {
+  /** @param {{ quiet?: boolean }} [opts] quiet = refresh without clearing the table / selection */
+  const fetchAllUsersDTR = useCallback(async (opts = {}) => {
+    const quiet = opts?.quiet === true;
     if (!startDate || !endDate) {
-      showAlert('Date Required', 'Please select start date and end date first');
+      if (!quiet) {
+        showAlert('Date Required', 'Please select start date and end date first');
+      }
       return;
     }
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     const { signal } = abortControllerRef.current;
-    setLoadingAllUsers(true);
-    setLoadPhase('Loading employee list…');
-    setAllUsersDTR([]);
-    setBatchOfficialTimesMap({});
-    setComputedLateByEmployee({});
-    setHalfDayDatesByEmployee({});
-    setSelectedUsers(new Set());
-    setCurrentPage(1);
+    if (!quiet) {
+      setLoadingAllUsers(true);
+      setLoadPhase('Loading employee list…');
+      setAllUsersDTR([]);
+      setBatchOfficialTimesMap({});
+      setComputedLateByEmployee({});
+      setHalfDayDatesByEmployee({});
+      setSelectedUsers(new Set());
+      setCurrentPage(1);
+    } else {
+      setLoadPhase('Refreshing…');
+    }
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
       // Names only first — dept/category come from maps already loaded on mount.
@@ -1697,14 +1711,18 @@ const DailyTimeRecordFaculty = ({
 
       const empList = empRes.data || [];
       if (empList.length === 0) {
-        setAllUsersDTR([]);
-        setBatchOfficialTimesMap({});
-        setLoadingAllUsers(false);
-        setLoadPhase('');
-        showAlert(
-          'No Records Found',
-          'No attendance records found for the selected date range.',
-        );
+        if (!quiet) {
+          setAllUsersDTR([]);
+          setBatchOfficialTimesMap({});
+          setLoadingAllUsers(false);
+          setLoadPhase('');
+          showAlert(
+            'No Records Found',
+            'No attendance records found for the selected date range.',
+          );
+        } else {
+          setLoadPhase('');
+        }
         return;
       }
 
@@ -1746,10 +1764,32 @@ const DailyTimeRecordFaculty = ({
         };
       });
 
-      // Show the employee table immediately — don't block UI on punch hydration.
-      setAllUsersDTR(skeletonUsers);
-      setLoadingAllUsers(false);
-      setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
+      if (quiet) {
+        // Keep existing rows/records on screen; replace only as chunks arrive
+        setAllUsersDTR((prev) => {
+          const prevById = new Map(
+            prev.map((u) => [String(u.employeeNumber), u]),
+          );
+          return skeletonUsers.map((u) => {
+            const existing = prevById.get(String(u.employeeNumber));
+            if (!existing) return u;
+            return {
+              ...u,
+              records: existing.records || [],
+              hasRecords: existing.hasRecords,
+              _loading: false,
+            };
+          });
+        });
+      } else {
+        setAllUsersDTR(skeletonUsers);
+        setLoadingAllUsers(false);
+      }
+      setLoadPhase(
+        quiet
+          ? `Refreshing attendance (0 / ${empList.length})…`
+          : `Loading attendance (0 / ${empList.length})…`,
+      );
 
       const empNums = skeletonUsers.map((u) => u.employeeNumber);
       const chunks = [];
@@ -1796,7 +1836,7 @@ const DailyTimeRecordFaculty = ({
 
         hydrated += batch.reduce((n, c) => n + c.length, 0);
         setLoadPhase(
-          `Loading attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+          `${quiet ? 'Refreshing' : 'Loading'} attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
         );
 
         setAllUsersDTR((prev) =>
@@ -1857,12 +1897,16 @@ const DailyTimeRecordFaculty = ({
     } catch (error) {
       if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('fetchAllUsersDTR error:', error);
-      showAlert(
-        'Fetch Error',
-        error.response?.data?.error || 'Error fetching attendance records.',
-      );
-      setAllUsersDTR([]);
-      setBatchOfficialTimesMap({});
+      if (!quiet) {
+        showAlert(
+          'Fetch Error',
+          error.response?.data?.error || 'Error fetching attendance records.',
+        );
+        setAllUsersDTR([]);
+        setBatchOfficialTimesMap({});
+      } else {
+        setLoadPhase('');
+      }
     } finally {
       if (!signal?.aborted) {
         setLoadingAllUsers(false);
@@ -2201,6 +2245,34 @@ const DailyTimeRecordFaculty = ({
     }
   };
 
+  /** Mount a single off-screen DTR, wait for ref, capture, then unmount. */
+  const mountAndCaptureUserDtr = async (user, scale = 2) => {
+    if (!user?.employeeNumber) throw new Error('Invalid user for DTR capture');
+    setCaptureUser(user);
+    await new Promise((r) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setTimeout(r, 40));
+      });
+    });
+
+    const empKey = String(user.employeeNumber);
+    const started = Date.now();
+    let ref = bulkDTRRefs.current[empKey];
+    while (!ref && Date.now() - started < 8000) {
+      await new Promise((r) => setTimeout(r, 30));
+      ref = bulkDTRRefs.current[empKey];
+    }
+    if (!ref) throw new Error(`DTR element not found for ${empKey}`);
+
+    try {
+      return await captureDtrElement(ref, scale);
+    } finally {
+      setCaptureUser(null);
+      delete bulkDTRRefs.current[empKey];
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  };
+
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
@@ -2291,14 +2363,11 @@ const DailyTimeRecordFaculty = ({
       setPreviewUsers([user]);
       setCurrentPreviewIndex(0);
       setPreviewModalOpen(false);
-      await new Promise((r) => setTimeout(r, 300));
-      const ref = bulkDTRRefs.current[user.employeeNumber];
-      if (!ref) throw new Error('DTR element not found. Please try again.');
       setPrintingStatus('Capturing DTR layout...');
-      const canvas = await captureDtrElement(ref, 2);
+      const canvas = await mountAndCaptureUserDtr(user, 2);
       if (!canvas || canvas.width === 0)
         throw new Error('Failed to capture DTR.');
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = canvas.toDataURL('image/jpeg', 0.85);
       if (!imgData || imgData === 'data:,')
         throw new Error('Failed to generate image.');
       const pdf = new jsPDF({
@@ -2312,7 +2381,7 @@ const DailyTimeRecordFaculty = ({
         ph = pdf.internal.pageSize.getHeight();
       pdf.addImage(
         imgData,
-        'PNG',
+        'JPEG',
         (pw - dtrW) / 2,
         (ph - dtrH) / 2,
         dtrW,
@@ -2343,6 +2412,7 @@ const DailyTimeRecordFaculty = ({
       console.error('Error printing individual DTR:', error);
       showAlert('Print Error', `Error printing DTR: ${error.message}`);
     } finally {
+      setCaptureUser(null);
       setPrintingStatus('');
       setPrintingAll(false);
     }
@@ -2369,26 +2439,24 @@ const DailyTimeRecordFaculty = ({
         pw = pdf.internal.pageSize.getWidth(),
         ph = pdf.internal.pageSize.getHeight();
       const captureScale =
-        previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
       let successCount = 0;
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
         if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
           setPrintingStatus(
             `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
           );
         }
-        if (!ref) continue;
         try {
-          const canvas = await captureDtrElement(ref, captureScale);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale);
           if (!canvas || canvas.width === 0) continue;
-          const imgData = canvas.toDataURL('image/png');
+          const imgData = canvas.toDataURL('image/jpeg', 0.82);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
           pdf.addImage(
             imgData,
-            'PNG',
+            'JPEG',
             (pw - dtrW) / 2,
             (ph - dtrH) / 2,
             dtrW,
@@ -2433,6 +2501,7 @@ const DailyTimeRecordFaculty = ({
       console.error('Error printing DTRs:', error);
       showAlert('Print Error', `Error: ${error.message || 'Unknown error'}`);
     } finally {
+      setCaptureUser(null);
       setPrintingStatus('');
       setPrintingAll(false);
     }
@@ -2459,26 +2528,24 @@ const DailyTimeRecordFaculty = ({
         pw = pdf.internal.pageSize.getWidth(),
         ph = pdf.internal.pageSize.getHeight();
       const captureScale =
-        previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
       let successCount = 0;
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
         if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
           setPrintingStatus(
             `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
           );
         }
-        if (!ref) continue;
         try {
-          const canvas = await captureDtrElement(ref, captureScale);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale);
           if (!canvas || canvas.width === 0) continue;
-          const imgData = canvas.toDataURL('image/png');
+          const imgData = canvas.toDataURL('image/jpeg', 0.82);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
           pdf.addImage(
             imgData,
-            'PNG',
+            'JPEG',
             (pw - dtrW) / 2,
             (ph - dtrH) / 2,
             dtrW,
@@ -2500,6 +2567,7 @@ const DailyTimeRecordFaculty = ({
     } catch (error) {
       showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
     } finally {
+      setCaptureUser(null);
       setPrintingStatus('');
       setPrintingAll(false);
     }
@@ -3664,7 +3732,9 @@ const DailyTimeRecordFaculty = ({
     <div
       key={user.employeeNumber}
       ref={(el) => {
-        if (el) bulkDTRRefs.current[user.employeeNumber] = el;
+        const key = String(user.employeeNumber);
+        if (el) bulkDTRRefs.current[key] = el;
+        else delete bulkDTRRefs.current[key];
       }}
       style={{
         position: 'absolute',
@@ -5903,7 +5973,7 @@ const DailyTimeRecordFaculty = ({
                       </>
                     )}
 
-                    {/* Off-screen bulk DTR nodes */}
+                    {/* Single off-screen DTR — mounted only while capturing */}
                     <Box
                       sx={{
                         position: 'absolute',
@@ -5914,7 +5984,7 @@ const DailyTimeRecordFaculty = ({
                         overflow: 'hidden',
                       }}
                     >
-                      {previewUsers.map((user) => renderUserDTRTable(user))}
+                      {captureUser ? renderUserDTRTable(captureUser) : null}
                     </Box>
                   </SectionCard>
                 </Grid>

@@ -12,7 +12,7 @@ import {
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
   hasNoPunches,
-  isHalfDayByPunchPattern,
+  isHalfDayByTimeInOutOnly,
   hasNoPunchesTimeInOutOnly,
 } from './officialAttendanceFromDailyRows';
 
@@ -292,7 +292,7 @@ export const computeFaculty30MinuteBuckets = (
       return;
     }
 
-    const isHalfDay = isHalfDayByPunchPattern(row);
+    const isHalfDay = isHalfDayByTimeInOutOnly(row);
     const inSec = parseClockToMinuteSec(row?.timeIN);
     const outSec = parseClockToMinuteSec(row?.timeOUT);
 

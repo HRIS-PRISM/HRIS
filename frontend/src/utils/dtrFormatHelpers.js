@@ -328,8 +328,18 @@ export const openPdfBlobForPrint = (pdf, fileName) => {
       }
     }, 100);
     setTimeout(() => clearInterval(timer), 5000);
+  } else {
+    // Popup blocked after async work — still deliver the PDF via download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
   setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  return Boolean(win);
 };
 
 export const formatStartDate = (dateString) => {
