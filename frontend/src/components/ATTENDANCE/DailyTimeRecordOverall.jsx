@@ -133,6 +133,7 @@ import {
   dtrTimeValueEmpty,
   isDtrCellWatermarkText,
   isDtrNonWorkingDayRow,
+  getDtrUnscheduledWeekdayBanner,
   resolveDtrAmPmCellText,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
@@ -3429,8 +3430,24 @@ const DailyTimeRecordFaculty = ({
               isNotScheduledDay,
               isPendingHalfDay,
             });
+      const isNonWorkingDayRow = isDtrNonWorkingDayRow({
+        isNotScheduledDay,
+        indicator: dateIndicator,
+        timeFields: tf,
+        hasPeriodRecords,
+        fullDate,
+        dayName,
+      });
+      const unscheduledWeekdayLabel = getDtrUnscheduledWeekdayBanner({
+        isNotScheduledDay,
+        indicator: dateIndicator,
+        timeFields: tf,
+        hasPeriodRecords,
+        fullDate,
+        dayName,
+      });
       const nonWorkingRowTint =
-        isNotScheduledDay && !dateIndicator
+        isNonWorkingDayRow || unscheduledWeekdayLabel
           ? 'rgba(128, 128, 128, 0.06)'
           : rowTint;
       if (isDtrCalendarBannerRow(dateIndicator)) {
@@ -3463,14 +3480,7 @@ const DailyTimeRecordFaculty = ({
           </tr>
         );
       }
-      if (
-        isDtrNonWorkingDayRow({
-          isNotScheduledDay,
-          indicator: dateIndicator,
-          timeFields: tf,
-          hasPeriodRecords,
-        })
-      ) {
+      if (isNonWorkingDayRow) {
         return (
           <tr key={i}>
             <td
@@ -3496,6 +3506,36 @@ const DailyTimeRecordFaculty = ({
               }}
             >
               <span style={DTR_WM_INLINE_STYLE}>{DTR_NON_WORKING_DAY_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (unscheduledWeekdayLabel) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{unscheduledWeekdayLabel}</span>
             </td>
           </tr>
         );

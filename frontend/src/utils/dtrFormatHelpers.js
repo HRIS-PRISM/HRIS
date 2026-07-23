@@ -34,19 +34,51 @@ export const isDtrCalendarBannerRow = (indicator) =>
 export const dtrTimeValueEmpty = (v) =>
   v == null || (typeof v === 'string' && v.trim() === '');
 
-/**
- * Unscheduled day (e.g. weekend) with no punches → NON-WORKING DAY merged row.
- * Only when the period has attendance/schedule context (`hasPeriodRecords`).
- * With no data at all, keep the blank 6-column DTR grid.
- */
-export const isDtrNonWorkingDayRow = ({
-  isNotScheduledDay,
-  indicator,
-  timeFields,
-  hasPeriodRecords = true,
-}) => {
-  if (!hasPeriodRecords) return false;
-  if (!isNotScheduledDay || indicator?.label) return false;
+const WEEKDAY_NAMES_DTR = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/** Calendar weekday for YYYY-MM-DD (Asia/Manila). */
+export const getDtrWeekdayName = (ymd) => {
+  const s = String(ymd ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  try {
+    const d = new Date(`${s}T12:00:00+08:00`);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      weekday: 'long',
+    }).formatToParts(d);
+    const w = parts.find((p) => p.type === 'weekday')?.value || '';
+    return WEEKDAY_NAMES_DTR.includes(w) ? w : '';
+  } catch {
+    return WEEKDAY_NAMES_DTR[new Date(`${s}T12:00:00`).getDay()] || '';
+  }
+};
+
+export const isDtrWeekendDay = (fullDate, dayName) => {
+  const name = dayName || getDtrWeekdayName(fullDate);
+  return name === 'Saturday' || name === 'Sunday';
+};
+
+export const isDtrWeekdayName = (fullDate, dayName) => {
+  const name = dayName || getDtrWeekdayName(fullDate);
+  return (
+    name === 'Monday' ||
+    name === 'Tuesday' ||
+    name === 'Wednesday' ||
+    name === 'Thursday' ||
+    name === 'Friday'
+  );
+};
+
+const hasNoDtrPunches = (timeFields) => {
   const { timeIN, breaktimeIN, breaktimeOUT, timeOUT } = timeFields || {};
   return (
     dtrTimeValueEmpty(timeIN) &&
@@ -54,6 +86,46 @@ export const isDtrNonWorkingDayRow = ({
     dtrTimeValueEmpty(breaktimeOUT) &&
     dtrTimeValueEmpty(timeOUT)
   );
+};
+
+/**
+ * Saturday/Sunday with no official schedule and no punches → NON-WORKING DAY.
+ * Mon–Fri never use this banner (even when unscheduled).
+ * Saturday/Sunday with official time or attendance punches show data normally.
+ */
+export const isDtrNonWorkingDayRow = ({
+  isNotScheduledDay,
+  indicator,
+  timeFields,
+  hasPeriodRecords = true,
+  fullDate,
+  dayName,
+}) => {
+  if (!hasPeriodRecords) return false;
+  if (!isNotScheduledDay || indicator?.label) return false;
+  if (!isDtrWeekendDay(fullDate, dayName)) return false;
+  return hasNoDtrPunches(timeFields);
+};
+
+/**
+ * Mon–Fri with no official schedule and no punches → banner with weekday name
+ * (e.g. "Monday"), not NON-WORKING DAY.
+ * Returns the weekday label, or '' when not applicable.
+ */
+export const getDtrUnscheduledWeekdayBanner = ({
+  isNotScheduledDay,
+  indicator,
+  timeFields,
+  hasPeriodRecords = true,
+  fullDate,
+  dayName,
+}) => {
+  if (!hasPeriodRecords) return '';
+  if (!isNotScheduledDay || indicator?.label) return '';
+  const name = dayName || getDtrWeekdayName(fullDate);
+  if (!isDtrWeekdayName(fullDate, name)) return '';
+  if (!hasNoDtrPunches(timeFields)) return '';
+  return String(name).toUpperCase();
 };
 
 export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
