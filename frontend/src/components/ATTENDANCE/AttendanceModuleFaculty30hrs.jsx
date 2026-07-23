@@ -103,6 +103,7 @@ import API_BASE_URL from '../../apiConfig';
     getApprovedHalfDayDatesSet,
     getEffectiveTardinessFromReview,
     getEffectiveTardinessFromApproved,
+    hasHrHalfDayConfirmation,
     getRowHalfDayUiStatus,
     countSuggestedHalfDays,
   } from '../../utils/halfDayReview';
@@ -586,22 +587,23 @@ import API_BASE_URL from '../../apiConfig';
       }
 
       const isHalfDay = isHalfDayByTimeInOutOnly(row);
-      if (isHalfDay) halfDays += 1;
+      if (isHalfDay) {
+        halfDays += 1;
+        halfDayShortfallSecTotal += Math.max(
+          0,
+          schedWorkSec - Math.floor(schedWorkSec / 2),
+        );
+        return;
+      }
 
       const inSec = parseClockToMinuteSec(row?.timeIN);
       const outSec = parseClockToMinuteSec(row?.timeOUT);
-
-      let renderedSec = 0;
-      if (inSec != null && outSec != null && !isHalfDay) {
-        renderedSec = Math.max(0, outSec - inSec);
-      } else if (isHalfDay) {
-        renderedSec = Math.floor(schedWorkSec / 2);
+      if (inSec != null && outSec != null) {
+        renderedSecTotal += Math.max(0, outSec - inSec);
       }
-
-      renderedSecTotal += renderedSec;
-      const deficit = Math.max(0, schedWorkSec - renderedSec);
-      if (isHalfDay) halfDayShortfallSecTotal += deficit;
-      else lateShortfallSecTotal += deficit;
+      lateShortfallSecTotal += parseDurationToMinuteSec(
+        row?.lateTotal ?? row?.formattedfinalcalcFaculty,
+      );
     });
 
     const overallShortfallSecTotal = absentSecTotal + halfDayShortfallSecTotal + lateShortfallSecTotal;
@@ -1883,8 +1885,38 @@ import API_BASE_URL from '../../apiConfig';
         if (Boolean(getStatusLabelForDate(row.date))) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT) : displayDurationHhMm(row.formattedfinalcalcFacultyOT);
       });
-      const lateTotalTime = buckets.lateShortfallTime;
-      const overallTardiness = buckets.overallShortfallTime;
+      const lateTotalSec = attendanceData.reduce((sum, row) => {
+        const d = String(row?.date ?? '').trim().slice(0, 10);
+        if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return sum;
+        if (!isScheduledByOfficialTime(row)) return sum;
+        if (Boolean(getStatusLabelForDate(row.date))) return sum;
+        if (hasNoPunchesTimeInOutOnly(row)) return sum;
+        const entry = halfDayReviewByDate?.[d];
+        if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
+          return sum;
+        }
+        if (entry?.status === HALF_DAY_STATUS.REJECTED) {
+          return (
+            sum +
+            parseDurationToMinuteSec(
+              getCellValue(row, '_tardiness', false, tardinessOverrides, halfDayReviewByDate),
+            )
+          );
+        }
+        if (isHalfDayByTimeInOutOnly(row)) return sum;
+        return (
+          sum +
+          parseDurationToMinuteSec(
+            getCellValue(row, '_tardiness', false, tardinessOverrides, halfDayReviewByDate),
+          )
+        );
+      }, 0);
+      const lateTotalTime = formatDurationHhMm(lateTotalSec);
+      const overallTardiness = formatDurationHhMm(
+        parseDurationToMinuteSec(buckets.absentTime) +
+          parseDurationToMinuteSec(buckets.halfDayShortfallTime) +
+          lateTotalSec,
+      );
 
       return {
         absentDays: buckets.absentDays,
@@ -2060,7 +2092,7 @@ import API_BASE_URL from '../../apiConfig';
         return {
           absentDays: c.absentDays,
           halfDays: c.halfDays,
-          lateTotalTime: c.lateShortfallTime || ZERO_HM,
+          lateTotalTime: totals.lateTotalTime || ZERO_HM,
           absentTime: c.absentTime,
           halfDayShortfallTime: c.halfDayShortfallTime,
           absentDates: absentList.join(', '),
