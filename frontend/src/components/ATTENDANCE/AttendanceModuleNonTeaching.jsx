@@ -333,7 +333,7 @@ const computeNonTeachingMinuteBuckets = (rows, reviewByDate, calendarMaps) => {
     if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
       halfDays += 1;
       halfDayShortfallSecTotal += computeApprovedHalfDayShortfallMinuteSec(row, entry);
-      lateTotalDisplaySec += getAmPmSlotLateMinuteSec(row);
+      // Half-day shortfall → Overall only; not Late Total
       return;
     }
 
@@ -1480,7 +1480,7 @@ if (rawRows.length === 0) {
         ),
       ),
     );
-    const lateTotalTime = buckets.lateTotalDisplayTime;
+    const lateTotalTime = buckets.lateShortfallTime;
     const overallTardiness = buckets.overallShortfallTime;
     const hnRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_hnRendered',  Boolean(getStatusLabelForDate(r.date)), ov, rv)));
     const hnTardiness = sumTime(attendanceData.map(r => getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date)), ov, rv)));
@@ -1646,7 +1646,7 @@ if (rawRows.length === 0) {
       return {
         absentDays: c.absentDays,
         halfDays: c.halfDays,
-        lateTotalTime: c.lateTotalDisplayTime,
+        lateTotalTime: c.lateShortfallTime,
         absentTime: c.absentTime,
         halfDayShortfallTime: c.halfDayShortfallTime,
         absentDates: absentList.join(', '),

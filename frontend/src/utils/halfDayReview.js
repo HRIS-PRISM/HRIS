@@ -631,12 +631,9 @@ export function computeReviewAwareAbsenceBuckets(
   let halfDays = 0;
   let absentSecTotal = 0;
   let halfDayShortfallSecTotal = 0;
-  /** Late that feeds Overall Tardiness (excludes approved half-day days). */
+  /** Late that feeds Overall Tardiness and Late Total (excludes approved half-day days). */
   let lateShortfallSecTotal = 0;
-  /**
-   * Late Total display — keeps punch late after half-day approve so confirming
-   * a half day only increases Half Days, and does not shrink Late Total.
-   */
+  /** Same as lateShortfall — kept for callers that still read lateTotalDisplay*. */
   let lateTotalDisplaySec = 0;
 
   const isFacultyInOut =
@@ -667,8 +664,7 @@ export function computeReviewAwareAbsenceBuckets(
         entry,
         moduleType,
       );
-      // Do not remove this day's punch late from Late Total on confirm
-      lateTotalDisplaySec += getPunchLateSecondsForModule(row, moduleType);
+      // Half-day shortfall → Overall only; not Late Total
       return;
     }
 

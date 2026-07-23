@@ -3174,8 +3174,8 @@ const AttendanceModuleFacultyDesignated = ({
         ),
       ),
     );
-    const lateTotalTime = morningTardiness;
-    const overallTardiness = rowTardinessSum;
+    const lateTotalTime = buckets.lateShortfallTime;
+    const overallTardiness = buckets.overallShortfallTime;
     const hnRendered = sumTime(
       attendanceData.map((r) =>
         getCellValue(r, '_hnRendered', Boolean(getStatusLabelForDate(r.date))),

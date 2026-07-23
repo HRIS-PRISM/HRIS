@@ -636,16 +636,12 @@ const OverallAttendance = () => {
         setAttendanceData(
           (Array.isArray(overallRows) ? overallRows : []).map((r) => {
             const stored = buildBucketStringsFromStored(r);
-            const overallSaved = r.overallRenderedOfficialTimeTardiness;
-            const savedTrim =
-              overallSaved != null && String(overallSaved).trim() !== ''
-                ? String(overallSaved).trim()
-                : '';
             let lateTotalResolved;
             if (r?.lateTotalTime != null && String(r.lateTotalTime).trim() !== '') {
               lateTotalResolved = String(r.lateTotalTime).trim();
             } else {
-              lateTotalResolved = savedTrim || '';
+              // Do not fall back to overall tardiness (that includes absent + half day)
+              lateTotalResolved = '';
             }
             return {
               ...r,
