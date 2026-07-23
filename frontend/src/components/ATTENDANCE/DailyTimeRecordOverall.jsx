@@ -112,6 +112,7 @@ import {
   parseHalfDayDatesSet,
   getDayNameFromYmd,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
 import { computeAndApplyModuleLateUndertime } from '../../utils/computeModuleLateUndertimeForDtr';
 import {
   buildReviewByDate,
@@ -1085,50 +1086,13 @@ const DailyTimeRecordFaculty = ({
   const fetchOfficialTimes = useCallback(
     async (employeeID, periodStart, periodEnd) => {
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/officialtimetable/${employeeID}`,
-          { ...getAuthHeaders(), params: { skipAudit: '1' } },
+        const timesMap = await fetchOfficialTimesBatch(
+          [employeeID],
+          periodStart,
+          periodEnd,
+          getAuthHeaders,
         );
-
-        const allRows = response.data || [];
-
-        const filtered =
-          periodStart && periodEnd
-            ? allRows.filter((r) => {
-                const schedStart = r.startDate
-                  ? String(r.startDate).split('T')[0]
-                  : null;
-                const schedEnd = r.endDate
-                  ? String(r.endDate).split('T')[0]
-                  : null;
-                if (!schedStart || !schedEnd) return false;
-                return schedStart <= periodEnd && schedEnd >= periodStart;
-              })
-            : allRows;
-
-        const map = filtered.reduce((acc, r) => {
-          if (
-            !acc[r.day] ||
-            (r.id && acc[r.day]._id && r.id > acc[r.day]._id)
-          ) {
-            acc[r.day] = {
-              _id: r.id,
-              officialTimeIN: r.officialTimeIN,
-              officialTimeOUT: r.officialTimeOUT,
-              officialBreaktimeIN: r.officialBreaktimeIN,
-              officialBreaktimeOUT: r.officialBreaktimeOUT,
-            };
-          }
-          return acc;
-        }, {});
-
-        const cleanMap = Object.fromEntries(
-          Object.entries(map).map(([day, val]) => {
-            const { _id, ...rest } = val;
-            return [day, rest];
-          }),
-        );
-
+        const cleanMap = timesMap[employeeID] || timesMap[String(employeeID)] || {};
         setOfficialTimes(cleanMap);
       } catch (err) {
         console.error('Error fetching official times:', err);
@@ -1161,65 +1125,12 @@ const DailyTimeRecordFaculty = ({
     async (employeeNumbers, periodStart, periodEnd) => {
       if (!employeeNumbers || employeeNumbers.length === 0) return;
       try {
-        const timesMap = {};
-        const OT_CONCURRENCY = 5;
-        for (let i = 0; i < employeeNumbers.length; i += OT_CONCURRENCY) {
-          const chunk = employeeNumbers.slice(i, i + OT_CONCURRENCY);
-          await Promise.all(
-            chunk.map(async (empID) => {
-              try {
-                const response = await axios.get(
-                  `${API_BASE_URL}/officialtimetable/${empID}`,
-                  { ...getAuthHeaders(), params: { skipAudit: '1' } },
-                );
-                const allRows = response.data || [];
-                const filtered =
-                  periodStart && periodEnd
-                    ? allRows.filter((r) => {
-                        const schedStart = r.startDate
-                          ? String(r.startDate).split('T')[0]
-                          : null;
-                        const schedEnd = r.endDate
-                          ? String(r.endDate).split('T')[0]
-                          : null;
-                        if (!schedStart || !schedEnd) return false;
-                        return (
-                          schedStart <= periodEnd && schedEnd >= periodStart
-                        );
-                      })
-                    : allRows;
-                const map = filtered.reduce((acc, r) => {
-                  if (
-                    !acc[r.day] ||
-                    (r.id && acc[r.day]._id && r.id > acc[r.day]._id)
-                  ) {
-                    acc[r.day] = {
-                      _id: r.id,
-                      officialTimeIN: r.officialTimeIN,
-                      officialTimeOUT: r.officialTimeOUT,
-                      officialBreaktimeIN: r.officialBreaktimeIN,
-                      officialBreaktimeOUT: r.officialBreaktimeOUT,
-                    };
-                  }
-                  return acc;
-                }, {});
-                const cleanMap = Object.fromEntries(
-                  Object.entries(map).map(([day, val]) => {
-                    const { _id, ...rest } = val;
-                    return [day, rest];
-                  }),
-                );
-                timesMap[empID] = cleanMap;
-              } catch (err) {
-                console.error(
-                  `Error fetching official times for employee ${empID}:`,
-                  err,
-                );
-                timesMap[empID] = {};
-              }
-            }),
-          );
-        }
+        const timesMap = await fetchOfficialTimesBatch(
+          employeeNumbers,
+          periodStart,
+          periodEnd,
+          getAuthHeaders,
+        );
         setBatchOfficialTimesMap(timesMap);
       } catch (error) {
         console.error('Error in fetchBatchOfficialTimes:', error);
@@ -1769,7 +1680,7 @@ const DailyTimeRecordFaculty = ({
     setCurrentPage(1);
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
-      const empListParams = { startDate, endDate };
+      const empListParams = { startDate, endDate, skipAudit: '1' };
 
       const [empRes, deptRes, catRes] = await Promise.all([
         axios
@@ -1851,31 +1762,6 @@ const DailyTimeRecordFaculty = ({
       });
       setAllUsersDTR(skeletonUsers);
       setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
-      const empListIds = empList.map((e) => e.personID);
-      axios
-        .post(
-          `${API_BASE_URL}/attendance/api/dtr-print-status`,
-          {
-            employeeNumbers: empListIds,
-            year: new Date(startDate).getFullYear(),
-            month: new Date(startDate).getMonth() + 1,
-          },
-          cfg(),
-        )
-        .then((psRes) => {
-          if (signal.aborted) return;
-          const newMap = new Map();
-          (psRes.data || []).forEach((s) =>
-            newMap.set(s.employee_number, {
-              printed_at: s.printed_at,
-              printed_by: s.printed_by,
-            }),
-          );
-          setPrintStatusMap(newMap);
-        })
-        .catch((e) => {
-          if (!signal.aborted) console.error('print status:', e);
-        });
 
       const totalPages = Math.ceil(empList.length / PAGE_SIZE);
       const PAGE_FETCH_CONCURRENCY = 3;
@@ -1896,7 +1782,14 @@ const DailyTimeRecordFaculty = ({
             try {
               const pageRes = await axios.post(
                 `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-                { startDate, endDate, page, pageSize: PAGE_SIZE },
+                {
+                  startDate,
+                  endDate,
+                  page,
+                  pageSize: PAGE_SIZE,
+                  skipCount: page > 1,
+                  skipAudit: true,
+                },
                 cfg(),
               );
               return { page, data: pageRes.data?.data || [] };
@@ -1937,12 +1830,44 @@ const DailyTimeRecordFaculty = ({
         prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
       );
 
-      // ── Second empNums usage — kept as-is (no conflict now) ──
-      const empNums = mergedUsers.map((u) => u.employeeNumber);
-      fetchBatchOfficialTimes(empNums, startDate, endDate).catch(() => {});
-      if (dtrType === 'regular') {
-        loadComputedLateBatch(empNums).catch(() => {});
+      if (!signal.aborted) {
+        setLoadingAllUsers(false);
+        setLoadPhase('');
       }
+
+      const empNums = mergedUsers.map((u) => u.employeeNumber);
+      const empListIds = empList.map((e) => e.personID);
+
+      // Secondary data — after main table is visible (official time, print status, late)
+      Promise.all([
+        fetchBatchOfficialTimes(empNums, startDate, endDate),
+        axios
+          .post(
+            `${API_BASE_URL}/attendance/api/dtr-print-status`,
+            {
+              employeeNumbers: empListIds,
+              year: new Date(startDate).getFullYear(),
+              month: new Date(startDate).getMonth() + 1,
+            },
+            cfg(),
+          )
+          .then((psRes) => {
+            if (signal.aborted) return;
+            const newMap = new Map();
+            (psRes.data || []).forEach((s) =>
+              newMap.set(s.employee_number, {
+                printed_at: s.printed_at,
+                printed_by: s.printed_by,
+              }),
+            );
+            setPrintStatusMap(newMap);
+          }),
+        dtrType === 'regular'
+          ? loadComputedLateBatch(empNums)
+          : Promise.resolve(),
+      ]).catch((e) => {
+        if (!signal.aborted) console.warn('DTR batch secondary load:', e);
+      });
     } catch (error) {
       if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('fetchAllUsersDTR error:', error);
@@ -1962,7 +1887,6 @@ const DailyTimeRecordFaculty = ({
     startDate,
     endDate,
     dtrType,
-    departmentFilter,
     fetchBatchOfficialTimes,
     loadComputedLateBatch,
   ]);
@@ -1970,7 +1894,7 @@ const DailyTimeRecordFaculty = ({
   useEffect(() => {
     if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode, departmentFilter]);
+  }, [startDate, endDate, viewMode]);
 
   // ─── Month click ────────────────────────────────────────────────────────
   const handleMonthClick = (idx) => {
