@@ -3934,7 +3934,9 @@ const AttendanceModuleFacultyDesignated = ({
         'tr:hover &': { bgcolor: `${T.rowHover} !important` },
       }}
     >
-      {typeof content === 'string'
+      {/* Duration cols only — punch/official clocks keep AM/PM (e.g. 07:30:00 AM).
+          displayDurationHhMm treats "00 AM" as NaN and wrongly shows 00:00. */}
+      {typeof content === 'string' && (group === 'calc' || group === 'tard')
         ? normalizeBadHhMmSsDisplay(content)
         : content}
     </TableCell>

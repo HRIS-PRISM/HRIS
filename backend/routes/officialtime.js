@@ -990,6 +990,96 @@ router.post('/officialtime/school-year', authenticateToken, (req, res) =>
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST batch official time lookup (DTR batch print — avoids N+1 per employee)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OFFICIAL_TIME_BATCH_CHUNK = 250;
+
+router.post('/officialtimetable/batch', authenticateToken, (req, res) => {
+  const { employeeNumbers, startDate, endDate } = req.body || {};
+  const ids = Array.isArray(employeeNumbers)
+    ? [...new Set(employeeNumbers.map((n) => String(n).trim()).filter(Boolean))]
+    : [];
+
+  if (!ids.length) {
+    return res.json({ byEmployee: {} });
+  }
+
+  const periodStart = startDate ? String(startDate).slice(0, 10) : null;
+  const periodEnd = endDate ? String(endDate).slice(0, 10) : null;
+
+  const byEmployee = {};
+  ids.forEach((id) => {
+    byEmployee[id] = [];
+  });
+
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += OFFICIAL_TIME_BATCH_CHUNK) {
+    chunks.push(ids.slice(i, i + OFFICIAL_TIME_BATCH_CHUNK));
+  }
+
+  const runChunk = (chunk) =>
+    new Promise((resolve, reject) => {
+      const placeholders = chunk.map(() => '?').join(',');
+      let sql = `SELECT * FROM officialtime WHERE employeeID IN (${placeholders})`;
+      const params = [...chunk];
+      if (periodStart && periodEnd) {
+        sql += ' AND startDate <= ? AND endDate >= ?';
+        params.push(periodEnd, periodStart);
+      }
+      sql += ' ORDER BY employeeID, startDate, endDate, id';
+
+      db.query(sql, params, (err, results) => {
+        if (err) return reject(err);
+        (results || []).forEach((row) => {
+          const emp = String(row.employeeID).trim();
+          if (!byEmployee[emp]) byEmployee[emp] = [];
+          byEmployee[emp].push({
+            ...row,
+            startDate: toDateOnlyString(row.startDate),
+            endDate: toDateOnlyString(row.endDate),
+          });
+        });
+        resolve();
+      });
+    });
+
+  Promise.all(chunks.map(runChunk))
+    .then(() => {
+      const skipAudit =
+        req.body?.skipAudit === true ||
+        req.body?.skipAudit === '1' ||
+        req.body?.skipAudit === 'true';
+      if (!skipAudit) {
+        try {
+          logAudit(
+            req.user,
+            'View',
+            'Official Time',
+            null,
+            `batch:${ids.length}`,
+            buildOfficialTimeActionAuditDetails({
+              source: 'view-db-batch',
+              employeeID: ids[0],
+              affectedEmployeeNumbers: ids.slice(0, 50),
+              startDate: periodStart,
+              endDate: periodEnd,
+              rowCount: Object.values(byEmployee).reduce(
+                (n, rows) => n + rows.length,
+                0,
+              ),
+            }),
+          );
+        } catch (e) {
+          console.error('Audit log error:', e);
+        }
+      }
+      res.json({ byEmployee });
+    })
+    .catch((err) => res.status(500).json({ error: err.message }));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET official time table by employeeID
 // ─────────────────────────────────────────────────────────────────────────────
 
