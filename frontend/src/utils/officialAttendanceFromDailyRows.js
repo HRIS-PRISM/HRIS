@@ -115,6 +115,16 @@ export function isHalfDayByPunchPattern(row) {
   return isHalfDayMorningByPunches(row) || isHalfDayAfternoonByPunches(row);
 }
 
+/**
+ * Faculty 30hrs half-day: exactly one of Time IN / Time OUT.
+ * Break punches are not required and must not affect detection.
+ */
+export function isHalfDayByTimeInOutOnly(row) {
+  const hasIn = !empty(row?.timeIN);
+  const hasOut = !empty(row?.timeOUT);
+  return hasIn !== hasOut;
+}
+
 /** Morning segment engaged as late: Time IN + Break IN. */
 export function hasMorningLateSegmentByPunches(row) {
   return !empty(row?.timeIN) && !empty(row?.breaktimeIN);

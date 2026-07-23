@@ -20,7 +20,6 @@ import {
   fetchDailyLateUndertime,
   rowsToByDateMap,
 } from './dtrLateUndertimeFromOverall';
-import { applyFacultyPunchGatedBreaktimes } from './facultyBreaktimeFromPunches';
 import { fetchAttendanceCalendarMaps } from '../components/ATTENDANCE/attendanceLeaveIntegration';
 import {
   computeArrivalLateSec,
@@ -187,27 +186,15 @@ export const processFaculty30LateUndertimeRows = (rawRows) => {
     const {
       timeIN,
       timeOUT,
-      breaktimeIN,
-      breaktimeOUT,
-      officialBreaktimeIN,
-      officialBreaktimeOUT,
       officialTimeIN,
       officialTimeOUT,
     } = row;
-
-    applyFacultyPunchGatedBreaktimes({
-      timeIN,
-      timeOUT,
-      breaktimeIN,
-      breaktimeOUT,
-      officialBreaktimeIN,
-      officialBreaktimeOUT,
-    });
 
     const startOfficialTimeFaculty = new Date(`01/01/2000 ${officialTimeIN}`);
     const endOfficialTimeFaculty = new Date(`01/01/2000 ${officialTimeOUT}`);
     const diffMsFaculty = endOfficialTimeFaculty - startOfficialTimeFaculty;
 
+    // Faculty 30hrs: only Time IN / Time OUT matter (breaks not required).
     if (faculty30EmptyPunch(timeIN) || faculty30EmptyPunch(timeOUT)) {
       const halfSchedSec =
         faculty30EmptyPunch(timeIN) && faculty30EmptyPunch(timeOUT)

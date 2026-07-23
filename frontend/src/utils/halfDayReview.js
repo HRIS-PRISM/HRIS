@@ -10,6 +10,7 @@ import {
   getOfficialSchedWorkSec,
   hasNoPunches,
   isHalfDayByPunchPattern,
+  isHalfDayByTimeInOutOnly,
   computeArrivalLateSec,
   computeEarlyLeaveUndertimeSec,
 } from './officialAttendanceFromDailyRows';
@@ -422,6 +423,11 @@ export function detectSuggestedHalfDay(row, moduleType, calendarMaps) {
     if (hasNoPunches(row)) return false;
   } else if (hasNoPunchesTimeInOutOnly(row)) {
     return false;
+  }
+
+  // Faculty 30hrs only requires Time IN + Time OUT; break punches are ignored.
+  if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
+    return isHalfDayByTimeInOutOnly(row);
   }
 
   return isHalfDayByPunchPattern(row);
