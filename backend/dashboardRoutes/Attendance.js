@@ -927,7 +927,7 @@
 
   // ─── OPTIMIZED: Lightweight employee list for instant table render ────────────
   router.get('/api/dtr-employee-list', authenticateToken, (req, res) => {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, skipAudit } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'startDate and endDate are required' });
@@ -963,13 +963,17 @@
     db.query(query, [startDate, endDate], (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
 
-      logAudit(
-        req.user,
-        'Viewed DTR Employee List',
-        'Daily Time Record Overall',
-        `${startDate} to ${endDate}`,
-        'all-users',
-      );
+      const auditSkipped =
+        skipAudit === '1' || skipAudit === 'true' || skipAudit === true;
+      if (!auditSkipped) {
+        logAudit(
+          req.user,
+          'Viewed DTR Employee List',
+          'Daily Time Record Overall',
+          `${startDate} to ${endDate}`,
+          'all-users',
+        );
+      }
 
       res.json(results);
     });
@@ -977,7 +981,14 @@
 
   // ─── OPTIMIZED: Paginated attendance — 30 employees at a time ────────────────
   router.post('/api/view-attendance-all-users-paged', authenticateToken, (req, res) => {
-    const { startDate, endDate, page = 1, pageSize = 30 } = req.body;
+    const {
+      startDate,
+      endDate,
+      page = 1,
+      pageSize = 30,
+      skipCount = false,
+      skipAudit = false,
+    } = req.body;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start date and end date are required' });
@@ -985,26 +996,7 @@
 
     const offset = (page - 1) * pageSize;
 
-    const countQuery = `
-      SELECT COUNT(DISTINCT ar.personID) AS total
-      FROM attendancerecord ar
-      WHERE ar.date BETWEEN ? AND ?
-    `;
-
-    db.query(countQuery, [startDate, endDate], (countErr, countResult) => {
-      if (countErr) {
-        console.error('Count query error:', countErr);
-        return res.status(500).json({ error: countErr.message });
-      }
-
-      const total      = countResult[0]?.total ?? 0;
-      const totalPages = Math.ceil(total / pageSize);
-
-      if (total === 0) {
-        return res.json({ data: [], total: 0, page, pageSize, totalPages: 0 });
-      }
-
-      const pageQuery = `
+    const pageQuery = `
         WITH ranked_employees AS (
           SELECT DISTINCT
             ar.personID,
@@ -1050,13 +1042,14 @@
         LEFT JOIN person_table p
           ON ar.personID = p.agencyEmployeeNum
         LEFT JOIN officialtime ot
-          ON DAYNAME(ar.date) = ot.day
-        AND ar.personID      = ot.employeeID
+          ON ar.personID = ot.employeeID
         AND ar.date BETWEEN ot.startDate AND ot.endDate
+        AND ot.day = DAYNAME(ar.date)
         LEFT JOIN (
-          SELECT PersonID, MAX(PersonName) AS PersonName
-          FROM attendancerecordinfo
-          GROUP BY PersonID
+          SELECT ari.PersonID, MAX(ari.PersonName) AS PersonName
+          FROM attendancerecordinfo ari
+          INNER JOIN ranked_employees re2 ON ari.PersonID = re2.personID
+          GROUP BY ari.PersonID
         ) ari_names ON ar.personID = ari_names.PersonID
         ORDER BY
           CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
@@ -1066,6 +1059,7 @@
           ar.date     ASC
       `;
 
+    const runPageQuery = (total, totalPages) => {
       db.query(
         pageQuery,
         [startDate, endDate, pageSize, offset, startDate, endDate],
@@ -1075,17 +1069,45 @@
             return res.status(500).json({ error: err.message });
           }
 
-          logAudit(
-            req.user,
-            `Viewed DTR Records (paged ${page}/${totalPages})`,
-            'Daily Time Record Overall',
-            `${startDate} to ${endDate}`,
-            'all-users',
-          );
+          if (!skipAudit) {
+            logAudit(
+              req.user,
+              `Viewed DTR Records (paged ${page}/${totalPages})`,
+              'Daily Time Record Overall',
+              `${startDate} to ${endDate}`,
+              'all-users',
+            );
+          }
 
           res.json({ data: results, total, page, pageSize, totalPages });
         },
       );
+    };
+
+    if (skipCount) {
+      return runPageQuery(null, null);
+    }
+
+    const countQuery = `
+      SELECT COUNT(DISTINCT ar.personID) AS total
+      FROM attendancerecord ar
+      WHERE ar.date BETWEEN ? AND ?
+    `;
+
+    db.query(countQuery, [startDate, endDate], (countErr, countResult) => {
+      if (countErr) {
+        console.error('Count query error:', countErr);
+        return res.status(500).json({ error: countErr.message });
+      }
+
+      const total = countResult[0]?.total ?? 0;
+      const totalPages = Math.ceil(total / pageSize);
+
+      if (total === 0) {
+        return res.json({ data: [], total: 0, page, pageSize, totalPages: 0 });
+      }
+
+      runPageQuery(total, totalPages);
     });
   });
 

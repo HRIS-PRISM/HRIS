@@ -43,6 +43,7 @@ import {
 import {
   fetchDailyLateUndertimeBatch, parseHalfDayDatesSet,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
 import { MODULE_TYPES } from '../../utils/halfDayReview';
 import DtrTablePairView, { DtrTableContainer } from './DtrTablePairView';
 
@@ -252,45 +253,12 @@ const DailyTimeRecordSupervisor = () => {
 
   const fetchBatchOfficialTimes = useCallback(async (employeeNumbers, periodStart, periodEnd) => {
     if (!employeeNumbers?.length) return {};
-    const timesMap = {};
-    await Promise.all(employeeNumbers.map(async (empID) => {
-      try {
-        const response = await axios.get(
-          `${API_BASE_URL}/officialtimetable/${empID}`,
-          { ...getAuthHeaders(), params: { skipAudit: '1' } },
-        );
-        const allRows = response.data || [];
-        const filtered = periodStart && periodEnd
-          ? allRows.filter((r) => {
-            const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
-            const schedEnd = r.endDate ? String(r.endDate).split('T')[0] : null;
-            if (!schedStart || !schedEnd) return false;
-            return schedStart <= periodEnd && schedEnd >= periodStart;
-          })
-          : allRows;
-        const map = filtered.reduce((acc, r) => {
-          if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
-            acc[r.day] = {
-              _id: r.id,
-              officialTimeIN: r.officialTimeIN,
-              officialTimeOUT: r.officialTimeOUT,
-              officialBreaktimeIN: r.officialBreaktimeIN,
-              officialBreaktimeOUT: r.officialBreaktimeOUT,
-            };
-          }
-          return acc;
-        }, {});
-        timesMap[empID] = Object.fromEntries(
-          Object.entries(map).map(([day, val]) => {
-            const { _id, ...rest } = val;
-            return [day, rest];
-          }),
-        );
-      } catch {
-        timesMap[empID] = {};
-      }
-    }));
-    return timesMap;
+    return fetchOfficialTimesBatch(
+      employeeNumbers,
+      periodStart,
+      periodEnd,
+      getAuthHeaders,
+    );
   }, []);
 
   const loadEmployeesDtr = useCallback(async () => {
@@ -345,7 +313,14 @@ const DailyTimeRecordSupervisor = () => {
           try {
             const pageRes = await axios.post(
               `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-              { startDate, endDate, page, pageSize: PAGE_SIZE },
+              {
+                startDate,
+                endDate,
+                page,
+                pageSize: PAGE_SIZE,
+                skipCount: page > 1,
+                skipAudit: true,
+              },
               cfg(),
             );
             return pageRes.data?.data || [];
@@ -373,38 +348,45 @@ const DailyTimeRecordSupervisor = () => {
       setEmployees(merged);
       if (merged.length) setPreviewId(merged[0].employeeNumber);
 
+      if (!signal.aborted) {
+        setLoading(false);
+        setLoadPhase('');
+      }
+
       const empNums = merged.map((u) => u.employeeNumber);
-      const [timesMap, lateBatch, leaveRes] = await Promise.all([
+      Promise.all([
         fetchBatchOfficialTimes(empNums, startDate, endDate),
         dtrType === 'regular'
           ? fetchDailyLateUndertimeBatch(empNums, startDate, endDate)
           : Promise.resolve(null),
         axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, cfg()).catch(() => ({ data: [] })),
-      ]);
+      ])
+        .then(([timesMap, lateBatch, leaveRes]) => {
+          if (signal.aborted) return;
+          setBatchOfficialTimesMap(timesMap || {});
 
-      if (signal.aborted) return;
-      setBatchOfficialTimesMap(timesMap);
+          if (lateBatch) {
+            const halfSets = {};
+            Object.entries(lateBatch.halfDayDatesByEmployee || {}).forEach(([emp, str]) => {
+              halfSets[emp] = parseHalfDayDatesSet(str);
+            });
+            setComputedLateByEmployee(lateBatch.byEmployee || {});
+            setHalfDayDatesByEmployee(halfSets);
+            setHalfDayReviewByEmployee(lateBatch.halfDayReviewByEmployee || {});
+            setComputationModuleTypeByEmployee(lateBatch.computationModuleTypeByEmployee || {});
+          }
 
-      if (lateBatch) {
-        const halfSets = {};
-        Object.entries(lateBatch.halfDayDatesByEmployee || {}).forEach(([emp, str]) => {
-          halfSets[emp] = parseHalfDayDatesSet(str);
-        });
-        setComputedLateByEmployee(lateBatch.byEmployee || {});
-        setHalfDayDatesByEmployee(halfSets);
-        setHalfDayReviewByEmployee(lateBatch.halfDayReviewByEmployee || {});
-        setComputationModuleTypeByEmployee(lateBatch.computationModuleTypeByEmployee || {});
-      }
-
-      const leavesByEmp = {};
-      (leaveRes.data || [])
-        .filter((req) => String(req.status) === '2')
-        .forEach((req) => {
-          const key = String(req.employeeNumber);
-          if (!leavesByEmp[key]) leavesByEmp[key] = [];
-          leavesByEmp[key].push(req);
-        });
-      setApprovedLeavesByEmployee(leavesByEmp);
+          const leavesByEmp = {};
+          (leaveRes?.data || [])
+            .filter((req) => String(req.status) === '2')
+            .forEach((req) => {
+              const key = String(req.employeeNumber);
+              if (!leavesByEmp[key]) leavesByEmp[key] = [];
+              leavesByEmp[key].push(req);
+            });
+          setApprovedLeavesByEmployee(leavesByEmp);
+        })
+        .catch(() => {});
     } catch (e) {
       if (e?.code !== 'ERR_CANCELED' && !signal.aborted) {
         setSnackbar({ open: true, message: e.response?.data?.error || 'Failed to load DTR data.', severity: 'error' });
