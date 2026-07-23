@@ -12,6 +12,8 @@ import {
   isExcludedAttendanceCalendarDate,
   isScheduledByOfficialTime,
   hasNoPunches,
+  isHalfDayByPunchPattern,
+  hasNoPunchesTimeInOutOnly,
 } from './officialAttendanceFromDailyRows';
 
 /** Duration zero / display — hours + minutes only (no seconds). */
@@ -244,12 +246,12 @@ export const computeAmPmMinuteBuckets = (
   });
 };
 
-/** Faculty 30hrs — Time IN XOR Time OUT half-day; minute-only. */
+/** Faculty 30hrs — punch-pattern half-day (Time IN only / Time OUT only); minute-only. */
 export const computeFaculty30MinuteBuckets = (
   rows,
   reviewByDate,
   calendarMaps,
-  { hasNoPunchesFn, hasMorningPunchFn, hasAfternoonPunchFn },
+  { hasNoPunchesFn = hasNoPunchesTimeInOutOnly } = {},
 ) => {
   let absentDays = 0;
   let halfDays = 0;
@@ -294,20 +296,19 @@ export const computeFaculty30MinuteBuckets = (
       return;
     }
 
-    const morning = hasMorningPunchFn(row);
-    const afternoon = hasAfternoonPunchFn(row);
+    const isHalfDay = isHalfDayByPunchPattern(row);
     const inSec = parseClockToMinuteSec(row?.timeIN);
     const outSec = parseClockToMinuteSec(row?.timeOUT);
 
     let renderedSec = 0;
-    if (inSec != null && outSec != null) {
+    if (inSec != null && outSec != null && !isHalfDay) {
       renderedSec = Math.max(0, outSec - inSec);
-    } else if (morning !== afternoon) {
+    } else if (isHalfDay) {
       renderedSec = Math.floor(schedWorkSec / 2);
     }
 
     const deficit = Math.max(0, schedWorkSec - renderedSec);
-    if (morning !== afternoon) {
+    if (isHalfDay) {
       halfDays += 1;
       halfDayShortfallSecTotal += deficit;
     } else {
