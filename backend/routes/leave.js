@@ -97,8 +97,8 @@ const semRank = (s) => {
 
 /**
  * HR modal context: employee employment type (label only) + hours/day for decimal↔hours sync.
- * Hours/day comes from leave_table.leave_hours for this leave_code (not a separate column on
- * employment types). Actual deduction is always what HR saves on leave_request
+ * Source value is leave_table.leave_hours (may be weekly/policy hours; normalized in
+ * resolveHoursPerDayFromMeta). Actual deduction is always what HR saves on leave_request
  * (deduction_applied_hours / hr_approval_rate).
  */
 const fetchLeaveDeductionMeta = (employeeNumber, leave_code) =>
@@ -128,10 +128,21 @@ const fetchLeaveDeductionMeta = (employeeNumber, leave_code) =>
     );
   });
 
+/**
+ * Hours/day for HR leave deduction.
+ * `leave_table.leave_hours` is often stored as a weekly/policy total (e.g. 40),
+ * not clock-hours per day. Values above a normal workday are treated as weekly
+ * and divided by 4 (T–F faculty week) — same as EarningsManagement half-day VL.
+ */
 const resolveHoursPerDayFromMeta = (meta) => {
   const lt = parseFloat(meta?.leave_type_hours);
-  if (Number.isFinite(lt) && lt > 0)
-    return { hoursPerDay: lt, rateSource: "leave_table" };
+  if (Number.isFinite(lt) && lt > 0) {
+    const hoursPerDay = lt > 12 ? lt / 4 : lt;
+    return {
+      hoursPerDay,
+      rateSource: lt > 12 ? "leave_table_weekly_normalized" : "leave_table",
+    };
+  }
   return { hoursPerDay: 8, rateSource: "default" };
 };
 
@@ -458,13 +469,21 @@ const buildDeductionSuggestion = async ({
   const meta = await fetchLeaveDeductionMeta(employeeNumber, suggestedLeaveCode);
   const { hoursPerDay } = resolveHoursPerDayFromMeta(meta);
 
+  // Leave balances use an 8-hour day as 1.0 decimal (1h = 0.125).
+  // A 10h schedule day → 10/8 = 1.25 decimal, not 1.0.
+  const STANDARD_DAY_HOURS = 8;
+  const fullDayDecimal = Number((hoursPerDay / STANDARD_DAY_HOURS).toFixed(3));
   const requestedRate = parseFloat(requested_rate_decimal);
-  const defaultRate = isHalfDayAbsence ? 0.5 : 1;
+  const defaultRate = isHalfDayAbsence
+    ? Number((fullDayDecimal / 2).toFixed(3))
+    : fullDayDecimal;
   const recommendedRate =
     Number.isFinite(requestedRate) && requestedRate > 0
       ? requestedRate
       : defaultRate;
-  const recommendedHours = Number((recommendedRate * hoursPerDay).toFixed(4));
+  const recommendedHours = Number.isFinite(requestedRate) && requestedRate > 0
+    ? Number((recommendedRate * STANDARD_DAY_HOURS).toFixed(4))
+    : Number(((isHalfDayAbsence ? 0.5 : 1) * hoursPerDay).toFixed(4));
 
   const availableHours = suggestedLeaveCode
     ? await getTotalRemainingHours(employeeNumber, suggestedLeaveCode)
@@ -490,7 +509,7 @@ const buildDeductionSuggestion = async ({
     recommendation_reason: hasLeaveForm
       ? "Leave form exists; prefill based on selected leave type."
       : isHalfDayAbsence
-        ? "No leave form + half-day absence; prefill VL 0.5 day."
+        ? "No leave form + half-day absence; prefill VL half of schedule day."
         : "No leave form; default prefill applied.",
   };
 };
@@ -1860,6 +1879,31 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
 // LEAVE REQUESTS
 // ============================================
 router.get("/leave_request", requireAdmin, (req, res) => {
+  const { status, employeeNumbers } = req.query || {};
+  const clauses = [];
+  const params = [];
+
+  if (status != null && String(status).trim() !== "") {
+    clauses.push("CAST(lr.status AS CHAR) = ?");
+    params.push(String(status).trim());
+  }
+
+  let ids = [];
+  if (Array.isArray(employeeNumbers)) {
+    ids = employeeNumbers.map((n) => String(n).trim()).filter(Boolean);
+  } else if (typeof employeeNumbers === "string" && employeeNumbers.trim()) {
+    ids = employeeNumbers
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+  }
+  if (ids.length) {
+    const ph = ids.map(() => "?").join(",");
+    clauses.push(`CAST(lr.employeeNumber AS CHAR) IN (${ph})`);
+    params.push(...ids);
+  }
+
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const query = `
     SELECT lr.*, lt.leave_description, p.firstName, p.lastName,
       CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) as fullName,
@@ -1868,9 +1912,10 @@ router.get("/leave_request", requireAdmin, (req, res) => {
     FROM leave_request lr
     LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code
     LEFT JOIN person_table p ON lr.employeeNumber = p.agencyEmployeeNum
+    ${where}
     ORDER BY lr.created_at DESC
   `;
-  db.query(query, (err, results) => {
+  db.query(query, params, (err, results) => {
     if (err)
       return res.status(500).json({ error: "Failed to fetch leave requests" });
     res.json(results);

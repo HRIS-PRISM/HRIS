@@ -857,6 +857,8 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
     }
 
     const placeholders = codes.map(() => '?').join(',');
+    // Fast path: no full-table attendancerecordinfo GROUP BY (indexes can be used).
+    // Device names loaded only for employees missing person_table names.
     const sql = `
       SELECT DISTINCT
         da.employeeNumber AS personID,
@@ -867,17 +869,10 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
           WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
           ELSE 'Not Registered'
         END AS registrationStatus,
-        ari_names.PersonName AS devicePersonName,
         da.code AS departmentCode
       FROM department_assignment da
       LEFT JOIN person_table p
-        ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(p.agencyEmployeeNum AS CHAR))
-      LEFT JOIN (
-        SELECT PersonID, MAX(PersonName) AS PersonName
-        FROM attendancerecordinfo
-        GROUP BY PersonID
-      ) ari_names
-        ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(ari_names.PersonID AS CHAR))
+        ON da.employeeNumber = p.agencyEmployeeNum
       WHERE da.code IN (${placeholders})
       ORDER BY
         CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
@@ -891,7 +886,45 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
         console.error('[supervisor-dtr] employees/me error:', err.message);
         return res.status(500).json({ error: 'Failed to fetch supervisor DTR employees' });
       }
-      res.json(Array.isArray(rows) ? rows : []);
+
+      const list = Array.isArray(rows) ? rows : [];
+      const missingIds = [
+        ...new Set(
+          list
+            .filter((r) => !(r.firstName || r.lastName))
+            .map((r) => String(r.personID ?? '').trim())
+            .filter(Boolean),
+        ),
+      ];
+
+      if (!missingIds.length) {
+        return res.json(list.map((r) => ({ ...r, devicePersonName: null })));
+      }
+
+      const idPh = missingIds.map(() => '?').join(',');
+      db.query(
+        `SELECT PersonID, MAX(PersonName) AS PersonName
+         FROM attendancerecordinfo
+         WHERE PersonID IN (${idPh})
+         GROUP BY PersonID`,
+        missingIds,
+        (nameErr, nameRows) => {
+          if (nameErr) {
+            console.warn('[supervisor-dtr] device names:', nameErr.message || nameErr);
+            return res.json(list.map((r) => ({ ...r, devicePersonName: null })));
+          }
+          const nameMap = new Map();
+          (nameRows || []).forEach((n) => {
+            nameMap.set(String(n.PersonID), n.PersonName || null);
+          });
+          res.json(
+            list.map((r) => ({
+              ...r,
+              devicePersonName: nameMap.get(String(r.personID)) || null,
+            })),
+          );
+        },
+      );
     });
   } catch (e) {
     console.error('[supervisor-dtr] employees/me resolve error:', e.message);
