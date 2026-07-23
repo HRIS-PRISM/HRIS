@@ -926,6 +926,8 @@
   });
 
   // ─── OPTIMIZED: Lightweight employee list for instant table render ────────────
+  // Avoids full-table attendancerecordinfo GROUP BY (was the main list bottleneck).
+  // Device names are fetched only for people missing person_table names.
   router.get('/api/dtr-employee-list', authenticateToken, (req, res) => {
     const { startDate, endDate, skipAudit } = req.query;
 
@@ -942,16 +944,10 @@
         CASE
           WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
           ELSE 'Not Registered'
-        END AS registrationStatus,
-        ari_names.PersonName AS devicePersonName
+        END AS registrationStatus
       FROM attendancerecord ar
       LEFT JOIN person_table p
         ON ar.personID = p.agencyEmployeeNum
-      LEFT JOIN (
-        SELECT PersonID, MAX(PersonName) AS PersonName
-        FROM attendancerecordinfo
-        GROUP BY PersonID
-      ) ari_names ON ar.personID = ari_names.PersonID
       WHERE ar.date BETWEEN ? AND ?
       ORDER BY
         CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
@@ -963,23 +959,65 @@
     db.query(query, [startDate, endDate], (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
 
+      const rows = results || [];
       const auditSkipped =
         skipAudit === '1' || skipAudit === 'true' || skipAudit === true;
-      if (!auditSkipped) {
-        logAudit(
-          req.user,
-          'Viewed DTR Employee List',
-          'Daily Time Record Overall',
-          `${startDate} to ${endDate}`,
-          'all-users',
-        );
+      const finish = (payload) => {
+        if (!auditSkipped) {
+          logAudit(
+            req.user,
+            'Viewed DTR Employee List',
+            'Daily Time Record Overall',
+            `${startDate} to ${endDate}`,
+            'all-users',
+          );
+        }
+        res.json(payload);
+      };
+
+      const missingIds = [
+        ...new Set(
+          rows
+            .filter((r) => !(r.firstName || r.lastName))
+            .map((r) => String(r.personID ?? '').trim())
+            .filter(Boolean),
+        ),
+      ];
+
+      if (!missingIds.length) {
+        return finish(rows.map((r) => ({ ...r, devicePersonName: null })));
       }
 
-      res.json(results);
+      const placeholders = missingIds.map(() => '?').join(',');
+      db.query(
+        `SELECT PersonID, MAX(PersonName) AS PersonName
+         FROM attendancerecordinfo
+         WHERE PersonID IN (${placeholders})
+         GROUP BY PersonID`,
+        missingIds,
+        (nameErr, nameRows) => {
+          if (nameErr) {
+            console.warn('dtr-employee-list device names:', nameErr.message || nameErr);
+            return finish(rows.map((r) => ({ ...r, devicePersonName: null })));
+          }
+          const nameMap = new Map();
+          (nameRows || []).forEach((n) => {
+            nameMap.set(String(n.PersonID), n.PersonName || null);
+          });
+          finish(
+            rows.map((r) => ({
+              ...r,
+              devicePersonName: nameMap.get(String(r.personID)) || null,
+            })),
+          );
+        },
+      );
     });
   });
 
-  // ─── OPTIMIZED: Paginated attendance — 30 employees at a time ────────────────
+  // ─── OPTIMIZED: Paginated / by-employeeNumbers attendance ───────────────────
+  // Prefer body.employeeNumbers (client already ranked the list) — skips CTE
+  // re-rank, officialtime join, and attendancerecordinfo aggregation.
   router.post('/api/view-attendance-all-users-paged', authenticateToken, (req, res) => {
     const {
       startDate,
@@ -988,14 +1026,66 @@
       pageSize = 30,
       skipCount = false,
       skipAudit = false,
+      employeeNumbers = null,
     } = req.body;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start date and end date are required' });
     }
 
+    const ids = Array.isArray(employeeNumbers)
+      ? [...new Set(employeeNumbers.map((n) => String(n).trim()).filter(Boolean))]
+      : [];
+
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const byIdsSql = `
+        SELECT
+          ar.personID,
+          ar.date,
+          DAYNAME(ar.date) AS Day,
+          ar.timeIN, ar.breaktimeIN, ar.breaktimeOUT, ar.timeOUT,
+          ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
+          p.firstName, p.lastName, p.middleName,
+          p.agencyEmployeeNum,
+          CASE
+            WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
+            ELSE 'Not Registered'
+          END AS registrationStatus
+        FROM attendancerecord ar
+        LEFT JOIN person_table p ON ar.personID = p.agencyEmployeeNum
+        WHERE ar.date BETWEEN ? AND ?
+          AND ar.personID IN (${placeholders})
+        ORDER BY ar.personID ASC, ar.date ASC
+      `;
+
+      return db.query(byIdsSql, [startDate, endDate, ...ids], (err, results) => {
+        if (err) {
+          console.error('Page query (employeeNumbers) error:', err);
+          return res.status(500).json({ error: err.message });
+        }
+        if (!skipAudit) {
+          logAudit(
+            req.user,
+            `Viewed DTR Records (by ids ${ids.length})`,
+            'Daily Time Record Overall',
+            `${startDate} to ${endDate}`,
+            'all-users',
+          );
+        }
+        res.json({
+          data: results || [],
+          total: ids.length,
+          page: 1,
+          pageSize: ids.length,
+          totalPages: 1,
+        });
+      });
+    }
+
     const offset = (page - 1) * pageSize;
 
+    // Legacy offset path — no officialtime / device-name joins (loaded separately).
     const pageQuery = `
         WITH ranked_employees AS (
           SELECT DISTINCT
@@ -1020,37 +1110,16 @@
           ar.specialType, ar.specialTimeIN, ar.specialTimeOUT,
           p.firstName, p.lastName, p.middleName,
           p.agencyEmployeeNum,
-          ot.officialTimeIN,
-          ot.officialTimeOUT,
-          ot.officialBreaktimeIN,
-          ot.officialBreaktimeOUT,
-          ot.officialHonorariumTimeIN,
-          ot.officialHonorariumTimeOUT,
-          ot.officialServiceCreditTimeIN,
-          ot.officialServiceCreditTimeOUT,
-          ot.officialOverTimeIN,
-          ot.officialOverTimeOUT,
           CASE
             WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
             ELSE 'Not Registered'
-          END AS registrationStatus,
-          ari_names.PersonName AS devicePersonName
+          END AS registrationStatus
         FROM ranked_employees re
         JOIN attendancerecord ar
           ON ar.personID = re.personID
         AND ar.date BETWEEN ? AND ?
         LEFT JOIN person_table p
           ON ar.personID = p.agencyEmployeeNum
-        LEFT JOIN officialtime ot
-          ON ar.personID = ot.employeeID
-        AND ar.date BETWEEN ot.startDate AND ot.endDate
-        AND ot.day = DAYNAME(ar.date)
-        LEFT JOIN (
-          SELECT ari.PersonID, MAX(ari.PersonName) AS PersonName
-          FROM attendancerecordinfo ari
-          INNER JOIN ranked_employees re2 ON ari.PersonID = re2.personID
-          GROUP BY ari.PersonID
-        ) ari_names ON ar.personID = ari_names.PersonID
         ORDER BY
           CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
           p.lastName  ASC,

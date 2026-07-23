@@ -532,7 +532,10 @@ const getAuthHeaders = () => {
   };
 };
 
-const PAGE_SIZE = 30;
+/** Employees per attendance API request (by employeeNumbers — no SQL re-rank). */
+const ATTENDANCE_CHUNK = 60;
+/** Parallel attendance chunk requests while hydrating the table. */
+const ATTENDANCE_CONCURRENCY = 6;
 
 /** YYYY-MM-DD as a Philippines calendar day */
 const toPhCalendarYmd = (value) => {
@@ -1680,29 +1683,18 @@ const DailyTimeRecordFaculty = ({
     setCurrentPage(1);
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
-      const empListParams = { startDate, endDate, skipAudit: '1' };
-
-      const [empRes, deptRes, catRes] = await Promise.all([
-        axios
-          .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
-            params: empListParams,
-            ...cfg(),
-          })
-          .catch((e) => {
-            if (!signal.aborted) console.warn('emp list:', e.message);
-            return { data: [] };
-          }),
-        axios
-          .get(`${API_BASE_URL}/api/department-assignment`, cfg())
-          .catch(() => ({ data: [] })),
-        axios
-          .get(
-            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-            cfg(),
-          )
-          .catch(() => ({ data: [] })),
-      ]);
+      // Names only first — dept/category come from maps already loaded on mount.
+      const empRes = await axios
+        .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
+          params: { startDate, endDate, skipAudit: '1' },
+          ...cfg(),
+        })
+        .catch((e) => {
+          if (!signal.aborted) console.warn('emp list:', e.message);
+          return { data: [] };
+        });
       if (signal.aborted) return;
+
       const empList = empRes.data || [];
       if (empList.length === 0) {
         setAllUsersDTR([]);
@@ -1715,19 +1707,12 @@ const DailyTimeRecordFaculty = ({
         );
         return;
       }
-      const deptMap = new Map();
-      (deptRes.data || []).forEach((d) => {
-        if (d.employeeNumber && d.code)
-          deptMap.set(String(d.employeeNumber), d.code);
-      });
-      const catMap = new Map();
-      (catRes.data || []).forEach((c) => {
-        catMap.set(String(c.employeeNumber), c.employmentCategory);
-      });
+
       const skeletonUsers = empList.map((emp) => {
         const empNum = emp.personID;
-        const deptCode = deptMap.get(String(empNum)) || '';
-        const empCat = catMap.get(String(empNum));
+        const empKey = String(empNum);
+        const deptCode = departmentAssignmentsMap[empKey] || '';
+        const empCat = empCatMap[empKey]?.employmentCategory;
         const displayName =
           emp.firstName && emp.lastName
             ? formatFullName({
@@ -1760,62 +1745,65 @@ const DailyTimeRecordFaculty = ({
           },
         };
       });
+
+      // Show the employee table immediately — don't block UI on punch hydration.
       setAllUsersDTR(skeletonUsers);
+      setLoadingAllUsers(false);
       setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
 
-      const totalPages = Math.ceil(empList.length / PAGE_SIZE);
-      const PAGE_FETCH_CONCURRENCY = 3;
-      const pageNumbers = Array.from(
-        { length: totalPages },
-        (_, index) => index + 1,
-      );
-      const pageResults = [];
-      for (let i = 0; i < pageNumbers.length; i += PAGE_FETCH_CONCURRENCY) {
+      const empNums = skeletonUsers.map((u) => u.employeeNumber);
+      const chunks = [];
+      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
+        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
+      }
+
+      let hydrated = 0;
+      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
         if (signal.aborted) break;
-        const chunk = pageNumbers.slice(i, i + PAGE_FETCH_CONCURRENCY);
-        const chunkResults = await Promise.all(
-          chunk.map(async (page) => {
-            if (signal.aborted) return { page, data: [] };
-            setLoadPhase(
-              `Loading attendance page ${page} of ${totalPages}…`,
-            );
+        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
+        const batchRows = await Promise.all(
+          batch.map(async (chunk) => {
+            if (signal.aborted) return [];
             try {
               const pageRes = await axios.post(
                 `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
                 {
                   startDate,
                   endDate,
-                  page,
-                  pageSize: PAGE_SIZE,
-                  skipCount: page > 1,
+                  employeeNumbers: chunk,
+                  skipCount: true,
                   skipAudit: true,
                 },
                 cfg(),
               );
-              return { page, data: pageRes.data?.data || [] };
+              return pageRes.data?.data || [];
             } catch (e) {
               if (!signal.aborted)
-                console.error(`Page ${page} fetch failed:`, e.message);
-              return { page, data: [] };
+                console.error('Attendance chunk fetch failed:', e.message);
+              return [];
             }
           }),
         );
-        pageResults.push(...chunkResults);
-      }
-      if (signal.aborted) return;
-      let mergedUsers = skeletonUsers.slice();
-      pageResults
-        .sort((a, b) => a.page - b.page)
-        .forEach(({ data: pageData }) => {
-          const pageMap = new Map();
-          pageData.forEach((record) => {
-            const id = record.personID || record.agencyEmployeeNum;
-            if (!pageMap.has(id)) pageMap.set(id, []);
-            pageMap.get(id).push(record);
-          });
-          mergedUsers = mergedUsers.map((user) => {
-            if (!pageMap.has(user.employeeNumber)) return user;
-            const rows = pageMap.get(user.employeeNumber);
+        if (signal.aborted) return;
+
+        const pageMap = new Map();
+        batchRows.flat().forEach((record) => {
+          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
+          if (!id) return;
+          if (!pageMap.has(id)) pageMap.set(id, []);
+          pageMap.get(id).push(record);
+        });
+
+        hydrated += batch.reduce((n, c) => n + c.length, 0);
+        setLoadPhase(
+          `Loading attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+        );
+
+        setAllUsersDTR((prev) =>
+          prev.map((user) => {
+            const key = String(user.employeeNumber);
+            if (!pageMap.has(key)) return user;
+            const rows = pageMap.get(key);
             const filtered = filterByDtrType(rows, dtrType);
             return {
               ...user,
@@ -1823,22 +1811,20 @@ const DailyTimeRecordFaculty = ({
               hasRecords: filtered.length > 0,
               _loading: false,
             };
-          });
-        });
-      setAllUsersDTR(mergedUsers.slice());
+          }),
+        );
+      }
+
+      if (signal.aborted) return;
+
       setAllUsersDTR((prev) =>
         prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
       );
+      setLoadPhase('');
 
-      if (!signal.aborted) {
-        setLoadingAllUsers(false);
-        setLoadPhase('');
-      }
-
-      const empNums = mergedUsers.map((u) => u.employeeNumber);
       const empListIds = empList.map((e) => e.personID);
 
-      // Secondary data — after main table is visible (official time, print status, late)
+      // Secondary data — after names are visible (official time, print status, late)
       Promise.all([
         fetchBatchOfficialTimes(empNums, startDate, endDate),
         axios
@@ -1880,7 +1866,6 @@ const DailyTimeRecordFaculty = ({
     } finally {
       if (!signal?.aborted) {
         setLoadingAllUsers(false);
-        setLoadPhase('');
       }
     }
   }, [
@@ -1889,6 +1874,8 @@ const DailyTimeRecordFaculty = ({
     dtrType,
     fetchBatchOfficialTimes,
     loadComputedLateBatch,
+    departmentAssignmentsMap,
+    empCatMap,
   ]);
 
   useEffect(() => {
@@ -4997,6 +4984,17 @@ const DailyTimeRecordFaculty = ({
                                     {filteredUsers.length} users
                                   </Typography>
                                 </Box>
+                              )}
+                              {!!loadPhase && !loadingAllUsers && (
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    color: T.muted,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {loadPhase}
+                                </Typography>
                               )}
                             </Box>
                             <Box sx={{ display: 'flex', gap: 1 }}>

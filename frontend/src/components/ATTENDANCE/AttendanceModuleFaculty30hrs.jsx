@@ -1902,8 +1902,8 @@ import API_BASE_URL from '../../apiConfig';
         if (Boolean(getStatusLabelForDate(row.date))) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT) : displayDurationHhMm(row.formattedfinalcalcFacultyOT);
       });
-      const lateTotalTime = rowTardinessSum;
-      const overallTardiness = rowTardinessSum;
+      const lateTotalTime = buckets.lateShortfallTime;
+      const overallTardiness = buckets.overallShortfallTime;
 
       return {
         absentDays: buckets.absentDays,
@@ -2079,7 +2079,7 @@ import API_BASE_URL from '../../apiConfig';
         return {
           absentDays: c.absentDays,
           halfDays: c.halfDays,
-          lateTotalTime: totals.lateTotalTime || ZERO_HM,
+          lateTotalTime: c.lateShortfallTime || ZERO_HM,
           absentTime: c.absentTime,
           halfDayShortfallTime: c.halfDayShortfallTime,
           absentDates: absentList.join(', '),
