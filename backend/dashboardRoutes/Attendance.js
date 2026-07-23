@@ -2256,27 +2256,147 @@
     });
   });
 
-  // Get all unique PersonIDs from attendancerecordinfo
+  // Get unique PersonIDs from AttendanceRecordInfo (optionally scoped to a date range)
   router.get('/api/all-device-users', authenticateToken, (req, res) => {
-    const query = `
-      SELECT DISTINCT
+    const { startDate, endDate } = req.query || {};
+    const hasRange = Boolean(startDate && endDate);
+    let startTimestamp;
+    let endTimestamp;
+    if (hasRange) {
+      startTimestamp = new Date(`${String(startDate).slice(0, 10)}T00:00:00Z`).getTime();
+      endTimestamp = new Date(`${String(endDate).slice(0, 10)}T23:59:59Z`).getTime();
+    }
+
+    const query = hasRange
+      ? `
+      SELECT
         PersonID,
-        PersonName,
-        MIN(AttendanceDateTime) as firstSeen,
-        MAX(AttendanceDateTime) as lastSeen
+        MAX(PersonName) AS PersonName,
+        MIN(AttendanceDateTime) AS firstSeen,
+        MAX(AttendanceDateTime) AS lastSeen
       FROM AttendanceRecordInfo
-      GROUP BY PersonID, PersonName
+      WHERE AttendanceDateTime BETWEEN ? AND ?
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `
+      : `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        MIN(AttendanceDateTime) AS firstSeen,
+        MAX(AttendanceDateTime) AS lastSeen
+      FROM AttendanceRecordInfo
+      GROUP BY PersonID
       ORDER BY PersonName ASC
     `;
 
-    db.query(query, (err, results) => {
+    const params = hasRange ? [startTimestamp, endTimestamp] : [];
+    db.query(query, params, (err, results) => {
       if (err) {
         console.error('Error fetching device users:', err);
         return res.status(500).json({ error: err.message });
       }
-
       res.json(results);
     });
+  });
+
+  // One round-trip for Device Insights section (date-scoped)
+  router.post('/api/device-insights-bundle', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.body || {};
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const sd = String(startDate).slice(0, 10);
+    const ed = String(endDate).slice(0, 10);
+    const startTimestamp = new Date(`${sd}T00:00:00Z`).getTime();
+    const endTimestamp = new Date(`${ed}T23:59:59Z`).getTime();
+
+    const usersSql = `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        MIN(AttendanceDateTime) AS firstSeen,
+        MAX(AttendanceDateTime) AS lastSeen
+      FROM AttendanceRecordInfo
+      WHERE AttendanceDateTime BETWEEN ? AND ?
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `;
+
+    const summarySql = `
+      SELECT
+        daily.PersonID,
+        COUNT(*) AS recordsCount,
+        IFNULL(raw.rawRecordCount, 0) AS rawRecordCount
+      FROM (
+        SELECT
+          PersonID,
+          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID, dt
+      ) daily
+      LEFT JOIN (
+        SELECT PersonID, COUNT(*) AS rawRecordCount
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID
+      ) raw ON daily.PersonID = raw.PersonID
+      GROUP BY daily.PersonID, raw.rawRecordCount
+    `;
+
+    const modSql = `
+      SELECT personID AS PersonID, COUNT(*) AS modRecordCount
+      FROM attendancerecord
+      WHERE date BETWEEN ? AND ?
+      GROUP BY personID
+    `;
+
+    const punchSql = `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        COUNT(*) AS totalDays,
+        SUM(CASE WHEN has_t1 = 1 THEN 1 ELSE 0 END) AS daysWithTimeIn,
+        SUM(CASE WHEN has_t2 = 1 THEN 1 ELSE 0 END) AS daysWithBreakIn,
+        SUM(CASE WHEN has_t3 = 1 THEN 1 ELSE 0 END) AS daysWithBreakOut,
+        SUM(CASE WHEN has_t4 = 1 THEN 1 ELSE 0 END) AS daysWithTimeOut
+      FROM (
+        SELECT
+          PersonID,
+          PersonName,
+          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt,
+          MAX(CASE WHEN AttendanceState = 1 THEN 1 ELSE 0 END) AS has_t1,
+          MAX(CASE WHEN AttendanceState = 2 THEN 1 ELSE 0 END) AS has_t2,
+          MAX(CASE WHEN AttendanceState = 3 THEN 1 ELSE 0 END) AS has_t3,
+          MAX(CASE WHEN AttendanceState = 4 THEN 1 ELSE 0 END) AS has_t4
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID, PersonName, dt
+      ) daily
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `;
+
+    const run = (sql, params) =>
+      new Promise((resolve, reject) => {
+        db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
+      });
+
+    Promise.all([
+      run(usersSql, [startTimestamp, endTimestamp]),
+      run(summarySql, [startTimestamp, endTimestamp, startTimestamp, endTimestamp]),
+      run(modSql, [sd, ed]),
+      run(punchSql, [startTimestamp, endTimestamp]),
+    ])
+      .then(([users, summary, modSummary, punchInsights]) => {
+        res.json({ users, summary, modSummary, punchInsights });
+      })
+      .catch((err) => {
+        console.error('device-insights-bundle error:', err);
+        res.status(500).json({ error: err.message });
+      });
   });
 
   // Aggregated day counts per employee for a date range
@@ -3258,7 +3378,16 @@
 
   // ─── GET /api/attendance_adjustment ──────────────────────────────────────────
   router.get('/api/attendance_adjustment', authenticateToken, (req, res) => {
-    const { personID, dateFrom, dateTo } = req.query;
+    const {
+      personID,
+      dateFrom,
+      dateTo,
+      adjustmentType,
+      operationType,
+      department,
+      source,
+      employeeName,
+    } = req.query;
 
     let sql = `
       SELECT
@@ -3271,7 +3400,7 @@
         aal.valueBefore,
         aal.valueAfter,
         aal.operationType,
-  aal.remarks,
+        aal.remarks,
         aal.autofill_remarks,
         aal.approvedBy,
         aal.adjustedAt,
@@ -3279,25 +3408,47 @@
         COALESCE(da.code, '—')                       AS department
       FROM attendance_adjustment_log aal
       LEFT JOIN person_table pt
-        ON CAST(pt.agencyEmployeeNum AS CHAR) = CAST(aal.personID AS CHAR)
+        ON pt.agencyEmployeeNum = aal.personID
       LEFT JOIN department_assignment da
-        ON CAST(da.employeeNumber AS CHAR) = CAST(aal.personID AS CHAR)
+        ON da.employeeNumber = aal.personID
       WHERE 1 = 1
     `;
 
     const params = [];
 
     if (personID) {
-      sql += ' AND CAST(aal.personID AS CHAR) = CAST(? AS CHAR)';
-      params.push(personID);
+      sql += ' AND aal.personID = ?';
+      params.push(String(personID).trim());
     }
     if (dateFrom) {
       sql += ' AND aal.originalDate >= ?';
-      params.push(dateFrom);
+      params.push(String(dateFrom).slice(0, 10));
     }
     if (dateTo) {
       sql += ' AND aal.originalDate <= ?';
-      params.push(dateTo);
+      params.push(String(dateTo).slice(0, 10));
+    }
+    if (adjustmentType && adjustmentType !== 'all') {
+      sql += ' AND aal.adjustmentType = ?';
+      params.push(String(adjustmentType));
+    }
+    if (operationType && operationType !== 'all') {
+      sql += ' AND aal.operationType = ?';
+      params.push(String(operationType));
+    }
+    if (department && department !== 'all') {
+      sql += ' AND da.code = ?';
+      params.push(String(department));
+    }
+    if (source === 'autofill') {
+      sql += " AND aal.autofill_remarks IS NOT NULL AND TRIM(aal.autofill_remarks) <> ''";
+    } else if (source === 'manual') {
+      sql += " AND (aal.autofill_remarks IS NULL OR TRIM(aal.autofill_remarks) = '')";
+    }
+    if (employeeName && String(employeeName).trim()) {
+      sql +=
+        " AND CONCAT_WS(' ', pt.firstName, pt.middleName, pt.lastName) LIKE ?";
+      params.push(`%${String(employeeName).trim()}%`);
     }
 
     sql += ' ORDER BY aal.adjustedAt DESC';
