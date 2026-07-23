@@ -220,7 +220,7 @@ export const computeAmPmMinuteBuckets = (
     if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
       halfDays += 1;
       halfDayShortfallSecTotal += computeApprovedHalfDayShortfallMinuteSec(row, entry, moduleType);
-      lateTotalDisplaySec += getAmPmSlotLateMinuteSec(row);
+      // Half-day shortfall goes to Overall only — not Late Total
       return;
     }
 
@@ -281,11 +281,7 @@ export const computeFaculty30MinuteBuckets = (
         entry,
         MODULE_TYPES.FACULTY_30HRS,
       );
-      lateTotalDisplaySec += parseDurationToMinuteSec(
-        row?.formattedfinalcalcFaculty === 'NaN:NaN:NaN'
-          ? row?.formattedFacultyMaxRenderedTime
-          : row?.formattedfinalcalcFaculty,
-      );
+      // Half-day shortfall → Overall only; do not add to Late Total
       return;
     }
 
@@ -311,10 +307,11 @@ export const computeFaculty30MinuteBuckets = (
     if (isHalfDay) {
       halfDays += 1;
       halfDayShortfallSecTotal += deficit;
+      // Suggested / punch half-day shortfall is Half Days, not Late Total
     } else {
       lateShortfallSecTotal += deficit;
+      lateTotalDisplaySec += deficit;
     }
-    lateTotalDisplaySec += deficit;
   });
 
   return buildMinuteBucketResult({

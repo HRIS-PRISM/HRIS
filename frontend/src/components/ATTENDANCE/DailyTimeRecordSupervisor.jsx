@@ -62,8 +62,6 @@ const getUserRole = () => {
   } catch { return null; }
 };
 
-const PAGE_SIZE = 30;
-
 const T = {
   accent: '#6d2323',
   accentDark: '#5a1d1d',
@@ -303,57 +301,81 @@ const DailyTimeRecordSupervisor = () => {
         };
       });
       setEmployees(skeleton);
+      // Unblock UI with names; hydrate punches by employeeNumbers (no global re-rank).
+      setLoading(false);
       setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
 
-      const totalPages = Math.ceil(empList.length / PAGE_SIZE);
-      const pageResults = await Promise.all(
-        Array.from({ length: totalPages }, (_, i) => i + 1).map(async (page) => {
-          if (signal.aborted) return { data: [] };
-          setLoadPhase(`Loading attendance page ${page} of ${totalPages}…`);
-          try {
-            const pageRes = await axios.post(
-              `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-              {
-                startDate,
-                endDate,
-                page,
-                pageSize: PAGE_SIZE,
-                skipCount: page > 1,
-                skipAudit: true,
-              },
-              cfg(),
-            );
-            return pageRes.data?.data || [];
-          } catch {
-            return [];
-          }
-        }),
-      );
+      const ATTENDANCE_CHUNK = 60;
+      const ATTENDANCE_CONCURRENCY = 6;
+      const empNums = skeleton.map((u) => u.employeeNumber);
+      const chunks = [];
+      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
+        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
+      }
+
+      let hydrated = 0;
+      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
+        if (signal.aborted) break;
+        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
+        const batchRows = await Promise.all(
+          batch.map(async (chunk) => {
+            if (signal.aborted) return [];
+            try {
+              const pageRes = await axios.post(
+                `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
+                {
+                  startDate,
+                  endDate,
+                  employeeNumbers: chunk,
+                  skipCount: true,
+                  skipAudit: true,
+                },
+                cfg(),
+              );
+              return pageRes.data?.data || [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+        if (signal.aborted) return;
+
+        const pageMap = new Map();
+        batchRows.flat().forEach((record) => {
+          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
+          if (!id) return;
+          if (!pageMap.has(id)) pageMap.set(id, []);
+          pageMap.get(id).push(record);
+        });
+
+        hydrated += batch.reduce((n, c) => n + c.length, 0);
+        setLoadPhase(
+          `Loading attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+        );
+
+        setEmployees((prev) =>
+          prev.map((user) => {
+            const key = String(user.employeeNumber);
+            if (!pageMap.has(key)) return user;
+            const rows = pageMap.get(key);
+            const filtered = filterByDtrType(rows, dtrType);
+            return { ...user, records: filtered, _loading: false };
+          }),
+        );
+      }
 
       if (signal.aborted) return;
 
-      const pageMap = new Map();
-      pageResults.flat().forEach((record) => {
-        const id = record.personID || record.agencyEmployeeNum;
-        if (!pageMap.has(id)) pageMap.set(id, []);
-        pageMap.get(id).push(record);
-      });
-
-      const merged = skeleton.map((user) => {
-        const rows = pageMap.get(user.employeeNumber) || [];
-        const filtered = filterByDtrType(rows, dtrType);
-        return { ...user, records: filtered, _loading: false };
-      });
-
-      setEmployees(merged);
-      if (merged.length) setPreviewId(merged[0].employeeNumber);
+      setEmployees((prev) =>
+        prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
+      );
+      if (skeleton.length) setPreviewId(skeleton[0].employeeNumber);
 
       if (!signal.aborted) {
         setLoading(false);
         setLoadPhase('');
       }
 
-      const empNums = merged.map((u) => u.employeeNumber);
       Promise.all([
         fetchBatchOfficialTimes(empNums, startDate, endDate),
         dtrType === 'regular'
