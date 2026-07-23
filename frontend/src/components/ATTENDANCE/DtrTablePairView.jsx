@@ -474,7 +474,7 @@ export default function DtrTablePairView({
             >
               <div
                 style={{
-                  borderBottom: '2px solid black',
+                  borderBottom: '1px solid black',
                   width: '100%',
                   margin: '2px 0 3px 0',
                 }}
@@ -495,7 +495,7 @@ export default function DtrTablePairView({
               </div>
               <div
                 style={{
-                  borderBottom: '2px solid black',
+                  borderBottom: '1px solid black',
                   width: '100%',
                   margin: '2px 0 3px 0',
                 }}
@@ -597,7 +597,7 @@ export default function DtrTablePairView({
               <span
                 style={{
                   display: 'inline-block',
-                  borderBottom: '1.5px solid black',
+                  borderBottom: '1px solid black',
                   flexGrow: 1,
                   minWidth: '300px',
                   marginBottom: '2px',
@@ -647,7 +647,7 @@ export default function DtrTablePairView({
               <span
                 style={{
                   display: 'inline-block',
-                  borderBottom: '1.5px solid black',
+                  borderBottom: '1px solid black',
                   flexGrow: 1,
                   minWidth: '318px',
                   marginBottom: '2px',
@@ -743,7 +743,7 @@ export default function DtrTablePairView({
   const renderDTRFooter = () => (
     <tr>
       <td colSpan="7" style={{ padding: '10px 5px' }}>
-        <hr style={{ borderTop: '2px solid black', width: '100%' }} />
+        <hr style={{ borderTop: '1px solid black', width: '100%' }} />
         <p
           style={{
             textAlign: 'justify',
@@ -767,7 +767,7 @@ export default function DtrTablePairView({
             marginTop: '40px',
           }}
         >
-          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
+          <hr style={{ borderTop: '1px solid black', margin: 0 }} />
           <p
             style={{
               fontSize: '9px',
@@ -784,7 +784,7 @@ export default function DtrTablePairView({
           />
           <hr
             style={{
-              borderTop: '1.5px solid black',
+              borderTop: '1px solid black',
               width: '100%',
               margin: '2px 0 0 0',
             }}
@@ -808,7 +808,7 @@ export default function DtrTablePairView({
             textAlign: 'center',
           }}
         >
-          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
+          <hr style={{ borderTop: '1px solid black', margin: 0 }} />
           <p
             style={{
               fontSize: '9px',

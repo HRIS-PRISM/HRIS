@@ -119,7 +119,7 @@ import API_BASE_URL from '../../apiConfig';
   import {
     isExcludedAttendanceCalendarDate,
     isScheduledByOfficialTime,
-    isHalfDayByPunchPattern,
+    isHalfDayByTimeInOutOnly,
     computeOfficialWindowRenderedSec,
   } from '../../utils/officialAttendanceFromDailyRows';
   import {
@@ -150,7 +150,6 @@ import API_BASE_URL from '../../apiConfig';
     mergeOverallPayload,
     OVERALL_COMPARE_FIELD_META,
   } from './overallAttendanceMerge';
-  import { applyFacultyPunchGatedBreaktimes } from '../../utils/facultyBreaktimeFromPunches';
 
   // ─── Theme tokens (unified) ────────────────────────────────────────────────
   const T = {
@@ -558,8 +557,8 @@ import API_BASE_URL from '../../apiConfig';
     );
   };
 
-  // 30hrs half-day/absent bucketing uses only Time IN and Time OUT.
-  // Break punches can be system-filled and should not decide attendance presence.
+  // 30hrs presence / half-day uses only Time IN and Time OUT.
+  // Break punches are not required and must not decide attendance.
   function hasNoPunchesTimeInOutOnly(row) {
     return attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT);
   }
@@ -586,7 +585,7 @@ import API_BASE_URL from '../../apiConfig';
         return;
       }
 
-      const isHalfDay = isHalfDayByPunchPattern(row);
+      const isHalfDay = isHalfDayByTimeInOutOnly(row);
       if (isHalfDay) halfDays += 1;
 
       const inSec = parseClockToMinuteSec(row?.timeIN);
@@ -629,7 +628,7 @@ import API_BASE_URL from '../../apiConfig';
       if (!isScheduledByOfficialTime(row)) return;
       if (getOfficialSchedWorkMinuteSec(row) == null) return;
       if (hasNoPunchesTimeInOutOnly(row)) return;
-      if (!isHalfDayByPunchPattern(row)) return;
+      if (!isHalfDayByTimeInOutOnly(row)) return;
       if (d && d.length >= 8) dates.push(d);
     });
     return [...new Set(dates)].sort();
@@ -1538,10 +1537,6 @@ import API_BASE_URL from '../../apiConfig';
           const {
             timeIN,
             timeOUT,
-            breaktimeIN,
-            breaktimeOUT,
-            officialBreaktimeIN,
-            officialBreaktimeOUT,
             officialTimeIN,
             officialTimeOUT,
             officialHonorariumTimeIN,
@@ -1552,15 +1547,7 @@ import API_BASE_URL from '../../apiConfig';
             officialOverTimeOUT,
           } = row;
 
-          const { displayBreaktimeIN, displayBreaktimeOUT } =
-            applyFacultyPunchGatedBreaktimes({
-              timeIN,
-              timeOUT,
-              breaktimeIN,
-              breaktimeOUT,
-              officialBreaktimeIN,
-              officialBreaktimeOUT,
-            });
+          // Faculty 30hrs only requires Time IN / Time OUT — do not autofill breaks.
           const startOfficialTimeFaculty = new Date(`01/01/2000 ${officialTimeIN}`);
           const endOfficialTimeFaculty = new Date(`01/01/2000 ${officialTimeOUT}`);
           const diffMsFaculty = endOfficialTimeFaculty - startOfficialTimeFaculty;
@@ -1589,7 +1576,7 @@ import API_BASE_URL from '../../apiConfig';
             return { rendered: msToHHMMSS(diffMs), maxRendered: msToHHMMSS(offDiffMs), tardiness: msToHHMMSS(tardMs) };
           };
 
-          if (isHalfDayByPunchPattern(row)) {
+          if (isHalfDayByTimeInOutOnly(row)) {
             const halfSchedSec = Math.floor(diffMsFaculty / 2);
             const tardWhenSinglePunch = formatDurationMsNoSeconds(
               Math.max(0, halfSchedSec),
@@ -1614,8 +1601,6 @@ import API_BASE_URL from '../../apiConfig';
             );
             return {
               ...row,
-              breaktimeIN: displayBreaktimeIN,
-              breaktimeOUT: displayBreaktimeOUT,
               lateTotal: tardWhenSinglePunch,
               undertimeTotal: ZERO_HM,
               formattedfinalcalcFaculty: tardWhenSinglePunch,
@@ -1659,8 +1644,6 @@ import API_BASE_URL from '../../apiConfig';
             );
             return {
               ...row,
-              breaktimeIN: displayBreaktimeIN,
-              breaktimeOUT: displayBreaktimeOUT,
               lateTotal: tardWhenPartial,
               undertimeTotal: ZERO_HM,
               formattedfinalcalcFaculty: tardWhenPartial,
@@ -1714,8 +1697,6 @@ import API_BASE_URL from '../../apiConfig';
 
           return {
             ...row,
-            breaktimeIN: displayBreaktimeIN,
-            breaktimeOUT: displayBreaktimeOUT,
             lateTotal: formattedfinalcalcFaculty,
             undertimeTotal: ZERO_HM,
             formattedfinalcalcFaculty,
