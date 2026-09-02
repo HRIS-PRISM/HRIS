@@ -275,23 +275,23 @@ const isPast = !adminOverride && !allowPastDates && dateObj < today;      // ---
           )}
 
           {adminOverride && (
-  <Box
-    sx={{
-      px: 3,
-      py: 2,
-      backgroundColor: alpha('#6d2323', 0.07),
-      borderBottom: `1px solid ${alpha('#6d2323', 0.15)}`,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 1.5,
-    }}
-  >
-    <Info sx={{ color: '#6d2323', fontSize: 20 }} />
-    <Typography variant="body2" sx={{ color: '#6d2323', fontWeight: 500 }}>
-      Admin override active — past dates are selectable for backdated filing
-    </Typography>
-  </Box>
-)}
+            <Box
+              sx={{
+                px: 3,
+                py: 2,
+                backgroundColor: alpha('#6d2323', 0.07),
+                borderBottom: `1px solid ${alpha('#6d2323', 0.15)}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+              }}
+            >
+              <Info sx={{ color: '#6d2323', fontSize: 20 }} />
+              <Typography variant="body2" sx={{ color: '#6d2323', fontWeight: 500 }}>
+                Admin override active — past dates are selectable for backdated filing
+              </Typography>
+            </Box>
+          )}
 
           {/* Month Navigation */}
           <Box
