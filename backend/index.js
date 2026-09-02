@@ -6,6 +6,9 @@ require('dotenv').config();
 
 const db = require('./db');
 const { initializeSocket } = require('./socket/socketServer');
+const {
+  startAttendanceRecordInfoSocketApi,
+} = require('./socket/attendanceRecordInfoSocketApi');
 
 // Import existing route modules
 const childrenRouter = require('./dashboardRoutes/Children');
@@ -603,6 +606,7 @@ const server = http.createServer(app);
 
 // Initialize Socket.IO
 const io = initializeSocket(server);
+startAttendanceRecordInfoSocketApi(io);
 
 // Wire up Socket.IO to route files that use it for real-time events
 leaveRoutes.setSocketIO(io);

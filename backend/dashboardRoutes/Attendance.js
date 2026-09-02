@@ -3,6 +3,9 @@
   const router = express.Router();
   const jwt = require('jsonwebtoken');
   const { notifyAttendanceChanged } = require('../socket/socketService');
+  const {
+    getLatestAttendanceRecordInfo,
+  } = require('../socket/attendanceRecordInfoSocketApi');
   const { logAudit } = require('../middleware/auth');
   const { syncAggregatedDeviceDays } = require('../services/deviceAttendanceSyncService');
 
@@ -2257,6 +2260,22 @@
   });
 
   // Get unique PersonIDs from AttendanceRecordInfo (optionally scoped to a date range)
+  router.get('/api/attendance-record-info/latest', authenticateToken, async (req, res) => {
+    const limit = Number.parseInt(req.query.limit, 10) || 100;
+
+    try {
+      const records = await getLatestAttendanceRecordInfo(limit);
+      res.json({
+        records,
+        count: records.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Error fetching latest AttendanceRecordInfo rows:', err);
+      res.status(500).json({ error: err.message || 'Database error' });
+    }
+  });
+
   router.get('/api/all-device-users', authenticateToken, (req, res) => {
     const { startDate, endDate } = req.query || {};
     const hasRange = Boolean(startDate && endDate);
@@ -2513,6 +2532,113 @@
       }
       res.json(results || []);
     });
+  });
+
+  // Aggregated device attendance list for the Attendance Device tab.
+  router.post('/api/device-attendance-list', authenticateToken, async (req, res) => {
+    const { startDate, endDate } = req.body || {};
+    const limitRaw = Number.parseInt(req.body?.limit, 10);
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 2000)
+      : 1000;
+    const hasRange = Boolean(startDate && endDate);
+    const sd = hasRange ? String(startDate).slice(0, 10) : null;
+    const ed = hasRange ? String(endDate).slice(0, 10) : null;
+    const startTimestamp = hasRange ? new Date(`${sd}T00:00:00Z`).getTime() : null;
+    const endTimestamp = hasRange ? new Date(`${ed}T23:59:59Z`).getTime() : null;
+
+    const baseDailySql = `
+      SELECT
+        ari.PersonID,
+        MAX(ari.PersonName) AS PersonName,
+        DATE_FORMAT(FROM_UNIXTIME(ari.AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+        MIN(CASE WHEN ari.AttendanceState = 1 THEN ari.AttendanceDateTime END) AS Time1,
+        MIN(CASE WHEN ari.AttendanceState = 2 THEN ari.AttendanceDateTime END) AS Time2,
+        MIN(CASE WHEN ari.AttendanceState = 3 THEN ari.AttendanceDateTime END) AS Time3,
+        MAX(CASE WHEN ari.AttendanceState = 4 THEN ari.AttendanceDateTime END) AS Time4,
+        MIN(CASE WHEN ari.AttendanceState = 5 THEN ari.AttendanceDateTime END) AS Time5,
+        MAX(CASE WHEN ari.AttendanceState = 6 THEN ari.AttendanceDateTime END) AS Time6
+      FROM AttendanceRecordInfo ari
+      ${hasRange ? 'WHERE ari.AttendanceDateTime BETWEEN ? AND ?' : ''}
+      GROUP BY ari.PersonID, Date
+      ORDER BY Date DESC, PersonName ASC
+      ${hasRange ? '' : 'LIMIT ?'}
+    `;
+
+    const sql = `
+      SELECT
+        daily.PersonID AS employeeNumber,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension)), ''),
+          NULLIF(daily.PersonName, ''),
+          daily.PersonID
+        ) AS fullName,
+        COALESCE(da.code, '') AS department,
+        daily.Date AS date,
+        DAYNAME(daily.Date) AS day,
+        daily.Time1,
+        daily.Time2,
+        daily.Time3,
+        daily.Time4,
+        daily.Time5,
+        daily.Time6,
+        ar.manually_modified,
+        ar.timeIN AS savedTimeIN,
+        ar.breaktimeIN AS savedBreaktimeIN,
+        ar.breaktimeOUT AS savedBreaktimeOUT,
+        ar.timeOUT AS savedTimeOUT,
+        ar.specialTimeIN AS savedSpecialTimeIN,
+        ar.specialTimeOUT AS savedSpecialTimeOUT
+      FROM (${baseDailySql}) daily
+      INNER JOIN users u
+        ON TRIM(CAST(u.employeeNumber AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+      LEFT JOIN person_table p
+        ON TRIM(CAST(p.agencyEmployeeNum AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+      LEFT JOIN (
+        SELECT employeeNumber, MAX(code) AS code
+        FROM department_assignment
+        GROUP BY employeeNumber
+      ) da
+        ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+      LEFT JOIN attendancerecord ar
+        ON TRIM(CAST(ar.personID AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+        AND ar.date = daily.Date
+      ORDER BY daily.Date DESC, fullName ASC
+    `;
+
+    const params = hasRange ? [startTimestamp, endTimestamp] : [limit];
+
+    try {
+      const rows = await new Promise((resolve, reject) => {
+        db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result || [])));
+      });
+
+      const records = rows.map((row) => ({
+        employeeNumber: row.employeeNumber,
+        fullName: row.fullName,
+        department: row.department || '',
+        date: normalizeDateYmd(row.date),
+        day: row.day || getDayOfWeek(row.date),
+        timeIn: row.Time1 ? formatTime(convertDeviceMillisToManila(row.Time1)) : null,
+        breakIn: row.Time3 ? formatTime(convertDeviceMillisToManila(row.Time3)) : null,
+        breakOut: row.Time2 ? formatTime(convertDeviceMillisToManila(row.Time2)) : null,
+        timeOut: row.Time4 ? formatTime(convertDeviceMillisToManila(row.Time4)) : null,
+        specialTimeIn: row.Time5 ? formatTime(convertDeviceMillisToManila(row.Time5)) : null,
+        specialTimeOut: row.Time6 ? formatTime(convertDeviceMillisToManila(row.Time6)) : null,
+        manuallyModified: Number(row.manually_modified) === 1,
+        savedTimeIN: row.savedTimeIN || null,
+        savedBreaktimeIN: row.savedBreaktimeIN || null,
+        savedBreaktimeOUT: row.savedBreaktimeOUT || null,
+        savedTimeOUT: row.savedTimeOUT || null,
+        savedSpecialTimeIN: row.savedSpecialTimeIN || null,
+        savedSpecialTimeOUT: row.savedSpecialTimeOUT || null,
+      }));
+
+      res.json({ records, count: records.length, ranged: hasRange });
+    } catch (err) {
+      console.error('device-attendance-list error:', err);
+      res.status(500).json({ error: err.message || 'Database error' });
+    }
   });
 
   // Auto-save and fetch attendance records
