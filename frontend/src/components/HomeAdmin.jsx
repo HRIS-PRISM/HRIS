@@ -10,6 +10,7 @@ import React, {
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import { useSocket } from "../contexts/SocketContext";
+import useAttendanceRecordInfoSocket from "../hooks/useAttendanceRecordInfoSocket";
 import {
   Container,
   Box,
@@ -74,6 +75,7 @@ import {
   HelpOutline,
   PrivacyTip,
   Logout,
+  Login,
   Event,
   Schedule,
   Lock,
@@ -95,6 +97,8 @@ import {
   CalendarMonth,
   Note,
   Refresh,
+  Face,
+  FiberManualRecord,
 } from "@mui/icons-material";
 import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
@@ -1398,6 +1402,330 @@ const CompactStatCard = ({
   </Grow>
 );
 
+// ─── Facial Recognition live feed ─────────────────────────────────────────────
+// AttendanceState codes (from AttendanceUserState):
+// 0 = Uncategorized, 1 = Time IN, 2 = Breaktime OUT, 3 = Breaktime IN,
+// 4 = Time OUT, 5 = Special Time IN, 6 = Special Time OUT
+const FR_STATE_STYLE = {
+  0: { bg: T.accentFaint, color: T.accent, icon: Face, label: "Uncategorized" },
+  1: { bg: "#e8f5e9", color: "#2e7d32", icon: Login, label: "Time In" },
+  2: { bg: "#fff3e0", color: "#ef6c00", icon: Logout, label: "Break Out" },
+  3: { bg: "#fff3e0", color: "#ef6c00", icon: Login, label: "Break In" },
+  4: { bg: "#ffebee", color: "#c62828", icon: Logout, label: "Time Out" },
+  5: { bg: "#e3f2fd", color: "#1565c0", icon: Login, label: "Special Time In" },
+  6: { bg: "#e3f2fd", color: "#1565c0", icon: Logout, label: "Special Time Out" },
+};
+const FR_STATE_DEFAULT = {
+  bg: T.accentFaint,
+  color: T.accent,
+  icon: Face,
+  label: "Detected",
+};
+
+function resolveFrState(rawState) {
+  if (rawState === null || rawState === undefined || rawState === "")
+    return FR_STATE_DEFAULT;
+  const code = Number(rawState);
+  if (Number.isFinite(code) && FR_STATE_STYLE[code]) {
+    return FR_STATE_STYLE[code];
+  }
+  return FR_STATE_DEFAULT;
+}
+
+function recordKey(row) {
+  return `${row.PersonID}-${row.AttendanceDateTime}`;
+}
+
+function formatFrTime(timestamp) {
+  if (!timestamp) return "";
+  const ms = Number(timestamp);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+}
+
+function formatFrDate(timestamp) {
+  if (!timestamp) return "";
+  const ms = Number(timestamp);
+  if (!Number.isFinite(ms)) return "";
+  const rowDate = new Date(ms).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Manila",
+  });
+  const todayDate = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Manila",
+  });
+  if (rowDate === todayDate) return "Today";
+  return new Date(ms).toLocaleDateString("en-US", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+const MAX_FR_ROWS = 50;
+const NEW_ROW_HIGHLIGHT_MS = 4000;
+
+const FacialRecognitionFeed = () => {
+  const navigate = useNavigate();
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newKeys, setNewKeys] = useState(() => new Set());
+  const highlightTimersRef = useRef(new Map());
+
+  const flagAsNew = useCallback((keys) => {
+    if (!keys.length) return;
+    setNewKeys((prev) => {
+      const next = new Set(prev);
+      keys.forEach((k) => next.add(k));
+      return next;
+    });
+    keys.forEach((key) => {
+      const existingTimer = highlightTimersRef.current.get(key);
+      if (existingTimer) clearTimeout(existingTimer);
+      const timer = setTimeout(() => {
+        setNewKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        highlightTimersRef.current.delete(key);
+      }, NEW_ROW_HIGHLIGHT_MS);
+      highlightTimersRef.current.set(key, timer);
+    });
+  }, []);
+
+  useEffect(() => {
+    const timers = highlightTimersRef.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
+
+  useAttendanceRecordInfoSocket(
+    (payload) => {
+      const incoming = Array.isArray(payload?.records) ? payload.records : [];
+      if (payload?.action === "latest") {
+        const sorted = [...incoming].sort(
+          (a, b) => Number(b.AttendanceDateTime) - Number(a.AttendanceDateTime),
+        );
+        setRecords(sorted.slice(0, MAX_FR_ROWS));
+        setLoading(false);
+        return;
+      }
+
+      if (payload?.action === "inserted" && incoming.length > 0) {
+        setRecords((prev) => {
+          const existingKeys = new Set(prev.map(recordKey));
+          const fresh = incoming.filter((r) => !existingKeys.has(recordKey(r)));
+          if (fresh.length === 0) return prev;
+          flagAsNew(fresh.map(recordKey));
+          const merged = [...fresh.reverse(), ...prev].sort(
+            (a, b) => Number(b.AttendanceDateTime) - Number(a.AttendanceDateTime),
+          );
+          return merged.slice(0, MAX_FR_ROWS);
+        });
+        setLoading(false);
+      }
+    },
+    { fetchLatestOnConnect: true, latestLimit: MAX_FR_ROWS },
+  );
+
+  const getInitials = (name) => {
+    if (!name) return "?";
+    const parts = name.trim().split(/\s+/);
+    return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+  };
+
+  return (
+    <SectionCard
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <PanelHeader
+        icon={Face}
+        title="Facial Recognition Device "
+        right={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <FiberManualRecord
+              sx={{
+                fontSize: 8,
+                color: "#4caf50",
+                animation: "blink 1.8s ease-in-out infinite",
+              }}
+            />
+            <Typography
+              sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.muted }}
+            >
+              Real-time attendance activity
+            </Typography>
+          </Box>
+        }
+      />
+
+      <Box
+        sx={{
+          flex: 1,
+          overflowY: "auto",
+          minHeight: 0,
+          "&::-webkit-scrollbar": { width: "3px" },
+          "&::-webkit-scrollbar-track": { background: T.accentFaint },
+          "&::-webkit-scrollbar-thumb": {
+            background: T.accentBorder,
+            borderRadius: "2px",
+          },
+        }}
+      >
+        {loading ? (
+          <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1.25 }}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Bone w={32} h={32} r="50%" />
+                <Box sx={{ flex: 1 }}>
+                  <Bone w="70%" h={11} sx={{ mb: 0.5 }} />
+                  <Bone w="40%" h={9} />
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        ) : records.length === 0 ? (
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              gap: 1,
+              px: 2,
+            }}
+          >
+            <Face sx={{ fontSize: 40, color: T.accentBorder }} />
+            <Typography sx={{ fontSize: "0.75rem", color: T.faint, textAlign: "center" }}>
+              No attendance detections yet
+            </Typography>
+          </Box>
+        ) : (
+          records.map((row) => {
+            const key = recordKey(row);
+            const stateInfo = resolveFrState(row.AttendanceState);
+            const StateIcon = stateInfo.icon;
+            const isNew = newKeys.has(key);
+            return (
+              <Box
+                key={key}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  px: 1.5,
+                  py: 1,
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: isNew ? T.accentFaint : "transparent",
+                  transition: "background-color 0.6s ease",
+                }}
+              >
+                <Avatar
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    bgcolor: T.accentFaint,
+                    color: T.accent,
+                    border: `1px solid ${T.accentBorder}`,
+                  }}
+                >
+                  {getInitials(row.PersonName)}
+                </Avatar>
+
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      fontSize: "0.76rem",
+                      fontWeight: 600,
+                      color: T.text,
+                      lineHeight: 1.3,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {row.PersonName || `Person #${row.PersonID}`}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.62rem", color: T.faint }}>
+                    ID: {row.PersonID} · {formatFrDate(row.AttendanceDateTime)}{" "}
+                    {formatFrTime(row.AttendanceDateTime)}
+                  </Typography>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.4,
+                    px: 1,
+                    py: 0.3,
+                    borderRadius: "20px",
+                    bgcolor: stateInfo.bg,
+                    flexShrink: 0,
+                  }}
+                >
+                  <StateIcon sx={{ fontSize: 11, color: stateInfo.color }} />
+                  <Typography
+                    sx={{
+                      fontSize: "0.6rem",
+                      fontWeight: 700,
+                      color: stateInfo.color,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {stateInfo.label}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+
+      <Box
+        onClick={() =>
+          navigate("/view_attendance", {
+            state: { activeTab: "device-list", viewMode: "multiple" },
+          })
+        }
+        sx={{
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 0.5,
+          py: 1,
+          borderTop: `1px solid ${T.divider}`,
+          bgcolor: T.accentFaint,
+          cursor: "pointer",
+          transition: "background 0.15s",
+          "&:hover": { bgcolor: T.accentHover },
+        }}
+      >
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent }}>
+          View more
+        </Typography>
+        <ArrowForward sx={{ fontSize: 13, color: T.accent }} />
+      </Box>
+    </SectionCard>
+  );
+};
+
 // ─── CompactCalendar ──────────────────────────────────────────────────────────
 const CompactCalendar = ({
   calendarDate,
@@ -1571,6 +1899,298 @@ const CompactCalendar = ({
             );
           })}
         </Grid>
+      </Box>
+    </SectionCard>
+  );
+};
+
+// ─── Compact audit log preview (dashboard) ────────────────────────────────────
+const AUDIT_PREVIEW_HIDDEN_TABLES = new Set([
+  "dashboard_stats",
+  "attendance_overview",
+  "department_distribution",
+  "leave_stats",
+  "recent_activities",
+  "payroll_summary",
+  "monthly_attendance",
+  "employee_growth",
+  "employee_stats",
+]);
+
+const shouldShowAuditPreviewEntry = (log) => {
+  const table = String(log?.table_name || "").toLowerCase();
+  if (table === "leave_transaction") return false;
+  const action = String(log?.action || "").toLowerCase();
+  if (action === "view" && AUDIT_PREVIEW_HIDDEN_TABLES.has(table)) return false;
+  if (table === "users" && action.includes("search")) return false;
+  if (
+    (table === "holidays" || table === "suspensions" || table === "leaves") &&
+    action === "view"
+  )
+    return false;
+  return true;
+};
+
+const getAuditPreviewColor = (action) => {
+  if (!action) return "#10b981";
+  const a = action.toUpperCase();
+  if (["DELETE", "REMOVE", "DESTROY"].some((k) => a.includes(k))) return "#ef4444";
+  if (a.includes("REJECT")) return "#b91c1c";
+  if (["RESTORE", "REVERS"].some((k) => a.includes(k))) return "#ec4899";
+  if (["DEDUCT", "TARDINESS"].some((k) => a.includes(k))) return "#f97316";
+  if (a.includes("ASSIGN")) return "#6366f1";
+  if (["UPDATE", "EDIT", "MODIFY", "CHANGE"].some((k) => a.includes(k)))
+    return "#3b82f6";
+  if (["VIEW", "OPEN", "READ"].some((k) => a.includes(k))) return "#06b6d4";
+  if (a.includes("LOGOUT")) return "#7c3aed";
+  if (a.includes("LOGIN")) return "#8b5cf6";
+  return "#10b981";
+};
+
+const getAuditPreviewIcon = (action) => {
+  if (!action) return Add;
+  const a = action.toUpperCase();
+  if (["DELETE", "REMOVE", "DESTROY"].some((k) => a.includes(k))) return Delete;
+  if (["UPDATE", "EDIT", "MODIFY", "CHANGE"].some((k) => a.includes(k)))
+    return Edit;
+  if (a.includes("ASSIGN")) return Flag;
+  return Add;
+};
+
+const formatAuditPreviewModule = (tableName) => {
+  if (!tableName) return "SYSTEM";
+  return String(tableName).toUpperCase().replace(/[\s-]+/g, "_");
+};
+
+const CompactAuditLogs = ({ userRole }) => {
+  const navigate = useNavigate();
+  const { socket, connected } = useSocket();
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const canView = ["superadmin", "technical", "administrator", "admin"].includes(
+    userRole,
+  );
+
+  const canAccess = ["superadmin", "technical"].includes(
+    userRole,
+  );
+
+  const fetchLogs = useCallback(() => {
+    if (!canView) {
+      setLoading(false);
+      return;
+    }
+    axios
+      .get(`${API_BASE_URL}/audit-logs`, getAuthHeaders())
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setLogs(list.filter(shouldShowAuditPreviewEntry).slice(0, 8));
+      })
+      .catch(() => setLogs([]))
+      .finally(() => setLoading(false));
+  }, [canView]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  useEffect(() => {
+    if (!socket || !connected || !canView) return;
+    const handleNew = (newLog) => {
+      if (!shouldShowAuditPreviewEntry(newLog)) return;
+      setLogs((prev) => {
+        if (prev.some((l) => l.id === newLog.id)) return prev;
+        return [newLog, ...prev].slice(0, 8);
+      });
+    };
+    socket.on("auditLogCreated", handleNew);
+    return () => socket.off("auditLogCreated", handleNew);
+  }, [socket, connected, canView]);
+
+  const timeAgo = (ts) => {
+    if (!ts) return "";
+    const diff = Date.now() - new Date(ts).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
+  };
+
+  return (
+    <SectionCard
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <PanelHeader
+        icon={History}
+        title="System Recent Activity"
+        right={
+          canView && canAccess && (
+            <Tooltip title="View all" arrow>
+              <IconButton
+                size="small"
+                onClick={() => navigate("/audit-logs")}
+                sx={{
+                  color: T.accent,
+                  p: 0.4,
+                  borderRadius: "6px",
+                  "&:hover": { bgcolor: T.accentFaint },
+                }}
+              >
+                <ArrowForward sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+          )
+        }
+      />
+      <Box
+        sx={{
+          flex: 1,
+          overflowY: "auto",
+          minHeight: 0,
+          "&::-webkit-scrollbar": { width: "3px" },
+          "&::-webkit-scrollbar-track": { background: T.accentFaint },
+          "&::-webkit-scrollbar-thumb": {
+            background: T.accentBorder,
+            borderRadius: "2px",
+          },
+        }}
+      >
+        {!canView ? (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              px: 2,
+              textAlign: "center",
+            }}
+          >
+            <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>
+              You don't have access to view audit activity.
+            </Typography>
+          </Box>
+        ) : loading ? (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+            }}
+          >
+            <CircularProgress size={16} sx={{ color: T.accent }} />
+          </Box>
+        ) : logs.length === 0 ? (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+            }}
+          >
+            <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>
+              No recent activity
+            </Typography>
+          </Box>
+        ) : (
+          logs.map((log, idx) => {
+            const color = getAuditPreviewColor(log.action);
+            const Icon = getAuditPreviewIcon(log.action);
+            return (
+              <Box
+                key={log.id || idx}
+                onClick={() => canAccess && navigate("/audit-logs")}
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 1,
+                  px: 1.5,
+                  py: 1,
+                  borderBottom: `1px solid ${T.divider}`,
+                  cursor: "pointer",
+                  transition: "background 0.12s",
+                  "&:hover": { bgcolor: T.accentFaint },
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "7px",
+                    bgcolor: `${color}18`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    mt: 0.1,
+                  }}
+                >
+                  <Icon sx={{ fontSize: 13, color }} />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: "0.66rem",
+                        fontWeight: 700,
+                        color,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {(log.action || "ACTIVITY").toString()}
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: "0.6rem", color: T.faint, flexShrink: 0 }}
+                    >
+                      {timeAgo(log.timestamp)}
+                    </Typography>
+                  </Box>
+                  <Typography
+                    sx={{
+                      fontSize: "0.72rem",
+                      color: T.muted,
+                      lineHeight: 1.35,
+                      overflow: "hidden",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 1,
+                      WebkitBoxOrient: "vertical",
+                    }}
+                  >
+                    {(log.actorName && log.actorName.trim()) ||
+                      `Employee #${log.employeeNumber || "—"}`}
+                    {" · "}
+                    {formatAuditPreviewModule(log.table_name)}
+                    {log.targetEmployeeNumber
+                      ? ` → #${log.targetEmployeeNumber}`
+                      : ""}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })
+        )}
       </Box>
     </SectionCard>
   );
@@ -3591,60 +4211,6 @@ const AdminHome = () => {
                   zIndex: 1,
                 }}
               >
-                {/* <Box
-                  sx={{
-                    px: 2,
-                    py: 0.6,
-                    borderRadius: 5,
-                    bgcolor: alpha(T.accent, 0.1),
-                    border: `1px solid ${T.accentBorder}`,
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      color: T.accent,
-                      fontWeight: 700,
-                    }}
-                  >
-                    Admin Dashboard
-                  </Typography>
-                </Box> */}
-                {/* <Tooltip title="Refresh data">
-                  <button
-                    onClick={refreshAllData}
-                    style={{
-                      background: alpha(T.accent, 0.08),
-                      border: `1px solid ${T.accentBorder}`,
-                      borderRadius: "8px",
-                      padding: "7px 10px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px",
-                      color: T.accent,
-                      fontSize: "0.75rem",
-                      fontWeight: 700,
-                      fontFamily: "inherit",
-                      transition: "all 0.15s",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = alpha(
-                        T.accent,
-                        0.14,
-                      );
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = alpha(
-                        T.accent,
-                        0.08,
-                      );
-                    }}
-                  >
-                    <AutorenewIcon sx={{ fontSize: 15 }} />
-                    Refresh
-                  </button>
-                </Tooltip> */}
                 <Tooltip title="Notifications">
                   <IconButton
                     size="small"
@@ -3805,283 +4371,317 @@ const AdminHome = () => {
 
           {/* ── MAIN GRID ── */}
           <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
-            {/* LEFT — Carousel */}
+            {/* LEFT — Facial Recognition */}
             <Grid
               item
               xs={12}
-              md={7}
+              md={4}
+              sx={{
+                height: { xs: "60vw", md: "calc(100vh - 360px)" },
+                minHeight: 0,
+              }}
+            >
+              <FacialRecognitionFeed />
+            </Grid>
+
+            {/* CENTER — Carousel & Audit*/}
+            <Grid
+              item
+              xs={12}
+              md={3}
               sx={{
                 height: { xs: "52vw", md: "calc(100vh - 360px)" },
                 display: "flex",
                 flexDirection: "column",
+                gap: 1.5,
                 minHeight: 0,
               }}
             >
-              <SectionCard
+              <Grid
+                fullWidth
                 sx={{
-                  height: "100%",
-                  position: "relative",
-                  overflow: "hidden",
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
                 }}
               >
-                <Box sx={{ position: "relative", height: "100%" }}>
-                  {Array.isArray(carouselItems) && carouselItems.length > 0 ? (
-                    <Fade
-                      in={true}
-                      key={currentSlide}
-                      timeout={{ enter: 800, exit: 400 }}
-                    >
-                      <Box
-                        sx={{
-                          position: "relative",
-                          height: "100%",
-                          width: "100%",
-                        }}
-                      >
-                        <Box
-                          component="img"
-                          src={
-                            carouselItems[currentSlide]?.image
-                              ? buildImageUrl(carouselItems[currentSlide].image)
-                              : "/api/placeholder/800/400"
-                          }
-                          alt={
-                            carouselItems[currentSlide]?.title || "Announcement"
-                          }
-                          sx={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                        />
-                        <Box
-                          sx={{
-                            position: "absolute",
-                            inset: 0,
-                            background:
-                              "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.25) 50%, rgba(0,0,0,0) 70%)",
-                          }}
-                        />
-
-                        <IconButton
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePrevSlide();
-                          }}
-                          sx={{
-                            position: "absolute",
-                            left: 16,
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            bgcolor: "rgba(0,0,0,0.35)",
-                            backdropFilter: "blur(4px)",
-                            border: "0.5px solid rgba(255,255,255,0.2)",
-                            "&:hover": {
-                              bgcolor: "rgba(0,0,0,0.55)",
-                              transform: "translateY(-50%) scale(1.05)",
-                            },
-                            color: "#fff",
-                            zIndex: 10,
-                            width: 36,
-                            height: 36,
-                          }}
-                        >
-                          <ArrowBackIosNewIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                        <IconButton
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleNextSlide();
-                          }}
-                          sx={{
-                            position: "absolute",
-                            right: 16,
-                            top: "50%",
-                            transform: "translateY(-50%)",
-                            bgcolor: "rgba(0,0,0,0.35)",
-                            backdropFilter: "blur(4px)",
-                            border: "0.5px solid rgba(255,255,255,0.2)",
-                            "&:hover": {
-                              bgcolor: "rgba(0,0,0,0.55)",
-                              transform: "translateY(-50%) scale(1.05)",
-                            },
-                            color: "#fff",
-                            zIndex: 10,
-                            width: 36,
-                            height: 36,
-                          }}
-                        >
-                          <ArrowForwardIosIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                        <IconButton
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            togglePlayPause();
-                          }}
-                          sx={{
-                            position: "absolute",
-                            top: 14,
-                            right: 14,
-                            bgcolor: "rgba(0,0,0,0.35)",
-                            backdropFilter: "blur(4px)",
-                            border: "0.5px solid rgba(255,255,255,0.2)",
-                            "&:hover": { bgcolor: "rgba(0,0,0,0.55)" },
-                            color: "#fff",
-                            zIndex: 10,
-                            width: 30,
-                            height: 30,
-                          }}
-                        >
-                          {isPlaying ? (
-                            <Pause sx={{ fontSize: 14 }} />
-                          ) : (
-                            <PlayArrow sx={{ fontSize: 14 }} />
-                          )}
-                        </IconButton>
-
-                        <Box
-                          onClick={() =>
-                            handleOpenModal(carouselItems[currentSlide])
-                          }
-                          sx={{
-                            position: "absolute",
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            p: 3,
-                            color: "#fff",
-                            cursor: "pointer",
-                            zIndex: 10,
-                          }}
+                  <SectionCard
+                    sx={{
+                      height: "100%",
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <Box sx={{ position: "relative", height: "100%" }}>
+                      {Array.isArray(carouselItems) && carouselItems.length > 0 ? (
+                        <Fade
+                          in={true}
+                          key={currentSlide}
+                          timeout={{ enter: 800, exit: 400 }}
                         >
                           <Box
                             sx={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              px: 1.5,
-                              py: 0.3,
-                              borderRadius: "20px",
-                              bgcolor: "rgba(109,35,35,0.75)",
-                              backdropFilter: "blur(8px)",
-                              border: "0.5px solid rgba(255,255,255,0.2)",
-                              mb: 1.5,
+                              position: "relative",
+                              height: "100%",
+                              width: "100%",
                             }}
                           >
-                            <Typography
-                              sx={{
-                                fontSize: "0.62rem",
-                                fontWeight: 700,
-                                color: "#fff",
-                                letterSpacing: "0.08em",
-                                textTransform: "uppercase",
-                              }}
-                            >
-                              {carouselItems[currentSlide]?.id
-                                ?.toString()
-                                .startsWith("holiday-")
-                                ? "Holiday"
-                                : carouselItems[currentSlide]?.id
-                                      ?.toString()
-                                      .startsWith("suspension-")
-                                  ? "Suspension"
-                                  : "Announcement"}
-                            </Typography>
-                          </Box>
-                          <Typography
-                            variant="h4"
-                            sx={{
-                              fontWeight: 800,
-                              mb: 0.75,
-                              lineHeight: 1.2,
-                              textShadow: "0 2px 8px rgba(0,0,0,0.5)",
-                            }}
-                          >
-                            {carouselItems[currentSlide]?.title}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              opacity: 0.85,
-                              fontSize: "0.85rem",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 0.75,
-                            }}
-                          >
-                            <AccessTimeIcon sx={{ fontSize: 14 }} />
-                            {(() => {
-                              const raw = carouselItems[currentSlide]?.date;
-                              if (!raw) return "";
-                              const d = new Date(raw);
-                              return isNaN(d)
-                                ? raw
-                                : d.toLocaleDateString("en-US", {
-                                    weekday: "long",
-                                    year: "numeric",
-                                    month: "long",
-                                    day: "numeric",
-                                  });
-                            })()}
-                          </Typography>
-                        </Box>
-
-                        {/* dot indicators */}
-                        <Box
-                          sx={{
-                            position: "absolute",
-                            bottom: 16,
-                            right: 16,
-                            display: "flex",
-                            gap: 1,
-                            alignItems: "center",
-                            zIndex: 10,
-                          }}
-                        >
-                          {carouselItems.map((_, idx) => (
                             <Box
-                              key={idx}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSlideSelect(idx);
-                              }}
+                              component="img"
+                              src={
+                                carouselItems[currentSlide]?.image
+                                  ? buildImageUrl(carouselItems[currentSlide].image)
+                                  : "/api/placeholder/800/400"
+                              }
+                              alt={
+                                carouselItems[currentSlide]?.title || "Announcement"
+                              }
                               sx={{
-                                width: currentSlide === idx ? 24 : 8,
-                                height: 8,
-                                borderRadius: 4,
-                                bgcolor:
-                                  currentSlide === idx
-                                    ? "#fff"
-                                    : "rgba(255,255,255,0.4)",
-                                transition: "all 0.3s ease",
-                                cursor: "pointer",
-                                border: "0.5px solid rgba(255,255,255,0.3)",
-                                "&:hover": { bgcolor: "rgba(255,255,255,0.7)" },
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
                               }}
                             />
-                          ))}
+                            <Box
+                              sx={{
+                                position: "absolute",
+                                inset: 0,
+                                background:
+                                  "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.25) 50%, rgba(0,0,0,0) 70%)",
+                              }}
+                            />
+
+                            <IconButton
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePrevSlide();
+                              }}
+                              sx={{
+                                position: "absolute",
+                                left: 16,
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                bgcolor: "rgba(0,0,0,0.35)",
+                                backdropFilter: "blur(4px)",
+                                border: "0.5px solid rgba(255,255,255,0.2)",
+                                "&:hover": {
+                                  bgcolor: "rgba(0,0,0,0.55)",
+                                  transform: "translateY(-50%) scale(1.05)",
+                                },
+                                color: "#fff",
+                                zIndex: 10,
+                                width: 36,
+                                height: 36,
+                              }}
+                            >
+                              <ArrowBackIosNewIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <IconButton
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleNextSlide();
+                              }}
+                              sx={{
+                                position: "absolute",
+                                right: 16,
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                bgcolor: "rgba(0,0,0,0.35)",
+                                backdropFilter: "blur(4px)",
+                                border: "0.5px solid rgba(255,255,255,0.2)",
+                                "&:hover": {
+                                  bgcolor: "rgba(0,0,0,0.55)",
+                                  transform: "translateY(-50%) scale(1.05)",
+                                },
+                                color: "#fff",
+                                zIndex: 10,
+                                width: 36,
+                                height: 36,
+                              }}
+                            >
+                              <ArrowForwardIosIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <IconButton
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePlayPause();
+                              }}
+                              sx={{
+                                position: "absolute",
+                                top: 14,
+                                right: 14,
+                                bgcolor: "rgba(0,0,0,0.35)",
+                                backdropFilter: "blur(4px)",
+                                border: "0.5px solid rgba(255,255,255,0.2)",
+                                "&:hover": { bgcolor: "rgba(0,0,0,0.55)" },
+                                color: "#fff",
+                                zIndex: 10,
+                                width: 30,
+                                height: 30,
+                              }}
+                            >
+                              {isPlaying ? (
+                                <Pause sx={{ fontSize: 14 }} />
+                              ) : (
+                                <PlayArrow sx={{ fontSize: 14 }} />
+                              )}
+                            </IconButton>
+
+                            <Box
+                              onClick={() =>
+                                handleOpenModal(carouselItems[currentSlide])
+                              }
+                              sx={{
+                                position: "absolute",
+                                bottom: 0,
+                                left: 0,
+                                right: 0,
+                                p: 3,
+                                color: "#fff",
+                                cursor: "pointer",
+                                zIndex: 10,
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  px: 1.5,
+                                  py: 0.3,
+                                  borderRadius: "20px",
+                                  bgcolor: "rgba(109,35,35,0.75)",
+                                  backdropFilter: "blur(8px)",
+                                  border: "0.5px solid rgba(255,255,255,0.2)",
+                                  mb: 1.5,
+                                }}
+                              >
+                                <Typography
+                                  sx={{
+                                    fontSize: "0.62rem",
+                                    fontWeight: 700,
+                                    color: "#fff",
+                                    letterSpacing: "0.08em",
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  {carouselItems[currentSlide]?.id
+                                    ?.toString()
+                                    .startsWith("holiday-")
+                                    ? "Holiday"
+                                    : carouselItems[currentSlide]?.id
+                                          ?.toString()
+                                          .startsWith("suspension-")
+                                      ? "Suspension"
+                                      : "Announcement"}
+                                </Typography>
+                              </Box>
+                              <Typography
+                                variant="h4"
+                                sx={{
+                                  fontWeight: 800,
+                                  mb: 0.75,
+                                  lineHeight: 1.2,
+                                  textShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                                }}
+                              >
+                                {carouselItems[currentSlide]?.title}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  opacity: 0.85,
+                                  fontSize: "0.85rem",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 0.75,
+                                }}
+                              >
+                                <AccessTimeIcon sx={{ fontSize: 14 }} />
+                                {(() => {
+                                  const raw = carouselItems[currentSlide]?.date;
+                                  if (!raw) return "";
+                                  const d = new Date(raw);
+                                  return isNaN(d)
+                                    ? raw
+                                    : d.toLocaleDateString("en-US", {
+                                        weekday: "long",
+                                        year: "numeric",
+                                        month: "long",
+                                        day: "numeric",
+                                      });
+                                })()}
+                              </Typography>
+                            </Box>
+
+                            {/* dot indicators */}
+                            <Box
+                              sx={{
+                                position: "absolute",
+                                bottom: 16,
+                                right: 16,
+                                display: "flex",
+                                gap: 1,
+                                alignItems: "center",
+                                zIndex: 10,
+                              }}
+                            >
+                              {carouselItems.map((_, idx) => (
+                                <Box
+                                  key={idx}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSlideSelect(idx);
+                                  }}
+                                  sx={{
+                                    width: currentSlide === idx ? 24 : 8,
+                                    height: 8,
+                                    borderRadius: 4,
+                                    bgcolor:
+                                      currentSlide === idx
+                                        ? "#fff"
+                                        : "rgba(255,255,255,0.4)",
+                                    transition: "all 0.3s ease",
+                                    cursor: "pointer",
+                                    border: "0.5px solid rgba(255,255,255,0.3)",
+                                    "&:hover": { bgcolor: "rgba(255,255,255,0.7)" },
+                                  }}
+                                />
+                              ))}
+                            </Box>
+                          </Box>
+                        </Fade>
+                      ) : (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: "100%",
+                            flexDirection: "column",
+                            gap: 2,
+                          }}
+                        >
+                          <CampaignIcon
+                            sx={{ fontSize: 64, color: T.accentBorder }}
+                          />
+                          <Typography sx={{ fontSize: "0.9rem", color: T.muted }}>
+                            No announcements is currently available.
+                          </Typography>
                         </Box>
-                      </Box>
-                    </Fade>
-                  ) : (
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        height: "100%",
-                        flexDirection: "column",
-                        gap: 2,
-                      }}
-                    >
-                      <CampaignIcon
-                        sx={{ fontSize: 64, color: T.accentBorder }}
-                      />
-                      <Typography sx={{ fontSize: "0.9rem", color: T.muted }}>
-                        No announcements is currently available.
-                      </Typography>
+                      )}
                     </Box>
-                  )}
-                </Box>
-              </SectionCard>
+                  </SectionCard>
+              </Grid>
+              <Grid
+                sx={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
+                }}
+              >
+                <CompactAuditLogs userRole={userRole} />
+              </Grid>
             </Grid>
 
             {/* RIGHT */}
