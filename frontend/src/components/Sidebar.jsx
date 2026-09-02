@@ -4963,6 +4963,54 @@ const Sidebar = ({
 
                 <Collapse in={open4} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                     <ListItem
+                      button
+                      component={Link}
+                      to="/leave-form"
+                      onClick={() => handleItemClick("leave-form")}
+                      sx={{
+                        color:
+                          selectedItem === "leave-form"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                        bgcolor:
+                          selectedItem === "leave-form"
+                            ? settings.accentColor || "#FEF9E1"
+                            : "inherit",
+                        "&:hover": {
+                          bgcolor: settings.hoverColor || "#6D2323",
+                          color: settings.textSecondaryColor,
+                          borderTopRightRadius: "15px",
+                          borderBottomRightRadius: "15px",
+                          "& .MuiListItemIcon-root": {
+                            color: settings.textSecondaryColor,
+                          },
+                        },
+                        borderTopRightRadius:
+                          selectedItem === "leave-form" ? "15px" : 0,
+                        borderBottomRightRadius:
+                          selectedItem === "leave-form" ? "15px" : 0,
+                      }}
+                    >
+                      <ListItemIcon
+                        sx={{
+                          marginRight: "-1rem",
+                          color:
+                            selectedItem === "leave-form"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+                          "&:hover": { color: settings.textSecondaryColor },
+                        }}
+                      >
+                        <FeedIcon />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary="Leave Form"
+                        sx={{ marginLeft: "-10px" }}
+                      />
+                    </ListItem>
+
+                    {/* ASSESSMENT CLEARANCE */}
                     <ListItem
                       button
                       component={Link}

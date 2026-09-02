@@ -301,6 +301,7 @@ const Home = () => {
   const [payslipYear, setPayslipYear] = useState(new Date().getFullYear());
   const [notifFilter, setNotifFilter] = useState("all");
   const [activePayslipTab, setActivePayslipTab] = useState(0);
+  const HIDE_LEAVE_CREDITS_DISPLAY = true; // FALSE = Show leave credits, TRUE = Hide leave credits
 
   const month = calendarDate.getMonth();
   const year = calendarDate.getFullYear();
@@ -822,9 +823,6 @@ const Home = () => {
               </Box>
 
               <Box sx={{ display: "flex", gap: 1, alignItems: "center", position: "relative", zIndex: 1 }}>
-                <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${T.accentBorder}` }}>
-                  <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>Employee Dashboard</Typography>
-                </Box>
                 <Tooltip title="Refresh data">
                   <button
                     onClick={() => { fetchAnnouncements(); fetchHolidays(); fetchSuspensions(); }}
@@ -1098,59 +1096,78 @@ const Home = () => {
                       </Box>
                     </Box>
                   </SectionCard>
-
-                  {/* Leave Credits */}
-                  <SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-                    <TabBar>
-                      <FlatTab label="Leave Credits" icon={CalendarMonth} badge={`${totalLeave.toFixed(1)}d`} active={true} onClick={() => {}} />
-                    </TabBar>
-                    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 1.25, minHeight: 0, overflow: "hidden" }}>
-                      <Box sx={{ flex: 1, overflowY: "auto", minHeight: 0, pr: 0.25, "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { background: T.accentBorder, borderRadius: 2 } }}>
-                        {leaveLoading ? (
-                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 3 }}>
-                            <CircularProgress size={14} sx={{ color: T.accent }} />
-                            <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>Loading...</Typography>
-                          </Box>
-                        ) : leaveCredits.length === 0 ? (
-                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                            <Typography sx={{ color: T.faint, textAlign: "center", fontSize: "0.7rem" }}>No leave credits assigned</Typography>
-                          </Box>
-                        ) : (
-                          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                            {leaveCredits.map((leave, idx) => {
-                              const pct = leave.currTotal > 0 ? (leave.currRemaining / leave.currTotal) * 100 : 0;
-                              const statusColor = getLeaveStatusColor(leave.currRemaining, leave.currTotal);
-                              const usedDays = leave.currAllocated - leave.currRemaining;
-                              return (
-                                <Box key={idx} sx={{ p: 1, borderRadius: "8px", border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.4 }}>
-                                    <Typography sx={{ fontWeight: 700, color: T.text, fontSize: "0.7rem", lineHeight: 1.2 }}>{leave.name}</Typography>
-                                    <Box sx={{ px: 0.75, py: 0.1, borderRadius: "12px", bgcolor: `${statusColor}18`, border: `1px solid ${statusColor}30` }}>
-                                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: statusColor }}>{leave.code}</Typography>
-                                    </Box>
-                                  </Box>
-                                  <Box sx={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", mb: 0.4 }}>
-                                    <Box>
-                                      <Typography sx={{ color: statusColor, fontWeight: 800, fontSize: "1rem", lineHeight: 1 }}>{leave.currRemaining.toFixed(1)}</Typography>
-                                      <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>days left</Typography>
-                                    </Box>
-                                    <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>{usedDays < 0 ? 0 : usedDays.toFixed(1)} used / {leave.currAllocated.toFixed(1)} total</Typography>
-                                  </Box>
-                                  <LinearProgress variant="determinate" value={Math.min(pct, 100)} sx={{ height: 3, borderRadius: 2, bgcolor: `${statusColor}20`, ".MuiLinearProgress-bar": { bgcolor: statusColor, borderRadius: 2 } }} />
-                                  {leave.prevRemaining > 0 && (
-                                    <Box sx={{ mt: 0.5, px: 0.5, py: 0.2, borderRadius: "4px", bgcolor: "#FFF3E0", border: "1px dashed #FFB74D", display: "flex", alignItems: "center", gap: 0.4 }}>
-                                      <Add sx={{ fontSize: 9, color: "#EF6C00" }} />
-                                      <Typography sx={{ color: "#E65100", fontWeight: 700, fontSize: "0.55rem" }}>+{leave.prevRemaining.toFixed(1)} days carried over</Typography>
-                                    </Box>
-                                  )}
-                                </Box>
-                              );
-                            })}
-                          </Box>
-                        )}
-                      </Box>
+{/* Leave Credits */}
+<SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+<TabBar>
+  <FlatTab
+    label="Leave Credits"
+    icon={CalendarMonth}
+    badge={HIDE_LEAVE_CREDITS_DISPLAY ? undefined : `${totalLeave.toFixed(1)}d`}
+    active={true}
+    onClick={() => {}}
+  />
+</TabBar>
+  <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 1.25, minHeight: 0, overflow: "hidden" }}>
+    {HIDE_LEAVE_CREDITS_DISPLAY ? (
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", py: 3 }}>
+        <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
+          <CalendarMonth sx={{ fontSize: 26, color: T.accent }} />
+        </Box>
+        <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.85rem", mb: 0.5 }}>
+          Leave Credit Summary
+        </Typography>
+        <Typography sx={{ color: T.muted, fontSize: "0.75rem", maxWidth: 220 }}>
+          Leave Credits details will be shown here.
+        </Typography>
+      </Box>
+    ) : (
+      <Box sx={{ flex: 1, overflowY: "auto", minHeight: 0, pr: 0.25, "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { background: T.accentBorder, borderRadius: 2 } }}>
+        {leaveLoading ? (
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 3 }}>
+            <CircularProgress size={14} sx={{ color: T.accent }} />
+            <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>Loading...</Typography>
+          </Box>
+        ) : leaveCredits.length === 0 ? (
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+            <Typography sx={{ color: T.faint, textAlign: "center", fontSize: "0.7rem" }}>No leave credits assigned</Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+            {leaveCredits.map((leave, idx) => {
+              const pct = leave.currTotal > 0 ? (leave.currRemaining / leave.currTotal) * 100 : 0;
+              const statusColor = getLeaveStatusColor(leave.currRemaining, leave.currTotal);
+              const usedDays = leave.currAllocated - leave.currRemaining;
+              return (
+                <Box key={idx} sx={{ p: 1, borderRadius: "8px", border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.4 }}>
+                    <Typography sx={{ fontWeight: 700, color: T.text, fontSize: "0.7rem", lineHeight: 1.2 }}>{leave.name}</Typography>
+                    <Box sx={{ px: 0.75, py: 0.1, borderRadius: "12px", bgcolor: `${statusColor}18`, border: `1px solid ${statusColor}30` }}>
+                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: statusColor }}>{leave.code}</Typography>
                     </Box>
-                  </SectionCard>
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", mb: 0.4 }}>
+                    <Box>
+                      <Typography sx={{ color: statusColor, fontWeight: 800, fontSize: "1rem", lineHeight: 1 }}>{leave.currRemaining.toFixed(1)}</Typography>
+                      <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>days left</Typography>
+                    </Box>
+                    <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>{usedDays < 0 ? 0 : usedDays.toFixed(1)} used / {leave.currAllocated.toFixed(1)} total</Typography>
+                  </Box>
+                  <LinearProgress variant="determinate" value={Math.min(pct, 100)} sx={{ height: 3, borderRadius: 2, bgcolor: `${statusColor}20`, ".MuiLinearProgress-bar": { bgcolor: statusColor, borderRadius: 2 } }} />
+                  {leave.prevRemaining > 0 && (
+                    <Box sx={{ mt: 0.5, px: 0.5, py: 0.2, borderRadius: "4px", bgcolor: "#FFF3E0", border: "1px dashed #FFB74D", display: "flex", alignItems: "center", gap: 0.4 }}>
+                      <Add sx={{ fontSize: 9, color: "#EF6C00" }} />
+                      <Typography sx={{ color: "#E65100", fontWeight: 700, fontSize: "0.55rem" }}>+{leave.prevRemaining.toFixed(1)} days carried over</Typography>
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
+          </Box>
+        )}
+      </Box>
+    )}
+  </Box>
+</SectionCard>
                 </Box>
               </Box>
             </Grid>
