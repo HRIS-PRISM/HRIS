@@ -165,6 +165,7 @@ router.get('/api/supervisor-assignment', authenticateToken, requireAdmin, (req, 
       ON p.agencyEmployeeNum = sa.supervisorEmployeeNumber
     LEFT JOIN department_table dt
       ON dt.code = sa.departmentCode
+      WHERE sa.status = 0
     ORDER BY sa.role, sa.departmentCode, sa.supervisorEmployeeNumber
   `;
   db.query(sql, (err, rows) => {
@@ -906,6 +907,37 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
     console.error('[supervisor-dtr] employees/me resolve error:', e.message);
     return res.status(500).json({ error: 'Failed to fetch supervisor DTR employees' });
   }
+});
+
+/**
+ * GET /api/supervisor-assignment/archived
+ * Returns supervisor assignments whose period has ended (status = 1).
+ */
+router.get('/api/supervisor-assignment/archived', authenticateToken, requireAdmin, (req, res) => {
+  const sql = `
+    SELECT
+      sa.id,
+      sa.supervisorEmployeeNumber,
+      sa.departmentCode,
+      sa.role,
+      sa.start,
+      sa.end,
+      sa.createdAt,
+      sa.updatedAt,
+      CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS supervisorName,
+      dt.description AS departmentDescription
+    FROM supervisor_assignment sa
+    LEFT JOIN person_table p
+      ON p.agencyEmployeeNum = sa.supervisorEmployeeNumber
+    LEFT JOIN department_table dt
+      ON dt.code = sa.departmentCode
+    WHERE sa.status = 1
+    ORDER BY sa.end DESC
+  `;
+  db.query(sql, (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch archived supervisor assignments' });
+    res.json(Array.isArray(rows) ? rows : []);
+  });
 });
 
 module.exports = router;

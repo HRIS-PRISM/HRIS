@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const db = require('./db');
 const { initializeSocket } = require('./socket/socketServer');
+const {expireSupervisorAssignments} = require('./utils/supervisorPageAccess')
 const {
   startAttendanceRecordInfoSocketApi,
 } = require('./socket/attendanceRecordInfoSocketApi');
@@ -611,6 +612,8 @@ startAttendanceRecordInfoSocketApi(io);
 // Wire up Socket.IO to route files that use it for real-time events
 leaveRoutes.setSocketIO(io);
 commutationRoute.setSocketIO(io);
+expireSupervisorAssignments();
+setInterval(expireSupervisorAssignments, 60 * 1000);
 
 // Make io accessible to routes via app.locals
 app.locals.io = io;
