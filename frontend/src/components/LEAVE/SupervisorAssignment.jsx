@@ -45,6 +45,7 @@ import {
   WorkspacePremium as PremiumIcon,
   Badge as BadgeIcon,
   AccessTime as AccessTimeIcon,
+  Archive as ArchiveIcon,
 } from "@mui/icons-material";
 import { styled, alpha } from "@mui/material/styles";
 import AccessDenied from "../AccessDenied";
@@ -52,6 +53,7 @@ import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
 import usePageAccess from "../../hooks/usePageAccess";
 import OfficialTimePeriodPicker from "./OfficialTimePeriodPicker";
+import { useSocket } from "../../contexts/SocketContext";
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
@@ -1134,6 +1136,11 @@ const SupervisorAssignment = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
+  // Archive state
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archivedAssignments, setArchivedAssignments] = useState([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+
   useEffect(() => {
     const init = async () => {
       await Promise.all([fetchAssignments(), fetchDepartmentList()]);
@@ -1166,6 +1173,44 @@ const SupervisorAssignment = () => {
     }
   };
 
+  const fetchArchivedAssignments = async () => {
+    setArchiveLoading(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/api/supervisor-assignment/archived`,
+        getAuthHeaders(),
+      );
+      setArchivedAssignments(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setArchivedAssignments([]);
+    } finally {
+      setArchiveLoading(false);
+    }
+  };
+
+  const handleOpenArchive = () => {
+    setArchiveOpen(true);
+    fetchArchivedAssignments();
+  };
+
+  const { socket, connected } = useSocket();
+
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    const handleSupervisorAssignmentChanged = () => {
+      fetchAssignments();
+      if (archiveOpen) fetchArchivedAssignments();
+    };
+
+    socket.on("supervisorAssignmentChanged", handleSupervisorAssignmentChanged);
+    return () => {
+      socket.off(
+        "supervisorAssignmentChanged",
+        handleSupervisorAssignmentChanged,
+      );
+    };
+  }, [socket, connected, archiveOpen]);
   // Select a title suggestion chip. Choosing "Other" clears the field and
   // unlocks it for free-text entry; choosing any other suggestion sets the
   // title directly and re-locks the field.
@@ -1413,6 +1458,20 @@ const SupervisorAssignment = () => {
                   {assignments.length === 1 ? "assignment" : "assignments"}
                 </Typography>
               </Box>
+              <Tooltip title="View Archive">
+                <IconButton
+                  onClick={handleOpenArchive}
+                  sx={{
+                    bgcolor: alpha(T.accent, 0.08),
+                    color: T.accent,
+                    width: 36,
+                    height: 36,
+                    "&:hover": { bgcolor: alpha(T.accent, 0.15) },
+                  }}
+                >
+                  <ArchiveIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Refresh">
                 <IconButton
                   onClick={() => {
@@ -2559,6 +2618,206 @@ const SupervisorAssignment = () => {
                 >
                   {loading ? "Removing…" : "Remove"}
                 </AccentButton>
+              </Box>
+            </Box>
+          </Fade>
+        </Modal>
+
+        {/* Archive Modal */}
+        <Modal
+          open={archiveOpen}
+          onClose={() => setArchiveOpen(false)}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            p: 2,
+          }}
+        >
+          <Fade in={archiveOpen}>
+            <Box
+              sx={{
+                width: "95%",
+                maxWidth: 640,
+                maxHeight: "85vh",
+                borderRadius: 3,
+                overflow: "hidden",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.22)",
+                outline: "none",
+                bgcolor: T.surface,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <Box
+                sx={{
+                  px: 3.5,
+                  py: 2.5,
+                  background: T.headerGrad,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Avatar
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      bgcolor: "rgba(255,255,255,0.15)",
+                      color: "#fff",
+                    }}
+                  >
+                    <ArchiveIcon sx={{ fontSize: 22 }} />
+                  </Avatar>
+                  <Box>
+                    <Typography
+                      sx={{
+                        fontSize: "1rem",
+                        fontWeight: 800,
+                        color: "#fff",
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      Archived Assignments
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.72rem",
+                        color: "rgba(255,255,255,0.68)",
+                      }}
+                    >
+                      {archivedAssignments.length} expired{" "}
+                      {archivedAssignments.length === 1 ? "record" : "records"}
+                    </Typography>
+                  </Box>
+                </Box>
+                <IconButton
+                  onClick={() => setArchiveOpen(false)}
+                  size="small"
+                  sx={{
+                    color: "rgba(255,255,255,0.75)",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.12)" },
+                  }}
+                >
+                  <Close sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Box>
+
+              <Box
+                sx={{ flexGrow: 1, overflowY: "auto", p: 2, ...scrollbarSx }}
+              >
+                {archiveLoading ? (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      py: 6,
+                      gap: 1,
+                    }}
+                  >
+                    <CircularProgress size={18} sx={{ color: T.accent }} />
+                    <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>
+                      Loading archive…
+                    </Typography>
+                  </Box>
+                ) : archivedAssignments.length === 0 ? (
+                  <Box sx={{ py: 8, textAlign: "center" }}>
+                    <Box
+                      sx={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: "50%",
+                        bgcolor: T.accentFaint,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        mx: "auto",
+                        mb: 2,
+                      }}
+                    >
+                      <ArchiveIcon
+                        sx={{ fontSize: 28, color: alpha(T.accent, 0.3) }}
+                      />
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontSize: "0.88rem",
+                        fontWeight: 600,
+                        color: T.muted,
+                      }}
+                    >
+                      No archived assignments
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: "0.76rem", color: T.faint, mt: 0.5 }}
+                    >
+                      Expired supervisor assignments will appear here.
+                    </Typography>
+                  </Box>
+                ) : (
+                  archivedAssignments.map((a) => (
+                    <Box
+                      key={a.id}
+                      sx={{
+                        px: 2,
+                        py: 1.5,
+                        mb: 1,
+                        borderRadius: 2,
+                        border: `1px solid ${T.divider}`,
+                        bgcolor: "#fafafa",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 1.5,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: "0.85rem",
+                            fontWeight: 700,
+                            color: T.text,
+                            minWidth: 0,
+                          }}
+                          noWrap
+                        >
+                          {a.supervisorName ||
+                            `Employee #${a.supervisorEmployeeNumber}`}{" "}
+                          ({a.supervisorEmployeeNumber})
+                        </Typography>
+                        <Chip
+                          label="Period Already Ended"
+                          size="small"
+                          sx={{
+                            height: 20,
+                            fontSize: "0.62rem",
+                            fontWeight: 700,
+                            flexShrink: 0,
+                            bgcolor: "#ffebee",
+                            color: "#c62828",
+                            border: "1px solid rgba(198,40,40,0.25)",
+                          }}
+                        />
+                      </Box>
+                      <Typography
+                        sx={{ fontSize: "0.75rem", color: T.muted, mt: 0.5 }}
+                      >
+                        {a.departmentCode}
+                        {a.departmentDescription
+                          ? ` (${a.departmentDescription})`
+                          : ""}{" "}
+                        · {a.start ? new Date(a.start).toLocaleString() : "-"} -{" "}
+                        {a.end ? new Date(a.end).toLocaleString() : "-"}
+                      </Typography>
+                    </Box>
+                  ))
+                )}
               </Box>
             </Box>
           </Fade>
