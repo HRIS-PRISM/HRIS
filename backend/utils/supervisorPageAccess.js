@@ -528,8 +528,6 @@ async function assertNotAssignmentManagedPage(pageId) {
 
 }
 
-
-
 module.exports = {
 
   LEAVE_SUPERVISOR_IDENTIFIER,
@@ -545,7 +543,6 @@ module.exports = {
   resolveCanonicalEmployeeNumber,
 
   fetchSupervisorDepartments,
-
   grantSupervisorPageAccess,
 
   grantSupervisorLeavePageAccess,

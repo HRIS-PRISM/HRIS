@@ -26,6 +26,10 @@ import {
   AccessTime, Receipt, ContactPage, Event, CalendarMonth, Logout, Settings,
   Dashboard as DashboardIcon, WorkHistory, Close, Add, Note, Flag, ArrowForward,
   PlayArrow, Pause, AccountCircle, HelpOutline, PrivacyTip, MoreVert, Delete, Save, ArrowDropDown,
+  PeopleAlt as PeopleAltIcon, Work as WorkIcon, MedicalServices as MedicalServicesIcon,
+  WarningAmber as WarningAmberIcon, Favorite as FavoriteIcon, EscalatorWarning as EscalatorWarningIcon,
+  School as SchoolIcon, BeachAccess as BeachAccessIcon, Spa as SpaIcon,
+  PregnantWoman as PregnantWomanIcon, EventNote as EventNoteIcon,
 } from "@mui/icons-material";
 
 // ─── Import the new attendance calendar ──────────────────────────────────────
@@ -256,6 +260,34 @@ const NotifFilterChips = ({ activeFilter, onChange, unreadCount }) => {
       </Menu>
     </>
   );
+};
+
+// ─── Leave type icon/color mapping ────────────────────────────────────────────
+const LEAVE_TYPE_STYLES = [
+  { match: /adopt/i,                       icon: PeopleAltIcon,        bg: "#ececec", color: "#757575" },
+  { match: /mandatory|forced/i,            icon: WorkIcon,             bg: "#d9cfc7", color: "#6d4c41" },
+  { match: /rehab/i,                       icon: MedicalServicesIcon,  bg: "#d7f4f0", color: "#00897b" },
+  { match: /special|emergency|calamity/i,  icon: WarningAmberIcon,     bg: "#ffe9c7", color: "#f57c00" },
+  { match: /sick/i,                        icon: FavoriteIcon,         bg: "#fbdfe0", color: "#e5394f" },
+  { match: /solo\s*parent/i,               icon: EscalatorWarningIcon, bg: "#d7e8fb", color: "#1976d2" },
+  { match: /study/i,                       icon: SchoolIcon,           bg: "#e6ddf9", color: "#7b3fe4" },
+  { match: /vacation/i,                    icon: BeachAccessIcon,      bg: "#d7f0e6", color: "#2e9e6c" },
+  { match: /wellness/i,                    icon: SpaIcon,              bg: "#fde3ef", color: "#d6408c" },
+  { match: /maternity|paternity/i,         icon: PregnantWomanIcon,    bg: "#fef0d0", color: "#c98a10" },
+];
+const FALLBACK_LEAVE_PALETTE = [
+  { bg: "#ececec", color: "#757575" },
+  { bg: "#d7e8fb", color: "#1976d2" },
+  { bg: "#d7f4f0", color: "#00897b" },
+  { bg: "#ffe9c7", color: "#f57c00" },
+  { bg: "#fbdfe0", color: "#e5394f" },
+  { bg: "#e6ddf9", color: "#7b3fe4" },
+];
+const getLeaveTypeStyle = (name, idx) => {
+  const found = LEAVE_TYPE_STYLES.find((entry) => entry.match.test(name || ""));
+  if (found) return found;
+  const fallback = FALLBACK_LEAVE_PALETTE[idx % FALLBACK_LEAVE_PALETTE.length];
+  return { icon: EventNoteIcon, ...fallback };
 };
 
 // ─── Home ─────────────────────────────────────────────────────────────────────
@@ -723,14 +755,6 @@ const Home = () => {
   const handleCloseModal = () => { setOpenModal(false); setSelectedAnnouncement(null); };
   const handleLogout = () => { localStorage.removeItem("token"); navigate("/login"); };
 
-  const getLeaveStatusColor = (remaining, total) => {
-    if (total === 0 || remaining === 0) return "#B71C1C";
-    const pct = (remaining / total) * 100;
-    if (pct > 50) return "#2E7D32";
-    if (pct > 20) return "#EF6C00";
-    return "#B71C1C";
-  };
-
   const derivedUnreadCount = notifications.filter((n) => n.read_status === 0).length;
   const totalLeave = leaveCredits.reduce((s, g) => s + g.currRemaining + g.prevRemaining, 0);
 
@@ -1082,79 +1106,95 @@ const Home = () => {
                       </Grid>
                     </Box>
                   </SectionCard>
+{/* Leave Balances */}
+<SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", border: `1px solid ${T.accentBorder}` }}>
+  <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "baseline", gap: 1, bgcolor: T.accentFaint, flexShrink: 0 }}>
+    <CalendarMonth sx={{ fontSize: 15, color: T.accent, alignSelf: "center" }} />
+    <Typography sx={{ fontSize: "0.85rem", fontWeight: 800, color: T.accent }}>Leave Balances</Typography>
+    <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>Remaining credits per type</Typography>
+  </Box>
 
-                  {/* Leave Credits */}
-                  <SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-                    <TabBar>
-                      <FlatTab
-                        label="Leave Credits"
-                        icon={CalendarMonth}
-                        badge={HIDE_LEAVE_CREDITS_DISPLAY ? undefined : `${totalLeave.toFixed(1)}d`}
-                        active={true}
-                        onClick={() => {}}
-                      />
-                    </TabBar>
-                    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 1.25, minHeight: 0, overflow: "hidden" }}>
-                      {HIDE_LEAVE_CREDITS_DISPLAY ? (
-                        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", py: 3 }}>
-                          <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
-                            <CalendarMonth sx={{ fontSize: 26, color: T.accent }} />
-                          </Box>
-                          <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.85rem", mb: 0.5 }}>
-                            Leave Credit Summary
-                          </Typography>
-                          <Typography sx={{ color: T.muted, fontSize: "0.75rem", maxWidth: 220 }}>
-                            Leave Credits details will be shown here.
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Box sx={{ flex: 1, overflowY: "auto", minHeight: 0, pr: 0.25, "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { background: T.accentBorder, borderRadius: 2 } }}>
-                          {leaveLoading ? (
-                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 3 }}>
-                              <CircularProgress size={14} sx={{ color: T.accent }} />
-                              <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>Loading...</Typography>
-                            </Box>
-                          ) : leaveCredits.length === 0 ? (
-                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                              <Typography sx={{ color: T.faint, textAlign: "center", fontSize: "0.7rem" }}>No leave credits assigned</Typography>
-                            </Box>
-                          ) : (
-                            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                              {leaveCredits.map((leave, idx) => {
-                                const pct = leave.currTotal > 0 ? (leave.currRemaining / leave.currTotal) * 100 : 0;
-                                const statusColor = getLeaveStatusColor(leave.currRemaining, leave.currTotal);
-                                const usedDays = leave.currAllocated - leave.currRemaining;
-                                return (
-                                  <Box key={idx} sx={{ p: 1, borderRadius: "8px", border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-                                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.4 }}>
-                                      <Typography sx={{ fontWeight: 700, color: T.text, fontSize: "0.7rem", lineHeight: 1.2 }}>{leave.name}</Typography>
-                                      <Box sx={{ px: 0.75, py: 0.1, borderRadius: "12px", bgcolor: `${statusColor}18`, border: `1px solid ${statusColor}30` }}>
-                                        <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: statusColor }}>{leave.code}</Typography>
-                                      </Box>
-                                    </Box>
-                                    <Box sx={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", mb: 0.4 }}>
-                                      <Box>
-                                        <Typography sx={{ color: statusColor, fontWeight: 800, fontSize: "1rem", lineHeight: 1 }}>{leave.currRemaining.toFixed(1)}</Typography>
-                                        <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>days left</Typography>
-                                      </Box>
-                                      <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>{usedDays < 0 ? 0 : usedDays.toFixed(1)} used / {leave.currAllocated.toFixed(1)} total</Typography>
-                                    </Box>
-                                    <LinearProgress variant="determinate" value={Math.min(pct, 100)} sx={{ height: 3, borderRadius: 2, bgcolor: `${statusColor}20`, ".MuiLinearProgress-bar": { bgcolor: statusColor, borderRadius: 2 } }} />
-                                    {leave.prevRemaining > 0 && (
-                                      <Box sx={{ mt: 0.5, px: 0.5, py: 0.2, borderRadius: "4px", bgcolor: "#FFF3E0", border: "1px dashed #FFB74D", display: "flex", alignItems: "center", gap: 0.4 }}>
-                                        <Add sx={{ fontSize: 9, color: "#EF6C00" }} />
-                                        <Typography sx={{ color: "#E65100", fontWeight: 700, fontSize: "0.55rem" }}>+{leave.prevRemaining.toFixed(1)} days carried over</Typography>
-                                      </Box>
-                                    )}
-                                  </Box>
-                                );
-                              })}
-                            </Box>
-                          )}
-                        </Box>
-                      )}
-                    </Box>
-                  </SectionCard>
+  <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: 2, py: 1,
+    "&::-webkit-scrollbar": { width: 5 },
+    "&::-webkit-scrollbar-track": { bgcolor: "rgba(0,0,0,0.04)", borderRadius: 3 },
+    "&::-webkit-scrollbar-thumb": { bgcolor: alpha(T.accent, 0.35), borderRadius: 3, "&:hover": { bgcolor: alpha(T.accent, 0.5) } },
+  }}>
+    {HIDE_LEAVE_CREDITS_DISPLAY ? (
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", py: 2 }}>
+        <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
+          <CalendarMonth sx={{ fontSize: 26, color: T.accent }} />
+        </Box>
+        <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.85rem", mb: 0.5 }}>
+          Leave Credit Summary
+        </Typography>
+        <Typography sx={{ color: T.muted, fontSize: "0.75rem", maxWidth: 220 }}>
+          Leave Credits details will be shown here.
+        </Typography>
+      </Box>
+    ) : leaveLoading ? (
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 2 }}>
+        <CircularProgress size={14} sx={{ color: T.accent }} />
+        <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>Loading...</Typography>
+      </Box>
+    ) : leaveCredits.length === 0 ? (
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 2 }}>
+        <Typography sx={{ color: T.faint, textAlign: "center", fontSize: "0.7rem" }}>No leave credits assigned</Typography>
+      </Box>
+    ) : (
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+        }}
+      >
+        {leaveCredits.map((leave, idx) => {
+          const col = idx % 3;
+          const isLastCol = col === 2;
+          const rowStart = Math.floor(idx / 3);
+          const totalRows = Math.ceil(leaveCredits.length / 3);
+          const isLastRow = rowStart === totalRows - 1;
+          return (
+            <Box
+              key={idx}
+              sx={{
+                py: 1.4,
+                pr: isLastCol ? 0 : 2,
+                pl: col === 0 ? 0 : 2,
+                borderRight: isLastCol ? "none" : `1px solid ${T.divider}`,
+                borderBottom: isLastRow ? "none" : `1px solid ${T.divider}`,
+                minWidth: 0,
+                height: 68,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+              }}
+            >
+              <Tooltip title={leave.name} arrow disableInteractive>
+                <Typography
+                  noWrap
+                  sx={{
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    color: T.text,
+                    mb: 0.3,
+                  }}
+                >
+                  {leave.name}
+                </Typography>
+              </Tooltip>
+              <Typography noWrap sx={{ fontSize: "1.15rem", fontWeight: 800, color: T.accent, lineHeight: 1.15 }}>
+                {leave.currRemaining.toFixed(2)}
+              </Typography>
+              <Typography noWrap sx={{ fontSize: "0.63rem", color: T.faint }}>
+                days remaining
+              </Typography>
+            </Box>
+          );
+        })}
+      </Box>
+    )}
+  </Box>
+</SectionCard>
                 </Box>
               </Box>
             </Grid>

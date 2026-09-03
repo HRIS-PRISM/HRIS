@@ -113,7 +113,7 @@ const BALANCE_STYLES = [
   { match: (c, d) => /adopt/i.test(c) || /adoption/i.test(d), icon: AdoptionIcon, color: "#8D6E63", bg: "#EFEBE9" },
   { match: (c, d) => /rehab/i.test(c) || /rehabilitation/i.test(d), icon: RehabIcon, color: "#00838F", bg: "#E0F7FA" },
   { match: (c, d) => /solo/i.test(c) || /solo parent/i.test(d), icon: SoloParentIcon, color: "#1565C0", bg: "#E3F2FD" },
-  { match: (c, d) => /calam|emerg/i.test(c) || /calamity|emergency/i.test(d), icon: WarningIcon, color: "#EF6C00", bg: "#FFF3E0" },
+  { match: (c, d) => /calam|emerg|special/i.test(c) || /calamity|emergency|special leave/i.test(d), icon: WarningIcon, color: "#EF6C00", bg: "#FFF3E0" },
   { match: (c, d) => /mand|force/i.test(c) || /mandatory|forced/i.test(d), icon: WorkIcon, color: "#5D4037", bg: "#D7CCC8" },
   { match: (c, d) => /stud/i.test(c) || /study/i.test(d), icon: StudyIcon, color: "#4527A0", bg: "#EDE7F6" },
   { match: (c, d) => /wellness/i.test(c) || /wellness/i.test(d), icon: WellnessIcon, color: "#00695C", bg: "#E0F2F1" },
@@ -122,7 +122,9 @@ const BALANCE_STYLES = [
   { match: (c) => /^cto$/i.test(c), icon: HistoryToggleOff, color: "#455A64", bg: "#ECEFF1" },
 ];
 const getBalanceStyle = (code, desc) => {
-  const found = BALANCE_STYLES.find((s) => s.match(code || "", desc || ""));
+  const c = String(code || "").trim();
+  const d = String(desc || "").trim();
+  const found = BALANCE_STYLES.find((s) => s.match(c, d));
   return found || { icon: TagIcon, color: T.accent, bg: T.accentFaint };
 };
 
@@ -735,7 +737,9 @@ const LeaveRequestUser = () => {
     const result = Object.entries(byCode).map(([code, rows]) => {
       const stats = getLeaveTypeStatsActive(rows);
       const desc =
-        leaveTypes.find((lt) => lt.leave_code === code)?.leave_description || code;
+        leaveTypes.find((lt) => lt.leave_code === code)?.leave_description ||
+        rows.find((r) => r.leave_description)?.leave_description ||
+        code;
       return {
         code,
         description: desc,
@@ -923,11 +927,11 @@ const LeaveRequestUser = () => {
   const fetchAssignments = async () => {
     if (!personID) return;
     try {
-      const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders());
-      const mine = (Array.isArray(res.data) ? res.data : []).filter(
-        (a) => a.employeeNumber?.toString() === personID?.toString(),
+      const res = await axios.get(
+        `${API_BASE_URL}/leaveRoute/leave_assignment/employee/${personID}`,
+        getAuthHeaders(),
       );
-      setAssignments(mine);
+      setAssignments(Array.isArray(res.data) ? res.data : []);
     } catch (e) { console.error(e); }
   };
   const fetchTransactionLogs = async () => {
