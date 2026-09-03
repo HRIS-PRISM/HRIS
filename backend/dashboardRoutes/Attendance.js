@@ -3,6 +3,9 @@
   const router = express.Router();
   const jwt = require('jsonwebtoken');
   const { notifyAttendanceChanged } = require('../socket/socketService');
+  const {
+    getLatestAttendanceRecordInfo,
+  } = require('../socket/attendanceRecordInfoSocketApi');
   const { logAudit } = require('../middleware/auth');
   const { syncAggregatedDeviceDays } = require('../services/deviceAttendanceSyncService');
 
@@ -2256,27 +2259,163 @@
     });
   });
 
-  // Get all unique PersonIDs from attendancerecordinfo
+  // Get unique PersonIDs from AttendanceRecordInfo (optionally scoped to a date range)
+  router.get('/api/attendance-record-info/latest', authenticateToken, async (req, res) => {
+    const limit = Number.parseInt(req.query.limit, 10) || 100;
+
+    try {
+      const records = await getLatestAttendanceRecordInfo(limit);
+      res.json({
+        records,
+        count: records.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Error fetching latest AttendanceRecordInfo rows:', err);
+      res.status(500).json({ error: err.message || 'Database error' });
+    }
+  });
+
   router.get('/api/all-device-users', authenticateToken, (req, res) => {
-    const query = `
-      SELECT DISTINCT
+    const { startDate, endDate } = req.query || {};
+    const hasRange = Boolean(startDate && endDate);
+    let startTimestamp;
+    let endTimestamp;
+    if (hasRange) {
+      startTimestamp = new Date(`${String(startDate).slice(0, 10)}T00:00:00Z`).getTime();
+      endTimestamp = new Date(`${String(endDate).slice(0, 10)}T23:59:59Z`).getTime();
+    }
+
+    const query = hasRange
+      ? `
+      SELECT
         PersonID,
-        PersonName,
-        MIN(AttendanceDateTime) as firstSeen,
-        MAX(AttendanceDateTime) as lastSeen
+        MAX(PersonName) AS PersonName,
+        MIN(AttendanceDateTime) AS firstSeen,
+        MAX(AttendanceDateTime) AS lastSeen
       FROM AttendanceRecordInfo
-      GROUP BY PersonID, PersonName
+      WHERE AttendanceDateTime BETWEEN ? AND ?
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `
+      : `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        MIN(AttendanceDateTime) AS firstSeen,
+        MAX(AttendanceDateTime) AS lastSeen
+      FROM AttendanceRecordInfo
+      GROUP BY PersonID
       ORDER BY PersonName ASC
     `;
 
-    db.query(query, (err, results) => {
+    const params = hasRange ? [startTimestamp, endTimestamp] : [];
+    db.query(query, params, (err, results) => {
       if (err) {
         console.error('Error fetching device users:', err);
         return res.status(500).json({ error: err.message });
       }
-
       res.json(results);
     });
+  });
+
+  // One round-trip for Device Insights section (date-scoped)
+  router.post('/api/device-insights-bundle', authenticateToken, (req, res) => {
+    const { startDate, endDate } = req.body || {};
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate are required' });
+    }
+
+    const sd = String(startDate).slice(0, 10);
+    const ed = String(endDate).slice(0, 10);
+    const startTimestamp = new Date(`${sd}T00:00:00Z`).getTime();
+    const endTimestamp = new Date(`${ed}T23:59:59Z`).getTime();
+
+    const usersSql = `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        MIN(AttendanceDateTime) AS firstSeen,
+        MAX(AttendanceDateTime) AS lastSeen
+      FROM AttendanceRecordInfo
+      WHERE AttendanceDateTime BETWEEN ? AND ?
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `;
+
+    const summarySql = `
+      SELECT
+        daily.PersonID,
+        COUNT(*) AS recordsCount,
+        IFNULL(raw.rawRecordCount, 0) AS rawRecordCount
+      FROM (
+        SELECT
+          PersonID,
+          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID, dt
+      ) daily
+      LEFT JOIN (
+        SELECT PersonID, COUNT(*) AS rawRecordCount
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID
+      ) raw ON daily.PersonID = raw.PersonID
+      GROUP BY daily.PersonID, raw.rawRecordCount
+    `;
+
+    const modSql = `
+      SELECT personID AS PersonID, COUNT(*) AS modRecordCount
+      FROM attendancerecord
+      WHERE date BETWEEN ? AND ?
+      GROUP BY personID
+    `;
+
+    const punchSql = `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        COUNT(*) AS totalDays,
+        SUM(CASE WHEN has_t1 = 1 THEN 1 ELSE 0 END) AS daysWithTimeIn,
+        SUM(CASE WHEN has_t2 = 1 THEN 1 ELSE 0 END) AS daysWithBreakIn,
+        SUM(CASE WHEN has_t3 = 1 THEN 1 ELSE 0 END) AS daysWithBreakOut,
+        SUM(CASE WHEN has_t4 = 1 THEN 1 ELSE 0 END) AS daysWithTimeOut
+      FROM (
+        SELECT
+          PersonID,
+          PersonName,
+          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt,
+          MAX(CASE WHEN AttendanceState = 1 THEN 1 ELSE 0 END) AS has_t1,
+          MAX(CASE WHEN AttendanceState = 2 THEN 1 ELSE 0 END) AS has_t2,
+          MAX(CASE WHEN AttendanceState = 3 THEN 1 ELSE 0 END) AS has_t3,
+          MAX(CASE WHEN AttendanceState = 4 THEN 1 ELSE 0 END) AS has_t4
+        FROM AttendanceRecordInfo
+        WHERE AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID, PersonName, dt
+      ) daily
+      GROUP BY PersonID
+      ORDER BY PersonName ASC
+    `;
+
+    const run = (sql, params) =>
+      new Promise((resolve, reject) => {
+        db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
+      });
+
+    Promise.all([
+      run(usersSql, [startTimestamp, endTimestamp]),
+      run(summarySql, [startTimestamp, endTimestamp, startTimestamp, endTimestamp]),
+      run(modSql, [sd, ed]),
+      run(punchSql, [startTimestamp, endTimestamp]),
+    ])
+      .then(([users, summary, modSummary, punchInsights]) => {
+        res.json({ users, summary, modSummary, punchInsights });
+      })
+      .catch((err) => {
+        console.error('device-insights-bundle error:', err);
+        res.status(500).json({ error: err.message });
+      });
   });
 
   // Aggregated day counts per employee for a date range
@@ -2393,6 +2532,113 @@
       }
       res.json(results || []);
     });
+  });
+
+  // Aggregated device attendance list for the Attendance Device tab.
+  router.post('/api/device-attendance-list', authenticateToken, async (req, res) => {
+    const { startDate, endDate } = req.body || {};
+    const limitRaw = Number.parseInt(req.body?.limit, 10);
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 2000)
+      : 1000;
+    const hasRange = Boolean(startDate && endDate);
+    const sd = hasRange ? String(startDate).slice(0, 10) : null;
+    const ed = hasRange ? String(endDate).slice(0, 10) : null;
+    const startTimestamp = hasRange ? new Date(`${sd}T00:00:00Z`).getTime() : null;
+    const endTimestamp = hasRange ? new Date(`${ed}T23:59:59Z`).getTime() : null;
+
+    const baseDailySql = `
+      SELECT
+        ari.PersonID,
+        MAX(ari.PersonName) AS PersonName,
+        DATE_FORMAT(FROM_UNIXTIME(ari.AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+        MIN(CASE WHEN ari.AttendanceState = 1 THEN ari.AttendanceDateTime END) AS Time1,
+        MIN(CASE WHEN ari.AttendanceState = 2 THEN ari.AttendanceDateTime END) AS Time2,
+        MIN(CASE WHEN ari.AttendanceState = 3 THEN ari.AttendanceDateTime END) AS Time3,
+        MAX(CASE WHEN ari.AttendanceState = 4 THEN ari.AttendanceDateTime END) AS Time4,
+        MIN(CASE WHEN ari.AttendanceState = 5 THEN ari.AttendanceDateTime END) AS Time5,
+        MAX(CASE WHEN ari.AttendanceState = 6 THEN ari.AttendanceDateTime END) AS Time6
+      FROM AttendanceRecordInfo ari
+      ${hasRange ? 'WHERE ari.AttendanceDateTime BETWEEN ? AND ?' : ''}
+      GROUP BY ari.PersonID, Date
+      ORDER BY Date DESC, PersonName ASC
+      ${hasRange ? '' : 'LIMIT ?'}
+    `;
+
+    const sql = `
+      SELECT
+        daily.PersonID AS employeeNumber,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension)), ''),
+          NULLIF(daily.PersonName, ''),
+          daily.PersonID
+        ) AS fullName,
+        COALESCE(da.code, '') AS department,
+        daily.Date AS date,
+        DAYNAME(daily.Date) AS day,
+        daily.Time1,
+        daily.Time2,
+        daily.Time3,
+        daily.Time4,
+        daily.Time5,
+        daily.Time6,
+        ar.manually_modified,
+        ar.timeIN AS savedTimeIN,
+        ar.breaktimeIN AS savedBreaktimeIN,
+        ar.breaktimeOUT AS savedBreaktimeOUT,
+        ar.timeOUT AS savedTimeOUT,
+        ar.specialTimeIN AS savedSpecialTimeIN,
+        ar.specialTimeOUT AS savedSpecialTimeOUT
+      FROM (${baseDailySql}) daily
+      INNER JOIN users u
+        ON TRIM(CAST(u.employeeNumber AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+      LEFT JOIN person_table p
+        ON TRIM(CAST(p.agencyEmployeeNum AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+      LEFT JOIN (
+        SELECT employeeNumber, MAX(code) AS code
+        FROM department_assignment
+        GROUP BY employeeNumber
+      ) da
+        ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+      LEFT JOIN attendancerecord ar
+        ON TRIM(CAST(ar.personID AS CHAR)) = TRIM(CAST(daily.PersonID AS CHAR))
+        AND ar.date = daily.Date
+      ORDER BY daily.Date DESC, fullName ASC
+    `;
+
+    const params = hasRange ? [startTimestamp, endTimestamp] : [limit];
+
+    try {
+      const rows = await new Promise((resolve, reject) => {
+        db.query(sql, params, (err, result) => (err ? reject(err) : resolve(result || [])));
+      });
+
+      const records = rows.map((row) => ({
+        employeeNumber: row.employeeNumber,
+        fullName: row.fullName,
+        department: row.department || '',
+        date: normalizeDateYmd(row.date),
+        day: row.day || getDayOfWeek(row.date),
+        timeIn: row.Time1 ? formatTime(convertDeviceMillisToManila(row.Time1)) : null,
+        breakIn: row.Time3 ? formatTime(convertDeviceMillisToManila(row.Time3)) : null,
+        breakOut: row.Time2 ? formatTime(convertDeviceMillisToManila(row.Time2)) : null,
+        timeOut: row.Time4 ? formatTime(convertDeviceMillisToManila(row.Time4)) : null,
+        specialTimeIn: row.Time5 ? formatTime(convertDeviceMillisToManila(row.Time5)) : null,
+        specialTimeOut: row.Time6 ? formatTime(convertDeviceMillisToManila(row.Time6)) : null,
+        manuallyModified: Number(row.manually_modified) === 1,
+        savedTimeIN: row.savedTimeIN || null,
+        savedBreaktimeIN: row.savedBreaktimeIN || null,
+        savedBreaktimeOUT: row.savedBreaktimeOUT || null,
+        savedTimeOUT: row.savedTimeOUT || null,
+        savedSpecialTimeIN: row.savedSpecialTimeIN || null,
+        savedSpecialTimeOUT: row.savedSpecialTimeOUT || null,
+      }));
+
+      res.json({ records, count: records.length, ranged: hasRange });
+    } catch (err) {
+      console.error('device-attendance-list error:', err);
+      res.status(500).json({ error: err.message || 'Database error' });
+    }
   });
 
   // Auto-save and fetch attendance records
@@ -3258,7 +3504,16 @@
 
   // ─── GET /api/attendance_adjustment ──────────────────────────────────────────
   router.get('/api/attendance_adjustment', authenticateToken, (req, res) => {
-    const { personID, dateFrom, dateTo } = req.query;
+    const {
+      personID,
+      dateFrom,
+      dateTo,
+      adjustmentType,
+      operationType,
+      department,
+      source,
+      employeeName,
+    } = req.query;
 
     let sql = `
       SELECT
@@ -3271,7 +3526,7 @@
         aal.valueBefore,
         aal.valueAfter,
         aal.operationType,
-  aal.remarks,
+        aal.remarks,
         aal.autofill_remarks,
         aal.approvedBy,
         aal.adjustedAt,
@@ -3279,25 +3534,47 @@
         COALESCE(da.code, '—')                       AS department
       FROM attendance_adjustment_log aal
       LEFT JOIN person_table pt
-        ON CAST(pt.agencyEmployeeNum AS CHAR) = CAST(aal.personID AS CHAR)
+        ON pt.agencyEmployeeNum = aal.personID
       LEFT JOIN department_assignment da
-        ON CAST(da.employeeNumber AS CHAR) = CAST(aal.personID AS CHAR)
+        ON da.employeeNumber = aal.personID
       WHERE 1 = 1
     `;
 
     const params = [];
 
     if (personID) {
-      sql += ' AND CAST(aal.personID AS CHAR) = CAST(? AS CHAR)';
-      params.push(personID);
+      sql += ' AND aal.personID = ?';
+      params.push(String(personID).trim());
     }
     if (dateFrom) {
       sql += ' AND aal.originalDate >= ?';
-      params.push(dateFrom);
+      params.push(String(dateFrom).slice(0, 10));
     }
     if (dateTo) {
       sql += ' AND aal.originalDate <= ?';
-      params.push(dateTo);
+      params.push(String(dateTo).slice(0, 10));
+    }
+    if (adjustmentType && adjustmentType !== 'all') {
+      sql += ' AND aal.adjustmentType = ?';
+      params.push(String(adjustmentType));
+    }
+    if (operationType && operationType !== 'all') {
+      sql += ' AND aal.operationType = ?';
+      params.push(String(operationType));
+    }
+    if (department && department !== 'all') {
+      sql += ' AND da.code = ?';
+      params.push(String(department));
+    }
+    if (source === 'autofill') {
+      sql += " AND aal.autofill_remarks IS NOT NULL AND TRIM(aal.autofill_remarks) <> ''";
+    } else if (source === 'manual') {
+      sql += " AND (aal.autofill_remarks IS NULL OR TRIM(aal.autofill_remarks) = '')";
+    }
+    if (employeeName && String(employeeName).trim()) {
+      sql +=
+        " AND CONCAT_WS(' ', pt.firstName, pt.middleName, pt.lastName) LIKE ?";
+      params.push(`%${String(employeeName).trim()}%`);
     }
 
     sql += ' ORDER BY aal.adjustedAt DESC';

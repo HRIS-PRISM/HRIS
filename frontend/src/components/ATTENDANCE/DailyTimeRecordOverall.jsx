@@ -3353,6 +3353,22 @@ const DailyTimeRecordFaculty = ({
         officialTimesByDay: officialTimesForUser,
         fullDate,
       });
+
+      // ── Does this employee/period actually have an Official Time schedule set? ──
+      // Without a schedule there is no basis to call a blank day "scheduled but
+      // absent" — it's simply unknown, so we must not render the ABSENT banner
+      // (nor the grayed-out "non-working day" banner) and instead show the row
+      // normally with whatever device punch data exists (blank if none).
+      // This mirrors the `hasOfficialTimeSchedule` check used for the single-view
+      // warning banner, but scoped per-user so it also works for the batch view.
+      const hasScheduleForUser = Object.values(officialTimesForUser || {}).some(
+        (sched) =>
+          sched?.officialTimeIN &&
+          sched?.officialTimeOUT &&
+          String(sched.officialTimeIN).trim() !== '00:00:00 AM' &&
+          String(sched.officialTimeOUT).trim() !== '00:00:00 PM',
+      );
+
       const dayName = getDayNameFromYmd(fullDate);
       const dayOfficial =
         (dayName && officialTimesForUser?.[dayName]) || {};
@@ -3367,9 +3383,13 @@ const DailyTimeRecordFaculty = ({
       };
       const hasPeriodRecords =
         Array.isArray(sourceRecords) && sourceRecords.length > 0;
-      // Scheduled workday + no punches on DTR = absent (only when period has data)
+      // Scheduled workday + no punches on DTR = absent (only when period has data
+      // AND an official time schedule exists to establish this was a scheduled workday).
+      // With no schedule, we can't distinguish "not scheduled" from "no data yet",
+      // so we deliberately skip the absent check and fall through to a normal row.
       const rowIsAbsent =
         type === 'regular' &&
+        hasScheduleForUser &&
         isDtrAbsentRow({
           record: rowForStatus,
           dateIndicator,
@@ -3438,14 +3458,19 @@ const DailyTimeRecordFaculty = ({
         fullDate,
         dayName,
       });
-      const unscheduledWeekdayLabel = getDtrUnscheduledWeekdayBanner({
-        isNotScheduledDay,
-        indicator: dateIndicator,
-        timeFields: tf,
-        hasPeriodRecords,
-        fullDate,
-        dayName,
-      });
+      // Same reasoning as rowIsAbsent above: without a schedule we can't tell a
+      // genuine non-working day from "we simply don't know" — so suppress the
+      // grayed-out banner too and just show the raw device data for that day.
+      const unscheduledWeekdayLabel = hasScheduleForUser
+        ? getDtrUnscheduledWeekdayBanner({
+            isNotScheduledDay,
+            indicator: dateIndicator,
+            timeFields: tf,
+            hasPeriodRecords,
+            fullDate,
+            dayName,
+          })
+        : null;
       const nonWorkingRowTint =
         isNonWorkingDayRow || unscheduledWeekdayLabel
           ? 'rgba(128, 128, 128, 0.06)'

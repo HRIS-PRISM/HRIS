@@ -1251,10 +1251,32 @@ const ViewAttendanceRecord = () => {
   const [selectedLockedRows, setSelectedLockedRows] = useState(() => new Set());
   const [bulkRestoring, setBulkRestoring] = useState(false);
   const [registeredEmployeeSet, setRegisteredEmployeeSet] = useState(() => new Set());
-  const [activeTab, setActiveTab] = useState('table');
+  // Top-level page tabs: "device" (Device Record — filter + table/insights) vs "facial" (Facial Live list only)
+  const [topTab, setTopTab] = useState('device');
+  // Sub-tab within the Device Record tab
+  const [deviceViewTab, setDeviceViewTab] = useState('table');
+  const [deviceAttendanceRows, setDeviceAttendanceRows] = useState([]);
+  const [loadingDeviceAttendance, setLoadingDeviceAttendance] = useState(false);
+  const [deviceAttendanceSearch, setDeviceAttendanceSearch] = useState('');
+  const [deviceAttendancePage, setDeviceAttendancePage] = useState(1);
+  const [deviceAttendanceRowsPerPage, setDeviceAttendanceRowsPerPage] = useState(25);
 
   const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    const requestedTab = location.state?.activeTab || params.get('tab');
+    if (requestedTab === 'device-list') {
+      setTopTab('facial');
+    } else if (['table', 'insights'].includes(requestedTab)) {
+      setTopTab('device');
+      setDeviceViewTab(requestedTab);
+    }
+    if (['single', 'multiple'].includes(location.state?.viewMode)) {
+      setViewMode(location.state.viewMode);
+    }
+  }, [location.key, location.search, location.state]);
 
   // Returning to Device via workflow Back — clear filters; admin must search again.
   useLayoutEffect(() => {
@@ -1516,6 +1538,56 @@ const ViewAttendanceRecord = () => {
     return filteredUsers.slice(s, s + rowsPerPage);
   }, [filteredUsers, currentPage, rowsPerPage]);
   const goToPage = (p) => setCurrentPage(Math.min(Math.max(1, p), totalPages));
+
+  const filteredDeviceAttendanceRows = useMemo(() => {
+    const q = deviceAttendanceSearch.trim().toLowerCase();
+    if (!q) return deviceAttendanceRows;
+    return deviceAttendanceRows.filter((row) =>
+      [
+        row.employeeNumber,
+        row.fullName,
+        row.department,
+        row.date,
+        row.day,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [deviceAttendanceRows, deviceAttendanceSearch]);
+
+  const deviceAttendanceTotalPages = useMemo(
+    () =>
+      Math.max(
+        1,
+        Math.ceil(filteredDeviceAttendanceRows.length / deviceAttendanceRowsPerPage),
+      ),
+    [filteredDeviceAttendanceRows.length, deviceAttendanceRowsPerPage],
+  );
+
+  const paginatedDeviceAttendanceRows = useMemo(() => {
+    const start = (deviceAttendancePage - 1) * deviceAttendanceRowsPerPage;
+    return filteredDeviceAttendanceRows.slice(
+      start,
+      start + deviceAttendanceRowsPerPage,
+    );
+  }, [
+    filteredDeviceAttendanceRows,
+    deviceAttendancePage,
+    deviceAttendanceRowsPerPage,
+  ]);
+
+  const goToDeviceAttendancePage = (page) =>
+    setDeviceAttendancePage(
+      Math.min(Math.max(1, page), deviceAttendanceTotalPages),
+    );
+
+  useEffect(() => {
+    if (deviceAttendancePage > deviceAttendanceTotalPages) {
+      setDeviceAttendancePage(deviceAttendanceTotalPages);
+    }
+  }, [deviceAttendancePage, deviceAttendanceTotalPages]);
 
   const fetchRecords = async (showLoading = true, auditPayload = null) => {
     if (!personID || !startDate || !endDate) return;
@@ -1821,6 +1893,46 @@ const ViewAttendanceRecord = () => {
       setLoadPhase('');
     }
   };
+
+  const fetchDeviceAttendanceList = async () => {
+    setLoadingDeviceAttendance(true);
+    setLoadPhase(
+      startDate && endDate
+        ? 'Loading device attendance list...'
+        : 'Loading latest device attendance list...',
+    );
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/device-attendance-list`,
+        {
+          startDate: startDate || null,
+          endDate: endDate || null,
+          limit: 1000,
+        },
+        getAuthHeaders(),
+      );
+      const rows = Array.isArray(res.data?.records) ? res.data.records : [];
+      setDeviceAttendanceRows(rows);
+      setDeviceAttendancePage(1);
+    } catch (err) {
+      console.error('Error fetching device attendance list:', err);
+      showSnackbar(
+        err.response?.data?.error || 'Failed to load device attendance list',
+        'error',
+      );
+    } finally {
+      setLoadingDeviceAttendance(false);
+      setLoadPhase('');
+    }
+  };
+
+  useEffect(() => {
+    if (topTab !== 'facial' || accessLoading || hasAccess === false) {
+      return;
+    }
+    fetchDeviceAttendanceList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topTab, startDate, endDate, accessLoading, hasAccess]);
 
   useEffect(() => {
     fetchRecordsRef.current = fetchRecords;
@@ -2372,7 +2484,7 @@ const goToComputationModule = async (selectedComputationType) => {
               key={val}
               onClick={() => {
                 setViewMode(val);
-                setActiveTab('table');
+                setDeviceViewTab('table');
                 setRecords([]);
                 clearSingleEmployee();
                 setAllUsersDTR([]);
@@ -2661,7 +2773,13 @@ const goToComputationModule = async (selectedComputationType) => {
                 )}
                 <Tooltip title="Refresh">
                   <IconButton
-                    onClick={() => viewMode === 'single' ? fetchRecords(true) : fetchAllUsersDTR()}
+                    onClick={() => {
+                      if (topTab === 'facial') {
+                        fetchDeviceAttendanceList();
+                        return;
+                      }
+                      viewMode === 'single' ? fetchRecords(true) : fetchAllUsersDTR();
+                    }}
                     sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
                   >
                     <Refresh sx={{ fontSize: 18 }} />
@@ -2680,39 +2798,41 @@ const goToComputationModule = async (selectedComputationType) => {
 
           {/* ── Two-column layout ── */}
           <Grid container spacing={2}>
-            {/* LEFT: Sidebar */}
-            <Grid item xs={12} lg={3}>
-              <SectionCard
-                sx={{
-                  ...attendanceMainPanelHeightSx,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
+            {/* LEFT: Sidebar — hidden on the Facial (Live) tab since it auto-fetches live device data */}
+            {topTab !== 'facial' && (
+              <Grid item xs={12} lg={3}>
+                <SectionCard
                   sx={{
-                    px: 2,
-                    py: 1,
-                    borderBottom: `1px solid ${T.divider}`,
+                    ...attendanceMainPanelHeightSx,
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    bgcolor: T.accentFaint,
-                    flexShrink: 0,
+                    flexDirection: 'column',
+                    overflow: 'hidden',
                   }}
                 >
-                  <FilterList sx={{ fontSize: 13, color: T.accent }} />
-                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
-                    Attendance Filter
-                  </Typography>
-                </Box>
-                {renderLeftPanel()}
-              </SectionCard>
-            </Grid>
+                  <Box
+                    sx={{
+                      px: 2,
+                      py: 1,
+                      borderBottom: `1px solid ${T.divider}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      bgcolor: T.accentFaint,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FilterList sx={{ fontSize: 13, color: T.accent }} />
+                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
+                      Attendance Filter
+                    </Typography>
+                  </Box>
+                  {renderLeftPanel()}
+                </SectionCard>
+              </Grid>
+            )}
 
-            {/* RIGHT: Content */}
-            <Grid item xs={12} lg={9}>
+            {/* RIGHT: Content — expands to full width when the sidebar is hidden */}
+            <Grid item xs={12} lg={topTab === 'facial' ? 12 : 9}>
               <SectionCard
                 sx={{
                   ...attendanceMainPanelHeightSx,
@@ -2721,11 +2841,11 @@ const goToComputationModule = async (selectedComputationType) => {
                   position: 'relative',
                 }}
               >
-                {/* Table | Insights tabs */}
+                {/* ── Top-level page tabs: Device Record | Facial (Live) ── */}
                 <Box sx={{ borderBottom: `1px solid ${T.divider}`, flexShrink: 0, bgcolor: '#fff' }}>
                   <Tabs
-                    value={activeTab}
-                    onChange={(_, v) => setActiveTab(v)}
+                    value={topTab}
+                    onChange={(_, v) => setTopTab(v)}
                     sx={{
                       minHeight: 42,
                       px: 1,
@@ -2740,13 +2860,166 @@ const goToComputationModule = async (selectedComputationType) => {
                       },
                     }}
                   >
-                    <Tab value="table" icon={<TableChartIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Table" />
-                    <Tab value="insights" icon={<InsightsIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Insights" />
+                    <Tab value="device" icon={<TableChartIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Device Record" />
+                    <Tab value="facial" icon={<AccessTime sx={{ fontSize: 16 }} />} iconPosition="start" label="Facial (Live)" />
                   </Tabs>
+
+                  {/* Sub-tabs (Table | Insights) — only within the Device Record tab */}
+                  {topTab === 'device' && (
+                    <Tabs
+                      value={deviceViewTab}
+                      onChange={(_, v) => setDeviceViewTab(v)}
+                      sx={{
+                        minHeight: 36,
+                        px: 2,
+                        borderTop: `1px solid ${T.divider}`,
+                        bgcolor: T.accentFaint,
+                        '& .MuiTabs-indicator': { bgcolor: T.accent, height: 2, borderRadius: '2px 2px 0 0' },
+                        '& .MuiTab-root': {
+                          minHeight: 36,
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          fontSize: '0.76rem',
+                          color: T.muted,
+                          '&.Mui-selected': { color: T.accent, fontWeight: 800 },
+                        },
+                      }}
+                    >
+                      <Tab value="table" icon={<TableChartIcon sx={{ fontSize: 14 }} />} iconPosition="start" label="Table" />
+                      <Tab value="insights" icon={<InsightsIcon sx={{ fontSize: 14 }} />} iconPosition="start" label="Insights" />
+                    </Tabs>
+                  )}
                 </Box>
 
-                {/* ── SINGLE USER VIEW — TABLE ── */}
-                {viewMode === 'single' && activeTab === 'table' && (
+                {/* ── FACIAL (LIVE) TAB — no attendance filter, no table/insights sub-tabs ── */}
+                {topTab === 'facial' && (
+                  <>
+                    <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                          <AccessTime sx={{ fontSize: 15, color: T.accent }} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>Device Attendance List</Typography>
+                            <Typography sx={{ fontSize: '0.68rem', color: T.faint }}>
+                              {startDate && endDate ? `${startDate} to ${endDate}` : 'Latest device attendance days'}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ px: 1.5, py: 0.3, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, flexShrink: 0 }}>
+                            <Typography sx={{ fontSize: '0.7rem', color: T.accent, fontWeight: 700 }}>{filteredDeviceAttendanceRows.length} records</Typography>
+                          </Box>
+                        </Box>
+                        <Tooltip title="Reload device attendance list" placement="top">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={fetchDeviceAttendanceList}
+                              disabled={loadingDeviceAttendance}
+                              sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) }, '&:disabled': { opacity: 0.4 } }}
+                            >
+                              {loadingDeviceAttendance ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <Refresh sx={{ fontSize: 16 }} />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ px: 3, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: alpha(T.accent, 0.02), flexShrink: 0 }}>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <FieldInput
+                          size="small"
+                          placeholder="Search employee number, name, department, date..."
+                          value={deviceAttendanceSearch}
+                          onChange={(e) => {
+                            setDeviceAttendanceSearch(e.target.value);
+                            setDeviceAttendancePage(1);
+                          }}
+                          sx={{ flex: 1, minWidth: 240 }}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <SearchOutlined sx={{ fontSize: 16, color: T.muted }} />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                        <FormControl size="small" sx={{ minWidth: 94 }}>
+                          <Select
+                            value={deviceAttendanceRowsPerPage}
+                            onChange={(e) => {
+                              setDeviceAttendanceRowsPerPage(Number(e.target.value));
+                              setDeviceAttendancePage(1);
+                            }}
+                            sx={selectSx}
+                          >
+                            {[10, 25, 50, 100].map((n) => (
+                              <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, ml: 'auto' }}>
+                          {[{ label: '<<', fn: () => goToDeviceAttendancePage(1), dis: deviceAttendancePage === 1 }, { label: '<', fn: () => goToDeviceAttendancePage(deviceAttendancePage - 1), dis: deviceAttendancePage === 1 }].map(({ label, fn, dis }) => (
+                            <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                              <Typography sx={{ fontSize: '0.72rem', lineHeight: 1 }}>{label}</Typography>
+                            </IconButton>
+                          ))}
+                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.muted, minWidth: 60, textAlign: 'center' }}>
+                            {deviceAttendancePage} / {deviceAttendanceTotalPages}
+                          </Typography>
+                          {[{ label: '>', fn: () => goToDeviceAttendancePage(deviceAttendancePage + 1), dis: deviceAttendancePage === deviceAttendanceTotalPages }, { label: '>>', fn: () => goToDeviceAttendancePage(deviceAttendanceTotalPages), dis: deviceAttendancePage === deviceAttendanceTotalPages }].map(({ label, fn, dis }) => (
+                            <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                              <Typography sx={{ fontSize: '0.72rem', lineHeight: 1 }}>{label}</Typography>
+                            </IconButton>
+                          ))}
+                        </Box>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+                      <Table stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1180 }}>
+                        <TableHead>
+                          <TableRow sx={{ '& .MuiTableCell-head': { bgcolor: T.accent, color: '#fff', fontWeight: 700, fontSize: '0.7rem', py: 1.15 } }}>
+                            {['Employee No.', 'Full Name', 'Department', 'Date', 'Day', 'Time In', 'Brk In', 'Brk Out', 'Time Out', 'Special Time In', 'Special Time Out'].map((h) => (
+                              <TableCell key={h} sx={{ width: h === 'Full Name' ? 210 : h === 'Department' ? 115 : 104 }}>{h}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {paginatedDeviceAttendanceRows.map((row, idx) => (
+                            <TableRow key={`${row.employeeNumber}-${row.date}-${idx}`} sx={{ bgcolor: idx % 2 === 0 ? '#fff' : T.rowOdd, '&:hover': { bgcolor: T.rowHover }, transition: 'background 0.1s' }}>
+                              <TableCell sx={{ fontSize: '0.76rem', color: T.muted, fontWeight: 700 }}>#{row.employeeNumber}</TableCell>
+                              <TableCell sx={{ fontSize: '0.8rem', color: T.text, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.fullName || 'Unknown'}</TableCell>
+                              <TableCell>{row.department ? <DeptBadge code={row.department} /> : <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>}</TableCell>
+                              <TableCell sx={{ fontSize: '0.76rem', color: T.text }}>{row.date || '-'}</TableCell>
+                              <TableCell sx={{ fontSize: '0.76rem', color: T.muted }}>{row.day || '-'}</TableCell>
+                              {[row.timeIn, row.breakIn, row.breakOut, row.timeOut, row.specialTimeIn, row.specialTimeOut].map((value, cellIdx) => (
+                                <TableCell key={cellIdx} sx={{ fontSize: '0.76rem', color: value ? T.text : T.faint, fontWeight: value ? 600 : 400 }}>{value || '-'}</TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {!loadingDeviceAttendance && paginatedDeviceAttendanceRows.length === 0 && (
+                        <Box sx={{ py: 10, textAlign: 'center' }}>
+                          <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <AccessTime sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                          </Box>
+                          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>No device attendance found</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Select another period or clear the search field.</Typography>
+                        </Box>
+                      )}
+                    </Box>
+
+                    <Box sx={{ px: 3, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                        {filteredDeviceAttendanceRows.length > 0
+                          ? `Showing ${Math.min(filteredDeviceAttendanceRows.length, (deviceAttendancePage - 1) * deviceAttendanceRowsPerPage + 1)}-${Math.min(filteredDeviceAttendanceRows.length, deviceAttendancePage * deviceAttendanceRowsPerPage)} of ${filteredDeviceAttendanceRows.length}`
+                          : '0 records'}
+                      </Typography>
+                    </Box>
+                  </>
+                )}
+
+                {topTab === 'device' && viewMode === 'single' && deviceViewTab === 'table' && (
                   <>
                     {/* Toolbar */}
                     <Box
@@ -3252,7 +3525,7 @@ const goToComputationModule = async (selectedComputationType) => {
                   </>
                 )}
 
-                {viewMode === 'single' && activeTab === 'insights' && (
+                {topTab === 'device' && viewMode === 'single' && deviceViewTab === 'insights' && (
                   <DeviceInsightsCharts
                     viewMode="single"
                     data={deviceInsightsData}
@@ -3265,7 +3538,7 @@ const goToComputationModule = async (selectedComputationType) => {
                 )}
 
                 {/* ── ALL USERS VIEW — TABLE ── */}
-                {viewMode === 'multiple' && activeTab === 'table' && (
+                {topTab === 'device' && viewMode === 'multiple' && deviceViewTab === 'table' && (
                   <>
                     {/* Toolbar */}
                     <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
@@ -3521,7 +3794,7 @@ const goToComputationModule = async (selectedComputationType) => {
                   </>
                 )}
 
-                {viewMode === 'multiple' && activeTab === 'insights' && (
+                {topTab === 'device' && viewMode === 'multiple' && deviceViewTab === 'insights' && (
                   <DeviceInsightsCharts
                     viewMode="multiple"
                     data={deviceInsightsData}
@@ -3846,4 +4119,4 @@ const goToComputationModule = async (selectedComputationType) => {
   );
 };
 
-export default ViewAttendanceRecord
+export default ViewAttendanceRecord;

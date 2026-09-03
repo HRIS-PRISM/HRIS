@@ -165,6 +165,21 @@ function notifyCollegeTableChanged(action, data) {
 }
 
 /**
+ * Supervisor assignment realtime notifier
+ * Frontend pattern: listen to 'supervisorAssignmentChanged' then re-fetch.
+ *
+ * @param {'created'|'updated'|'deleted'} action
+ * @param {object} data - { id, supervisorEmployeeNumber, departmentCode }
+ */
+function notifySupervisorAssignmentChanged(action, data) {
+  broadcastToRoles(
+    ['staff', 'administrator', 'superadmin', 'technical'],
+    'supervisorAssignmentChanged',
+    { action, ...data },
+  );
+}
+
+/**
  * Personal Info realtime notifier (Option A pattern)
  * Called by personal info routes after DB changes.
  *
@@ -454,4 +469,5 @@ module.exports = {
   notifyAnnouncementChanged,
   broadcastNewAuditLog,
   notifyContactThreadChanged,
+  notifySupervisorAssignmentChanged,
 };

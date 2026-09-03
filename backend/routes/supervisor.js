@@ -1,27 +1,3 @@
-/**
- * supervisorLeaveRoute.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Supervisor Leave Approval — intermediate approval layer between
- * Employee and Admin/HR in the Leave Management System.
- *
- * Tables expected:
- *   supervisor_assignment  (id, supervisorEmployeeNumber, departmentCode, role, createdAt, updatedAt)
- *   leave_request          (existing — status: 0=pending, 1=supervisor approved, 2=HR approved, 3=denied, 4=cancelled)
- *   transaction_table      (existing)
- *   audit_log              (existing — via logAudit middleware)
- *
- * SQL to create supervisor_assignment:
- *   CREATE TABLE supervisor_assignment (
- *     id                       INT AUTO_INCREMENT PRIMARY KEY,
- *     supervisorEmployeeNumber VARCHAR(50) NOT NULL,
- *     departmentCode           VARCHAR(50) NOT NULL,
- *     role                     ENUM('Dean','Department Head','Supervisor') NOT NULL DEFAULT 'Supervisor',
- *     createdAt                DATETIME DEFAULT CURRENT_TIMESTAMP,
- *     updatedAt                DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
- *     UNIQUE KEY uq_sup_dept (supervisorEmployeeNumber, departmentCode)
- *   );
- */
-
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
@@ -75,8 +51,6 @@ const respondSupervisorContext = async (res, supervisorEmployeeNumber) => {
     return res.status(500).json({ error: 'Failed to fetch supervisor context' });
   }
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getActorEmployeeNumber = (req, fallback = null) => {
   if (req.user?.employeeNumber != null && String(req.user.employeeNumber).trim()) {
@@ -178,6 +152,8 @@ router.get('/api/supervisor-assignment', authenticateToken, requireAdmin, (req, 
       sa.supervisorEmployeeNumber,
       sa.departmentCode,
       sa.role,
+      sa.start,
+      sa.end,
       sa.createdAt,
       sa.updatedAt,
       CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS supervisorName,
@@ -189,6 +165,7 @@ router.get('/api/supervisor-assignment', authenticateToken, requireAdmin, (req, 
       ON p.agencyEmployeeNum = sa.supervisorEmployeeNumber
     LEFT JOIN department_table dt
       ON dt.code = sa.departmentCode
+      WHERE sa.status = 0
     ORDER BY sa.role, sa.departmentCode, sa.supervisorEmployeeNumber
   `;
   db.query(sql, (err, rows) => {
@@ -222,10 +199,10 @@ router.get('/api/supervisor-assignment/by-supervisor/:employeeNumber', authentic
 /**
  * POST /api/supervisor-assignment
  * Assigns an employee as supervisor for a department.
- * Body: { supervisorEmployeeNumber, departmentCode, role }
+ * Body: { supervisorEmployeeNumber, departmentCode, role, start, end  }
  */
 router.post('/api/supervisor-assignment', authenticateToken, requireAdmin, async (req, res) => {
-  const { supervisorEmployeeNumber, departmentCode, role } = req.body;
+  const { supervisorEmployeeNumber, departmentCode, role, start, end } = req.body;
   const actorEmpNum = getActorEmployeeNumber(req);
 
   if (!supervisorEmployeeNumber || !departmentCode) {
@@ -245,10 +222,10 @@ router.post('/api/supervisor-assignment', authenticateToken, requireAdmin, async
   }
 
   const sql = `
-    INSERT INTO supervisor_assignment (supervisorEmployeeNumber, departmentCode, role)
-    VALUES (?, ?, ?)
+    INSERT INTO supervisor_assignment (supervisorEmployeeNumber, departmentCode, role, start, end)
+    VALUES (?, ?, ?, ?, ?)
   `;
-  db.query(sql, [canonicalSupervisor, departmentCode, assignedRole], async (err, result) => {
+  db.query(sql, [canonicalSupervisor, departmentCode, assignedRole, start, end], async (err, result) => {
     if (err) {
       if (err.code === 'ER_DUP_ENTRY') {
         try {
@@ -930,6 +907,37 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
     console.error('[supervisor-dtr] employees/me resolve error:', e.message);
     return res.status(500).json({ error: 'Failed to fetch supervisor DTR employees' });
   }
+});
+
+/**
+ * GET /api/supervisor-assignment/archived
+ * Returns supervisor assignments whose period has ended (status = 1).
+ */
+router.get('/api/supervisor-assignment/archived', authenticateToken, requireAdmin, (req, res) => {
+  const sql = `
+    SELECT
+      sa.id,
+      sa.supervisorEmployeeNumber,
+      sa.departmentCode,
+      sa.role,
+      sa.start,
+      sa.end,
+      sa.createdAt,
+      sa.updatedAt,
+      CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS supervisorName,
+      dt.description AS departmentDescription
+    FROM supervisor_assignment sa
+    LEFT JOIN person_table p
+      ON p.agencyEmployeeNum = sa.supervisorEmployeeNumber
+    LEFT JOIN department_table dt
+      ON dt.code = sa.departmentCode
+    WHERE sa.status = 1
+    ORDER BY sa.end DESC
+  `;
+  db.query(sql, (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch archived supervisor assignments' });
+    res.json(Array.isArray(rows) ? rows : []);
+  });
 });
 
 module.exports = router;

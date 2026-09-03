@@ -507,6 +507,11 @@ const AttendanceAdjustmentReports = () => {
       if (searchEmpNum) params.personID = searchEmpNum;
       if (dateFrom)     params.dateFrom = dateFrom;
       if (dateTo)       params.dateTo   = dateTo;
+      if (searchName)   params.employeeName = searchName;
+      if (typeFilter !== 'all') params.adjustmentType = typeFilter;
+      if (opFilter !== 'all') params.operationType = opFilter;
+      if (deptFilter !== 'all') params.department = deptFilter;
+      if (sourceFilter !== 'all') params.source = sourceFilter;
 
       const res = await axios.get(`${API_BASE_URL}/attendance/api/attendance_adjustment`, { ...getAuthHeaders(), params });
       const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
@@ -530,7 +535,8 @@ const AttendanceAdjustmentReports = () => {
       }));
 
       const deptSet = new Set(normalised.map(r => r.department).filter(d => d && d !== '—'));
-      setDepartments([...deptSet].sort());
+      // Keep known departments so dropdown stays usable when a dept filter is active
+      setDepartments((prev) => [...new Set([...prev, ...deptSet])].sort());
       setAdjustments(normalised);
     } catch (err) {
       console.error('AttendanceAdjustmentReports fetch error:', err);
@@ -539,7 +545,7 @@ const AttendanceAdjustmentReports = () => {
       setLoading(false);
       setPageLoading(false);
     }
-  }, [searchEmpNum, dateFrom, dateTo]); // eslint-disable-line
+  }, [searchEmpNum, dateFrom, dateTo, searchName, typeFilter, opFilter, deptFilter, sourceFilter]); // eslint-disable-line
 
   const fetchEmployeeDirectory = useCallback(async () => {
     try {
@@ -617,30 +623,20 @@ const AttendanceAdjustmentReports = () => {
     setDeviceError('');
     try {
       const auth = getAuthHeaders();
-      const [usersRes, summaryRes, modRes, deptTableRes, deptAssignRes, punchRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, auth),
+      const [bundleRes, deptTableRes, deptAssignRes] = await Promise.all([
         axios.post(
-          `${API_BASE_URL}/attendance/api/device-attendance-summary`,
-          { startDate: dateFrom, endDate: dateTo },
-          auth,
-        ),
-        axios.post(
-          `${API_BASE_URL}/attendance/api/device-modification-summary`,
+          `${API_BASE_URL}/attendance/api/device-insights-bundle`,
           { startDate: dateFrom, endDate: dateTo },
           auth,
         ),
         axios.get(`${API_BASE_URL}/api/department-table`, auth),
         axios.get(`${API_BASE_URL}/api/department-assignment`, auth),
-        axios.post(
-          `${API_BASE_URL}/attendance/api/device-punch-insights`,
-          { startDate: dateFrom, endDate: dateTo },
-          auth,
-        ),
       ]);
 
       const allowed = allEmployeeSet;
-      const rawDeviceUsers = usersRes.data || [];
-      const rawSummary = Array.isArray(summaryRes.data) ? summaryRes.data : [];
+      const bundle = bundleRes.data || {};
+      const rawDeviceUsers = Array.isArray(bundle.users) ? bundle.users : [];
+      const rawSummary = Array.isArray(bundle.summary) ? bundle.summary : [];
       setAllDeviceUsersRaw(rawDeviceUsers);
       setAllDeviceSummaryRaw(rawSummary);
 
@@ -650,10 +646,10 @@ const AttendanceAdjustmentReports = () => {
       const filteredSummary = rawSummary.filter(
         (row) => row?.PersonID != null && allowed.has(String(row.PersonID)),
       );
-      const filteredPunch = (Array.isArray(punchRes.data) ? punchRes.data : []).filter(
+      const filteredPunch = (Array.isArray(bundle.punchInsights) ? bundle.punchInsights : []).filter(
         (row) => row?.PersonID != null && allowed.has(String(row.PersonID)),
       );
-      const filteredMod = (Array.isArray(modRes.data) ? modRes.data : []).filter(
+      const filteredMod = (Array.isArray(bundle.modSummary) ? bundle.modSummary : []).filter(
         (row) => row?.PersonID != null && allowed.has(String(row.PersonID)),
       );
 
@@ -687,33 +683,31 @@ const AttendanceAdjustmentReports = () => {
   }, [dateFrom, dateTo, allEmployeeSet]);
 
   const handleRefresh = useCallback(async () => {
-    await Promise.all([fetchData(), fetchDeviceInsights()]);
-  }, [fetchData, fetchDeviceInsights]);
+    const jobs = [fetchData()];
+    if (activeTab === 'insights') jobs.push(fetchDeviceInsights());
+    await Promise.all(jobs);
+  }, [fetchData, fetchDeviceInsights, activeTab]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
   useEffect(() => { fetchEmployeeDirectory(); }, [fetchEmployeeDirectory]);
+  // Lazy-load Device Insights only when Insights tab is open
   useEffect(() => {
-    if (allEmployeeSet.size > 0) fetchDeviceInsights();
-  }, [fetchDeviceInsights, allEmployeeSet.size]);
+    if (activeTab !== 'insights') return;
+    if (!dateFrom || !dateTo) return;
+    if (allEmployeeSet.size === 0) return;
+    fetchDeviceInsights();
+  }, [activeTab, fetchDeviceInsights, allEmployeeSet.size, dateFrom, dateTo]);
   useEffect(() => { setPage(0); }, [dateFrom, dateTo, searchName, searchEmpNum, typeFilter, deptFilter, empCatFilter, opFilter, sourceFilter]);
 
   const getEmpCatLabelForEmployee = useCallback((empNo) => {
     return empCatMap[String(empNo)]?.label || 'Unassigned';
   }, [empCatMap]);
 
+  // Server already applied most filters; keep emp-category + light safety filters client-side
   const filtered = useMemo(() => adjustments.filter(r => {
-    if (dateFrom && r.originalDate && r.originalDate < dateFrom) return false;
-    if (dateTo   && r.originalDate && r.originalDate > dateTo)   return false;
-    if (typeFilter   !== 'all' && r.adjustmentType !== typeFilter)  return false;
-    if (deptFilter   !== 'all' && r.department     !== deptFilter)  return false;
     if (empCatFilter !== 'all' && getEmpCatLabelForEmployee(r.employeeNumber) !== empCatFilter) return false;
-    if (opFilter !== 'all' && ((opFilter === 'INSERT') !== (r.operationType === 'INSERT'))) return false;
-    if (sourceFilter === 'autofill' && !r.autofillRemarks) return false;
-    if (sourceFilter === 'manual'   &&  r.autofillRemarks) return false;
-    if (searchName   && !(r.employeeName || '').toLowerCase().includes(searchName.toLowerCase()))       return false;
-    if (searchEmpNum && !r.employeeNumber.toLowerCase().includes(searchEmpNum.toLowerCase())) return false;
     return true;
-  }), [adjustments, dateFrom, dateTo, typeFilter, deptFilter, empCatFilter, opFilter, sourceFilter, searchName, searchEmpNum, getEmpCatLabelForEmployee]);
+  }), [adjustments, empCatFilter, getEmpCatLabelForEmployee]);
 
   const paged = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 

@@ -1098,22 +1098,25 @@ router.post('/excel-register', authenticateToken, requireAdmin, async (req, res)
 // GET ALL REGISTERED USERS WITH PAGE ACCESS AND DEPARTMENT
 router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const query = `
+    // 1. Base user info — plain joins, no collation issues here
+    const baseQuery = `
       SELECT 
         u.employeeNumber,
         u.email,
         u.role,
         u.employmentCategory,
         u.access_level,
+        p.id AS personId,
         p.firstName,
         p.middleName,
         p.lastName,
         p.nameExtension,
         u.created_at,
+        u.status AS dbStatus,
         pa.page_id,
         pa.page_privilege,
-        da.code as departmentCode,
-        dt.description as departmentDescription
+        da.code AS departmentCode,
+        dt.description AS departmentDescription
       FROM users u
       LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
       LEFT JOIN page_access pa ON u.employeeNumber = pa.employeeNumber
@@ -1122,9 +1125,21 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
       ORDER BY u.created_at DESC
     `;
 
-    db.query(query, (err, results) => {
+    const arQuery = `
+      SELECT personID, date 
+      FROM attendancerecord 
+      WHERE date IS NOT NULL AND date != ''
+    `;
+
+    const ariQuery = `
+      SELECT PersonID, AttendanceDateTime 
+      FROM attendancerecordinfo 
+      WHERE AttendanceDateTime IS NOT NULL
+    `;
+
+    db.query(baseQuery, (err, baseRows) => {
       if (err) {
-        console.error('Error fetching users:', err);
+        console.error('Error fetching base users:', err);
         console.error('SQL Error details:', err.message);
         console.error('SQL Error code:', err.code);
         console.error('SQL Error sqlMessage:', err.sqlMessage);
@@ -1134,41 +1149,149 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
         });
       }
 
-      // Group page access and department per user
-      const usersMap = {};
-      results.forEach((row) => {
-        if (!usersMap[row.employeeNumber]) {
-          usersMap[row.employeeNumber] = {
-            employeeNumber: row.employeeNumber,
-            fullName: `${row.firstName || ''} ${
-              row.middleName ? row.middleName + ' ' : ''
-            }${row.lastName || ''}${
-              row.nameExtension ? ' ' + row.nameExtension : ''
-            }`.trim(),
-            firstName: row.firstName,
-            middleName: row.middleName,
-            lastName: row.lastName,
-            nameExtension: row.nameExtension,
-            email: row.email,
-            role: row.role,
-            employmentCategory: row.employmentCategory,
-            accessLevel: row.access_level,
-            createdAt: row.created_at,
-            pageAccess: [],
-            departmentCode: row.departmentCode || null,
-            departmentDescription: row.departmentDescription || null,
-          };
-        }
-
-        if (row.page_id) {
-          usersMap[row.employeeNumber].pageAccess.push({
-            page_id: row.page_id,
-            page_privilege: row.page_privilege,
+      // 2. Fetch attendancerecord on its own — no join, no collation risk
+      db.query(arQuery, (arErr, arRows) => {
+        if (arErr) {
+          console.error('Error fetching attendancerecord:', arErr);
+          console.error('SQL Error details:', arErr.message);
+          console.error('SQL Error code:', arErr.code);
+          console.error('SQL Error sqlMessage:', arErr.sqlMessage);
+          return res.status(500).json({
+            error: 'Failed to fetch attendance records',
+            details: arErr.message || arErr.sqlMessage || 'Database query error',
           });
         }
-      });
 
-      res.status(200).json(Object.values(usersMap));
+        // 3. Fetch attendancerecordinfo on its own — no join, no collation risk
+        db.query(ariQuery, (ariErr, ariRows) => {
+          if (ariErr) {
+            console.error('Error fetching attendancerecordinfo:', ariErr);
+            console.error('SQL Error details:', ariErr.message);
+            console.error('SQL Error code:', ariErr.code);
+            console.error('SQL Error sqlMessage:', ariErr.sqlMessage);
+            return res.status(500).json({
+              error: 'Failed to fetch attendance record info',
+              details: ariErr.message || ariErr.sqlMessage || 'Database query error',
+            });
+          }
+
+          const currentYear = new Date().getFullYear();
+
+          // 4. Build sets of personIds with current-year / any-year attendance, in JS
+          //    (normalized to string, since p.id / personID / PersonID may not
+          //    come back as the same JS type)
+          const currentYearPersonIds = new Set();
+          const anyYearPersonIds = new Set();
+
+          arRows.forEach((row) => {
+            // attendancerecord.date is varchar 'YYYY-MM-DD' — take first 4 chars as the year
+            const year = parseInt(String(row.date).slice(0, 4), 10);
+            if (!Number.isFinite(year)) return;
+            const key = String(row.personID);
+            anyYearPersonIds.add(key);
+            if (year === currentYear) currentYearPersonIds.add(key);
+          });
+
+          ariRows.forEach((row) => {
+            // attendancerecordinfo.AttendanceDateTime is bigint epoch milliseconds
+            const year = new Date(Number(row.AttendanceDateTime)).getFullYear();
+            if (!Number.isFinite(year)) return;
+            const key = String(row.PersonID);
+            anyYearPersonIds.add(key);
+            if (year === currentYear) currentYearPersonIds.add(key);
+          });
+
+          // 5. Build the user map, computing status per person via the sets above
+          const usersMap = {};
+          const statusUpdates = {};
+
+          baseRows.forEach((row) => {
+            if (!usersMap[row.employeeNumber]) {
+              const personKey = row.personId != null ? String(row.personId) : null;
+
+              let attendanceStatus;
+              if (personKey && currentYearPersonIds.has(personKey)) {
+                attendanceStatus = 'Active';
+              } else if (personKey && anyYearPersonIds.has(personKey)) {
+                attendanceStatus = 'Inactive';
+              } else {
+                attendanceStatus = 'Default';
+              }
+
+              statusUpdates[row.employeeNumber] = attendanceStatus;
+
+              usersMap[row.employeeNumber] = {
+                employeeNumber: row.employeeNumber,
+                fullName: `${row.firstName || ''} ${
+                  row.middleName ? row.middleName + ' ' : ''
+                }${row.lastName || ''}${
+                  row.nameExtension ? ' ' + row.nameExtension : ''
+                }`.trim(),
+                firstName: row.firstName,
+                middleName: row.middleName,
+                lastName: row.lastName,
+                nameExtension: row.nameExtension,
+                email: row.email,
+                role: row.role,
+                status: attendanceStatus,
+                employmentCategory: row.employmentCategory,
+                accessLevel: row.access_level,
+                createdAt: row.created_at,
+                pageAccess: [],
+                departmentCode: row.departmentCode || null,
+                departmentDescription: row.departmentDescription || null,
+              };
+            }
+
+            if (row.page_id) {
+              usersMap[row.employeeNumber].pageAccess.push({
+                page_id: row.page_id,
+                page_privilege: row.page_privilege,
+              });
+            }
+          });
+
+          // 6. Bulk-write the computed statuses back to users.status
+          const employeeNumbers = Object.keys(statusUpdates);
+
+          if (employeeNumbers.length === 0) {
+            return res.status(200).json(Object.values(usersMap));
+          }
+
+          const caseClauses = employeeNumbers
+            .map(
+              (empNo) =>
+                `WHEN ${db.escape(empNo)} THEN ${db.escape(statusUpdates[empNo])}`
+            )
+            .join(' ');
+
+          const inClause = employeeNumbers.map((empNo) => db.escape(empNo)).join(', ');
+
+          const updateQuery = `
+            UPDATE users
+            SET status = CASE employeeNumber
+              ${caseClauses}
+              ELSE status
+            END
+            WHERE employeeNumber IN (${inClause})
+          `;
+
+          db.query(updateQuery, (updateErr) => {
+            if (updateErr) {
+              console.error('Error updating user statuses:', updateErr);
+              console.error('SQL Error details:', updateErr.message);
+              console.error('SQL Error code:', updateErr.code);
+              console.error('SQL Error sqlMessage:', updateErr.sqlMessage);
+              return res.status(500).json({
+                error: 'Failed to update user statuses',
+                details: updateErr.message || updateErr.sqlMessage || 'Database update error',
+              });
+            }
+
+            res.status(200).json(Object.values(usersMap));
+          });
+        });
+      });
     });
   } catch (err) {
     console.error('Error during user fetch:', err);
@@ -1459,6 +1582,71 @@ router.put('/users/:employeeNumber/role', authenticateToken, requireSuperAdmin, 
     });
   });
 });
+
+router.put('/users/:employeeNumber/status', authenticateToken, requireSuperAdmin, (req, res) => {
+  const { employeeNumber } = req.params;
+  const { status } = req.body;
+
+  if (!status) {
+    return res.status(400).json({ error: 'Status is required' });
+  }
+
+  const validStatuses = ['Default', 'Active', 'Inactive', 'Resigned', 'Terminated', 'Retired'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({
+      error:
+        'Invalid status. Must be one of: Default, Active, Inactive, Resigned, Terminated, Retired',
+    });
+  }
+
+  // First, get the current status for audit logging
+  const getCurrentStatusQuery = 'SELECT status FROM users WHERE employeeNumber = ?';
+  db.query(getCurrentStatusQuery, [employeeNumber], (err, results) => {
+    if (err) {
+      console.error('Error fetching current status:', err);
+      return res.status(500).json({ error: 'Failed to fetch current status' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const currentStatus = results[0].status;
+    const newStatus = status;
+
+    // If status hasn't changed, return early
+    if (currentStatus === newStatus) {
+      return res.status(200).json({ message: 'Status unchanged', status: newStatus });
+    }
+
+    // Update the status
+    const updateQuery = 'UPDATE users SET status = ? WHERE employeeNumber = ?';
+    db.query(updateQuery, [newStatus, employeeNumber], (err, result) => {
+      if (err) {
+        console.error('Error updating user status:', err);
+        return res.status(500).json({ error: 'Failed to update user status' });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      // Log audit
+      try {
+        logAudit(req.user, 'Update', 'users', employeeNumber, employeeNumber);
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
+
+      res.status(200).json({
+        message: 'User status updated successfully',
+        employeeNumber,
+        previousStatus: currentStatus,
+        newStatus: newStatus,
+      });
+    });
+  });
+});
+
 
 // POST: Reset password to surname and send email notification
 router.post('/users/reset-password', authenticateToken, requireAdmin, async (req, res) => {

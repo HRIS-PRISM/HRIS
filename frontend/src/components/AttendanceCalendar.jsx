@@ -4,6 +4,19 @@ import { CalendarMonth, ArrowBackIosNew, ArrowForwardIos, AccessTime } from "@mu
 import axios from "axios";
 import API_BASE_URL from "../apiConfig";
 import { fetchAttendanceCalendarMaps } from "./ATTENDANCE/attendanceLeaveIntegration";
+// ─── DTR-aligned data source: same late/undertime + schedule computation the DTR module uses ──
+import {
+  fetchDailyLateUndertime,
+  isDtrDateScheduledByOfficialTime,
+  getDayNameFromYmd,
+} from "../utils/dtrLateUndertimeFromOverall";
+import { fetchOfficialTimesBatch } from "../utils/fetchOfficialTimesBatch";
+import {
+  isDtrNonWorkingDayRow,
+  getDtrUnscheduledWeekdayBanner,
+  dtrTimeValueEmpty,
+} from "../utils/dtrFormatHelpers";
+import { isDtrAbsentRow, MODULE_TYPES } from "../utils/halfDayReview";
 
 const T = {
   accent:       "#6d2323",
@@ -23,9 +36,38 @@ const toISODate = (d) => {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
 };
 
-const punchDateToISO = (raw) => {
-  const p = String(raw || "").split("/");
-  return p.length === 3 ? `${p[2]}-${p[0].padStart(2, "0")}-${p[1].padStart(2, "0")}` : "";
+/**
+ * Normalize any date value (Date object, "YYYY-MM-DD", or ISO timestamp string)
+ * to a Philippines-calendar "YYYY-MM-DD" string.
+ * Mirrors the `toPhCalendarYmd` helper used by the DTR module, so both
+ * components agree on which calendar day an attendancerecord row belongs to
+ * (avoids UTC-midnight off-by-one issues).
+ */
+const toPhYmd = (value) => {
+  if (value == null || value === "") return "";
+  const s = String(value).trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : "";
+  }
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(d);
+    const y  = parts.find((p) => p.type === "year")?.value;
+    const mo = parts.find((p) => p.type === "month")?.value;
+    const da = parts.find((p) => p.type === "day")?.value;
+    if (y && mo && da) return `${y}-${mo}-${da}`;
+  } catch {
+    /* ignore */
+  }
+  return s.split("T")[0];
 };
 
 const expandHolidayDates = (h) => {
@@ -44,16 +86,23 @@ const inferLeaveCode = (obj) => {
   return r.includes("sick") || r.includes("sl") ? "SL" : "VL";
 };
 
+/** "00:00:00" / "00:00" / falsy all count as "not late". Anything else = late. */
+const isLateTotalNonZero = (lateTotal) => {
+  if (!lateTotal) return false;
+  const s = String(lateTotal).trim();
+  if (!s) return false;
+  return !/^0{1,2}:0{2}(:0{2})?$/.test(s);
+};
+
 /* ─── chip palette ─────────────────────────────────────────────────── */
 const CHIPS = {
-  P:  { bg: "#dcfce7", fg: "#166534", label: "Present" },
-  A:  { bg: "#fee2e2", fg: "#991b1b", label: "Absent" },
-  VL: { bg: "#dbeafe", fg: "#1e3a8a", label: "Vacation leave" },
-  SL: { bg: "#fef9c3", fg: "#854d0e", label: "Sick leave" },
-  SA: { bg: "#f1f5f9", fg: "#64748b", label: "Saturday" },
-  SU: { bg: "#f1f5f9", fg: "#64748b", label: "Sunday" },
-  H:  { bg: "#fde8d8", fg: "#9a3412", label: "Holiday" },
-  L:  { bg: "#fef3c7", fg: "#92400e", label: "Late" },
+  P:   { bg: "#dcfce7", fg: "#166534", label: "Present" },
+  A:   { bg: "#fee2e2", fg: "#991b1b", label: "Absent" },
+  VL:  { bg: "#dbeafe", fg: "#1e3a8a", label: "Vacation leave" },
+  SL:  { bg: "#fef9c3", fg: "#854d0e", label: "Sick leave" },
+  NWD: { bg: "#f1f5f9", fg: "#64748b", label: "Non-working day" },
+  H:   { bg: "#fde8d8", fg: "#9a3412", label: "Holiday" },
+  L:   { bg: "#fef3c7", fg: "#92400e", label: "Late" },
 };
 
 const Chip = ({ code }) => {
@@ -73,12 +122,14 @@ const Chip = ({ code }) => {
 
 /* ─── component ────────────────────────────────────────────────────── */
 export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
-  const [cursor,     setCursor]     = useState(() => new Date());
-  const [loading,    setLoading]    = useState(false);
-  const [punches,    setPunches]    = useState([]);
-  const [suspension, setSuspension] = useState({});
-  const [leaves,     setLeaves]     = useState({});
-  const [apiHols,    setApiHols]    = useState({});
+  const [cursor,        setCursor]        = useState(() => new Date());
+  const [loading,       setLoading]       = useState(false);
+  const [punches,       setPunches]       = useState([]);       // attendancerecord rows (same source as DTR)
+  const [lateByDate,    setLateByDate]    = useState({});        // { iso: { lateTotal, undertimeTotal } } — same as DTR
+  const [suspension,    setSuspension]    = useState({});
+  const [leaves,        setLeaves]        = useState({});
+  const [apiHols,       setApiHols]       = useState({});
+  const [officialTimes, setOfficialTimes] = useState({});         // { Monday: {...}, ..., Saturday: {...} } — same as DTR
 
   const year  = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -110,7 +161,7 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
     return { headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" } };
   };
 
-  /* fetch */
+  /* fetch — same endpoints/params the DTR module uses for this employee + period */
   useEffect(() => {
     let dead = false;
     (async () => {
@@ -118,62 +169,139 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
       if (!emp) return;
       setLoading(true);
       setPunches([]);
+      setLateByDate({});
       try {
         const h = getAuthHeaders().headers;
-        const s = new Date(range.startDate); s.setDate(s.getDate() - 1);
-        const e = new Date(range.endDate);   e.setDate(e.getDate() + 1);
 
-        const [pr, maps] = await Promise.all([
-          axios.post(`${API_BASE_URL}/attendance/api/attendance`, {
+        const [pr, maps, lateRes, otMap] = await Promise.all([
+          // Same source DTR reads from: attendancerecord (processed / admin-adjusted),
+          // NOT the raw device table.
+          axios.post(`${API_BASE_URL}/attendance/api/view-attendance`, {
             personID: emp,
-            startDate: s.toISOString().substring(0, 10),
-            endDate:   e.toISOString().substring(0, 10),
+            startDate: range.startDate,
+            endDate: range.endDate,
           }, { headers: h }),
           fetchAttendanceCalendarMaps({
             apiBaseUrl: API_BASE_URL, getAuthHeaders,
             startDate: range.startDate, endDate: range.endDate, personId: emp,
           }),
+          // Same late/undertime computation DTR reads (overall_attendance_record.daily_late_undertime)
+          fetchDailyLateUndertime(emp, range.startDate, range.endDate),
+          // Same Official Time schedule DTR reads — determines which days are actually worked
+          fetchOfficialTimesBatch([emp], range.startDate, range.endDate, getAuthHeaders),
         ]);
 
         if (dead) return;
-        const filtered = (Array.isArray(pr.data) ? pr.data : []).filter(r => {
-          const iso = punchDateToISO(r.Date);
-          return iso >= range.startDate && iso <= range.endDate;
-        });
-        setPunches(filtered);
+        setPunches(Array.isArray(pr.data) ? pr.data : []);
         setSuspension(maps?.suspensionByDate || {});
         setLeaves(maps?.leaveByDate         || {});
         setApiHols(maps?.holidayByDate      || {});
-      } catch { if (!dead) setPunches([]); }
-      finally  { if (!dead) setLoading(false); }
+        setLateByDate(lateRes?.byDate || {});
+        setOfficialTimes(otMap?.[emp] || otMap?.[String(emp)] || {});
+      } catch {
+        if (!dead) { setPunches([]); setLateByDate({}); setOfficialTimes({}); }
+      } finally {
+        if (!dead) setLoading(false);
+      }
     })();
     return () => { dead = true; };
   }, [employeeNumber, range.startDate, range.endDate]);
 
-  /* punch map */
+  /* punch map — one attendancerecord row per calendar day (PH time) */
   const punchMap = useMemo(() => {
     const m = new Map();
-    punches.forEach(r => {
-      const iso = punchDateToISO(r.Date);
+    punches.forEach((r) => {
+      const iso = toPhYmd(r.date);
       if (!iso) return;
-      if (!m.has(iso)) m.set(iso, []);
-      m.get(iso).push(r);
+      m.set(iso, r);
     });
     return m;
   }, [punches]);
 
-  const getCode = (iso, dow) => {
-    if (dow === 0) return "SU";
-    if (dow === 6) return "SA";
-    if (suspension?.[iso]) return "H";
-    if (apiHols?.[iso] || propHolMap.has(iso)) return "H";
-    if (leaves?.[iso]) return inferLeaveCode(leaves[iso]);
-    const ps = punchMap.get(iso);
-    if (!ps?.length) return "";
-    const tin = ps.find(p => p.AttendanceState === 1);
-    if (!tin) return "P";
-    const [hh, mm] = (tin.Time || "").split(":").map(Number);
-    return !isNaN(hh) && (hh > 8 || (hh === 8 && mm > 0)) ? "L" : "P";
+  /** Same priority DTR's getDateIndicator uses: leave > suspension > holiday. */
+  const getDateIndicator = (iso) => {
+    if (leaves?.[iso]) {
+      return { code: inferLeaveCode(leaves[iso]), indicator: { type: "leave", label: "LEAVE" } };
+    }
+    if (suspension?.[iso]) {
+      return { code: "H", indicator: { type: "suspension", label: "SUSPENSION" } };
+    }
+    if (apiHols?.[iso] || propHolMap.has(iso)) {
+      return { code: "H", indicator: { type: "holiday", label: "HOLIDAY" } };
+    }
+    return { code: null, indicator: null };
+  };
+
+  const hasPeriodRecords = punches.length > 0;
+
+  const getCode = (iso) => {
+    const { code: indicatorCode, indicator } = getDateIndicator(iso);
+    if (indicator) return indicatorCode;
+
+    const rec = punchMap.get(iso);
+    const dayName = getDayNameFromYmd(iso);
+
+    // Same schedule check DTR uses — respects the employee's actual Official Time
+    // days (e.g. Mon–Sat employees have Saturday scheduled, so it's never flagged
+    // as non-working; falls back to "scheduled" if no Official Time is configured
+    // at all, matching DTR's behavior of not blanking the whole month).
+    const isNotScheduledDay = !isDtrDateScheduledByOfficialTime({
+      record: rec,
+      officialTimesByDay: officialTimes,
+      fullDate: iso,
+    });
+
+    const timeFields = {
+      timeIN: rec?.timeIN || "",
+      breaktimeIN: rec?.breaktimeIN || "",
+      breaktimeOUT: rec?.breaktimeOUT || "",
+      timeOUT: rec?.timeOUT || "",
+    };
+
+    // Sat/Sun, unscheduled, no punches → non-working day.
+    if (
+      isDtrNonWorkingDayRow({
+        isNotScheduledDay,
+        indicator,
+        timeFields,
+        hasPeriodRecords,
+        fullDate: iso,
+        dayName,
+      })
+    ) {
+      return "NWD";
+    }
+
+    // Mon–Fri, unscheduled, no punches (rare — e.g. a workday with no Official
+    // Time set up for that weekday). DTR shows the weekday name as its own
+    // banner here; the calendar reuses the same NWD chip for simplicity.
+    const unscheduledWeekdayLabel = getDtrUnscheduledWeekdayBanner({
+      isNotScheduledDay,
+      indicator,
+      timeFields,
+      hasPeriodRecords,
+      fullDate: iso,
+      dayName,
+    });
+    if (unscheduledWeekdayLabel) return "NWD";
+
+    // Scheduled day, no calendar indicator, no punches → absent.
+    const rowIsAbsent = isDtrAbsentRow({
+      record: rec,
+      dateIndicator: indicator,
+      isNotScheduledDay,
+      moduleType: MODULE_TYPES.NON_TEACHING,
+      hasPeriodRecords,
+    });
+    if (rowIsAbsent) return "A";
+
+    const hasTimeIn = !dtrTimeValueEmpty(rec?.timeIN);
+    if (!hasTimeIn) return "";
+
+    // Late determination matches DTR exactly: computed lateTotal from
+    // overall_attendance_record, not a hardcoded 8:00 AM cutoff.
+    const lateTotal = lateByDate?.[iso]?.lateTotal;
+    return isLateTotalNonZero(lateTotal) ? "L" : "P";
   };
 
   const days = useMemo(() =>
@@ -306,16 +434,16 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
                 )}
               </TableCell>
 
-              {days.map(({ d, dow, iso, isToday }) => (
+              {days.map(({ d, iso, isToday }) => (
                 <TableCell key={d}
-                  title={CHIPS[getCode(iso, dow)]?.label}
+                  title={CHIPS[getCode(iso)]?.label}
                   sx={{
                     textAlign: "center", verticalAlign: "middle", p: "10px 3px",
                     borderRight: `1px solid ${T.divider}`,
                     bgcolor: isToday ? "rgba(109,35,35,0.04)" : "transparent",
                   }}
                 >
-                  <Chip code={getCode(iso, dow)} />
+                  <Chip code={getCode(iso)} />
                 </TableCell>
               ))}
             </TableRow>

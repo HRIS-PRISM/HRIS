@@ -50,6 +50,141 @@ router.get('/employees/search', authenticateToken, requireAdmin, (req, res) => {
   });
 });
 
+router.get(
+  '/employees/department/search',
+  authenticateToken,
+  requireAdmin,
+  (req, res) => {
+    const { q } = req.query;
+    const loggedInEmployeeNumber = req.user.employeeNumber;
+
+    // First, determine the logged-in user's role
+    const userSql = `
+      SELECT 
+        u.employeeNumber,
+        u.role,
+        sa.departmentCode AS supervisorDepartment
+      FROM users u
+      LEFT JOIN supervisor_assignment sa
+        ON sa.supervisorEmployeeNumber = u.employeeNumber
+        AND LOWER(sa.role) = 'supervisor'
+      WHERE u.employeeNumber = ?
+      LIMIT 1
+    `;
+
+    db.query(userSql, [loggedInEmployeeNumber], (err, userResult) => {
+      if (err) {
+        console.error('Error checking user access:', err);
+        return res.status(500).json({
+          message: 'Error checking user access',
+        });
+      }
+
+      if (!userResult.length) {
+        return res.status(403).json({
+          message: 'User not found',
+        });
+      }
+
+      const user = userResult[0];
+
+      /*
+       * ==========================================
+       * 1. SUPERADMIN / TECHNICAL
+       * ==========================================
+       * These users can see ALL employees.
+       */
+      const isPrivileged =
+        ['superadmin', 'technical'].includes(
+          String(user.role).toLowerCase()
+        );
+
+      /*
+       * ==========================================
+       * 2. SUPERVISOR
+       * ==========================================
+       * If the user exists in supervisor_assignment
+       * with role = Supervisor, use their department.
+       */
+      const departmentCode = user.supervisorDepartment;
+
+
+      /*
+       * ==========================================
+       * 3. BUILD EMPLOYEE QUERY
+       * ==========================================
+       */
+      let sql = `
+        SELECT 
+          u.employeeNumber,
+          ${getFullNameSQL()}
+        FROM users u
+        LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
+        LEFT JOIN department_assignment da ON da.employeeNumber = u.employeeNumber
+        WHERE da.employeeNumber IS NOT NULL
+      `;
+
+      const queryParams = [];
+
+      // Supervisor can only see employees in their department
+      if (!isPrivileged) {
+        if (!departmentCode) {
+          return res.json([]);
+        }
+
+        sql += `
+          AND da.code = ?
+        `;
+
+        queryParams.push(departmentCode);
+      }
+
+      // Search condition
+      if (q && q.trim() !== '') {
+        sql += `
+          AND (
+            CONCAT_WS(
+              ' ',
+              p.firstName,
+              p.middleName,
+              p.lastName,
+              p.nameExtension
+            ) LIKE ?
+            OR p.firstName LIKE ?
+            OR p.lastName LIKE ?
+            OR u.employeeNumber LIKE ?
+          )
+        `;
+
+        const searchTerm = `%${q.trim()}%`;
+
+        queryParams.push(
+          searchTerm,
+          searchTerm,
+          searchTerm,
+          searchTerm
+        );
+      }
+
+      sql += `
+        ORDER BY p.firstName ASC, p.lastName ASC
+        LIMIT 50
+      `;
+
+      db.query(sql, queryParams, (err, result) => {
+        if (err) {
+          console.error('Error fetching employees:', err);
+          return res.status(500).json({
+            message: 'Error fetching employees',
+          });
+        }
+
+        return res.json(result);
+      });
+    });
+  }
+);
+
 router.get('/employees/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber } = req.params;
 

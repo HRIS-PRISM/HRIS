@@ -481,7 +481,7 @@ const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = f
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search`, {
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/department/search`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       setResults(r.data || []);
@@ -496,7 +496,7 @@ const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = f
     setLoading(true);
     try {
       const r = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
+        `${API_BASE_URL}/Remittance/employees/department/search?q=${encodeURIComponent(q)}`,
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
       );
       setResults(r.data || []);
@@ -1393,6 +1393,13 @@ const TamperWarningBanner = ({ onRestore }) => (
   </Box>
 );
 
+const UploadRestrictionNotice = ({ message }) => (
+  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: 1.5, mb: 1.5, bgcolor: "#fff5f5", border: "1px solid #ffcdd2", borderRadius: "10px" }}>
+    <WarningAmber sx={{ color: "#c62828", fontSize: 18, mt: "1px", flexShrink: 0 }} />
+    <Typography sx={{ fontSize: "0.78rem", color: "#7a0000", lineHeight: 1.55 }}>{message}</Typography>
+  </Box>
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1562,6 +1569,7 @@ const OfficialTimeForm = ({
   const [successAction, setSuccessAction] = useState("");
   const [lastSaved, setLastSaved] = useState(null);
   const [tamperDetected, setTamperDetected] = useState(false);
+  const [supervisorStatus, setSupervisorStatus] = useState(null);
 
   const serverRecordsRef = useRef([]);
   const checksumRef = useRef(null);
@@ -1649,6 +1657,16 @@ const OfficialTimeForm = ({
     return () => clearInterval(tamperCheckIntervalRef.current);
   }, [hasSearched]);
 
+  const fetchSupervisorStatus = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/supervisor-assignment-status`, getAuthHeaders());
+      setSupervisorStatus(r.data);
+    } catch {
+      setSupervisorStatus({ hasAssignment: false, active: false });
+    }
+  }, []);
+
+  useEffect(() => { fetchSupervisorStatus(); }, [fetchSupervisorStatus]);
   useEffect(() => () => { if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current); }, []);
 
   // ── Employee select ──
@@ -1716,6 +1734,19 @@ const OfficialTimeForm = ({
       : { employeeNumber: num, name: "" };
     handleEmployeeSelect(emp);
   }, [embedded, initialContext, accessLoading, hasAccess, handleEmployeeSelect]);
+
+  const canUploadExcel = supervisorStatus?.active === true;
+
+  const uploadRestrictionMessage = useMemo(() => {
+    if (!supervisorStatus || supervisorStatus.active) return null;
+    if (!supervisorStatus.hasAssignment)
+      return "You don't have a supervisor assignment on record, so Excel uploads are disabled.";
+    if (supervisorStatus.expired)
+      return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" expired on ${formatDateLong(supervisorStatus.end) || supervisorStatus.end}. Uploads are disabled until it's renewed.`;
+    if (supervisorStatus.notStarted)
+      return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" hasn't started yet (starts ${formatDateLong(supervisorStatus.start) || supervisorStatus.start}). Uploads are disabled until then.`;
+    return "You are not currently authorized to upload Excel schedules.";
+  }, [supervisorStatus]);
 
   const handleEmployeeClear = useCallback(() => {
     setSelectedEmployee(null);
@@ -1889,7 +1920,7 @@ const OfficialTimeForm = ({
 
   // ── Upload ──
   const handleAnalyzeFile = useCallback(async () => {
-    if (!file || analyzing) return;
+    if (!file || analyzing || !canUploadExcel) return;
     const formData = new FormData();
     formData.append("file", file);
     setUploadAcknowledgeChecked(false);
@@ -1932,13 +1963,14 @@ const OfficialTimeForm = ({
     } finally {
       setAnalyzing(false);
     }
-  }, [file, analyzing]);
+  }, [file, analyzing, canUploadExcel]);
 
   const handleConfirmUpload = useCallback(async () => {
-    if (!file || confirming || !uploadAcknowledgeChecked) return;
+    if (!file || confirming || !uploadAcknowledgeChecked || !canUploadExcel) return;
     const formData = new FormData();
     formData.append("file", file);
     setConfirming(true);
+    
     try {
       const response = await axios.post(`${API_BASE_URL}/upload-excel-faculty-official-time`, formData, { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } });
       setShowAnalyzeModal(false);
@@ -1967,11 +1999,11 @@ const OfficialTimeForm = ({
     } finally {
       setConfirming(false);
     }
-  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords]);
+  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords, canUploadExcel]);
 
   // ── Department-scoped upload handlers ──
   const handleAnalyzeDeptFile = useCallback(async () => {
-    if (!deptFile || !deptUploadDepartment || deptAnalyzing) return;
+    if (!deptFile || !deptUploadDepartment || deptAnalyzing || !canUploadExcel) return;
     const formData = new FormData();
     formData.append("file", deptFile);
     formData.append("department", deptUploadDepartment);
@@ -2027,7 +2059,7 @@ const OfficialTimeForm = ({
     } finally {
       setDeptAnalyzing(false);
     }
-  }, [deptFile, deptUploadDepartment, deptAnalyzing]);
+  }, [deptFile, deptUploadDepartment, deptAnalyzing, canUploadExcel]);
 
   const handleConfirmDeptUpload = useCallback(async () => {
     if (!deptFile || !deptUploadDepartment || deptConfirming || !deptUploadAcknowledgeChecked) return;
@@ -2473,12 +2505,15 @@ const OfficialTimeForm = ({
 
                   <PanelHeader icon={CloudUploadIcon} title="Excel upload" rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>} />
                   <Box sx={{ p: 2.5 }}>
+                    {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                      <input type="file" accept=".xlsx,.xls" id="upload-button" style={{ display: "none" }} onChange={(e) => setFile(e.target.files[0] || null)} />
+                      <input type="file" accept=".xlsx,.xls" id="upload-button" style={{ display: "none" }}
+                        disabled={!canUploadExcel}
+                        onChange={(e) => setFile(e.target.files[0] || null)} />
                       <label htmlFor="upload-button">
                         <Button variant="outlined" component="span" size="small" startIcon={<CloudUploadIcon />}
-                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}
-                        >
+                          disabled={!canUploadExcel}
+                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}>
                           Choose file
                         </Button>
                       </label>
@@ -2487,13 +2522,10 @@ const OfficialTimeForm = ({
                           {file.name}
                         </Typography>
                       )}
-                      <Button
-                        variant="contained" size="small"
-                        onClick={handleAnalyzeFile}
-                        disabled={!file || analyzing || confirming}
+                      <Button variant="contained" size="small" onClick={handleAnalyzeFile}
+                        disabled={!file || analyzing || confirming || !canUploadExcel}
                         startIcon={analyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
-                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
-                      >
+                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}>
                         {analyzing ? "Validating…" : "Validate"}
                       </Button>
                     </Box>
@@ -2751,6 +2783,7 @@ const OfficialTimeForm = ({
                     title="Excel upload by department"
                     rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>}
                   />
+                  {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
                   <Box sx={{ p: 2.5 }}>
                     <Typography sx={{ fontSize: "0.71rem", color: T.faint, mb: 1.5 }}>
                       Only rows for employees in the selected department will be processed.
@@ -2759,6 +2792,7 @@ const OfficialTimeForm = ({
                     <ModernTextField
                       select fullWidth size="small" label="Target department"
                       value={deptUploadDepartment}
+                      disabled={!canUploadExcel}
                       onChange={(e) => setDeptUploadDepartment(e.target.value)}
                       sx={{ mb: 1.5 }}
                     >
@@ -2779,7 +2813,7 @@ const OfficialTimeForm = ({
                       <Button
                         variant="contained" size="small"
                         onClick={handleAnalyzeDeptFile}
-                        disabled={!deptFile || !deptUploadDepartment || deptAnalyzing || deptConfirming}
+                        disabled={!deptFile || !deptUploadDepartment || deptAnalyzing || deptConfirming || !canUploadExcel}
                         startIcon={deptAnalyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
                         sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
                       >
@@ -2818,6 +2852,7 @@ const OfficialTimeForm = ({
                     title="Excel upload by employment category"
                     rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>}
                   />
+                  {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
                   <Box sx={{ p: 2.5 }}>
                     <Typography sx={{ fontSize: "0.71rem", color: T.faint, mb: 1.5 }}>
                       Only rows for employees assigned to the selected employment category will be processed.
@@ -2826,6 +2861,7 @@ const OfficialTimeForm = ({
                     <ModernTextField
                       select fullWidth size="small" label="Target employment category"
                       value={catUploadCategory}
+                      disabled={!canUploadExcel}
                       onChange={(e) => setCatUploadCategory(e.target.value)}
                       sx={{ mb: 1.5 }}
                       SelectProps={{
@@ -2868,7 +2904,7 @@ const OfficialTimeForm = ({
                       <Button
                         variant="contained" size="small"
                         onClick={handleAnalyzeCatFile}
-                        disabled={!catFile || !catUploadCategory || catAnalyzing || catConfirming}
+                        disabled={!catFile || !catUploadCategory || catAnalyzing || catConfirming || !canUploadExcel}
                         startIcon={catAnalyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
                         sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
                       >

@@ -440,6 +440,7 @@ const UsersList = () => {
   const [exceptionDurationUnit, setExceptionDurationUnit]   = useState("hours");
   const [pageAccessLoading, setPageAccessLoading]           = useState(false);
   const [roleFilter, setRoleFilter]                         = useState("");
+  const [statusFilter, setStatusFilter]                     = useState("");
   const [accessChangeInProgress, setAccessChangeInProgress] = useState({});
   const [activeAccessCategory, setActiveAccessCategory]     = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen]           = useState(false);
@@ -449,8 +450,11 @@ const UsersList = () => {
   const [activeTab, setActiveTab]                           = useState("info");
   const [animatedValue, setAnimatedValue]                   = useState(0);
   const [roleChangeDialog, setRoleChangeDialog]             = useState(false);
+  const [statusChangeDialog, setStatusChangeDialog]         = useState(false);
   const [pendingRoleChange, setPendingRoleChange]           = useState(null);
+  const [pendingStatusChange, setPendingStatusChange]       = useState(null);
   const [roleChangeLoading, setRoleChangeLoading]           = useState(false);
+  const [statusChangeLoading, setStatusChangeLoading]       = useState(false);
   const [editDialog, setEditDialog]                         = useState(false);
   const [userToEdit, setUserToEdit]                         = useState(null);
   const [editedEmployeeNumber, setEditedEmployeeNumber]     = useState("");
@@ -881,6 +885,10 @@ const UsersList = () => {
         ? (user.role || "").toLowerCase() === roleFilter.toLowerCase()
         : true;
 
+      const matchesStatus = statusFilter
+        ? (user.status || "").toLowerCase() === statusFilter.toLowerCase()
+        : true;
+
       const matchesCategory = categoryFilter !== ''
         ? (() => {
             const [filterType, filterValue] = categoryFilter.split('||');
@@ -911,11 +919,11 @@ const UsersList = () => {
         ? (user.departmentCode || "") === departmentFilter
         : true;
 
-      return matchesSearch && matchesRole && matchesCategory && matchesDepartment;
+      return matchesSearch && matchesRole && matchesStatus && matchesCategory && matchesDepartment;
     });
     setFilteredUsers(filtered);
     setPage(0);
-  }, [searchTerm, roleFilter, categoryFilter, departmentFilter, users, tableTab, properUsers, incompleteUsers, empCatMap, typeConfigs]);
+  }, [searchTerm, roleFilter, statusFilter, categoryFilter, departmentFilter, users, tableTab, properUsers, incompleteUsers, empCatMap, typeConfigs]);
 
   // ─── Page access handlers ──────────────────────────────────────────────────
   const fetchUserPageAccess = async (user) => {
@@ -1159,6 +1167,8 @@ const UsersList = () => {
   const closeUserDetails = () => { setDetailsDrawerOpen(false); setSelectedUserForDetails(null); setActiveTab("info"); setAnimatedValue(0); };
 
   const handleRoleChange = (user, newRole) => { if (user.role === newRole) return; setPendingRoleChange({ user, oldRole: user.role, newRole }); setRoleChangeDialog(true); };
+  const handleStatusChange = (user, newStatus) => { if (user.status === newStatus) return; setPendingStatusChange({ user, oldStatus: user.status, newStatus }); setStatusChangeDialog(true); };
+
   const confirmRoleChange = async () => {
     if (!pendingRoleChange) return;
     setRoleChangeLoading(true);
@@ -1171,6 +1181,20 @@ const UsersList = () => {
       setSuccessAction("edit"); setSuccessOpen(true); setRoleChangeDialog(false); setPendingRoleChange(null);
     } catch { setError("Network error while updating user role"); }
     finally { setRoleChangeLoading(false); }
+  };
+
+  const confirmStatusChange = async () => {
+    if (!pendingStatusChange) return;
+    setStatusChangeLoading(true);
+    try {
+      const authHeaders = getAuthHeaders();
+      const response    = await fetch(`${API_BASE_URL}/users/${pendingStatusChange.user.employeeNumber}/status`, { method: "PUT", ...authHeaders, body: JSON.stringify({ status: pendingStatusChange.newStatus }) });
+      if (!response.ok) { const e = await response.json().catch(() => ({})); setError(e.error || "Failed to update user status"); setStatusChangeDialog(false); setPendingStatusChange(null); setStatusChangeLoading(false); return; }
+      setUsers((prev)         => prev.map((u) => u.employeeNumber === pendingStatusChange.user.employeeNumber ? { ...u, status: pendingStatusChange.newStatus } : u));
+      setFilteredUsers((prev) => prev.map((u) => u.employeeNumber === pendingStatusChange.user.employeeNumber ? { ...u, status: pendingStatusChange.newStatus } : u));
+      setSuccessAction("edit"); setSuccessOpen(true); setStatusChangeDialog(false); setPendingStatusChange(null);
+    } catch { setError("Network error while updating user status"); }
+    finally { setStatusChangeLoading(false); }
   };
 
   const handleEditUser = (user) => {
@@ -1521,7 +1545,7 @@ const UsersList = () => {
         </Box>
         <Box sx={{ px: 3.5, py: 2.5 }}>
           <Grid container spacing={2} alignItems="flex-end">
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <FieldInput fullWidth label="Search Users" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Name, email, employee number or role" size="small"
                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: T.faint, fontSize: 16 }} /></InputAdornment> }} />
             </Grid>
@@ -1535,7 +1559,7 @@ const UsersList = () => {
               </CleanTextField>
             </Grid>
 
-            <Grid item xs={6} md={3}>
+            <Grid item xs={6} md={2}>
               <FormControl fullWidth size="small">
                 <InputLabel shrink sx={{ fontSize: '0.82rem' }}>Employment Category</InputLabel>
                 <Select
@@ -1637,6 +1661,18 @@ const UsersList = () => {
                 </Select>
               </FormControl>
             </Grid>
+
+            <Grid item xs={6} md={2}>
+              <CleanTextField select fullWidth label="Filter by Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} size="small">
+                <MenuItem value="">All Statuses</MenuItem>
+                <MenuItem value="Default">Default</MenuItem>
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Inactive">Inactive</MenuItem>
+                <MenuItem value="Resigned">Resigned</MenuItem>
+                <MenuItem value="Terminated">Terminated</MenuItem>
+                <MenuItem value="Retired">Retired</MenuItem>
+              </CleanTextField>
+            </Grid>
           </Grid>
         </Box>
       </SectionCard>
@@ -1648,7 +1684,7 @@ const UsersList = () => {
           <Box>
             <Typography sx={{ fontWeight: 700, fontSize: '0.88rem', color: T.text }}>Registered Users</Typography>
             <Typography sx={{ fontSize: '0.72rem', color: T.faint, mt: 0.1 }}>
-              {searchTerm || roleFilter || categoryFilter !== "" || departmentFilter !== "" ? `Showing ${filteredUsers.length} of ${tableTab === 0 ? properUsers.length : incompleteUsers.length}` : `Total ${users.length} registered users`}
+              {searchTerm || roleFilter || statusFilter || categoryFilter !== "" || departmentFilter !== "" ? `Showing ${filteredUsers.length} of ${tableTab === 0 ? properUsers.length : incompleteUsers.length}` : `Total ${users.length} registered users`}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -1710,7 +1746,7 @@ const UsersList = () => {
                   <Checkbox checked={isAllCurrentPageSelected(paginatedUsers)} indeterminate={isSomeCurrentPageSelected(paginatedUsers)} onChange={() => toggleSelectAllCurrentPage(paginatedUsers)}
                     sx={{ color: T.faint, '&.Mui-checked': { color: T.accent }, '&.MuiCheckbox-indeterminate': { color: T.accent }, p: 0 }} size="small" />
                 </TableCell>
-                {["Emp. No.", "Full Name", "Email", "Role", "Employment Category", "Department", "Page Access", ...(isTechnical ? ["Actions"] : [])].map((h) => (
+                {["Emp. No.", "Full Name", "Email", "Role", "Employment Category", "Department", "Status", "Page Access", ...(isTechnical ? ["Actions"] : [])].map((h) => (
                   <TableCell key={h} sx={{ borderBottom: `2px solid ${T.accentBorder}`, py: 1.5, px: 2, fontSize: '0.62rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap', bgcolor: alpha(T.accent, 0.03), textAlign: ["Page Access", "Actions"].includes(h) ? 'center' : 'left' }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -1774,6 +1810,23 @@ const UsersList = () => {
                         <Business sx={{ fontSize: 13, color: T.faint }} />
                         <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{user.departmentDescription || user.departmentCode || "—"}</Typography>
                       </Box>
+                    </TableCell>
+                    <TableCell sx={{ py: 1.5, px: 2, borderBottom: 'none' }}>
+                      {user.role === "technical" ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>Default</Typography>
+                        </Box>
+                      ) : (
+                        <Select value={user.status || "Default"} onChange={(e) => handleStatusChange(user, e.target.value)} size="small"
+                          sx={{ minWidth: 140, borderRadius: 1.5, bgcolor: '#fafafa', fontSize: '0.82rem', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent } }}>
+                          <MenuItem value="Default">Default</MenuItem>
+                          <MenuItem value="Active">Active</MenuItem>
+                          <MenuItem value="Inactive">Inactive</MenuItem>
+                          <MenuItem value="Resigned">Resigned</MenuItem>
+                          <MenuItem value="Terminated">Terminated</MenuItem>
+                          <MenuItem value="Retired">Retired</MenuItem>
+                        </Select>
+                      )}
                     </TableCell>
                     <TableCell sx={{ py: 1.5, px: 2, borderBottom: 'none', textAlign: 'center' }}>
                       <AccentButton variant="outlined" size="small" startIcon={<Security sx={{ fontSize: 13 }} />} onClick={() => handlePageAccessClick(user)}
@@ -2470,6 +2523,46 @@ const UsersList = () => {
         </DialogActions>
       </Dialog>
 
+      {/* ── Status Change Dialog ── */}
+      <Dialog open={statusChangeDialog} onClose={() => { setStatusChangeDialog(false); setPendingStatusChange(null); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
+        <DialogAccentBar />
+        <Box sx={{ px: 3, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${T.divider}` }}>
+          <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><VerifiedUser sx={{ fontSize: 18, color: T.accent }} /></Box>
+          <Typography sx={{ fontWeight: 700, fontSize: '0.95rem' }}>Confirm Status Change</Typography>
+        </Box>
+        <DialogContent sx={{ p: 3 }}>
+          {pendingStatusChange && (
+            <>
+              <Box sx={{ mb: 2.5, p: 2.5, borderRadius: 2, border: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Avatar sx={{ bgcolor: alpha(T.accent, 0.12), color: T.accent, width: 44, height: 44, fontWeight: 700 }}>{getInitials(pendingStatusChange.user.fullName)}</Avatar>
+                  <Box>
+                    <Typography sx={{ fontWeight: 700, fontSize: '0.9rem', color: T.text }}>{pendingStatusChange.user.fullName}</Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2 }}>#{pendingStatusChange.user.employeeNumber}</Typography>
+                  </Box>
+                </Box>
+              </Box>
+              <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2 }} icon={<Info />}>This status change will be logged in the audit trail.</Alert>
+              <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.muted, mb: 1.25 }}>Status Change Details</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ px: 1.5, py: 0.4, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '20px' }}><Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent }}>{(pendingStatusChange.oldStatus || "").toUpperCase()}</Typography></Box>
+                  <Typography sx={{ color: T.faint, fontWeight: 700 }}>→</Typography>
+                  <Box sx={{ px: 1.5, py: 0.4, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '20px' }}><Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accentMid }}>{(pendingStatusChange.newStatus || "").toUpperCase()}</Typography></Box>
+                </Box>
+              </Box>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2.5, gap: 1.25, borderTop: `1px solid ${T.divider}` }}>
+          <AccentButton onClick={() => { setStatusChangeDialog(false); setPendingStatusChange(null); }} disabled={statusChangeLoading} variant="outlined" sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Cancel</AccentButton>
+          <AccentButton onClick={confirmStatusChange} variant="contained" disabled={statusChangeLoading} startIcon={statusChangeLoading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <CheckCircle sx={{ fontSize: 14 }} />}
+            sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}>
+            {statusChangeLoading ? 'Updating…' : 'Confirm Change'}
+          </AccentButton>
+        </DialogActions>
+      </Dialog>
+
       {/* ── Edit User Dialog ── */}
       <Dialog open={editDialog} onClose={() => setEditDialog(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}>
         <DialogAccentBar />
@@ -2732,7 +2825,6 @@ const UsersList = () => {
           </Box>
         </Tooltip>
       </Fade>
-
     </Box>
   );
 };

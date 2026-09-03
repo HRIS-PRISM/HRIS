@@ -1138,7 +1138,7 @@ router.get("/employees", requireAdmin, (req, res) => {
 // ============================================
 // LEAVE TABLE
 // ============================================
-router.get("/leave_table", requireAdmin, (req, res) => {
+router.get("/leave_table", (req, res) => {
   db.query("SELECT * FROM leave_table ORDER BY leave_code", (err, results) => {
     if (err)
       return res.status(500).json({ error: "Failed to fetch leave types" });
