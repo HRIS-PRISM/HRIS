@@ -728,8 +728,18 @@ const Sidebar = ({
     shouldShowMenuItem("/daily-time-record-supervisor") || isSupervisor;
   const showLeaveRequestSupervisor =
     shouldShowMenuItem("/leave-request-supervisor") || isSupervisor;
+
+  // Official Time Form is intentionally NOT duplicated across sections:
+  //  - Staff-role users who are currently tagged as a supervisor in
+  //    SupervisorAssignment see it ONLY under the Supervisor Panel
+  //    (temporary elevated access tied to their active assignment).
+  //  - Administrator / superadmin / technical users never see it in the
+  //    Supervisor Panel, regardless of supervisor status — they already
+  //    get it unconditionally from Attendance Management below, since
+  //    that whole section is gated on `userRole !== "staff"`.
   const showSupervisorOfficialTime =
-    shouldShowMenuItem("/official_time") || isSupervisor;
+    normalizedUserRole === "staff" && isSupervisor;
+
   const showSupervisorPanel =
     showSupervisorDTR ||
     showLeaveRequestSupervisor ||

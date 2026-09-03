@@ -1133,6 +1133,9 @@ const SupervisorAssignment = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [editTitle, setEditTitle] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+  const [editPeriodPickerOpen, setEditPeriodPickerOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
@@ -1148,6 +1151,14 @@ const SupervisorAssignment = () => {
     };
     init();
   }, []);
+
+  // Auto-dismiss the error/snack banner a few seconds after it appears.
+  // Any new message resets the timer (cleanup cancels the previous one).
+  useEffect(() => {
+    if (!snackMsg) return;
+    const timer = setTimeout(() => setSnackMsg(""), 4000);
+    return () => clearTimeout(timer);
+  }, [snackMsg]);
 
   const fetchAssignments = async () => {
     try {
@@ -1264,24 +1275,37 @@ const SupervisorAssignment = () => {
     }
   };
 
-  const handleUpdateRole = async () => {
+  // Updates Title, Start, and End together for the selected assignment.
+  const handleUpdateAssignment = async () => {
     if (!selectedAssignment) return;
+
+    if (!editStart || !editEnd) {
+      setSnackMsg("Please select both a start and end time.");
+      return;
+    }
+    if (new Date(editStart) >= new Date(editEnd)) {
+      setSnackMsg("Start time must be before end time.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await axios.put(
+      const r = await axios.put(
         `${API_BASE_URL}/api/supervisor-assignment/${selectedAssignment.id}`,
-        { role: editTitle.trim() || "Supervisor" },
+        {
+          role: editTitle.trim() || "Supervisor",
+          start: editStart,
+          end: editEnd,
+        },
         getAuthHeaders(),
       );
       setSuccessAction("edit");
       setSuccessOpen(true);
       setIsEditing(false);
       fetchAssignments();
-      setSelectedAssignment((p) =>
-        p ? { ...p, role: editTitle.trim() || "Supervisor" } : p,
-      );
+      setSelectedAssignment((p) => (p ? { ...p, ...r.data } : p));
     } catch (e) {
-      setSnackMsg(e.response?.data?.error || "Failed to update title.");
+      setSnackMsg(e.response?.data?.error || "Failed to update assignment.");
     } finally {
       setLoading(false);
     }
@@ -1310,6 +1334,8 @@ const SupervisorAssignment = () => {
   const handleOpenModal = (assignment) => {
     setSelectedAssignment(assignment);
     setEditTitle(assignment.role || "");
+    setEditStart(assignment.start || "");
+    setEditEnd(assignment.end || "");
     setIsEditing(false);
     setModalOpen(true);
   };
@@ -2387,7 +2413,7 @@ const SupervisorAssignment = () => {
                             color: T.accent,
                           }}
                         >
-                          Title
+                          Title &amp; Official Time Period
                         </Typography>
                         {!isEditing && (
                           <AccentButton
@@ -2417,7 +2443,7 @@ const SupervisorAssignment = () => {
                           sx={{
                             display: "flex",
                             flexDirection: "column",
-                            gap: 1,
+                            gap: 1.5,
                           }}
                         >
                           <FieldInput
@@ -2427,6 +2453,51 @@ const SupervisorAssignment = () => {
                             onChange={(e) => setEditTitle(e.target.value)}
                             placeholder="Enter title…"
                           />
+
+                          <Box>
+                            <Typography
+                              sx={{
+                                fontSize: "0.72rem",
+                                fontWeight: 600,
+                                color: T.accent,
+                                mb: 0.5,
+                              }}
+                            >
+                              Official Time Period
+                            </Typography>
+                            <Button
+                              fullWidth
+                              variant="outlined"
+                              onClick={() => setEditPeriodPickerOpen(true)}
+                              startIcon={<AccessTimeIcon />}
+                              sx={{
+                                justifyContent: "flex-start",
+                                textTransform: "none",
+                                borderRadius: 2,
+                                borderColor: T.accentBorder,
+                                color: editStart && editEnd ? T.text : T.muted,
+                                minHeight: 42,
+                                "&:hover": { borderColor: T.accent },
+                              }}
+                            >
+                              {editStart && editEnd
+                                ? `${new Date(editStart).toLocaleString()} — ${new Date(editEnd).toLocaleString()}`
+                                : "Select official time period"}
+                            </Button>
+
+                            <OfficialTimePeriodPicker
+                              open={editPeriodPickerOpen}
+                              onClose={() => setEditPeriodPickerOpen(false)}
+                              startValue={editStart}
+                              endValue={editEnd}
+                              onConfirm={({ start, end }) => {
+                                setEditStart(start);
+                                setEditEnd(end);
+                                setEditPeriodPickerOpen(false);
+                              }}
+                            />
+                          </Box>
+
                           <Box
                             sx={{
                               display: "flex",
@@ -2438,6 +2509,8 @@ const SupervisorAssignment = () => {
                               onClick={() => {
                                 setIsEditing(false);
                                 setEditTitle(selectedAssignment.role || "");
+                                setEditStart(selectedAssignment.start || "");
+                                setEditEnd(selectedAssignment.end || "");
                               }}
                               variant="outlined"
                               size="small"
@@ -2451,7 +2524,7 @@ const SupervisorAssignment = () => {
                               Cancel
                             </AccentButton>
                             <AccentButton
-                              onClick={handleUpdateRole}
+                              onClick={handleUpdateAssignment}
                               variant="contained"
                               size="small"
                               disabled={loading}
@@ -2472,7 +2545,24 @@ const SupervisorAssignment = () => {
                           </Box>
                         </Box>
                       ) : (
-                        <TitleBadge title={selectedAssignment.role} />
+                        <Box>
+                          <TitleBadge title={selectedAssignment.role} />
+                          <Typography
+                            sx={{
+                              fontSize: "0.72rem",
+                              color: T.muted,
+                              mt: 1,
+                            }}
+                          >
+                            {selectedAssignment.start
+                              ? new Date(selectedAssignment.start).toLocaleString()
+                              : "-"}
+                            {" — "}
+                            {selectedAssignment.end
+                              ? new Date(selectedAssignment.end).toLocaleString()
+                              : "-"}
+                          </Typography>
+                        </Box>
                       )}
                     </Box>
                   </Box>
