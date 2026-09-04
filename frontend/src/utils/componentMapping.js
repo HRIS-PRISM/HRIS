@@ -272,6 +272,13 @@ export const componentMapping = {
     description: 'Official Time Form',
     icon: EventNote,
   },
+  'official-time-supervisor': {
+    componentPath: 'components/ATTENDANCE/OfficialTimeFormSupervisor.jsx',
+    routePath: '/official_time_supervisor',
+    componentName: 'OfficialTimeFormSupervisor',
+    description: 'Official Time Form - Supervisor',
+    icon: EventNote,
+  },
   'payroll-table': {
     componentPath: 'components/PAYROLL/PayrollProcessing.jsx',
     routePath: '/payroll-table',
