@@ -94,6 +94,75 @@ function toDateTime(val) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function getActiveSupervisorAssignmentId(user) {
+  const employeeNumber = user?.employeeNumber || user?.employeeID || user?.id;
+  if (!employeeNumber) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    db.query(
+      `SELECT id
+       FROM supervisor_assignment
+       WHERE TRIM(CAST(supervisorEmployeeNumber AS CHAR)) = TRIM(CAST(? AS CHAR))
+         AND status = 0
+       ORDER BY COALESCE(updatedAt, createdAt) DESC, id DESC
+       LIMIT 1`,
+      [employeeNumber],
+      (err, rows) => {
+        if (err) {
+          console.error("supervisor assignment lookup error:", err.message);
+          return resolve(null);
+        }
+        resolve(rows?.[0]?.id ?? null);
+      },
+    );
+  });
+}
+
+async function saveSupervisorOfficialTimeSnapshot({ user, employeeID, startDate, endDate }) {
+  const supervisorAssignmentId = await getActiveSupervisorAssignmentId(user);
+  if (supervisorAssignmentId == null) {
+    return {
+      saved: false,
+      reason: "No supervisor assignment covers the current Manila time.",
+    };
+  }
+
+  const rows = await queryAsync(
+    db,
+    `SELECT *
+     FROM officialtime
+     WHERE employeeID = ? AND startDate = ? AND endDate = ?
+     ORDER BY id ASC`,
+    [employeeID, startDate, endDate],
+  );
+  if (!rows?.length) {
+    return {
+      saved: false,
+      supervisorAssignmentId,
+      reason: `No official-time rows matched ${employeeID} for ${startDate} to ${endDate}.`,
+    };
+  }
+
+  await queryAsync(
+    db,
+    `INSERT INTO officialtime_history
+       (employeeID, supervisor_assignment_id, startDate, endDate, snapshot_data)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      employeeID,
+      supervisorAssignmentId,
+      startDate,
+      endDate,
+      JSON.stringify(rows),
+    ],
+  );
+
+  return {
+    saved: true,
+    supervisorAssignmentId,
+    rowCount: rows.length,
+  };
+}
+
 // Formats a Date/DB value as "YYYY-MM-DD hh:mm AM/PM" (e.g. "2026-09-30 05:00 PM").
 // This is the display format used in supervisor-assignment messages and API output.
 function formatDateTime12h(val) {
@@ -1251,7 +1320,7 @@ router.get("/officialtimetable/:employeeID", authenticateToken, (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post("/officialtimetable", authenticateToken, async (req, res) => {
-  const { employeeID, academicYear, startDate, endDate, status, records } =
+  const { employeeID, academicYear, startDate, endDate, status, records, saveSupervisorHistory } =
     req.body || {};
 
   if (!employeeID)
@@ -1333,6 +1402,19 @@ router.post("/officialtimetable", authenticateToken, async (req, res) => {
       [values],
     );
     await commitTransaction(conn);
+
+    if (saveSupervisorHistory === true) {
+      try {
+        await saveSupervisorOfficialTimeSnapshot({
+          user: req.user,
+          employeeID,
+          startDate: normDate(startDate),
+          endDate: normDate(endDate),
+        });
+      } catch (historyErr) {
+        console.error("Error saving supervisor official-time snapshot:", historyErr);
+      }
+    }
 
     let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
     try {
@@ -3421,7 +3503,7 @@ router.put(
   authenticateToken,
   async (req, res) => {
     const { employeeID } = req.params;
-    const { startDate, endDate, origEndDate, records } = req.body || {};
+    const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
 
     if (!startDate)
       return res.status(400).json({ message: "startDate is required." });
@@ -3535,6 +3617,19 @@ router.put(
         });
       }
 
+      if (saveSupervisorHistory === true) {
+        try {
+          await saveSupervisorOfficialTimeSnapshot({
+            user: req.user,
+            employeeID,
+            startDate: normalizedStartDate,
+            endDate: normalizedEndDate,
+          });
+        } catch (historyErr) {
+          console.error("Error saving supervisor official-time snapshot:", historyErr);
+        }
+      }
+
       let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
       try {
         autoAttendance = await fillExemptAttendance({
@@ -3581,7 +3676,9 @@ router.get("/officialtime/past-periods", authenticateToken, (req, res) => {
      FROM supervisor_assignment sa
      LEFT JOIN department_table dt ON dt.code = sa.departmentCode
      WHERE sa.supervisorEmployeeNumber = ?
-     ORDER BY sa.status ASC, sa.end DESC`,   // status 0 (active) sorts before 1 (expired)
+     ORDER BY COALESCE(sa.updatedAt, sa.createdAt) DESC,
+              sa.createdAt DESC,
+              sa.id DESC`,
     [supervisorEmployeeNumber],
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -3589,8 +3686,8 @@ router.get("/officialtime/past-periods", authenticateToken, (req, res) => {
       const now = new Date();
       res.json(
         (rows || []).map((r) => {
-          const s = r.start ? new Date(r.start) : null;
-          const e = r.end ? new Date(r.end) : null;
+          const s = toDateTime(r.start);
+          const e = toDateTime(r.end);
           const isCurrentlyActive =
             Number(r.status) === 0 && (!s || s <= now) && (!e || e >= now);
           return {
@@ -3611,10 +3708,9 @@ router.get("/officialtime/past-periods", authenticateToken, (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /officialtime/past-periods/:id/changed-employees
-// :id = supervisor_assignment.id. Resolves that assignment's department +
-// start/end window, then finds distinct employees (currently in that
-// department) whose Official Time was touched (audit_log.table_name =
-// 'Official Time') within that window.
+// :id = supervisor_assignment.id. Resolves that assignment's department,
+// then finds distinct employees whose Official Time audit entry contains
+// this supervisor_assignment ID.
 router.get(
   "/officialtime/past-periods/:id/changed-employees",
   authenticateToken,
@@ -3631,32 +3727,34 @@ router.get(
         if (!saRows.length)
           return res.status(404).json({ error: "Period not found." });
 
-        const { departmentCode, start, end } = saRows[0];
+        const { departmentCode } = saRows[0];
 
         db.query(
-          `SELECT DISTINCT al.targetEmployeeNumber AS employeeNumber,
+          `SELECT h.employeeID AS employeeNumber,
                   COUNT(*) AS changeCount,
                   CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS name
-           FROM audit_log al
-           INNER JOIN department_assignment da
-             ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(al.targetEmployeeNumber AS CHAR))
-             AND da.code = ?
+           FROM officialtime_history h
            LEFT JOIN person_table p
-             ON p.agencyEmployeeNum = al.targetEmployeeNumber
-           WHERE al.table_name = 'Official Time'
-             AND al.targetEmployeeNumber IS NOT NULL
-             AND al.targetEmployeeNumber <> ''
-             AND al.timestamp BETWEEN ? AND ?
-           GROUP BY al.targetEmployeeNumber, name
+             ON p.agencyEmployeeNum = h.employeeID
+           WHERE h.supervisor_assignment_id = ?
+             AND h.employeeID IS NOT NULL
+             AND h.employeeID <> ''
+             AND EXISTS (
+               SELECT 1
+               FROM department_assignment da
+               WHERE TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(h.employeeID AS CHAR))
+                 AND da.code = ?
+             )
+           GROUP BY h.employeeID, name
            ORDER BY name IS NULL, name ASC`,
-          [departmentCode, start, end],
+          [Number(id), departmentCode],
           (err2, rows) => {
             if (err2) return res.status(500).json({ error: err2.message });
             res.json(
-              (rows || []).map((r) => ({
-                employeeNumber: r.employeeNumber,
-                name: r.name && r.name.trim() ? r.name.trim() : `Employee ${r.employeeNumber}`,
-                changeCount: r.changeCount,
+              (rows || []).map((row) => ({
+                employeeNumber: row.employeeNumber,
+                name: row.name && row.name.trim() ? row.name.trim() : `Employee ${row.employeeNumber}`,
+                changeCount: Number(row.changeCount) || 0,
               })),
             );
           },
@@ -3687,26 +3785,38 @@ router.get(
           return res.status(404).json({ error: "Period not found." });
 
         const { start, end } = saRows[0];
+        const periodStart = toDateTime(start);
+        const periodEnd = toDateTime(end);
 
-        // Pull every audit_log row for this employee in the window, most
-        // recent first, so we can try to extract field-level changes.
+        // Pull every audit_log row for this employee, most recent first, and
+        // retain only entries belonging to this supervisor assignment.
         db.query(
           `SELECT logID, action, timestamp, record_id, details_json
            FROM audit_log
            WHERE table_name = 'Official Time'
              AND targetEmployeeNumber = ?
-             AND timestamp BETWEEN ? AND ?
            ORDER BY timestamp DESC`,
-          [employeeNumber, start, end],
+          [employeeNumber],
           (err2, auditRows) => {
             if (err2) return res.status(500).json({ error: err2.message });
+
+            const filteredAuditRows = (auditRows || []).filter((row) => {
+              const timestamp = toDateTime(row.timestamp);
+              return (
+                timestamp &&
+                periodStart &&
+                periodEnd &&
+                timestamp >= periodStart &&
+                timestamp <= periodEnd
+              );
+            });
 
             // Best-effort field-level diff extraction. details_json's exact
             // schema isn't confirmed yet — this tries a couple of likely
             // shapes and silently skips anything it can't parse. Tighten
             // this once the real details_json structure is confirmed.
             const changedFields = [];
-            for (const row of auditRows) {
+            for (const row of filteredAuditRows) {
               let parsed;
               try {
                 parsed = JSON.parse(row.details_json || "{}");
@@ -3732,40 +3842,32 @@ router.get(
               }
             }
 
-            // Show the employee's current schedule rows as the visual
-            // reference. We pick whichever schedule block is closest to the
-            // period window (prefers one overlapping it), since the audit
-            // log doesn't reliably tell us which startDate/endDate block
-            // was being edited.
+            // Use the newest schedule snapshot captured while this
+            // supervisor assignment was active. Do not read live officialtime
+            // rows here because later edits would overwrite this period's view.
             db.query(
-              `SELECT * FROM officialtime
-               WHERE employeeID = ?
-               ORDER BY
-                 CASE WHEN startDate <= ? AND endDate >= ? THEN 0 ELSE 1 END,
-                 startDate DESC`,
-              [employeeNumber, end, start],
-              (err3, otRows) => {
+              `SELECT snapshot_data
+               FROM officialtime_history
+               WHERE employeeID = ? AND supervisor_assignment_id = ?
+               ORDER BY id DESC
+               LIMIT 1`,
+              [employeeNumber, Number(id)],
+              (err3, snapshotRows) => {
                 if (err3) return res.status(500).json({ error: err3.message });
 
                 let records = [];
-                if (otRows && otRows.length) {
-                  const topKey = `${toDateOnlyString(otRows[0].startDate)}|${toDateOnlyString(otRows[0].endDate)}`;
-                  records = otRows
-                    .filter(
-                      (r) =>
-                        `${toDateOnlyString(r.startDate)}|${toDateOnlyString(r.endDate)}` === topKey,
-                    )
-                    .map((r) => ({
-                      ...r,
-                      startDate: toDateOnlyString(r.startDate),
-                      endDate: toDateOnlyString(r.endDate),
-                    }));
+                if (snapshotRows?.[0]?.snapshot_data) {
+                  try {
+                    records = JSON.parse(snapshotRows[0].snapshot_data) || [];
+                  } catch {
+                    records = [];
+                  }
                 }
 
                 res.json({
                   records,
                   changedFields,
-                  auditEntries: auditRows.map((r) => ({
+                  auditEntries: filteredAuditRows.map((r) => ({
                     logID: r.logID,
                     action: r.action,
                     timestamp: r.timestamp,

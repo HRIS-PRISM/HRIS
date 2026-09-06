@@ -1069,6 +1069,16 @@ const formatDateLong = (val) => {
   return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()}`;
 };
 
+const formatPeriodBoundary = (val) => {
+  if (!val) return "";
+  const raw = String(val);
+  const hasTimeComponent =
+    /T\d{1,2}:\d{2}/.test(raw) ||
+    /\b\d{1,2}:\d{2}(?::\d{2})?\s*(AM|PM)\b/i.test(raw);
+  if (hasTimeComponent) return formatDateTimeLong(val) || formatDateLong(val) || formatDateOnly(val);
+  return formatDateLong(val) || formatDateOnly(val);
+};
+
 const formatDateTimeLong = (val) => {
   if (!val) return "";
   const d = new Date(val);
@@ -1867,21 +1877,18 @@ const fetchEmployeeChangeDetail = useCallback(async (period, emp) => {
   setChangedEmployeeAllRecords([]);
   setChangedEmployeeActiveBlockKey(null);
   try {
-    const [changesRes, allRecordsRes] = await Promise.all([
-      axios.get(
-        `${API_BASE_URL}/officialtime/past-periods/${period.id}/employees/${emp.employeeNumber}/changes`,
-        getAuthHeaders(),
-      ),
-      axios
-        .get(`${API_BASE_URL}/officialtimetable/${emp.employeeNumber}`, officialTimeGetConfig(true))
-        .catch(() => ({ data: [] })),
-    ]);
+    const changesRes = await axios.get(
+      `${API_BASE_URL}/officialtime/past-periods/${period.id}/employees/${emp.employeeNumber}/changes`,
+      getAuthHeaders(),
+    );
     const changedCells = new Set(
       (changesRes.data.changedFields || []).map((c) => `${c.day}|${c.field}`),
     );
     const changedRecords = changesRes.data.records || [];
     setChangedEmployeeDetail({ records: changedRecords, changedCells });
-    setChangedEmployeeAllRecords(allRecordsRes.data || []);
+    // The past-period modal must render the assignment-specific snapshot,
+    // not the employee's current live official-time rows.
+    setChangedEmployeeAllRecords(changedRecords);
     // Default the block selector to whichever block the audit endpoint
     // actually flagged, so the highlight is visible immediately.
     const matchKey = changedRecords.length
@@ -2131,7 +2138,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
       const academicYearForBackend = [draftAcademicYear, draftSemester].filter(Boolean).join(" ").trim() || null;
       await axios.post(
         `${API_BASE_URL}/officialtimetable`,
-        { employeeID, academicYear: academicYearForBackend, startDate: draftStartDate, endDate: draftEndDate, status: draftStatus || "active", records: sevenRows },
+        { employeeID, academicYear: academicYearForBackend, startDate: draftStartDate, endDate: draftEndDate, status: draftStatus || "active", records: sevenRows, saveSupervisorHistory: true },
         { ...getAuthHeaders(), timeout: 30000 },
       );
       setLastSaved(new Date());
@@ -2188,7 +2195,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
     try {
       await axios.put(
         `${API_BASE_URL}/officialtimetable/${employeeID}`,
-        { startDate: viewScheduleInfo.startDate, endDate: newEndDate || viewScheduleInfo.endDate, origEndDate: normalizeDateStr(viewScheduleInfo.endDate), records: editViewRecords },
+        { startDate: viewScheduleInfo.startDate, endDate: newEndDate || viewScheduleInfo.endDate, origEndDate: normalizeDateStr(viewScheduleInfo.endDate), records: editViewRecords, saveSupervisorHistory: true },
         getAuthHeaders(),
       );
       showToast("Schedule updated successfully.");
@@ -3005,7 +3012,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                                       <Box sx={{ flex: 1, minWidth: 0 }}>
                                         <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{formatScheduleDisplayText(v.academicYear)}</Typography>
                                         <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.1 }} noWrap>
-                                          {formatDateLong(v.startDate) || formatDateOnly(v.startDate)} to {formatDateLong(v.endDate) || formatDateOnly(v.endDate)}
+                                          {formatPeriodBoundary(v.startDate)} to {formatPeriodBoundary(v.endDate)}
                                         </Typography>
                                       </Box>
                                       <Tooltip title="View in modal">
@@ -3079,9 +3086,9 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                   )}
                 </SectionCard>
 
-                <SectionCard sx={{ position: { lg: "sticky" }, top: { lg: 16 }, minHeight: { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column" }}>
+                <SectionCard sx={{ position: { lg: "sticky" }, top: { lg: 16 }, minHeight: { lg: "calc(100vh - 295px)" }, maxHeight: { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
     <PanelHeader icon={AccessTime} title="Past Periods" rightContent={pastPeriods.length > 0 && <Chip label={pastPeriods.length} size="small" />} />
-    <Box sx={{ flex: 1, overflowY: "auto" }}>
+    <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehaviorY: "contain" }}>
       {pastPeriodsLoading ? (
         <Box sx={{ py: 4, display: "flex", justifyContent: "center" }}><CircularProgress size={18} sx={{ color: T.accent }} /></Box>
       ) : pastPeriods.length === 0 ? (
@@ -3789,7 +3796,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                   </Typography>
                   {selectedPastPeriod && (
                     <Typography sx={{ color: "rgba(255,255,255,0.75)", fontSize: "0.78rem", mt: 0.25 }} noWrap>
-                      {selectedPastPeriod.department} · {formatDateLong(selectedPastPeriod.startDate) || formatDateOnly(selectedPastPeriod.startDate)} – {formatDateLong(selectedPastPeriod.endDate) || formatDateOnly(selectedPastPeriod.endDate)}
+                      {selectedPastPeriod.department} · {formatPeriodBoundary(selectedPastPeriod.startDate)} – {formatPeriodBoundary(selectedPastPeriod.endDate)}
                     </Typography>
                   )}
                 </Box>
@@ -3917,7 +3924,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                                         <Box sx={{ flex: 1, minWidth: 0 }}>
                                           <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{formatScheduleDisplayText(v.academicYear)}</Typography>
                                           <Typography sx={{ fontSize: "0.66rem", color: T.faint, mt: 0.1 }} noWrap>
-                                            {formatDateLong(v.startDate) || formatDateOnly(v.startDate)} to {formatDateLong(v.endDate) || formatDateOnly(v.endDate)}
+                                            {formatPeriodBoundary(v.startDate)} to {formatPeriodBoundary(v.endDate)}
                                           </Typography>
                                         </Box>
                                       </Box>

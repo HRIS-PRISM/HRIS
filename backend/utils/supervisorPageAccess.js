@@ -21,6 +21,40 @@ const OFFICIAL_TIME_SUPERVISOR_IDENTIFIER = "official-time-supervisor";
 
 const DEFAULT_PRIVILEGE = "1";
 
+const MANILA_TIME_ZONE = "Asia/Manila";
+
+function manilaNowKey() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: MANILA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }).formatToParts(new Date()).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  let hour = Number(parts.hour);
+  if (parts.dayPeriod === "PM" && hour < 12) hour += 12;
+  if (parts.dayPeriod === "AM" && hour === 12) hour = 0;
+  return Number(`${parts.year}${parts.month}${parts.day}${String(hour).padStart(2, "0")}${parts.minute}${parts.second}`);
+}
+
+function wallClockKey(value) {
+  const match = String(value || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)$/i,
+  );
+  if (!match) return null;
+  let hour = Number(match[4]);
+  const period = match[7].toUpperCase();
+  if (period === "PM" && hour < 12) hour += 12;
+  if (period === "AM" && hour === 12) hour = 0;
+  return Number(`${match[1]}${match[2]}${match[3]}${String(hour).padStart(2, "0")}${match[5]}${match[6]}`);
+}
+
 /** Pages whose page_access is owned by supervisor_assignment — not UsersList. */
 
 const ASSIGNMENT_MANAGED_IDENTIFIERS = [
@@ -384,16 +418,26 @@ async function assertNotAssignmentManagedPage(pageId) {
 
 async function expireSupervisorAssignments() {
   try {
-    // Find rows that are due to expire but haven't been marked yet
+    // Compare both values as Manila wall-clock datetimes. This avoids using
+    // MySQL NOW(), whose configured timezone may differ from the UI timezone.
     const rows = await queryAsync(
-      `SELECT id, supervisorEmployeeNumber, departmentCode, role
+      `SELECT id, supervisorEmployeeNumber, departmentCode, role,
+              DATE_FORMAT(end, '%Y-%m-%d %h:%i:%s %p') AS end_local
        FROM supervisor_assignment
-       WHERE end < NOW() AND status = 0`,
+       WHERE status = 0 AND end IS NOT NULL`,
     );
 
-    if (!rows || !rows.length) return; // nothing expired this tick
+    const currentKey = manilaNowKey();
+    const dueRows = (rows || []).filter((row) => {
+      const endKey = wallClockKey(row.end_local);
+      // Expire at the end boundary, or immediately after it if the
+      // once-per-minute check runs slightly late. Never expire early.
+      return endKey !== null && endKey <= currentKey;
+    });
 
-    const ids = rows.map((r) => r.id);
+    if (!dueRows.length) return; // nothing expired this tick
+
+    const ids = dueRows.map((r) => r.id);
     const placeholders = ids.map(() => "?").join(",");
 
     await queryAsync(
@@ -404,11 +448,11 @@ async function expireSupervisorAssignments() {
     );
 
     console.log(
-      `[expire-supervisor] expired ${rows.length} assignment(s): ${ids.join(", ")}`,
+      `[expire-supervisor] expired ${dueRows.length} assignment(s): ${ids.join(", ")}`,
     );
 
     // Notify the UI for every expired row.
-    rows.forEach((r) => {
+    dueRows.forEach((r) => {
       try {
         notifySupervisorAssignmentChanged("expired", {
           id: r.id,
