@@ -1424,7 +1424,7 @@ const LeavePeriodTableRow = ({
   const balanceSplit = isCurrent && !isVoided && !isLocked
     ? resolveCurrentBalanceSplit(period, periodIndex, allPeriods, earningsList)
     : null;
-  const showCurrentBalanceSplit = !!balanceSplit;
+  const showCurrentBalanceSplit = !!balanceSplit && balanceSplit.givenHrs > BALANCE_HRS_EPS;
 
   return (
     <>

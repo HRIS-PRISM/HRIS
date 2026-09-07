@@ -1106,7 +1106,6 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
         u.role,
         u.employmentCategory,
         u.access_level,
-        p.id AS personId,
         p.firstName,
         p.middleName,
         p.lastName,
@@ -1177,19 +1176,31 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
 
           const currentYear = new Date().getFullYear();
 
-          // 4. Build sets of personIds with current-year / any-year attendance, in JS
-          //    (normalized to string, since p.id / personID / PersonID may not
-          //    come back as the same JS type)
-          const currentYearPersonIds = new Set();
-          const anyYearPersonIds = new Set();
+          // Statuses that are considered "manually set" — once a user has
+          // one of these, the attendance-based auto-update below will
+          // never touch their status again.
+          const LOCKED_STATUSES = [
+            'Active',
+            'Inactive',
+            'Resigned',
+            'Terminated',
+            'Retired',
+          ];
+
+          // 4. Build sets of employeeNumbers with current-year / any-year attendance, in JS
+          //    (normalized to string, since attendancerecord.personID /
+          //    attendancerecordinfo.PersonID may not come back as the same JS type
+          //    as users.employeeNumber)
+          const currentYearEmpNumbers = new Set();
+          const anyYearEmpNumbers = new Set();
 
           arRows.forEach((row) => {
             // attendancerecord.date is varchar 'YYYY-MM-DD' — take first 4 chars as the year
             const year = parseInt(String(row.date).slice(0, 4), 10);
             if (!Number.isFinite(year)) return;
             const key = String(row.personID);
-            anyYearPersonIds.add(key);
-            if (year === currentYear) currentYearPersonIds.add(key);
+            anyYearEmpNumbers.add(key);
+            if (year === currentYear) currentYearEmpNumbers.add(key);
           });
 
           ariRows.forEach((row) => {
@@ -1197,28 +1208,42 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
             const year = new Date(Number(row.AttendanceDateTime)).getFullYear();
             if (!Number.isFinite(year)) return;
             const key = String(row.PersonID);
-            anyYearPersonIds.add(key);
-            if (year === currentYear) currentYearPersonIds.add(key);
+            anyYearEmpNumbers.add(key);
+            if (year === currentYear) currentYearEmpNumbers.add(key);
           });
 
-          // 5. Build the user map, computing status per person via the sets above
+          // 5. Build the user map, computing status per user via the sets above.
+          //    Only users whose CURRENT status is "Default" get auto-recomputed
+          //    from attendance data. Any user already sitting at Active,
+          //    Inactive, Resigned, Terminated, or Retired keeps that status
+          //    untouched.
           const usersMap = {};
           const statusUpdates = {};
 
           baseRows.forEach((row) => {
             if (!usersMap[row.employeeNumber]) {
-              const personKey = row.personId != null ? String(row.personId) : null;
+              const empKey =
+                row.employeeNumber != null ? String(row.employeeNumber) : null;
+              const currentStatus = row.dbStatus || 'Default';
+              const isLocked = LOCKED_STATUSES.includes(currentStatus);
 
               let attendanceStatus;
-              if (personKey && currentYearPersonIds.has(personKey)) {
+              if (isLocked) {
+                // Respect the existing status as-is, no recalculation
+                attendanceStatus = currentStatus;
+              } else if (empKey && currentYearEmpNumbers.has(empKey)) {
                 attendanceStatus = 'Active';
-              } else if (personKey && anyYearPersonIds.has(personKey)) {
+              } else if (empKey && anyYearEmpNumbers.has(empKey)) {
                 attendanceStatus = 'Inactive';
               } else {
                 attendanceStatus = 'Default';
               }
 
-              statusUpdates[row.employeeNumber] = attendanceStatus;
+              // Only queue a DB write for users that were Default and are
+              // being auto-updated based on attendance
+              if (!isLocked) {
+                statusUpdates[row.employeeNumber] = attendanceStatus;
+              }
 
               usersMap[row.employeeNumber] = {
                 employeeNumber: row.employeeNumber,
@@ -1252,20 +1277,24 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
           });
 
           // 6. Bulk-write the computed statuses back to users.status
+          //    (only for employees that were Default and got auto-updated)
+          //    Uses parameterized placeholders (?) instead of string-interpolated
+          //    db.escape() to avoid any risk of SQL injection.
           const employeeNumbers = Object.keys(statusUpdates);
 
           if (employeeNumbers.length === 0) {
             return res.status(200).json(Object.values(usersMap));
           }
 
-          const caseClauses = employeeNumbers
-            .map(
-              (empNo) =>
-                `WHEN ${db.escape(empNo)} THEN ${db.escape(statusUpdates[empNo])}`
-            )
-            .join(' ');
+          // Build "WHEN ? THEN ?" pairs and collect their params in order
+          const caseClauses = employeeNumbers.map(() => 'WHEN ? THEN ?').join(' ');
+          const caseParams = employeeNumbers.flatMap((empNo) => [
+            empNo,
+            statusUpdates[empNo],
+          ]);
 
-          const inClause = employeeNumbers.map((empNo) => db.escape(empNo)).join(', ');
+          // Build "?, ?, ?" placeholders for the IN clause
+          const inPlaceholders = employeeNumbers.map(() => '?').join(', ');
 
           const updateQuery = `
             UPDATE users
@@ -1273,10 +1302,13 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
               ${caseClauses}
               ELSE status
             END
-            WHERE employeeNumber IN (${inClause})
+            WHERE employeeNumber IN (${inPlaceholders})
           `;
 
-          db.query(updateQuery, (updateErr) => {
+          // Params order: all CASE WHEN/THEN pairs first, then the IN clause values
+          const updateParams = [...caseParams, ...employeeNumbers];
+
+          db.query(updateQuery, updateParams, (updateErr) => {
             if (updateErr) {
               console.error('Error updating user statuses:', updateErr);
               console.error('SQL Error details:', updateErr.message);

@@ -86,14 +86,7 @@ const normalizeAssignmentRow = (r) => ({
   commuted_days: parseDbHours(r.commuted_days),
 });
 
-const semRank = (s) => {
-  const v = String(s || "").toLowerCase().trim();
-  if (!v) return 0;
-  if (v.includes("2nd") || v === "2") return 3;
-  if (v.includes("1st") || v === "1") return 2;
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) ? n : 1;
-};
+const toDaysVal = (hrs) => Number((toNum(hrs) / 8).toFixed(3));
 
 /**
  * HR modal context: employee employment type (label only) + hours/day for decimal↔hours sync.
@@ -1438,8 +1431,9 @@ if (existing.length > 0) {
       db.query(
         `INSERT INTO leave_assignment
           (leave_code, employeeNumber, total_hours, remaining_hours, used_hours,
-           approve_date, carried_forward_hours, allocated_hours, period_year, period_semester, earning_status)
-         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+           approve_date, carried_forward_hours, allocated_hours, period_year, period_semester, earning_status,
+           total_days, remaining_days, used_days, allocated_days)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           leave_code,
           employeeNumber,
@@ -1451,6 +1445,12 @@ if (existing.length > 0) {
           currentYear,
           semester,
           fields.earning_status,
+          // [NEW] Days-equivalent shadow columns, derived from the same
+          // values written to the hours columns above.
+          toDaysVal(fields.total_hours),
+          toDaysVal(fields.remaining_hours),
+          toDaysVal(fields.used_hours),
+          toDaysVal(fields.allocated_hours),
         ],
         (err, result) => (err ? reject(err) : resolve(result)),
       );
@@ -1500,6 +1500,11 @@ if (existing.length > 0) {
       period_year: currentYear,
       period_semester: semester,
       earning_status: fields.earning_status,
+      // [NEW] Echo the days-equivalents back too, in case the frontend wants them.
+      total_days: toDaysVal(fields.total_hours),
+      remaining_days: toDaysVal(fields.remaining_hours),
+      used_days: toDaysVal(fields.used_hours),
+      allocated_days: toDaysVal(fields.allocated_hours),
     });
   } catch (err) {
     console.error("[POST leave_assignment]", err.message);
@@ -1570,7 +1575,8 @@ router.put("/leave_assignment/:id", requireAdmin, async (req, res) => {
       `UPDATE leave_assignment SET
          leave_code = ?, employeeNumber = ?, total_hours = ?, remaining_hours = ?,
          used_hours = ?, carried_forward_hours = ?, allocated_hours = ?,
-         period_year = ?, period_semester = ?, earning_status = ?
+         period_year = ?, period_semester = ?, earning_status = ?,
+         total_days = ?, remaining_days = ?, used_days = ?, allocated_days = ?
        WHERE id = ?`,
       [
         working.leave_code,
@@ -1583,6 +1589,12 @@ router.put("/leave_assignment/:id", requireAdmin, async (req, res) => {
         newYear,
         newSemester,
         recomputed.earning_status,
+        // [NEW] Days-equivalent shadow columns, derived from the same
+        // values written to the hours columns above.
+        toDaysVal(recomputed.total_hours),
+        toDaysVal(recomputed.remaining_hours),
+        toDaysVal(recomputed.used_hours),
+        toDaysVal(recomputed.allocated_hours),
         id,
       ],
     );
@@ -1639,6 +1651,11 @@ try {
       period_year: newYear,
       period_semester: newSemester,
       earning_status: recomputed.earning_status,
+      // [NEW] Echo the days-equivalents back too, in case the frontend wants them.
+      total_days: toDaysVal(recomputed.total_hours),
+      remaining_days: toDaysVal(recomputed.remaining_hours),
+      used_days: toDaysVal(recomputed.used_hours),
+      allocated_days: toDaysVal(recomputed.allocated_hours),
     });
   } catch (err) {
     console.error("[PUT leave_assignment]", err.message);
@@ -1800,7 +1817,7 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       }
 
       await conn.execute(
-        `UPDATE leave_earnings SET voided_at = NOW(), voided = 1, is_applied = 0
+        `UPDATE leave_earnings SET voided_at = NOW(), voided = 1, is_applied = 0, earn_status = 'voided'
          WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
            AND voided_at IS NULL
            AND period_year <=> ?
