@@ -335,7 +335,7 @@ const Home = () => {
   const [payslipYear, setPayslipYear] = useState(new Date().getFullYear());
   const [notifFilter, setNotifFilter] = useState("all");
   const [activePayslipTab, setActivePayslipTab] = useState(0);
-  const HIDE_LEAVE_CREDITS_DISPLAY = false; // FALSE = Show leave credits, TRUE = Hide leave credits
+  const HIDE_LEAVE_CREDITS_DISPLAY = true; // FALSE = Show leave credits, TRUE = Hide leave credits
 
   const month = calendarDate.getMonth();
   const year = calendarDate.getFullYear();

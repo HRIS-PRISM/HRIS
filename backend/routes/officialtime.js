@@ -94,6 +94,75 @@ function toDateTime(val) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function getActiveSupervisorAssignmentId(user) {
+  const employeeNumber = user?.employeeNumber || user?.employeeID || user?.id;
+  if (!employeeNumber) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    db.query(
+      `SELECT id
+       FROM supervisor_assignment
+       WHERE TRIM(CAST(supervisorEmployeeNumber AS CHAR)) = TRIM(CAST(? AS CHAR))
+         AND status = 0
+       ORDER BY COALESCE(updatedAt, createdAt) DESC, id DESC
+       LIMIT 1`,
+      [employeeNumber],
+      (err, rows) => {
+        if (err) {
+          console.error("supervisor assignment lookup error:", err.message);
+          return resolve(null);
+        }
+        resolve(rows?.[0]?.id ?? null);
+      },
+    );
+  });
+}
+
+async function saveSupervisorOfficialTimeSnapshot({ user, employeeID, startDate, endDate }) {
+  const supervisorAssignmentId = await getActiveSupervisorAssignmentId(user);
+  if (supervisorAssignmentId == null) {
+    return {
+      saved: false,
+      reason: "No supervisor assignment covers the current Manila time.",
+    };
+  }
+
+  const rows = await queryAsync(
+    db,
+    `SELECT *
+     FROM officialtime
+     WHERE employeeID = ? AND startDate = ? AND endDate = ?
+     ORDER BY id ASC`,
+    [employeeID, startDate, endDate],
+  );
+  if (!rows?.length) {
+    return {
+      saved: false,
+      supervisorAssignmentId,
+      reason: `No official-time rows matched ${employeeID} for ${startDate} to ${endDate}.`,
+    };
+  }
+
+  await queryAsync(
+    db,
+    `INSERT INTO officialtime_history
+       (employeeID, supervisor_assignment_id, startDate, endDate, snapshot_data)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      employeeID,
+      supervisorAssignmentId,
+      startDate,
+      endDate,
+      JSON.stringify(rows),
+    ],
+  );
+
+  return {
+    saved: true,
+    supervisorAssignmentId,
+    rowCount: rows.length,
+  };
+}
+
 // Formats a Date/DB value as "YYYY-MM-DD hh:mm AM/PM" (e.g. "2026-09-30 05:00 PM").
 // This is the display format used in supervisor-assignment messages and API output.
 function formatDateTime12h(val) {
@@ -1251,7 +1320,7 @@ router.get("/officialtimetable/:employeeID", authenticateToken, (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post("/officialtimetable", authenticateToken, async (req, res) => {
-  const { employeeID, academicYear, startDate, endDate, status, records } =
+  const { employeeID, academicYear, startDate, endDate, status, records, saveSupervisorHistory } =
     req.body || {};
 
   if (!employeeID)
@@ -1333,6 +1402,19 @@ router.post("/officialtimetable", authenticateToken, async (req, res) => {
       [values],
     );
     await commitTransaction(conn);
+
+    if (saveSupervisorHistory === true) {
+      try {
+        await saveSupervisorOfficialTimeSnapshot({
+          user: req.user,
+          employeeID,
+          startDate: normDate(startDate),
+          endDate: normDate(endDate),
+        });
+      } catch (historyErr) {
+        console.error("Error saving supervisor official-time snapshot:", historyErr);
+      }
+    }
 
     let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
     try {
@@ -3407,12 +3489,21 @@ router.post(
 // PUT — edit an existing active schedule
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT — edit an existing active schedule
+// [FIX] No longer silently falls back to "whatever is currently active" when
+// origEndDate is missing or doesn't match. origEndDate is now required, and
+// the update only proceeds if that exact (startDate, endDate) pair is still
+// the active schedule in the DB — otherwise it returns a clear error instead
+// of quietly redirecting the edit onto a different period.
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.put(
   "/officialtimetable/:employeeID",
   authenticateToken,
   async (req, res) => {
     const { employeeID } = req.params;
-    const { startDate, endDate, origEndDate, records } = req.body || {};
+    const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
 
     if (!startDate)
       return res.status(400).json({ message: "startDate is required." });
@@ -3433,8 +3524,19 @@ router.put(
       return res.status(400).json({ message: "Invalid startDate format." });
     if (!normalizedEndDate)
       return res.status(400).json({ message: "Invalid endDate format." });
-    if (normalizedOrigEndDate === null && origEndDate)
+    if (origEndDate && normalizedOrigEndDate === null)
       return res.status(400).json({ message: "Invalid origEndDate format." });
+
+    // [FIX] origEndDate is now mandatory — it's the only reliable way to
+    // identify exactly which schedule block the client meant to edit.
+    // Falling back to "whatever endDate happens to be active for this
+    // startDate" is what let edits land on the wrong period.
+    if (!normalizedOrigEndDate) {
+      return res.status(400).json({
+        message:
+          "origEndDate is required to identify which schedule period to update.",
+      });
+    }
 
     for (const row of records) {
       const segments = getSegmentsForDayRow(row);
@@ -3456,30 +3558,27 @@ router.put(
         });
     }
 
-    let lookupEndDate = normalizedOrigEndDate || null;
+    const lookupEndDate = normalizedOrigEndDate;
 
     try {
-      if (!lookupEndDate) {
-        const activeEndDates = await new Promise((resolve, reject) => {
-          db.query(
-            `SELECT endDate, COUNT(*) AS rowCount
-           FROM officialtime
-           WHERE employeeID = ? AND startDate = ? AND status = 'active'
-           GROUP BY endDate
-           ORDER BY rowCount DESC, endDate DESC
-           LIMIT 1`,
-            [employeeID, normalizedStartDate],
-            (err, rows) => (err ? reject(err) : resolve(rows || [])),
-          );
+      // [FIX] Strict existence check: the (startDate, lookupEndDate) pair
+      // must currently be the ACTIVE schedule for this employee. If it
+      // isn't — e.g. it was superseded by a newer schedule, or the client
+      // opened a stale/non-active block — fail loudly instead of silently
+      // updating a different period.
+      const matchCheck = await new Promise((resolve, reject) => {
+        db.query(
+          `SELECT COUNT(*) AS cnt FROM officialtime
+           WHERE employeeID = ? AND startDate = ? AND endDate = ? AND status = 'active'`,
+          [employeeID, normalizedStartDate, lookupEndDate],
+          (err, rows) => (err ? reject(err) : resolve(rows || [])),
+        );
+      });
+
+      if (!matchCheck.length || Number(matchCheck[0].cnt) === 0) {
+        return res.status(404).json({
+          message: `This schedule (startDate ${normalizedStartDate}, endDate ${lookupEndDate}) is not currently the active period for employee ${employeeID}, so it can't be edited. It may already have been superseded by a newer schedule — refresh and try again.`,
         });
-
-        if (!activeEndDates.length) {
-          return res.status(404).json({
-            message: `No active schedule found for employee ${employeeID} with startDate ${normalizedStartDate}.`,
-          });
-        }
-
-        lookupEndDate = toDateOnlyString(activeEndDates[0].endDate);
       }
 
       let updatedCount = 0;
@@ -3518,6 +3617,19 @@ router.put(
         });
       }
 
+      if (saveSupervisorHistory === true) {
+        try {
+          await saveSupervisorOfficialTimeSnapshot({
+            user: req.user,
+            employeeID,
+            startDate: normalizedStartDate,
+            endDate: normalizedEndDate,
+          });
+        } catch (historyErr) {
+          console.error("Error saving supervisor official-time snapshot:", historyErr);
+        }
+      }
+
       let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
       try {
         autoAttendance = await fillExemptAttendance({
@@ -3552,6 +3664,221 @@ router.put(
       console.error("Error updating official time:", err);
       res.status(500).json({ error: err.message || "Database error" });
     }
+  },
+);
+
+router.get("/officialtime/past-periods", authenticateToken, (req, res) => {
+  const supervisorEmployeeNumber =
+    req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
+
+  db.query(
+    `SELECT sa.id, sa.departmentCode, dt.description AS department, sa.start, sa.end, sa.status
+     FROM supervisor_assignment sa
+     LEFT JOIN department_table dt ON dt.code = sa.departmentCode
+     WHERE sa.supervisorEmployeeNumber = ?
+     ORDER BY COALESCE(sa.updatedAt, sa.createdAt) DESC,
+              sa.createdAt DESC,
+              sa.id DESC`,
+    [supervisorEmployeeNumber],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const now = new Date();
+      res.json(
+        (rows || []).map((r) => {
+          const s = toDateTime(r.start);
+          const e = toDateTime(r.end);
+          const isCurrentlyActive =
+            Number(r.status) === 0 && (!s || s <= now) && (!e || e >= now);
+          return {
+            id: r.id,
+            department: r.department || r.departmentCode,
+            startDate: r.start,
+            endDate: r.end,
+            active: isCurrentlyActive,
+          };
+        }),
+      );
+    },
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAST PERIODS — supervisor_assignment history + audit_log cross-reference
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /officialtime/past-periods/:id/changed-employees
+// :id = supervisor_assignment.id. Resolves that assignment's department,
+// then finds distinct employees whose Official Time audit entry contains
+// this supervisor_assignment ID.
+router.get(
+  "/officialtime/past-periods/:id/changed-employees",
+  authenticateToken,
+  (req, res) => {
+    const { id } = req.params;
+
+    db.query(
+      `SELECT sa.departmentCode, sa.start, sa.end
+       FROM supervisor_assignment sa
+       WHERE sa.id = ? LIMIT 1`,
+      [id],
+      (err, saRows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!saRows.length)
+          return res.status(404).json({ error: "Period not found." });
+
+        const { departmentCode } = saRows[0];
+
+        db.query(
+          `SELECT h.employeeID AS employeeNumber,
+                  COUNT(*) AS changeCount,
+                  CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS name
+           FROM officialtime_history h
+           LEFT JOIN person_table p
+             ON p.agencyEmployeeNum = h.employeeID
+           WHERE h.supervisor_assignment_id = ?
+             AND h.employeeID IS NOT NULL
+             AND h.employeeID <> ''
+             AND EXISTS (
+               SELECT 1
+               FROM department_assignment da
+               WHERE TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(h.employeeID AS CHAR))
+                 AND da.code = ?
+             )
+           GROUP BY h.employeeID, name
+           ORDER BY name IS NULL, name ASC`,
+          [Number(id), departmentCode],
+          (err2, rows) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            res.json(
+              (rows || []).map((row) => ({
+                employeeNumber: row.employeeNumber,
+                name: row.name && row.name.trim() ? row.name.trim() : `Employee ${row.employeeNumber}`,
+                changeCount: Number(row.changeCount) || 0,
+              })),
+            );
+          },
+        );
+      },
+    );
+  },
+);
+
+// GET /officialtime/past-periods/:id/employees/:employeeNumber/changes
+// Returns that employee's current officialtime day-rows (best-effort — see
+// note below) plus a changedFields list parsed from audit_log.details_json
+// when possible.
+router.get(
+  "/officialtime/past-periods/:id/employees/:employeeNumber/changes",
+  authenticateToken,
+  (req, res) => {
+    const { id, employeeNumber } = req.params;
+
+    db.query(
+      `SELECT sa.departmentCode, sa.start, sa.end
+       FROM supervisor_assignment sa
+       WHERE sa.id = ? LIMIT 1`,
+      [id],
+      (err, saRows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!saRows.length)
+          return res.status(404).json({ error: "Period not found." });
+
+        const { start, end } = saRows[0];
+        const periodStart = toDateTime(start);
+        const periodEnd = toDateTime(end);
+
+        // Pull every audit_log row for this employee, most recent first, and
+        // retain only entries belonging to this supervisor assignment.
+        db.query(
+          `SELECT logID, action, timestamp, record_id, details_json
+           FROM audit_log
+           WHERE table_name = 'Official Time'
+             AND targetEmployeeNumber = ?
+           ORDER BY timestamp DESC`,
+          [employeeNumber],
+          (err2, auditRows) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+
+            const filteredAuditRows = (auditRows || []).filter((row) => {
+              const timestamp = toDateTime(row.timestamp);
+              return (
+                timestamp &&
+                periodStart &&
+                periodEnd &&
+                timestamp >= periodStart &&
+                timestamp <= periodEnd
+              );
+            });
+
+            // Best-effort field-level diff extraction. details_json's exact
+            // schema isn't confirmed yet — this tries a couple of likely
+            // shapes and silently skips anything it can't parse. Tighten
+            // this once the real details_json structure is confirmed.
+            const changedFields = [];
+            for (const row of filteredAuditRows) {
+              let parsed;
+              try {
+                parsed = JSON.parse(row.details_json || "{}");
+              } catch {
+                continue;
+              }
+              // Shape A: { records: [{ day, officialTimeIN, ... }] }
+              if (Array.isArray(parsed.records)) {
+                for (const rec of parsed.records) {
+                  if (!rec.day) continue;
+                  Object.keys(rec).forEach((k) => {
+                    if (k !== "day") changedFields.push({ day: rec.day, field: k });
+                  });
+                }
+              }
+              // Shape B: { changedFields: [{ day, field }] }
+              if (Array.isArray(parsed.changedFields)) {
+                changedFields.push(...parsed.changedFields);
+              }
+              // Shape C: { day, field } flat (single-field edit)
+              if (parsed.day && parsed.field) {
+                changedFields.push({ day: parsed.day, field: parsed.field });
+              }
+            }
+
+            // Use the newest schedule snapshot captured while this
+            // supervisor assignment was active. Do not read live officialtime
+            // rows here because later edits would overwrite this period's view.
+            db.query(
+              `SELECT snapshot_data
+               FROM officialtime_history
+               WHERE employeeID = ? AND supervisor_assignment_id = ?
+               ORDER BY id DESC
+               LIMIT 1`,
+              [employeeNumber, Number(id)],
+              (err3, snapshotRows) => {
+                if (err3) return res.status(500).json({ error: err3.message });
+
+                let records = [];
+                if (snapshotRows?.[0]?.snapshot_data) {
+                  try {
+                    records = JSON.parse(snapshotRows[0].snapshot_data) || [];
+                  } catch {
+                    records = [];
+                  }
+                }
+
+                res.json({
+                  records,
+                  changedFields,
+                  auditEntries: filteredAuditRows.map((r) => ({
+                    logID: r.logID,
+                    action: r.action,
+                    timestamp: r.timestamp,
+                  })),
+                });
+              },
+            );
+          },
+        );
+      },
+    );
   },
 );
 

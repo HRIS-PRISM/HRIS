@@ -155,6 +155,7 @@ import AssignmentManagement from "./components/LEAVE/AssignmentManagement";
 import EarningsManagement from "./components/LEAVE/EarningsManagement";
 
 import RecordsPanel from "./components/LEAVE/RecordsPanel";
+import OfficialTimeFormSupervisor from "./components/ATTENDANCE/OfficialTimeFormSupervisor";
 import { adminPage, allUserPage, superTechPage, technicalPage, ADMIN_ROUTE_ROLES } from "./utils/gatedRoutes";
 
 
@@ -1167,6 +1168,16 @@ function App() {
                   allowedRoles={["administrator", "superadmin", "technical"]}
                 >
                   <OfficialTimeForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/official_time_supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
+                >
+                  <OfficialTimeFormSupervisor />
                 </ProtectedRoute>
               }
             />

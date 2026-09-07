@@ -433,40 +433,25 @@ const Sidebar = ({
   // grants access to the Supervisor DTR and Leave Request Approval modules
   // even if the user's role would not otherwise show them.
   useEffect(() => {
-    const checkSupervisorStatus = async () => {
-      if (!resolvedEmployeeNumber || !localStorage.getItem("token")) {
-        setIsSupervisor(false);
-        return;
-      }
-      try {
-        const response = await axios.get(
-          `${API_BASE_URL}/api/supervisor-assignment`,
-          getAuthHeaders(),
-        );
-        const assignments = Array.isArray(response.data) ? response.data : [];
-        const now = new Date();
-        const active = assignments.some((a) => {
-          if (a.supervisorEmployeeNumber !== resolvedEmployeeNumber) {
-            return false;
-          }
-          if (a.start && a.end) {
-            const start = new Date(a.start);
-            const end = new Date(a.end);
-            if (!isNaN(start) && !isNaN(end)) {
-              return now >= start && now <= end;
-            }
-          }
-          return true;
-        });
-        setIsSupervisor(active);
-      } catch (error) {
-        console.error("Error checking supervisor status:", error);
-        setIsSupervisor(false);
-      }
-    };
+  const checkSupervisorStatus = async () => {
+    if (!resolvedEmployeeNumber || !localStorage.getItem("token")) {
+      setIsSupervisor(false);
+      return;
+    }
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/supervisor-dtr/context/me`,
+        getAuthHeaders(),
+      );
+      setIsSupervisor(Boolean(response.data?.isSupervisor));
+    } catch (error) {
+      console.error("Error checking supervisor status:", error);
+      setIsSupervisor(false);
+    }
+  };
 
-    checkSupervisorStatus();
-  }, [resolvedEmployeeNumber, pageAccessVersion]);
+  checkSupervisorStatus();
+}, [resolvedEmployeeNumber, pageAccessVersion]);
 
   const currentPath = location.pathname;
   useEffect(() => {
@@ -540,6 +525,8 @@ const Sidebar = ({
       setSelectedItem("daily-time-record-supervisor");
     } else if (currentPath === "/leave-request-supervisor") {
       setSelectedItem("leave-request-supervisor");
+    } else if (currentPath === "/official-time-supervisor") {
+      setSelectedItem("official-time-supervisor");
     } else if (currentPath === "/attendance_module") {
       setSelectedItem("attendance_module");
     } else if (currentPath === "/attendance_module_faculty") {
@@ -725,9 +712,9 @@ const Sidebar = ({
   // access to these routes OR is currently tagged as a supervisor in
   // SupervisorAssignment.
   const showSupervisorDTR =
-    shouldShowMenuItem("/daily-time-record-supervisor") || isSupervisor;
+    shouldShowMenuItem("/daily-time-record-supervisor") && isSupervisor;
   const showLeaveRequestSupervisor =
-    shouldShowMenuItem("/leave-request-supervisor") || isSupervisor;
+    shouldShowMenuItem("/leave-request-supervisor") && isSupervisor;
 
   // Official Time Form is intentionally NOT duplicated across sections:
   //  - Staff-role users who are currently tagged as a supervisor in
@@ -737,8 +724,7 @@ const Sidebar = ({
   //    Supervisor Panel, regardless of supervisor status — they already
   //    get it unconditionally from Attendance Management below, since
   //    that whole section is gated on `userRole !== "staff"`.
-  const showSupervisorOfficialTime =
-    normalizedUserRole === "staff" && isSupervisor;
+  const showSupervisorOfficialTime = shouldShowMenuItem("/official-time-supervisor") && isSupervisor;
 
   const showSupervisorPanel =
     showSupervisorDTR ||
@@ -2082,28 +2068,28 @@ const Sidebar = ({
                   <ListItem
                     button
                     component={Link}
-                    to="/official_time"
+                    to="/official_time_supervisor"
                     onClick={() =>
-                      handleItemClick("official_time")
+                      handleItemClick("official_time_supervisor")
                     }
                     sx={{
                       bgcolor:
-                        selectedItem === "official_time"
+                        selectedItem === "official_time_supervisor"
                           ? settings.accentColor || "#FEF9E1"
                           : "inherit",
                       color:
-                        selectedItem === "official_time"
+                        selectedItem === "official_time_supervisor"
                           ? settings.textPrimaryColor
                           : settings.textSecondaryColor,
                       "& .MuiListItemIcon-root": {
                         color:
-                          selectedItem === "official_time"
+                          selectedItem === "official_time_supervisor"
                             ? settings.textPrimaryColor
                             : settings.textSecondaryColor,
                       },
                       "& .MuiListItemText-primary": {
                         color:
-                          selectedItem === "official_time"
+                          selectedItem === "official_time_supervisor"
                             ? settings.textPrimaryColor
                             : settings.textSecondaryColor,
                       },
@@ -2118,9 +2104,9 @@ const Sidebar = ({
                         },
                       },
                       borderTopRightRadius:
-                        selectedItem === "official_time" ? "15px" : 0,
+                        selectedItem === "official_time_supervisor" ? "15px" : 0,
                       borderBottomRightRadius:
-                        selectedItem === "official_time" ? "15px" : 0,
+                        selectedItem === "official_time_supervisor" ? "15px" : 0,
                     }}
                   >
                     <ListItemIcon>
