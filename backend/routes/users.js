@@ -1335,6 +1335,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+
 // GET: Search users for password reset (with filtering)
 // NOTE: This route must come BEFORE /users/:employeeNumber to avoid route conflicts
 router.get('/users/search', authenticateToken, requireAdmin, (req, res) => {
