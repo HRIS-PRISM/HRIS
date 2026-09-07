@@ -3024,7 +3024,10 @@
     }
 
     const query = `
-      SELECT id, title, reason, date, date_start, date_end, image
+      SELECT id, title, reason, date, date_start, date_end, image,
+      COALESCE(personnel_scope, 'all') AS personnel_scope,
+      COALESCE(suspension_type, 'whole_day') AS suspension_type,
+      effective_time
       FROM suspensions
       WHERE
         (date IS NOT NULL AND date BETWEEN ? AND ?)
@@ -3064,16 +3067,22 @@
         const end = toISO(r.date_end);
         const label = classify(r.title, r.reason);
 
+        const suspMeta = {
+        personnel_scope: r.personnel_scope || 'all',
+        suspension_type: r.suspension_type || 'whole_day',
+        effective_time: r.effective_time || null,
+      };
+
         if (start && end) {
           let cur = new Date(start);
           const last = new Date(end);
           while (cur <= last) {
             const key = cur.toISOString().slice(0, 10);
-            if (!byDate[key]) byDate[key] = { label, title: r.title, reason: r.reason, id: r.id };
+          if (!byDate[key]) byDate[key] = { label, title: r.title, reason: r.reason, id: r.id, ...suspMeta };
             cur.setDate(cur.getDate() + 1);
           }
         } else if (single) {
-          if (!byDate[single]) byDate[single] = { label, title: r.title, reason: r.reason, id: r.id };
+        if (!byDate[single]) byDate[single] = { label, title: r.title, reason: r.reason, id: r.id, ...suspMeta };
         }
       });
 
@@ -3151,12 +3160,15 @@
     }
 
     const query = `
-      SELECT id, title, about, description, date, date_start, date_end, image
+    SELECT id, title, about, description, date, date_start, date_end, image, status
       FROM holiday
       WHERE
+         (
         (date IS NOT NULL AND date BETWEEN ? AND ?)
         OR
         (date_start IS NOT NULL AND date_end IS NOT NULL AND date_start <= ? AND date_end >= ?)
+      )
+      AND (status IS NULL OR status = 'Active')
     `;
 
     const params = [startDate, endDate, endDate, startDate];

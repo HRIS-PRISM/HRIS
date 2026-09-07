@@ -117,6 +117,36 @@ const recordMatchesDay = (record, dayPadded) => {
   return ymd.endsWith(`-${dayPadded}`);
 };
 
+/**
+ * Map an employee's computed attendance module type to the same coarse
+ * "personnel scope" bucket used on suspension records (personnel_scope).
+ * DTR-DISPLAY ONLY — does not touch late/undertime calculation, which
+ * already has its own identical helper in computeModuleLateUndertimeForDtr.js.
+ */
+const scopeForModuleType = (mod) => {
+  if (mod === MODULE_TYPES.NON_TEACHING) return 'non_teaching';
+  if (
+    mod === MODULE_TYPES.FACULTY_30HRS ||
+    mod === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return 'academic';
+  }
+  return null;
+};
+
+/**
+ * A suspension applies to this employee's DTR only if its personnel_scope
+ * is "all", or matches the employee's resolved scope exactly.
+ * DTR-DISPLAY ONLY.
+ */
+const suspensionAppliesToScope = (susp, employeeScope) => {
+  if (!susp) return false;
+  const scope = susp.personnel_scope || 'all';
+  if (scope === 'all') return true;
+  if (!employeeScope) return false;
+  return scope === employeeScope;
+};
+
 const REGULAR_WEEKDAY_KEYS = [
   'Monday',
   'Tuesday',
@@ -377,6 +407,18 @@ const DailyTimeRecord = () => {
   }, []);
 
   // ── Formatters ─────────────────────────────────────────────────────────────
+  /** "15:00" / "15:00:00" -> "3:00 PM" for the partial-suspension DTR remark. */
+const formatSuspensionEffectiveTime = (t) => {
+  if (!t) return '';
+  const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return String(t);
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${min} ${ampm}`;
+};
+
   // Strip seconds — only keep HH:MM [AM/PM]
   const formatTime = useCallback((timeString) => {
     if (!timeString) return '';
@@ -1023,17 +1065,30 @@ const DailyTimeRecord = () => {
         textColor: '#000',
         borderColor: '#2e7d32',
       };
+    // DTR-DISPLAY scope filter: this employee's suspension indicator must only
+    // reflect suspensions whose personnel_scope applies to them (or "all").
+    // Late/undertime computation already applies the equivalent filter
+    // elsewhere — this only changes what is shown on the DTR itself.
+    const employeeScope = scopeForModuleType(computationModuleType);
     const susp = suspensions.find((s) =>
-      isDateInRange(date, s.date_start || s.date, s.date_end || s.date),
-    );
-    if (susp)
-      return {
-        type: 'suspension',
-        label: 'SUSPENSION',
-        bgColor: 'rgba(211,47,47,0.2)',
-        textColor: '#000',
-        borderColor: '#d32f2f',
-      };
+  isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
+  suspensionAppliesToScope(s, employeeScope),
+);
+if (susp) {
+  const suspensionType = susp.suspension_type || 'whole_day';
+  const isPartial = suspensionType === 'partial_day' && susp.effective_time;
+  return {
+    type: 'suspension',
+    suspensionType,
+    effectiveTime: susp.effective_time || null,
+    label: isPartial
+      ? `SUSPENSION FROM ${formatSuspensionEffectiveTime(susp.effective_time)}`
+      : 'SUSPENSION',
+    bgColor: 'rgba(211,47,47,0.2)',
+    textColor: '#000',
+    borderColor: '#d32f2f',
+  };
+}
     const hol = holidays.find((h) =>
       isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
     );
@@ -1528,8 +1583,8 @@ const DailyTimeRecord = () => {
       indicator?.label &&
       (indicator.type === 'leave' ||
         indicator.type === 'holiday' ||
-        indicator.type === 'suspension');
-    const showWm = Boolean(calendarWm || (indicator && dtrRawEmpty(rawVal)));
+    (indicator.type === 'suspension' && indicator.suspensionType !== 'partial_day'));
+        const showWm = Boolean(calendarWm || (indicator && dtrRawEmpty(rawVal)));
     return (
       <td
         key={colKey}
@@ -1591,6 +1646,22 @@ const DailyTimeRecord = () => {
         fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
       }
       const indicator = getDateIndicator(fullDate);
+            const dateIndicator = getDateIndicator(fullDate);
+
+      const isPartialSuspensionRow =
+  indicator?.type === 'suspension' && indicator?.suspensionType === 'partial_day';
+
+      // FIX: Don't stamp the full "SUSPENSION FROM ..." label into every
+      // empty AM/PM punch cell for partial-day suspensions — only the short
+      // "SUSP h:mm" note under the day number should show. Passing `null`
+      // here keeps the actual (possibly blank) punch cells clean, matching
+      // the behavior in DailyTimeRecordFaculty.js. Without this, the
+      // `showWm` fallback in renderDtrAmPmWatermarkCell fires for every
+      // empty punch field (indicator is truthy + dtrRawEmpty(rawVal) is
+      // true) and the long suspension label overflows into neighboring
+      // columns since the cell uses `overflow: visible`.
+      const cellIndicator = isPartialSuspensionRow ? null : indicator;
+
       const rowTint = indicator
         ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)')
         : fullDate && suggestedHalfDayDatesSet.has(fullDate)
@@ -1599,7 +1670,7 @@ const DailyTimeRecord = () => {
       const computed = computedLateByDate[fullDate];
       const isExcludedDay =
         indicator?.type === 'holiday' ||
-        indicator?.type === 'suspension' ||
+        (dateIndicator?.type === 'suspension' && !isPartialSuspensionRow) ||
         indicator?.type === 'leave';
       const hasIncompletePunch = Boolean(
         record &&
@@ -1632,25 +1703,18 @@ const DailyTimeRecord = () => {
         breaktimeOUT: record?.breaktimeOUT,
         timeOUT: record?.timeOUT,
       };
-      const isNonWorkingDayRow = isDtrNonWorkingDayRow({
-        isNotScheduledDay,
-        indicator,
-        timeFields,
-        hasPeriodRecords,
-        fullDate,
-      });
-      const unscheduledWeekdayLabel = getDtrUnscheduledWeekdayBanner({
-        isNotScheduledDay,
-        indicator,
-        timeFields,
-        hasPeriodRecords,
-        fullDate,
-      });
+     const isNonWorkingDayRow =
+  !isPartialSuspensionRow &&
+  isDtrNonWorkingDayRow({ isNotScheduledDay, indicator, timeFields, hasPeriodRecords, fullDate });
+
+const unscheduledWeekdayLabel = isPartialSuspensionRow
+  ? ''
+  : getDtrUnscheduledWeekdayBanner({ isNotScheduledDay, indicator, timeFields, hasPeriodRecords, fullDate });
       const nonWorkingRowTint =
         isNonWorkingDayRow || unscheduledWeekdayLabel
           ? 'rgba(128, 128, 128, 0.06)'
           : rowTint;
-      if (isDtrCalendarBannerRow(indicator)) {
+      if (isDtrCalendarBannerRow(indicator) && !isPartialSuspensionRow) {
         return (
           <tr key={i}>
             <td
@@ -1743,42 +1807,55 @@ const DailyTimeRecord = () => {
       return (
         <tr key={i}>
           <td
-            style={{
-              ...cellStyle,
-              backgroundColor: rowTint,
-              position: 'relative',
-              WebkitPrintColorAdjust: 'exact',
-              printColorAdjust: 'exact',
-            }}
-          >
-            <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
-          </td>
+  style={{
+    ...cellStyle,
+    backgroundColor: rowTint,
+    position: 'relative',
+    WebkitPrintColorAdjust: 'exact',
+    printColorAdjust: 'exact',
+  }}
+>
+  <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+  {isPartialSuspensionRow && (
+    <div
+      style={{
+        fontSize: '6px',
+        fontWeight: 700,
+        color: '#b71c1c',
+        lineHeight: 1.05,
+        marginTop: 1,
+      }}
+    >
+      SUSP {formatSuspensionEffectiveTime(indicator.effectiveTime)}
+    </div>
+  )}
+</td>
           {renderDtrAmPmWatermarkCell(
             record?.timeIN,
             formatTime(record?.timeIN || ''),
             rowTint,
-            indicator,
+            cellIndicator,
             `r-${i}-0`,
           )}
           {renderDtrAmPmWatermarkCell(
             record?.breaktimeIN,
             formatTime(record?.breaktimeIN || ''),
             rowTint,
-            indicator,
+            cellIndicator,
             `r-${i}-1`,
           )}
           {renderDtrAmPmWatermarkCell(
             record?.breaktimeOUT,
             formatTime(record?.breaktimeOUT || ''),
             rowTint,
-            indicator,
+            cellIndicator,
             `r-${i}-2`,
           )}
           {renderDtrAmPmWatermarkCell(
             record?.timeOUT,
             formatTime(record?.timeOUT || ''),
             rowTint,
-            indicator,
+            cellIndicator,
             `r-${i}-3`,
           )}
           <td
