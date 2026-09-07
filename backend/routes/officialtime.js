@@ -1696,6 +1696,26 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
 
           insertedCount += result.affectedRows || 0;
 
+          // [NEW] Save a supervisor officialtime_history snapshot for this
+          // block, so Excel-uploaded schedules show up in "Past Periods" /
+          // "Employees Changed" the same way manual create/edit does.
+          try {
+            await saveSupervisorOfficialTimeSnapshot({
+              user: req.user,
+              employeeID: s.employeeID,
+              startDate: s.startDate,
+              endDate: s.endDate,
+            });
+          } catch (histErr) {
+            console.error(
+              `[officialtime] History snapshot failed for ${s.employeeID}:`,
+              histErr.message,
+            );
+            insertWarnings.push(
+              `Employee ${s.employeeID}: history snapshot not saved (${histErr.message}).`,
+            );
+          }
+
           try {
             const autoResult = await fillExemptAttendance({
               startDate: normDate(s.startDate),
@@ -2258,6 +2278,26 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
           await commitTransaction(conn);
           insertedCount += result.affectedRows || 0;
 
+          // [NEW] Save a supervisor officialtime_history snapshot for this
+          // block, so department-scoped Excel uploads show up in "Past
+          // Periods" / "Employees Changed" the same way manual edit does.
+          try {
+            await saveSupervisorOfficialTimeSnapshot({
+              user: req.user,
+              employeeID: s.employeeID,
+              startDate: s.startDate,
+              endDate: s.endDate,
+            });
+          } catch (histErr) {
+            console.error(
+              `[officialtime] History snapshot failed for ${s.employeeID}:`,
+              histErr.message,
+            );
+            insertWarnings.push(
+              `Employee ${s.employeeID}: history snapshot not saved (${histErr.message}).`,
+            );
+          }
+
           try {
             const autoResult = await fillExemptAttendance({
               startDate: normDate(s.startDate),
@@ -2754,6 +2794,26 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
 
           await commitTransaction(conn);
           insertedCount += result.affectedRows || 0;
+
+          // [NEW] Save a supervisor officialtime_history snapshot for this
+          // block, so category-scoped Excel uploads show up in "Past
+          // Periods" / "Employees Changed" the same way manual edit does.
+          try {
+            await saveSupervisorOfficialTimeSnapshot({
+              user: req.user,
+              employeeID: s.employeeID,
+              startDate: s.startDate,
+              endDate: s.endDate,
+            });
+          } catch (histErr) {
+            console.error(
+              `[officialtime] History snapshot failed for ${s.employeeID}:`,
+              histErr.message,
+            );
+            insertWarnings.push(
+              `Employee ${s.employeeID}: history snapshot not saved (${histErr.message}).`,
+            );
+          }
 
           try {
             const autoResult = await fillExemptAttendance({
