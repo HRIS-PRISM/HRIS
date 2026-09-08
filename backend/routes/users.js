@@ -771,7 +771,7 @@ router.post('/excel-register', authenticateToken, requireAdmin, async (req, res)
       );
     }
 
-    // Helper for Category Label (kept, in case you use it elsewhere)
+      // Helper for Category Label (kept, in case you use it elsewhere)
     const getCategoryLabel = (cat) => {
       switch (parseInt(cat)) {
         case 0:
@@ -789,6 +789,17 @@ router.post('/excel-register', authenticateToken, requireAdmin, async (req, res)
       }
     };
 
+    // FIX: validate against the real, live employment_type_config table
+    // instead of a hardcoded 0-4 legacy range. Fetched once for the whole
+    // batch to avoid an N+1 query per uploaded row.
+    const activeTypeRows = await new Promise((resolve, reject) => {
+      db.query('SELECT id FROM employment_type_config WHERE isActive = 1', (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+    const activeTypeIds = new Set(activeTypeRows.map((r) => String(r.id)));
+
     await Promise.all(
       users.map(
         (user) =>
@@ -802,33 +813,37 @@ router.post('/excel-register', authenticateToken, requireAdmin, async (req, res)
               .filter(Boolean)
               .join(' ');
 
-            // ✅ FIX: Normalize employmentCategory input
+            // FIX: Normalize employmentCategory input
             const rawEmpCat =
               user.employmentCategory === undefined ||
               user.employmentCategory === null
                 ? ''
                 : String(user.employmentCategory).trim();
 
-            // Validate employmentCategory based on field requirements
+            // FIX: validate against the live employment_type_config table
+            // (source of truth) instead of a hardcoded legacy 0-4 range.
+            // Any active, configured employment type id is accepted — the
+            // id space is not fixed to 0-4, it is whatever Manage Types has
+            // created (auto-increment, currently well past 100).
             if (fieldRequirements.employmentCategory) {
-              // Field is required, validate it (0-4)
-              if (!['0', '1', '2', '3', '4'].includes(rawEmpCat)) {
+              // Field is required — must resolve to a real, active type
+              if (!activeTypeIds.has(rawEmpCat)) {
                 errors.push(
-                  `Invalid employmentCategory for ${user.employeeNumber}: Must be 0 (JO Graduated), 1 (JO UnderGrad), 2 (Reg Non-Teaching), 3 (Reg Teaching), or 4 (Reg 30Hrs)`,
+                  `Invalid employmentCategory for ${user.employeeNumber}: "${rawEmpCat || '(blank)'}" is not a valid, active employment type ID. Configure it in Manage Types first.`,
                 );
                 return resolve();
               }
               user.employmentCategory = rawEmpCat;
             } else {
               // Field is NOT required:
-              // ✅ If empty => keep NULL (undefined in JS, but insert NULL to DB)
+              // Blank stays NULL (unassigned) — registration still proceeds.
               if (rawEmpCat === '') {
                 user.employmentCategory = null;
-              } else if (['0', '1', '2', '3', '4'].includes(rawEmpCat)) {
+              } else if (activeTypeIds.has(rawEmpCat)) {
                 user.employmentCategory = rawEmpCat;
               } else {
                 errors.push(
-                  `Invalid employmentCategory for ${user.employeeNumber}: Must be 0-4.`,
+                  `Invalid employmentCategory for ${user.employeeNumber}: "${rawEmpCat}" is not a valid, active employment type ID.`,
                 );
                 return resolve();
               }

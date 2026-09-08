@@ -547,44 +547,125 @@ const DynamicCategorySelect = ({ value, onChange, typeConfigs, disabled = false 
   );
 };
 
+const EMPLOYMENT_CLASSIFICATIONS = ["Academic - 30 Hours", "Academic - 40 Hours", "Non-Academic"];
+
+const EMPLOYMENT_CATEGORIES = [
+  "Part-Time",
+  "Temporary",
+  "General Administration",
+  "Auxiliary",
+  "Research",
+  "Contractual",
+  "Casual",
+  "Job Order",
+  "Others",
+];
+
+const JOB_ORDER_SUBCATEGORIES = ["Graduate", "Undergraduate"];
+
+// Builds the string actually saved into typeName. Existing DB columns only — no new fields.
+const computeTypeName = (category, jobOrderSubcategory, othersText) => {
+  if (category === "Job Order") return `Job Order - ${jobOrderSubcategory || ""}`.trim();
+  if (category === "Others") return (othersText || "").trim();
+  return category || "";
+};
+
+// Tolerant match for existing Job Order rows saved with slightly different wording/punctuation.
+const parseJobOrderSubcategory = (typeName) => {
+  const t = String(typeName || "").trim().toLowerCase();
+  if (!/^(job\s*order|jo)\b/.test(t)) return null;
+  if (/under\s*-?\s*grad/.test(t)) return "Undergraduate";
+  if (/\bgrad/.test(t)) return "Graduate";
+  return null;
+};
+
+// Derives structured (classification/category/subcategory) state from the existing
+// parentGroup/typeName columns, purely for pre-filling the edit form. Never writes anything.
+const classifyExistingType = (type) => {
+  const classification = EMPLOYMENT_CLASSIFICATIONS.find(
+    (c) => c.toLowerCase() === String(type.parentGroup || "").trim().toLowerCase()
+  );
+  if (!classification) return { mode: "legacy" };
+
+  const jobOrderSub = parseJobOrderSubcategory(type.typeName);
+  if (jobOrderSub) {
+    return {
+      mode: "structured",
+      classification,
+      category: "Job Order",
+      jobOrderSubcategory: jobOrderSub,
+      othersText: "",
+    };
+  }
+
+  const exactCategory = EMPLOYMENT_CATEGORIES.find(
+    (c) =>
+      c !== "Job Order" &&
+      c !== "Others" &&
+      c.toLowerCase() === String(type.typeName || "").trim().toLowerCase()
+  );
+  if (exactCategory) {
+    return {
+      mode: "structured",
+      classification,
+      category: exactCategory,
+      jobOrderSubcategory: "",
+      othersText: "",
+    };
+  }
+
+  return { mode: "legacy" };
+};
+
 // ─── Manage Types Tab ─────────────────────────────────────────────────────────
 const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
-  const [newType, setNewType] = useState({ parentGroup: "", typeName: "", colorHex: "#6d2323", isNewGroup: false, newGroupName: "" });
+  const [newType, setNewType] = useState({
+    classification: "",
+    category: "",
+    jobOrderSubcategory: "",
+    othersText: "",
+    colorHex: "#6d2323",
+  });
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
 
-  const existingGroups = useMemo(() => {
-    const groups = [...new Set(typeConfigs.map(t => t.parentGroup))].sort();
-    return groups;
-  }, [typeConfigs]);
-
   const grouped = useMemo(() => {
     const g = {};
-    typeConfigs.forEach(t => {
+    typeConfigs.forEach((t) => {
       if (!g[t.parentGroup]) g[t.parentGroup] = [];
       g[t.parentGroup].push(t);
     });
     return g;
   }, [typeConfigs]);
 
-  const toggleGroup = (group) => setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
+  const toggleGroup = (group) => setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+
+  const resetNewType = () =>
+    setNewType({ classification: "", category: "", jobOrderSubcategory: "", othersText: "", colorHex: "#6d2323" });
 
   const handleCreate = async () => {
-    const parentGroup = newType.isNewGroup ? newType.newGroupName.trim() : newType.parentGroup;
-    if (!parentGroup) { showSnackbar("Parent group is required", "error"); return; }
-    if (!newType.typeName.trim()) { showSnackbar("Type name is required", "error"); return; }
+    const { classification, category, jobOrderSubcategory, othersText, colorHex } = newType;
+    if (!classification) return showSnackbar("Employment Classification is required", "error");
+    if (!category) return showSnackbar("Employment Category is required", "error");
+    if (category === "Job Order" && !jobOrderSubcategory)
+      return showSnackbar("Job Order Category is required", "error");
+    if (category === "Others" && !othersText.trim())
+      return showSnackbar("Please specify the category name", "error");
+
+    const parentGroup = classification;
+    const typeName = computeTypeName(category, jobOrderSubcategory, othersText);
 
     setSubmitting(true);
     try {
       await axios.post(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`,
-        { parentGroup, typeName: newType.typeName.trim(), colorHex: newType.colorHex },
+        { parentGroup, typeName, colorHex },
         getAuthHeaders()
       );
-      setNewType({ parentGroup: "", typeName: "", colorHex: "#6d2323", isNewGroup: false, newGroupName: "" });
+      resetNewType();
       onRefresh();
       showSnackbar("Employment type created successfully", "success");
     } catch (err) {
@@ -594,15 +675,62 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
     }
   };
 
+  const startEdit = (type) => {
+    const classified = classifyExistingType(type);
+    setEditingId(type.id);
+    if (classified.mode === "structured") {
+      setEditData({
+        isLegacy: false,
+        classification: classified.classification,
+        category: classified.category,
+        jobOrderSubcategory: classified.jobOrderSubcategory,
+        othersText: classified.othersText,
+        colorHex: type.colorHex,
+        isActive: type.isActive,
+        sortOrder: type.sortOrder,
+      });
+    } else {
+      setEditData({
+        isLegacy: true,
+        parentGroup: type.parentGroup,
+        typeName: type.typeName,
+        colorHex: type.colorHex,
+        isActive: type.isActive,
+        sortOrder: type.sortOrder,
+      });
+    }
+  };
+
   const handleUpdate = async (id) => {
-    if (!editData.parentGroup?.trim()) { showSnackbar("Parent group is required", "error"); return; }
-    if (!editData.typeName?.trim()) { showSnackbar("Type name is required", "error"); return; }
+    let parentGroup, typeName;
+
+    if (editData.isLegacy) {
+      if (!editData.parentGroup?.trim()) return showSnackbar("Parent group is required", "error");
+      if (!editData.typeName?.trim()) return showSnackbar("Type name is required", "error");
+      parentGroup = editData.parentGroup.trim();
+      typeName = editData.typeName.trim();
+    } else {
+      if (!editData.classification) return showSnackbar("Employment Classification is required", "error");
+      if (!editData.category) return showSnackbar("Employment Category is required", "error");
+      if (editData.category === "Job Order" && !editData.jobOrderSubcategory)
+        return showSnackbar("Job Order Category is required", "error");
+      if (editData.category === "Others" && !editData.othersText.trim())
+        return showSnackbar("Please specify the category name", "error");
+      parentGroup = editData.classification;
+      typeName = computeTypeName(editData.category, editData.jobOrderSubcategory, editData.othersText);
+    }
 
     setSubmitting(true);
     try {
       await axios.put(
         `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config/${id}`,
-        { ...editData },
+        {
+          parentGroup,
+          typeName,
+          colorHex: editData.colorHex,
+          isActive: editData.isActive,
+          sortOrder: editData.sortOrder,
+        },
         getAuthHeaders()
       );
       setEditingId(null);
@@ -618,10 +746,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
   const handleDelete = async (id) => {
     setSubmitting(true);
     try {
-      await axios.delete(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config/${id}`,
-        getAuthHeaders()
-      );
+      await axios.delete(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config/${id}`, getAuthHeaders());
       setDeleteConfirm(null);
       onRefresh();
       showSnackbar("Employment type deleted successfully", "success");
@@ -630,11 +755,6 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const startEdit = (type) => {
-    setEditingId(type.id);
-    setEditData({ parentGroup: type.parentGroup, typeName: type.typeName, colorHex: type.colorHex, isActive: type.isActive, sortOrder: type.sortOrder });
   };
 
   return (
@@ -646,87 +766,111 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
         </Typography>
 
         <Grid container spacing={1.5} alignItems="flex-start">
-          {/* Parent Group */}
-          <Grid item xs={12} sm={4}>
+          <Grid item xs={12} sm={3}>
             <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
-              Parent Group <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+              Employment Classification <Box component="span" sx={{ color: "#c62828" }}>*</Box>
             </Typography>
-            {newType.isNewGroup ? (
-              <Box sx={{ display: "flex", gap: 0.5 }}>
+            <FormControl fullWidth size="small">
+              <Select
+                value={newType.classification}
+                onChange={(e) =>
+                  setNewType((p) => ({ ...p, classification: e.target.value, category: "", jobOrderSubcategory: "", othersText: "" }))
+                }
+                displayEmpty
+                sx={selectSx}
+              >
+                <MenuItem value="" disabled>
+                  <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select classification…</Typography>
+                </MenuItem>
+                {EMPLOYMENT_CLASSIFICATIONS.map((c) => (
+                  <MenuItem key={c} value={c}><Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography></MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={3}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
+              Employment Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+            </Typography>
+            <FormControl fullWidth size="small" disabled={!newType.classification}>
+              <Select
+                value={newType.category}
+                onChange={(e) => setNewType((p) => ({ ...p, category: e.target.value, jobOrderSubcategory: "", othersText: "" }))}
+                displayEmpty
+                sx={selectSx}
+              >
+                <MenuItem value="" disabled>
+                  <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>
+                    {newType.classification ? "Select category…" : "Select classification first"}
+                  </Typography>
+                </MenuItem>
+                {EMPLOYMENT_CATEGORIES.map((c) => (
+                  <MenuItem key={c} value={c}><Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography></MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={3}>
+            {newType.category === "Job Order" ? (
+              <>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
+                  Job Order Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                </Typography>
+                <FormControl fullWidth size="small">
+                  <Select
+                    value={newType.jobOrderSubcategory}
+                    onChange={(e) => setNewType((p) => ({ ...p, jobOrderSubcategory: e.target.value }))}
+                    displayEmpty
+                    sx={selectSx}
+                  >
+                    <MenuItem value="" disabled>
+                      <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography>
+                    </MenuItem>
+                    {JOB_ORDER_SUBCATEGORIES.map((s) => (
+                      <MenuItem key={s} value={s}><Typography sx={{ fontSize: "0.85rem" }}>{s}</Typography></MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </>
+            ) : newType.category === "Others" ? (
+              <>
+                <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
+                  Specify Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                </Typography>
                 <FieldInput
-                  value={newType.newGroupName}
-                  onChange={(e) => setNewType(p => ({ ...p, newGroupName: e.target.value }))}
-                  placeholder="New group name…"
+                  value={newType.othersText}
+                  onChange={(e) => setNewType((p) => ({ ...p, othersText: e.target.value }))}
+                  placeholder="e.g. Batch 4"
                   size="small"
                   fullWidth
                   inputProps={{ maxLength: 100 }}
                 />
-                <Tooltip title="Use existing group">
-                  <IconButton size="small" onClick={() => setNewType(p => ({ ...p, isNewGroup: false, newGroupName: "" }))} sx={{ color: T.muted, border: `1px solid ${T.accentBorder}`, borderRadius: 1.5 }}>
-                    <Close sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </Tooltip>
-              </Box>
+              </>
             ) : (
-              <FormControl fullWidth size="small">
-                <Select
-                  value={newType.parentGroup}
-                  onChange={(e) => {
-                    if (e.target.value === "__new__") setNewType(p => ({ ...p, isNewGroup: true, parentGroup: "" }));
-                    else setNewType(p => ({ ...p, parentGroup: e.target.value }));
-                  }}
-                  displayEmpty
-                  sx={selectSx}
-                >
-                  <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select group…</Typography></MenuItem>
-                  {existingGroups.map(g => (
-                    <MenuItem key={g} value={g}><Typography sx={{ fontSize: "0.85rem" }}>{g}</Typography></MenuItem>
-                  ))}
-                  <Divider />
-                  <MenuItem value="__new__">
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                      <AddIcon sx={{ fontSize: 14, color: T.accent }} />
-                      <Typography sx={{ fontSize: "0.82rem", color: T.accent, fontWeight: 600 }}>Create new group</Typography>
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
+              <Box sx={{ pt: 3 }}>
+                <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontStyle: "italic" }}>
+                  No extra field needed for this category.
+                </Typography>
+              </Box>
             )}
           </Grid>
 
-          {/* Type Name */}
-          <Grid item xs={12} sm={4}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
-              Type Name <Box component="span" sx={{ color: "#c62828" }}>*</Box>
-            </Typography>
-            <FieldInput
-              value={newType.typeName}
-              onChange={(e) => setNewType(p => ({ ...p, typeName: e.target.value }))}
-              placeholder="e.g. CAS, Gen. Ad., Auxiliary…"
-              size="small"
-              fullWidth
-              inputProps={{ maxLength: 100 }}
-            />
-          </Grid>
-
-          {/* Color */}
-          <Grid item xs={12} sm={2}>
+          <Grid item xs={6} sm={1.5}>
             <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>Color</Typography>
-            <ColorSwatch value={newType.colorHex} onChange={(v) => setNewType(p => ({ ...p, colorHex: v }))} />
+            <ColorSwatch value={newType.colorHex} onChange={(v) => setNewType((p) => ({ ...p, colorHex: v }))} />
           </Grid>
 
-          {/* Add button */}
-          <Grid item xs={12} sm={2} sx={{ display: "flex", alignItems: "flex-end" }}>
+          <Grid item xs={6} sm={1.5} sx={{ display: "flex", alignItems: "flex-end" }}>
             <AccentButton
               onClick={handleCreate}
-              disabled={submitting || (!newType.parentGroup && !newType.newGroupName) || !newType.typeName.trim()}
+              disabled={submitting}
               variant="contained"
               fullWidth
               startIcon={submitting ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "15px !important" }} />}
               sx={{
-                height: 36,
-                bgcolor: T.accent,
-                color: "#fff",
+                height: 36, bgcolor: T.accent, color: "#fff",
                 "&:hover": { bgcolor: T.accentDark },
                 "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" },
               }}
@@ -735,6 +879,18 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
             </AccentButton>
           </Grid>
         </Grid>
+
+        {newType.classification && newType.category && (newType.category !== "Others" || newType.othersText.trim()) && (newType.category !== "Job Order" || newType.jobOrderSubcategory) && (
+          <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: 1.5, bgcolor: "#fff", border: `1px dashed ${T.accentBorder}` }}>
+            <PaletteIcon sx={{ fontSize: 13, color: T.accent }} />
+            <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>
+              Will be saved as:{" "}
+              <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>
+                {newType.classification} | {computeTypeName(newType.category, newType.jobOrderSubcategory, newType.othersText)}
+              </Box>
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       {/* Existing types list grouped */}
@@ -750,28 +906,13 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
             const isExpanded = expandedGroups[group] !== false;
             return (
               <Box key={group} sx={{ mb: 1.5, borderRadius: 2, border: `1px solid ${T.accentBorder}`, overflow: "hidden" }}>
-                {/* Group header */}
                 <Box
                   onClick={() => toggleGroup(group)}
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1.5,
-                    px: 2,
-                    py: 1.25,
-                    bgcolor: alpha(T.accent, 0.05),
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: alpha(T.accent, 0.08) },
-                    transition: "background 0.15s",
-                  }}
+                  sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2, py: 1.25, bgcolor: alpha(T.accent, 0.05), cursor: "pointer", "&:hover": { bgcolor: alpha(T.accent, 0.08) } }}
                 >
                   <FolderOpenIcon sx={{ fontSize: 15, color: T.accent }} />
                   <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent, flex: 1 }}>{group}</Typography>
-                  <Chip
-                    label={`${items.length} type${items.length !== 1 ? "s" : ""}`}
-                    size="small"
-                    sx={{ height: 18, fontSize: "0.65rem", bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 600 }}
-                  />
+                  <Chip label={`${items.length} type${items.length !== 1 ? "s" : ""}`} size="small" sx={{ height: 18, fontSize: "0.65rem", bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 600 }} />
                   {isExpanded ? <ExpandLessIcon sx={{ fontSize: 16, color: T.muted }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: T.muted }} />}
                 </Box>
 
@@ -780,107 +921,115 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
                     <Box key={type.id}>
                       {idx > 0 && <Divider sx={{ borderColor: T.divider }} />}
                       {editingId === type.id ? (
-                        <Box sx={{ px: 2, py: 1.5, bgcolor: alpha(T.accent, 0.02) }}>
-                          <Grid container spacing={1.5} alignItems="center">
-                            <Grid item xs={12} sm={3.5}>
-                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Parent Group</Typography>
-                              <FormControl fullWidth size="small">
-                                <Select value={editData.parentGroup} onChange={(e) => {
-                                  if (e.target.value === "__new__") return;
-                                  setEditData(p => ({ ...p, parentGroup: e.target.value }));
-                                }} sx={selectSx}>
-                                  {existingGroups.map(g => <MenuItem key={g} value={g}>{g}</MenuItem>)}
-                                  <MenuItem value={editData.parentGroup} sx={{ display: existingGroups.includes(editData.parentGroup) ? "none" : undefined }}>{editData.parentGroup}</MenuItem>
-                                </Select>
-                              </FormControl>
-                            </Grid>
-                            <Grid item xs={12} sm={3.5}>
-                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Type Name</Typography>
-                              <FieldInput value={editData.typeName} onChange={(e) => setEditData(p => ({ ...p, typeName: e.target.value }))} size="small" fullWidth inputProps={{ maxLength: 100 }} />
-                            </Grid>
-                            <Grid item xs={12} sm={2}>
-                              <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Color</Typography>
-                              <ColorSwatch value={editData.colorHex} onChange={(v) => setEditData(p => ({ ...p, colorHex: v }))} />
-                            </Grid>
-                            <Grid item xs={12} sm={3} sx={{ display: "flex", gap: 0.75, alignItems: "flex-end", pt: { sm: 2.5 } }}>
-                              <AccentButton
-                                onClick={() => handleUpdate(type.id)}
-                                disabled={submitting}
-                                variant="contained"
+                        <Box sx={{ px: 2, py: 1.75, bgcolor: alpha(T.accent, 0.02) }}>
+                          {editData.isLegacy && (
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5, p: 1, borderRadius: 1.5, bgcolor: "#FFF8E1", border: "1px solid rgba(245,124,0,0.25)" }}>
+                              <Typography sx={{ fontSize: "0.7rem", color: "#7c4300" }}>
+                                This entry doesn't match the standard categories — editing as free text.
+                              </Typography>
+                              <Button
                                 size="small"
-                                startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />}
-                                sx={{ fontSize: "0.75rem", height: 32, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}
+                                onClick={() => setEditData((p) => ({ ...p, isLegacy: false, classification: "", category: "", jobOrderSubcategory: "", othersText: "" }))}
+                                sx={{ fontSize: "0.68rem", textTransform: "none", fontWeight: 700, color: T.accent, whiteSpace: "nowrap" }}
                               >
-                                Save
-                              </AccentButton>
-                              <AccentButton
-                                onClick={() => setEditingId(null)}
-                                variant="outlined"
-                                size="small"
-                                sx={{ fontSize: "0.75rem", height: 32, borderColor: T.accentBorder, color: T.muted }}
-                              >
-                                Cancel
-                              </AccentButton>
+                                Convert to standard options →
+                              </Button>
+                            </Box>
+                          )}
+
+                          {editData.isLegacy ? (
+                            <Grid container spacing={1.5} alignItems="center">
+                              <Grid item xs={12} sm={3.5}>
+                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Classification</Typography>
+                                <FieldInput value={editData.parentGroup} onChange={(e) => setEditData((p) => ({ ...p, parentGroup: e.target.value }))} size="small" fullWidth />
+                              </Grid>
+                              <Grid item xs={12} sm={3.5}>
+                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Category</Typography>
+                                <FieldInput value={editData.typeName} onChange={(e) => setEditData((p) => ({ ...p, typeName: e.target.value }))} size="small" fullWidth />
+                              </Grid>
+                              <Grid item xs={12} sm={2}>
+                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Color</Typography>
+                                <ColorSwatch value={editData.colorHex} onChange={(v) => setEditData((p) => ({ ...p, colorHex: v }))} />
+                              </Grid>
+                              <Grid item xs={12} sm={3} sx={{ display: "flex", gap: 0.75, alignItems: "flex-end" }}>
+                                <AccentButton onClick={() => handleUpdate(type.id)} disabled={submitting} variant="contained" size="small" startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />} sx={{ fontSize: "0.75rem", height: 32, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}>Save</AccentButton>
+                                <AccentButton onClick={() => setEditingId(null)} variant="outlined" size="small" sx={{ fontSize: "0.75rem", height: 32, borderColor: T.accentBorder, color: T.muted }}>Cancel</AccentButton>
+                              </Grid>
                             </Grid>
-                          </Grid>
+                          ) : (
+                            <>
+                              <Grid container spacing={1.5} alignItems="flex-start">
+                                <Grid item xs={12} sm={3}>
+                                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Classification</Typography>
+                                  <FormControl fullWidth size="small">
+                                    <Select value={editData.classification} onChange={(e) => setEditData((p) => ({ ...p, classification: e.target.value, category: "", jobOrderSubcategory: "", othersText: "" }))} sx={selectSx} displayEmpty>
+                                      <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography></MenuItem>
+                                      {EMPLOYMENT_CLASSIFICATIONS.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+                                <Grid item xs={12} sm={3}>
+                                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Category</Typography>
+                                  <FormControl fullWidth size="small" disabled={!editData.classification}>
+                                    <Select value={editData.category} onChange={(e) => setEditData((p) => ({ ...p, category: e.target.value, jobOrderSubcategory: "", othersText: "" }))} sx={selectSx} displayEmpty>
+                                      <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography></MenuItem>
+                                      {EMPLOYMENT_CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+                                <Grid item xs={12} sm={3}>
+                                  {editData.category === "Job Order" ? (
+                                    <>
+                                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Job Order Category</Typography>
+                                      <FormControl fullWidth size="small">
+                                        <Select value={editData.jobOrderSubcategory} onChange={(e) => setEditData((p) => ({ ...p, jobOrderSubcategory: e.target.value }))} sx={selectSx} displayEmpty>
+                                          <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography></MenuItem>
+                                          {JOB_ORDER_SUBCATEGORIES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                                        </Select>
+                                      </FormControl>
+                                    </>
+                                  ) : editData.category === "Others" ? (
+                                    <>
+                                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Specify Category</Typography>
+                                      <FieldInput value={editData.othersText} onChange={(e) => setEditData((p) => ({ ...p, othersText: e.target.value }))} size="small" fullWidth placeholder="e.g. Batch 4" />
+                                    </>
+                                  ) : null}
+                                </Grid>
+                                <Grid item xs={12} sm={1.5}>
+                                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Color</Typography>
+                                  <ColorSwatch value={editData.colorHex} onChange={(v) => setEditData((p) => ({ ...p, colorHex: v }))} />
+                                </Grid>
+                                <Grid item xs={12} sm={1.5} sx={{ display: "flex", gap: 0.75, alignItems: "flex-end" }}>
+                                  <AccentButton onClick={() => handleUpdate(type.id)} disabled={submitting} variant="contained" size="small" sx={{ fontSize: "0.75rem", height: 32, minWidth: 0, px: 1, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}><SaveIcon sx={{ fontSize: 15 }} /></AccentButton>
+                                  <AccentButton onClick={() => setEditingId(null)} variant="outlined" size="small" sx={{ fontSize: "0.75rem", height: 32, minWidth: 0, px: 1, borderColor: T.accentBorder, color: T.muted }}><CancelIcon sx={{ fontSize: 15 }} /></AccentButton>
+                                </Grid>
+                              </Grid>
+                              {editData.classification && editData.category && (
+                                <Typography sx={{ fontSize: "0.7rem", color: T.muted, mt: 1 }}>
+                                  Will be saved as: <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>{editData.classification} | {computeTypeName(editData.category, editData.jobOrderSubcategory, editData.othersText)}</Box>
+                                </Typography>
+                              )}
+                            </>
+                          )}
                         </Box>
                       ) : deleteConfirm === type.id ? (
                         <Box sx={{ px: 2, py: 1.25, bgcolor: "rgba(198,40,40,0.04)", display: "flex", alignItems: "center", gap: 1.5 }}>
                           <WarningIcon sx={{ fontSize: 16, color: "#c62828" }} />
-                          <Typography sx={{ fontSize: "0.78rem", color: "#c62828", flex: 1 }}>
-                            Delete <strong>{type.typeName}</strong>? This cannot be undone.
-                          </Typography>
-                          <AccentButton
-                            onClick={() => handleDelete(type.id)}
-                            disabled={submitting}
-                            variant="contained"
-                            size="small"
-                            sx={{ fontSize: "0.72rem", height: 28, bgcolor: "#c62828", color: "#fff", "&:hover": { bgcolor: "#b71c1c" } }}
-                          >
-                            {submitting ? "Deleting…" : "Confirm Delete"}
-                          </AccentButton>
-                          <AccentButton
-                            onClick={() => setDeleteConfirm(null)}
-                            variant="outlined"
-                            size="small"
-                            sx={{ fontSize: "0.72rem", height: 28, borderColor: T.accentBorder, color: T.muted }}
-                          >
-                            Cancel
-                          </AccentButton>
+                          <Typography sx={{ fontSize: "0.78rem", color: "#c62828", flex: 1 }}>Delete <strong>{type.typeName}</strong>? This cannot be undone.</Typography>
+                          <AccentButton onClick={() => handleDelete(type.id)} disabled={submitting} variant="contained" size="small" sx={{ fontSize: "0.72rem", height: 28, bgcolor: "#c62828", color: "#fff", "&:hover": { bgcolor: "#b71c1c" } }}>{submitting ? "Deleting…" : "Confirm Delete"}</AccentButton>
+                          <AccentButton onClick={() => setDeleteConfirm(null)} variant="outlined" size="small" sx={{ fontSize: "0.72rem", height: 28, borderColor: T.accentBorder, color: T.muted }}>Cancel</AccentButton>
                         </Box>
                       ) : (
-                        <Box
-                          sx={{
-                            px: 2,
-                            py: 1.25,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 2,
-                            bgcolor: idx % 2 === 0 ? "#fff" : T.rowOdd,
-                            "&:hover": { bgcolor: T.rowHover },
-                            transition: "background 0.12s",
-                          }}
-                        >
+                        <Box sx={{ px: 2, py: 1.25, display: "flex", alignItems: "center", gap: 2, bgcolor: idx % 2 === 0 ? "#fff" : T.rowOdd, "&:hover": { bgcolor: T.rowHover } }}>
                           <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: type.colorHex, flexShrink: 0, border: "1.5px solid rgba(0,0,0,0.08)" }} />
                           <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text, flex: 1 }}>{type.typeName}</Typography>
-                          <Chip
-                            label={`${type.colorHex}`}
-                            size="small"
-                            sx={{ height: 18, fontSize: "0.62rem", fontFamily: "monospace", bgcolor: alpha(type.colorHex, 0.1), color: type.colorHex, fontWeight: 600, border: `1px solid ${alpha(type.colorHex, 0.25)}` }}
-                          />
-                          {!type.isActive && (
-                            <Chip label="Inactive" size="small" sx={{ height: 18, fontSize: "0.62rem", bgcolor: "#eee", color: T.muted }} />
-                          )}
+                          {!type.isActive && <Chip label="Inactive" size="small" sx={{ height: 18, fontSize: "0.62rem", bgcolor: "#eee", color: T.muted }} />}
                           <Box sx={{ display: "flex", gap: 0.5 }}>
                             <Tooltip title="Edit type">
-                              <IconButton size="small" onClick={() => startEdit(type)} sx={{ color: T.accent, p: 0.5, "&:hover": { bgcolor: T.accentFaint } }}>
-                                <EditIcon sx={{ fontSize: 14 }} />
-                              </IconButton>
+                              <IconButton size="small" onClick={() => startEdit(type)} sx={{ color: T.accent, p: 0.5, "&:hover": { bgcolor: T.accentFaint } }}><EditIcon sx={{ fontSize: 14 }} /></IconButton>
                             </Tooltip>
                             <Tooltip title="Delete type">
-                              <IconButton size="small" onClick={() => setDeleteConfirm(type.id)} sx={{ color: "#c62828", p: 0.5, "&:hover": { bgcolor: "rgba(198,40,40,0.07)" } }}>
-                                <DeleteIcon sx={{ fontSize: 14 }} />
-                              </IconButton>
+                              <IconButton size="small" onClick={() => setDeleteConfirm(type.id)} sx={{ color: "#c62828", p: 0.5, "&:hover": { bgcolor: "rgba(198,40,40,0.07)" } }}><DeleteIcon sx={{ fontSize: 14 }} /></IconButton>
                             </Tooltip>
                           </Box>
                         </Box>
