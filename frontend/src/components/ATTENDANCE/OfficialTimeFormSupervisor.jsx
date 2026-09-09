@@ -2677,7 +2677,14 @@ const handleSelectChangedEmployee = useCallback((emp) => {
   // bounced, and one whose window just expired isn't let in on a stale grant.
   const normalizedRole = normalizeRole(userRole);
   const isTechAdmin = ["superadmin", "technical", "administrator"].includes(normalizedRole);
-  const hasPermission = isTechAdmin || supervisorStatus?.active === true || hasAccess === true;
+  const hasPermission =
+    isTechAdmin ||
+    supervisorStatus?.active === true ||
+    supervisorStatus?.hasAssignment === true ||   // [CHANGE] expired supervisors can still view
+    hasAccess === true;
+
+  // New: single source of truth for whether write actions are allowed
+  const canEdit = supervisorStatus?.active === true;
 
   if (accessLoading || supervisorStatusLoading) return <OfficialTimeWireframe />;
   if (!hasPermission)
@@ -2836,38 +2843,44 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                   </Box>
 
                   <Divider sx={{ borderColor: T.divider }} />
-
-                  <PanelHeader icon={Add} title="Create new schedule" rightContent={<Typography sx={{ fontSize: "0.7rem", color: "#2e7d32", fontWeight: 700 }}>Status: Active</Typography>} />
-                  <Box sx={{ p: 2.5 }}>
-                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 1.5 }}>
-                      <AcademicYearAutocomplete value={draftAcademicYear} onChange={setDraftAcademicYear} />
-                      <Autocomplete
-                        freeSolo
-                        options={["1st Semester","2nd Semester","Summer","Vacation","Christmas break","Midyear","Enrollment period"]}
-                        value={draftSemester || null}
-                        onInputChange={(_, v) => setDraftSemester(v ?? "")}
-                        onChange={(_, v) => setDraftSemester(typeof v === "string" ? v : "")}
-                        renderInput={(params) => (
-                          <TextField {...params} size="small" label="Semester" placeholder="e.g. 1st Semester"
-                            sx={{ bgcolor: "#fff", "& .MuiOutlinedInput-root": { borderRadius: "8px", "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& label.Mui-focused": { color: T.accent } }}
+                  {canEdit ? (
+                    <>
+                      <PanelHeader icon={Add} title="Create new schedule" rightContent={<Typography sx={{ fontSize: "0.7rem", color: "#2e7d32", fontWeight: 700 }}>Status: Active</Typography>} />
+                      <Box sx={{ p: 2.5 }}>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 1.5 }}>
+                          <AcademicYearAutocomplete value={draftAcademicYear} onChange={setDraftAcademicYear} />
+                          <Autocomplete
+                            freeSolo
+                            options={["1st Semester","2nd Semester","Summer","Vacation","Christmas break","Midyear","Enrollment period"]}
+                            value={draftSemester || null}
+                            onInputChange={(_, v) => setDraftSemester(v ?? "")}
+                            onChange={(_, v) => setDraftSemester(typeof v === "string" ? v : "")}
+                            renderInput={(params) => (
+                              <TextField {...params} size="small" label="Semester" placeholder="e.g. 1st Semester"
+                                sx={{ bgcolor: "#fff", "& .MuiOutlinedInput-root": { borderRadius: "8px", "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& label.Mui-focused": { color: T.accent } }}
+                              />
+                            )}
                           />
-                        )}
-                      />
-                      <ModernTextField fullWidth size="small" label="Status" value="Active" disabled />
-                      <ModernTextField fullWidth size="small" label="Start Date" type="date" InputLabelProps={{ shrink: true }} value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} />
-                      <ModernTextField fullWidth size="small" label="End Date" type="date" InputLabelProps={{ shrink: true }} value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} />
+                          <ModernTextField fullWidth size="small" label="Status" value="Active" disabled />
+                          <ModernTextField fullWidth size="small" label="Start Date" type="date" InputLabelProps={{ shrink: true }} value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} />
+                          <ModernTextField fullWidth size="small" label="End Date" type="date" InputLabelProps={{ shrink: true }} value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} />
+                        </Box>
+                        <Button
+                          fullWidth variant="contained"
+                          onClick={openCreateScheduleModal}
+                          disabled={!selectedEmployee || !draftAcademicYear || !draftStartDate || !draftEndDate}
+                          startIcon={<Schedule sx={{ fontSize: 16 }} />}
+                          sx={{ bgcolor: T.accent, color: "#fff", borderRadius: "8px", fontWeight: 600, textTransform: "none", py: 1, boxShadow: `0 2px 10px ${alpha(T.accent, 0.35)}`, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                        >
+                          Create Schedule
+                        </Button>
+                      </Box>
+                    </>
+                  ) : (
+                    <Box sx={{ p: 2.5 }}>
+                      <UploadRestrictionNotice message="Your supervisor assignment has expired. You can view schedules but can no longer create or edit them." />
                     </Box>
-                    <Button
-                      fullWidth variant="contained"
-                      onClick={openCreateScheduleModal}
-                      disabled={!selectedEmployee || !draftAcademicYear || !draftStartDate || !draftEndDate}
-                      startIcon={<Schedule sx={{ fontSize: 16 }} />}
-                      sx={{ bgcolor: T.accent, color: "#fff", borderRadius: "8px", fontWeight: 600, textTransform: "none", py: 1, boxShadow: `0 2px 10px ${alpha(T.accent, 0.35)}`, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
-                    >
-                      Create Schedule
-                    </Button>
-                  </Box>
-
+                  )}
                   <Divider sx={{ borderColor: T.divider }} />
 
                   <PanelHeader icon={CloudUploadIcon} title="Excel upload" rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>} />
@@ -2944,7 +2957,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                         rightContent={
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                             <StatusBadge active={String(activeBlockData.status).toLowerCase() === "active"} />
-                            {String(activeBlockData.status).toLowerCase() === "active" && (
+                            {String(activeBlockData.status).toLowerCase() === "active" && canEdit && (
                               <Tooltip title="Edit this schedule">
                                 <IconButton
                                   size="small"
@@ -3061,7 +3074,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
 
                       <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 1.75, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5 }}>
                         <Typography sx={{ fontSize: "0.72rem", color: T.faint, flex: 1 }}>Viewing in read-only mode — click Edit to make changes</Typography>
-                        {String(activeBlockData.status).toLowerCase() === "active" && (
+                        {String(activeBlockData.status).toLowerCase() === "active" && canEdit && (
                           <Button
                             variant="outlined" size="small" startIcon={<Edit sx={{ fontSize: 14 }} />}
                             onClick={() => {

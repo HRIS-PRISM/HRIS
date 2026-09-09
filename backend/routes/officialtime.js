@@ -5,18 +5,22 @@
 //
 // EMPLOYMENT CATEGORY SUPPORT (see previous revision history for #23-#26)
 //
-// NEW IN THIS REVISION — EXCEL "NAME" COLUMN (display-only):
-//  #27 [NEW] Excel uploads (single-employee, department-scoped, and
-//      category-scoped) now accept an optional "Name" column. It is parsed
-//      per schedule-block (parseSheetIntoGroups → group.employeeName) and
-//      echoed back in each validate endpoint's `schedules[].name` field, so
-//      the frontend can show a readable name next to the employeeID without
-//      an extra lookup call. This value is NEVER used for matching,
-//      filtering, or validation — employeeID (employeeNumber) remains the
-//      only key used to identify the employee and to resolve their actual
-//      Department / Employment Category from the system. If the column is
-//      absent, `name` is simply null and the frontend falls back to its
-//      existing system lookup by employeeNumber.
+// EXCEL "NAME" COLUMN (display-only) — see previous revision history for #27
+//
+// NEW IN THIS REVISION — WRITE-ROUTE SUPERVISOR-EXPIRY GUARD:
+//  #28 [NEW] POST /officialtimetable and PUT /officialtimetable/:employeeID
+//      now call ensureActiveSupervisorAssignment(req, res) before doing any
+//      work, exactly like the Excel-upload routes already did. Previously
+//      only the Excel upload routes verified the caller's supervisor
+//      assignment was currently active; the manual "Create Schedule" and
+//      "Edit Schedule" routes had no such check, so a supervisor whose
+//      assignment window had expired could still create/edit schedules by
+//      calling the API directly, even though the frontend now hides those
+//      buttons once frontend `canEdit` is false. This closes that gap:
+//      hiding UI is a UX nicety, this guard is the actual enforcement.
+//      GET /officialtimetable/:employeeID remains unguarded (read-only), so
+//      an expired supervisor can still view schedules for employees in
+//      their former department.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── #16: Graceful dependency loading ─────────────────────────────────────────
@@ -68,10 +72,6 @@ const DAYS_ORDER = [
   "Sunday",
 ];
 const VALID_TIME_RE = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i; // #10: strict time format
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PURE UTILITIES
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PURE UTILITIES
@@ -241,8 +241,9 @@ function getSupervisorAssignmentStatus(supervisorEmployeeNumber) {
   });
 }
 
-// #28: Shared guard for every Excel-upload route. Sends the 403 itself when
-// blocked, so a route handler just does: `if (!status) return;`
+// #28: Shared guard for every Excel-upload route AND (now) the manual
+// create/edit routes. Sends the 403 itself when blocked, so a route handler
+// just does: `if (!status) return;`
 async function ensureActiveSupervisorAssignment(req, res) {
   const supervisorEmployeeNumber =
     req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
@@ -1261,6 +1262,9 @@ router.post("/officialtimetable/batch", authenticateToken, (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET official time table by employeeID
+// [READ-ONLY — no supervisor-active guard. Left intentionally accessible so
+// that a supervisor whose assignment has expired can still VIEW schedules
+// for employees in their former department, per product requirement.]
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.get("/officialtimetable/:employeeID", authenticateToken, (req, res) => {
@@ -1317,9 +1321,21 @@ router.get("/officialtimetable/:employeeID", authenticateToken, (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST official time table (insert new schedule version)
 // #1: Wrapped in DB transaction
+// #28 [NEW]: Now requires an ACTIVE supervisor assignment. Previously this
+// route had no assignment-status check at all, so a supervisor whose window
+// had expired could still create schedules by calling the API directly even
+// though the frontend hides the "Create Schedule" button once expired. This
+// brings write-time enforcement in line with the Excel-upload routes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post("/officialtimetable", authenticateToken, async (req, res) => {
+  // [NEW #28] Block if the caller's supervisor_assignment window isn't
+  // currently active. ensureActiveSupervisorAssignment() sends the 403
+  // response itself (with a clear expired/not-started/no-assignment
+  // message) when blocked.
+  const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+  if (!supervisorStatus) return;
+
   const { employeeID, academicYear, startDate, endDate, status, records, saveSupervisorHistory } =
     req.body || {};
 
@@ -3547,21 +3563,29 @@ router.post(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT — edit an existing active schedule
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT — edit an existing active schedule
 // [FIX] No longer silently falls back to "whatever is currently active" when
 // origEndDate is missing or doesn't match. origEndDate is now required, and
 // the update only proceeds if that exact (startDate, endDate) pair is still
 // the active schedule in the DB — otherwise it returns a clear error instead
 // of quietly redirecting the edit onto a different period.
+//
+// #28 [NEW]: Also now requires an ACTIVE supervisor assignment, exactly like
+// the POST route above and the Excel-upload routes. Previously this route
+// had no assignment-status check, so an expired supervisor could still edit
+// schedules by calling the API directly even with the "Edit Schedule"
+// button hidden client-side.
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.put(
   "/officialtimetable/:employeeID",
   authenticateToken,
   async (req, res) => {
+    // [NEW #28] Block if the caller's supervisor_assignment window isn't
+    // currently active. ensureActiveSupervisorAssignment() sends the 403
+    // response itself when blocked.
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+    if (!supervisorStatus) return;
+
     const { employeeID } = req.params;
     const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
 
