@@ -1,4 +1,20 @@
+import axios from 'axios';
+
 export const DTR_WIDTH_IN = '8.7in';
+
+/* ── A4 DTR page geometry ──────────────────────────────────────────────────
+ * Single source of truth shared by DTRTemplate (screen) and the print CSS, so
+ * the on-screen DTR and the printed/PDF DTR always use identical dimensions.
+ * Margins are kept at the small end of what consumer printers can reproduce
+ * so the two DTR copies use as much of the sheet as possible.
+ */
+export const DTR_PAGE_MARGIN_MM = 6;
+export const DTR_PRINTABLE_WIDTH_MM = 210 - DTR_PAGE_MARGIN_MM * 2; // 198
+export const DTR_PRINTABLE_HEIGHT_MM = 297 - DTR_PAGE_MARGIN_MM * 2; // 285
+/** Gutter left between the two copies so the sheet can be cut in half. */
+export const DTR_CUT_GAP_MM = 14;
+export const DTR_SHEET_WIDTH_MM =
+  (DTR_PRINTABLE_WIDTH_MM - DTR_CUT_GAP_MM) / 2; // 92
 
 export const DTR_NON_WORKING_DAY_LABEL = 'NON-WORKING DAY';
 
@@ -284,14 +300,53 @@ export const formatFullName = (user = {}) => {
     `${lastPart}${lastPart && firstPart ? ', ' : ''}${firstPart}${middle ? ' ' + middle : ''}`.trim() ||
     user.fullName ||
     user.displayName ||
+    user.name ||
     'Unknown'
   );
+};
+
+/** Resolve employee display name when attendance returns no rows for the period. */
+export const fetchEmployeeDisplayName = async (
+  apiBaseUrl,
+  employeeID,
+  authConfig = {},
+) => {
+  const id = String(employeeID || '').trim();
+  if (!id || !apiBaseUrl) return '';
+  try {
+    const { data } = await axios.get(
+      `${apiBaseUrl}/Remittance/employees/search?q=${encodeURIComponent(id)}`,
+      authConfig,
+    );
+    const list = Array.isArray(data) ? data : [];
+    const match =
+      list.find(
+        (e) =>
+          String(e.employeeNumber ?? e.agencyEmployeeNum ?? '') === id,
+      ) || list[0];
+    if (!match) return '';
+    return formatFullName(match);
+  } catch {
+    return '';
+  }
 };
 
 export const formatTime = (timeString) => {
   if (!timeString) return '';
   const normalized = String(timeString).replace(/\s+/g, ' ').trim();
   return normalized.replace(/^(\d{1,2}:\d{2}):\d{2}(\s?[AP]M)?$/i, '$1$2');
+};
+
+/** "15:00" / "15:00:00" -> "3:00 PM" for partial-suspension DTR remarks. */
+export const formatSuspensionEffectiveTime = (t) => {
+  if (!t) return '';
+  const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return String(t);
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${min} ${ampm}`;
 };
 
 export const MONTHS_LONG = [

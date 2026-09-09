@@ -22,11 +22,8 @@ import {
   Alert,
   Grid,
 } from '@mui/material';
-import earistLogo from '../../assets/earistLogo.png';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import { alpha } from '@mui/material/styles';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import {
@@ -41,46 +38,9 @@ import {
   ATTENDANCE_COMPACT_PAGE_SX,
   useAttendanceCompactPage,
 } from './attendanceFilterLayout';
-import {
-  formatDtrPdfFileName,
-  openPdfBlobForPrint,
-} from '../../utils/dtrFormatHelpers';
-
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-/** YYYY-MM-DD as a Philippines calendar day (fixes holiday/leave off-by-one from UTC-midnight ISO strings). */
-const toPhCalendarYmd = (value) => {
-  if (value == null || value === '') return '';
-  const s = String(value).trim();
-  if (!s) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) {
-    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-    return m ? m[1] : '';
-  }
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Manila',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(d);
-    const y = parts.find((p) => p.type === 'year')?.value;
-    const mo = parts.find((p) => p.type === 'month')?.value;
-    const da = parts.find((p) => p.type === 'day')?.value;
-    if (y && mo && da) return `${y}-${mo}-${da}`;
-  } catch {
-    /* ignore */
-  }
-  return s.split('T')[0];
-};
-
-const recordMatchesDay = (record, dayPadded) => {
-  const ymd = toPhCalendarYmd(record?.date);
-  if (!ymd || dayPadded.length !== 2) return false;
-  return ymd.endsWith(`-${dayPadded}`);
-};
+import DTRTemplate from './DTRTemplate';
+import { DTRPrintStyles, printDtrHtml } from './DailyTimeRecordPrintable';
+import { fetchEmployeeDisplayName } from '../../utils/dtrFormatHelpers';
 
 // ─── DESIGN TOKENS (unified with DailyTimeRecordFaculty / DailyTimeRecord) ───
 const T = {
@@ -141,15 +101,6 @@ const FormSectionLabel = ({ icon: Icon, children }) => (
   </Box>
 );
 
-/** html2canvas often under-renders faint text; bump contrast on the cloned DOM used for capture */
-const enhanceDtrWatermarksInClone = (clonedDoc) => {
-  if (!clonedDoc?.querySelectorAll) return;
-  clonedDoc.querySelectorAll('.dtr-cell-watermark span').forEach((el) => {
-    el.style.setProperty('color', 'rgba(0,0,0,0.55)');
-    el.style.setProperty('opacity', '1');
-  });
-};
-
 // ─── COMPONENT ────────────────────────────────────────────────────────────────
 
 const DailyTimeRecordHonorarium = () => {
@@ -167,6 +118,7 @@ const DailyTimeRecordHonorarium = () => {
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [holidays, setHolidays] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
+  const [approvedLeaves, setApprovedLeaves] = useState([]);
 
   // ── Loading states ──────────────────────────────────────────────────────────
   const [monthLoading, setMonthLoading] = useState(false);
@@ -183,8 +135,6 @@ const DailyTimeRecordHonorarium = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
-
-  const DTR_WIDTH_IN = '8.7in';
 
   const monthsShort = MONTHS_SHORT;
 
@@ -231,25 +181,6 @@ const DailyTimeRecordHonorarium = () => {
     return cleaned;
   }, []);
 
-  const formatMonth = (dateString) => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString(undefined, { month: 'long' }).toUpperCase();
-  };
-
-  const formatStartDate = (dateString) => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-  };
-
-  const formatEndDate = (dateString) => {
-    if (!dateString) return '';
-    const d = new Date(dateString);
-    return `${d.getDate()}, ${d.getFullYear()}`;
-  };
-
-  const formattedStartDate = formatStartDate(startDate);
-  const formattedEndDate = formatEndDate(endDate);
-
   // ── Fetchers ───────────────────────────────────────────────────────────────
   const fetchRecords = async () => {
     const requestSeq = ++fetchRequestSeqRef.current;
@@ -273,8 +204,17 @@ const DailyTimeRecordHonorarium = () => {
         await fetchOfficialTimes(personID);
       } else {
         setRecords([]);
-        setEmployeeName('No records found');
-        setOfficialTimes({});
+        await fetchOfficialTimes(personID);
+        const name = await fetchEmployeeDisplayName(
+          API_BASE_URL,
+          personID,
+          getAuthHeaders(),
+        );
+        if (name) setEmployeeName(name);
+        else
+          setEmployeeName((prev) =>
+            prev && prev !== 'No records found' ? prev : '',
+          );
       }
     } catch (err) { console.error(err); }
     finally {
@@ -299,6 +239,16 @@ const DailyTimeRecordHonorarium = () => {
     } catch (err) { console.error('Error fetching official times:', err); setOfficialTimes({}); }
   };
 
+  const fetchApprovedLeaves = async (empID) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, getAuthHeaders());
+      const hrApproved = response.data.filter(
+        (req) => String(req.status) === '2' && String(req.employeeNumber) === String(empID),
+      );
+      setApprovedLeaves(hrApproved);
+    } catch (err) { console.error('Error fetching approved leaves:', err); setApprovedLeaves([]); }
+  };
+
   // ── Initial load ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!personID || initialLoadDone.current) return;
@@ -306,6 +256,7 @@ const DailyTimeRecordHonorarium = () => {
     const init = async () => {
       await Promise.allSettled([
         fetchOfficialTimes(personID),
+        fetchApprovedLeaves(personID),
         axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()).then((r) => {
           setHolidays(Array.isArray(r.data) ? r.data : []);
         }).catch(() => setHolidays([])),
@@ -352,75 +303,14 @@ const DailyTimeRecordHonorarium = () => {
     };
   }, [socket, connected, personID, startDate, endDate]);
 
-  // ── Capture helpers ────────────────────────────────────────────────────────
-  const ensureCaptureStyles = (el) => {
-    if (!el) return {};
-    const orig = { backgroundColor: el.style.backgroundColor, width: el.style.width, visibility: el.style.visibility, display: el.style.display, position: el.style.position, left: el.style.left, zIndex: el.style.zIndex, opacity: el.style.opacity };
-    el.style.backgroundColor = '#ffffff'; el.style.width = DTR_WIDTH_IN; el.style.visibility = 'visible';
-    el.style.display = 'block'; el.style.position = 'fixed'; el.style.left = '-9999px'; el.style.zIndex = '10000'; el.style.opacity = '1';
-    return orig;
-  };
-
-  const restoreCaptureStyles = (el, orig) => {
-    if (!el || !orig) return;
-    try {
-      el.style.backgroundColor = orig.backgroundColor || ''; el.style.width = orig.width || ''; el.style.visibility = orig.visibility || '';
-      el.style.display = orig.display || ''; el.style.position = orig.position || ''; el.style.left = orig.left || ''; el.style.zIndex = orig.zIndex || ''; el.style.opacity = orig.opacity || '';
-    } catch (e) { /* noop */ }
-  };
-
-  const getSingleDtrPdfUser = () => {
-    if (records[0]) {
-      const r = records[0];
-      return {
-        firstName: r.firstName,
-        lastName: r.lastName,
-        middleName: r.middleName,
-      };
-    }
-    return { fullName: employeeName };
-  };
-
   const printPage = async () => {
     if (!dtrRef.current) return;
-    await new Promise((r) => setTimeout(r, 80));
-    setSinglePrintLoading(true); setSinglePrintStatus('Preparing DTR for printing...');
-    try {
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-      const orig = ensureCaptureStyles(dtrRef.current);
-      setSinglePrintStatus('Capturing DTR layout...');
-      await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
-      restoreCaptureStyles(dtrRef.current, orig);
-      const imgData = canvas.toDataURL('image/png');
-      const dtrW = 8, dtrH = 9.5, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
-      pdf.autoPrint();
-      openPdfBlobForPrint(
-        pdf,
-        formatDtrPdfFileName(getSingleDtrPdfUser(), startDate),
-      );
-    } catch (e) { console.error('Error generating print view:', e); }
-    finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
+    await printDtrHtml(dtrRef.current);
   };
 
   const downloadPDF = async () => {
     if (!dtrRef.current) return;
-    await new Promise((r) => setTimeout(r, 80));
-    setSinglePrintLoading(true); setSinglePrintStatus('Preparing DTR for download...');
-    try {
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-      const orig = ensureCaptureStyles(dtrRef.current);
-      await new Promise((r) => setTimeout(r, 100));
-      const canvas = await html2canvas(dtrRef.current, { scale: 2, useCORS: true, logging: false, onclone: (doc) => enhanceDtrWatermarksInClone(doc) });
-      restoreCaptureStyles(dtrRef.current, orig);
-      const imgData = canvas.toDataURL('image/png');
-      const dtrW = 8, dtrH = 10, pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
-      pdf.save(formatDtrPdfFileName(getSingleDtrPdfUser(), startDate));
-      setSnackbar({ open: true, message: 'DTR downloaded successfully.', severity: 'success' });
-    } catch (e) { console.error('Error generating PDF:', e); }
-    finally { setSinglePrintLoading(false); setSinglePrintStatus(''); }
+    await printDtrHtml(dtrRef.current);
   };
 
   // ── Month / quick-date selection (shared with the hub DTR view) ────────────
@@ -436,28 +326,6 @@ const DailyTimeRecordHonorarium = () => {
     applyQuickDateRange(value, setStartDate, setEndDate, setSelectedMonth);
     setRecords([]);
     setEmployeeName('');
-  };
-
-  // ── Date indicator helpers ─────────────────────────────────────────────────
-  const isDateInRange = (date, s, e) => {
-    if (!date) return false;
-    const d = toPhCalendarYmd(date);
-    const st = s ? toPhCalendarYmd(s) : null;
-    const en = e ? toPhCalendarYmd(e) : null;
-    if (st && en) return d >= st && d <= en;
-    if (st) return d >= st;
-    if (en) return d <= en;
-    return false;
-  };
-
-  const getDateIndicator = (dateString) => {
-    if (!dateString) return null;
-    const date = toPhCalendarYmd(dateString);
-    const susp = suspensions.find((s) => isDateInRange(date, s.date_start || s.date, s.date_end || s.date));
-    if (susp) return { type: 'suspension', label: 'SUSPENSION', bgColor: 'rgba(211,47,47,0.2)', textColor: '#000', borderColor: '#d32f2f' };
-    const hol = holidays.find((h) => isDateInRange(date, h.date_start || h.date, h.date_end || h.date));
-    if (hol) return { type: 'holiday', label: 'HOLIDAY', bgColor: 'rgba(237,108,2,0.25)', textColor: '#000', borderColor: '#ed6c02' };
-    return null;
   };
 
   // ── Access guard ───────────────────────────────────────────────────────────
@@ -486,192 +354,6 @@ const DailyTimeRecordHonorarium = () => {
     return 'Processing…';
   })();
 
-  // ── DTR table header ───────────────────────────────────────────────────────
-  const renderHeader = () => {
-    const fs = '10px';
-    return (
-      <thead style={{ textAlign: 'center' }}>
-        <tr>
-          <td colSpan="7" style={{ position: 'relative', padding: '25px 10px 0px 10px', textAlign: 'center' }}>
-            <div style={{ fontWeight: 'bold', fontSize: '11px', fontFamily: 'Arial,"Times New Roman",serif', color: 'black', marginBottom: '2px' }}>Republic of the Philippines</div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '3px' }}>
-              <img src={earistLogo} alt="Logo" width="50" height="50" style={{ position: 'absolute', left: '10px' }} />
-              <p style={{ margin: '0', fontSize: '11.5px', fontWeight: 'bold', textAlign: 'center', fontFamily: 'Arial,"Times New Roman",serif', lineHeight: '1.2' }}>
-                EULOGIO "AMANG" RODRIGUEZ <br /> INSTITUTE OF SCIENCE &amp; TECHNOLOGY
-              </p>
-            </div>
-          </td>
-        </tr>
-        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '0px 5px 2px 5px' }}><p style={{ fontSize: '11px', fontWeight: 'bold', margin: '0', fontFamily: 'Arial,serif' }}>Nagtahan, Sampaloc Manila</p></td></tr>
-        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px' }}><p style={{ fontSize: '8px', fontWeight: 'bold', margin: '0', fontFamily: 'Arial,serif' }}>Civil Service Form No. 48</p></td></tr>
-        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2px 5px', lineHeight: '1.2' }}><h4 style={{ fontFamily: 'Times New Roman,serif', textAlign: 'center', margin: '2px 0', fontWeight: 'bold', fontSize: '16px' }}>DAILY TIME RECORD - HONORARIUM</h4></td></tr>
-        <tr>
-          <td colSpan="7" style={{ paddingTop: '10px', paddingBottom: '5px', lineHeight: '1.1', verticalAlign: 'top', textAlign: 'center' }}>
-            <div style={{ margin: '0 auto', fontFamily: 'Arial,serif', width: '100%', maxWidth: '400px', position: 'relative' }}>
-              <div style={{ borderBottom: '2px solid black', width: '100%', margin: '2px 0 3px 0' }} />
-              <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', whiteSpace: 'nowrap', textAlign: 'center', fontFamily: 'Times New Roman', overflow: 'hidden', textOverflow: 'ellipsis' }}>{employeeName || ''}</div>
-              <div style={{ borderBottom: '2px solid black', width: '100%', margin: '2px 0 3px 0' }} />
-              <div style={{ fontSize: '9px', textAlign: 'center', fontFamily: 'Times New Roman' }}>NAME</div>
-            </div>
-          </td>
-        </tr>
-        <tr><td colSpan="7" style={{ padding: '2px 5px', lineHeight: '1.1', textAlign: 'left' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: '5px', fontFamily: 'Times New Roman,serif', fontSize: '10px' }}>
-            <span style={{ marginRight: '6px' }}>Covered Dates:</span>
-            <div style={{ minWidth: '220px', flexGrow: 1 }}><div style={{ fontWeight: 'bold', textAlign: 'left', fontSize: '10px', fontFamily: 'Times New Roman,serif' }}>{formattedStartDate} - {formattedEndDate}</div></div>
-          </div>
-        </td></tr>
-        <tr><td colSpan="7" style={{ padding: '2px 5px', lineHeight: '1.2', textAlign: 'left' }}><p style={{ fontSize: '11px', margin: '0', paddingLeft: '5px', fontFamily: 'Times New Roman,serif' }}>For the month of: <b>{startDate ? formatMonth(startDate) : ''}</b></p></td></tr>
-        <tr><td colSpan="7" style={{ padding: '8px 5px 2px 5px', textAlign: 'left', fontSize: '10px', fontFamily: 'Arial,serif', lineHeight: '1.2' }}>Official hours for honorarium (arrival and departure)</td></tr>
-        <tr><td colSpan="7" style={{ padding: '2px 5px' }}><div style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: '5%', height: '14px', fontFamily: 'Arial,serif', fontSize: '10px' }}><span style={{ marginRight: '5px' }}>Regular Days:</span><span style={{ display: 'inline-block', borderBottom: '1.5px solid black', flexGrow: 1, minWidth: '300px', marginBottom: '2px' }}></span></div></td></tr>
-        {Array.from({ length: 2 }, (_, i) => <tr key={`e2${i}`}><td colSpan="7"></td></tr>)}
-        <tr><td colSpan="7" style={{ padding: '2px 5px' }}><div style={{ display: 'flex', alignItems: 'flex-end', paddingLeft: '5%', height: '20px', fontFamily: 'Arial,serif', fontSize: '10px', whiteSpace: 'nowrap' }}><span style={{ marginRight: '5px' }}>Saturdays:</span><span style={{ display: 'inline-block', borderBottom: '1.5px solid black', flexGrow: 1, minWidth: '318px', marginBottom: '2px' }}></span></div></td></tr>
-        {Array.from({ length: 2 }, (_, i) => <tr key={`e3${i}`}><td colSpan="7"></td></tr>)}
-        <tr>
-          <th rowSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>DAY</th>
-          <th colSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>A.M.</th>
-          <th colSpan="2" style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>P.M.</th>
-          <th style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>Late</th>
-          <th style={{ border: '1px solid black', fontFamily: 'Arial,serif', fontSize: fs }}>Undertime</th>
-        </tr>
-        <tr style={{ textAlign: 'center' }}>
-          {['Arrival','Departure','Arrival','Departure','Min','Min'].map((label, i) => (
-            <td key={i} style={{ border: '1px solid black', fontSize: '9px', fontFamily: 'Arial,serif', whiteSpace: 'nowrap' }}>{label}</td>
-          ))}
-        </tr>
-      </thead>
-    );
-  };
-
-  const cellStyle = {
-    border: '1px solid black', textAlign: 'center', padding: '0 1px',
-    fontFamily: 'Arial,serif', fontSize: '10px', height: '16px',
-    whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '52px', letterSpacing: '-0.3px',
-  };
-
-  const daysInSelectedMonth = (() => {
-    if (selectedMonth == null || !Number.isFinite(selectedYear)) return 31;
-    return new Date(selectedYear, selectedMonth + 1, 0).getDate();
-  })();
-
-  const dtrRawEmpty = (v) => v == null || (typeof v === 'string' && v.trim() === '');
-
-  const dtrWmSpanStyle = {
-    fontSize: '8.5px',
-    fontWeight: 700,
-    fontFamily: 'Arial, "Times New Roman", serif',
-    color: 'rgba(0,0,0,0.48)',
-    letterSpacing: '0.05em',
-    whiteSpace: 'nowrap',
-    userSelect: 'none',
-    lineHeight: 1,
-    WebkitPrintColorAdjust: 'exact',
-    printColorAdjust: 'exact',
-  };
-
-  const renderDtrAmPmWatermarkCell = (rawVal, displayText, rowTint, indicator, colKey) => {
-    const showWm = Boolean(indicator && dtrRawEmpty(rawVal));
-    return (
-      <td
-        key={colKey}
-        style={{
-          ...cellStyle,
-          backgroundColor: rowTint,
-          position: 'relative',
-          verticalAlign: 'middle',
-          overflow: 'visible',
-          WebkitPrintColorAdjust: 'exact',
-          printColorAdjust: 'exact',
-        }}
-      >
-        {showWm && (
-          <div
-            className="dtr-cell-watermark"
-            aria-hidden
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              right: 0,
-              bottom: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          >
-            <span style={dtrWmSpanStyle}>{indicator.label}</span>
-          </div>
-        )}
-        <span style={{ position: 'relative', zIndex: 1 }}>{displayText}</span>
-      </td>
-    );
-  };
-
-  const renderTableRows = () =>
-    Array.from({ length: daysInSelectedMonth }, (_, i) => {
-      const day = (i + 1).toString().padStart(2, '0');
-      const record = records.find((r) => r.date && recordMatchesDay(r, day));
-      let fullDate = null;
-      if (record?.date) { fullDate = toPhCalendarYmd(record.date); }
-      else if (startDate) { const [y, m] = startDate.split('-'); fullDate = `${y}-${m}-${day}`; }
-      else if (selectedMonth !== null) { const mn = String(selectedMonth + 1).padStart(2, '0'); fullDate = `${selectedYear}-${mn}-${day}`; }
-      const indicator = getDateIndicator(fullDate);
-      const rowTint = indicator ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)') : 'transparent';
-
-      return (
-        <tr key={i}>
-          <td style={{ ...cellStyle, backgroundColor: rowTint, position: 'relative', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-            <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
-          </td>
-          {renderDtrAmPmWatermarkCell(record?.specialTimeIN, formatTime(record?.specialTimeIN || ''), rowTint, indicator, `h-${i}-0`)}
-          {renderDtrAmPmWatermarkCell(null, '', rowTint, indicator, `h-${i}-1`)}
-          {renderDtrAmPmWatermarkCell(null, '', rowTint, indicator, `h-${i}-2`)}
-          {renderDtrAmPmWatermarkCell(record?.specialTimeOUT, formatTime(record?.specialTimeOUT || ''), rowTint, indicator, `h-${i}-3`)}
-          <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{record?.hours || ''}</span></td>
-          <td style={{ ...cellStyle, backgroundColor: rowTint, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}><span>{record?.minutes || ''}</span></td>
-        </tr>
-      );
-    });
-
-  const renderTableFooter = () => (
-    <tr>
-      <td colSpan="7" style={{ padding: '10px 5px' }}>
-        <hr style={{ borderTop: '2px solid black', width: '100%' }} />
-        <p style={{ textAlign: 'justify', fontSize: '9px', lineHeight: '1.4', fontFamily: 'Times New Roman,serif', margin: '5px 0' }}>
-          I CERTIFY on my honor that the above is a true and correct report<br />of the hours of work performed, record of which was made daily at<br />the time of arrival and at the time of departure from office.
-        </p>
-        <div style={{ width: '50%', marginLeft: 'auto', textAlign: 'center', marginTop: '40px' }}>
-          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-          <p style={{ fontSize: '9px', fontFamily: 'Arial,serif', margin: '5px 0 0 0' }}>Signature</p>
-        </div>
-        <div style={{ width: '100%', marginTop: '15px' }}>
-          <hr style={{ borderTop: '1px solid black', width: '100%', margin: 0 }} />
-          <hr style={{ borderTop: '1.5px solid black', width: '100%', margin: '2px 0 0 0' }} />
-          <p style={{ paddingLeft: '30px', fontSize: '9px', fontFamily: 'Arial,serif', margin: '5px 0 0 0' }}>Verified as to prescribed office hours.</p>
-        </div>
-        <div style={{ width: '80%', marginLeft: 'auto', marginTop: '15px', textAlign: 'center' }}>
-          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
-          <p style={{ fontSize: '9px', fontFamily: 'Times New Roman,serif', margin: '2px 0 0 0' }}>In-Charge</p>
-          <p style={{ fontSize: '9px', fontFamily: 'Arial,serif', margin: '0' }}>(Signature Over Printed Name)</p>
-        </div>
-      </td>
-    </tr>
-  );
-
-  const colgroup = (
-    <colgroup>
-      <col style={{ width: '8%' }} />
-      <col style={{ width: '16%' }} />
-      <col style={{ width: '16%' }} />
-      <col style={{ width: '16%' }} />
-      <col style={{ width: '16%' }} />
-      <col style={{ width: '14%' }} />
-      <col style={{ width: '14%' }} />
-    </colgroup>
-  );
-
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
@@ -699,30 +381,7 @@ const DailyTimeRecordHonorarium = () => {
       {!accessLoading && !pageLoading && (
         <Fade in timeout={500}>
           <Box>
-            <style>{`
-              html { overflow-y: scroll; }
-              .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;max-width:none!important;}
-              .dtr-time-cell{white-space:nowrap!important;word-break:keep-all!important;}
-              table{table-layout:auto!important;}
-              @page{size:A4;margin:0;}
-              @media print{
-                .no-print{display:none!important;}
-                .header,.top-banner,.page-banner,header,footer,.MuiDrawer-root,.MuiAppBar-root{display:none!important;}
-                html,body{width:21cm;height:29.7cm;margin:0;padding:0;background:white;}
-                .MuiContainer-root{max-width:100%!important;width:21cm!important;margin:0 auto!important;padding:0!important;display:flex!important;justify-content:center!important;align-items:center!important;background:white!important;}
-                .MuiPaper-root,.MuiBox-root,.MuiCard-root{background:transparent!important;box-shadow:none!important;margin:0!important;}
-                .table-container{width:100%!important;height:auto!important;margin:0 auto!important;padding:0!important;display:block!important;background:transparent!important;}
-                .table-wrapper{width:100%!important;height:auto!important;margin:0!important;padding:0!important;display:flex!important;justify-content:center!important;align-items:flex-start!important;box-sizing:border-box!important;}
-                .table-side-by-side{display:flex!important;flex-direction:row!important;gap:1.5%!important;width:100%!important;height:auto!important;}
-                .table-side-by-side table{width:47%!important;border:1px solid black!important;border-collapse:collapse!important;background:white!important;}
-                table td,table th{background:white!important;font-family:Arial,"Times New Roman",serif!important;position:relative!important;overflow:visible!important;}
-                table thead div,table thead p,table thead h4{font-family:Arial,"Times New Roman",serif!important;}
-                table td div{position:relative!important;}
-                table{page-break-inside:avoid!important;table-layout:fixed!important;}
-                .dtr-responsive-header,.dtr-responsive-cell,.dtr-time-cell{width:auto!important;white-space:nowrap!important;word-break:keep-all!important;}
-                table tbody tr:last-child td{padding-bottom:20px!important;}
-              }
-            `}</style>
+            <DTRPrintStyles />
 
             <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
               {/* ── Page Header — unified with the hub (Faculty) DTR view ── */}
@@ -1272,6 +931,7 @@ const DailyTimeRecordHonorarium = () => {
                       ) : (
                         <Fade in timeout={250}>
                           <Box
+                            className="dtr-print-area"
                             sx={{
                               bgcolor: '#f4f0f0',
                               p: 2.5,
@@ -1295,36 +955,21 @@ const DailyTimeRecordHonorarium = () => {
                               <Box sx={{ overflowX: 'auto' }}>
                                 <div className="table-container" ref={dtrRef}>
                                   <div className="table-wrapper">
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        gap: '2%',
-                                        width: DTR_WIDTH_IN,
-                                        minWidth: '8.5in',
-                                        margin: '0 auto',
-                                        backgroundColor: 'white',
-                                      }}
-                                      className="table-side-by-side"
-                                    >
-                                      {[0, 1].map((tableIdx) => (
-                                        <table
-                                          key={tableIdx}
-                                          style={{
-                                            border: '1px solid black',
-                                            borderCollapse: 'collapse',
-                                            width: '49%',
-                                            tableLayout: 'fixed',
-                                          }}
-                                        >
-                                          {colgroup}
-                                          {renderHeader()}
-                                          <tbody>
-                                            {renderTableRows()}
-                                            {renderTableFooter()}
-                                          </tbody>
-                                        </table>
-                                      ))}
-                                    </div>
+                                    <DTRTemplate
+                                      employeeName={employeeName}
+                                      records={records}
+                                      officialTime={officialTimes}
+                                      startDate={startDate}
+                                      endDate={endDate}
+                                      selectedYear={selectedYear}
+                                      selectedMonth={selectedMonth}
+                                      holidays={holidays}
+                                      suspensions={suspensions}
+                                      approvedLeaves={approvedLeaves}
+                                      formatTime={formatTime}
+                                      keyPrefix="screen"
+                                      dtrType="honorarium"
+                                    />
                                   </div>
                                 </div>
                               </Box>
