@@ -153,10 +153,31 @@ async function resolveCanonicalEmployeeNumber(employeeNumber) {
 /**
 
  * Load supervisor_assignment rows for an employee (tries canonical + raw id).
-
+ *
+ * [CHANGE] Accepts an options object with `includeExpired`. By default
+ * (includeExpired = false) this behaves EXACTLY as before — only rows with
+ * status = 0 (active) are returned, so every existing caller (leave
+ * approval routing, page-access granting, transaction logs, etc.) keeps
+ * requiring a live assignment with no behavior change.
+ *
+ * When a caller explicitly opts in with { includeExpired: true } — used
+ * only by the read-only "department employee list" endpoint for Official
+ * Time / DTR supervisor views — expired (status = 1) assignment rows are
+ * also returned, so a supervisor whose window has lapsed can still see
+ * (but, per separate route-level guards, not edit) their former
+ * department's employees. Each returned department also now carries an
+ * `active` flag (derived from `status`) so the frontend can distinguish
+ * "was assigned, now expired" from "currently active" if needed.
+ *
+ * NOTE ON SQL SAFETY: `statusClause`/`baseSql`/`activeOnlySql` below are
+ * built ONLY from a fixed boolean flag and hardcoded string literals never
+ * derived from request input. The employee number itself is never
+ * concatenated into the SQL string — it is always passed as a bound `?`
+ * parameter via bindEmpMatchParams()/queryAsync(sql, params). This function
+ * is not susceptible to SQL injection through any of its inputs.
  */
 
-async function fetchSupervisorDepartments(employeeNumber) {
+async function fetchSupervisorDepartments(employeeNumber, { includeExpired = false } = {}) {
   const emp = String(employeeNumber || "").trim();
 
   if (!emp) return { supervisorEmployeeNumber: null, departments: [] };
@@ -165,15 +186,21 @@ async function fetchSupervisorDepartments(employeeNumber) {
 
   const candidates = [...new Set([canonical, emp].filter(Boolean))];
 
+  // Two fully-formed, hardcoded SQL strings — no interpolation of
+  // request-derived values into the query text itself.
+  const baseSql = `SELECT sa.departmentCode, sa.role, sa.status, dt.description AS departmentDescription
+
+     FROM supervisor_assignment sa
+
+     LEFT JOIN department_table dt ON dt.code = sa.departmentCode
+
+     WHERE ${empMatchSql("sa.supervisorEmployeeNumber")}`;
+
+  const activeOnlySql = `${baseSql} AND sa.status = 0`;
+
   for (const candidate of candidates) {
     const rows = await queryAsync(
-      `SELECT sa.departmentCode, sa.role, dt.description AS departmentDescription
-
-       FROM supervisor_assignment sa
-
-       LEFT JOIN department_table dt ON dt.code = sa.departmentCode
-
-       WHERE ${empMatchSql("sa.supervisorEmployeeNumber")} AND sa.status = 0`,
+      includeExpired ? baseSql : activeOnlySql,
 
       bindEmpMatchParams(candidate),
     );
@@ -188,6 +215,10 @@ async function fetchSupervisorDepartments(employeeNumber) {
           description: r.departmentDescription || r.departmentCode,
 
           role: r.role,
+
+          // [CHANGE] Lets callers (e.g. frontend) tell active vs. expired
+          // assignments apart when includeExpired was used.
+          active: Number(r.status) === 0,
         })),
       };
     }
