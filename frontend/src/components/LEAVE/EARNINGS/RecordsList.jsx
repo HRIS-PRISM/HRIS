@@ -155,7 +155,7 @@ const STATUS_FILTER_OPTIONS = [
   { value: "all", label: "All", color: "#555" },
   { value: "pending", label: "Pending", color: "#7a4a00" },
   { value: "approved", label: "Approved", color: "#1e4d20" },
-  { value: "rejected", label: "Rejected", color: "#6b1a1a" },
+  { value: "rejected", label: "Canceled", color: "#6b1a1a" },
   { value: "voided", label: "Voided", color: "#5f6368" },
 ];
 
@@ -1256,7 +1256,7 @@ const EarningRow = ({
                     textTransform: "uppercase",
                   }}
                 >
-                  Reject
+                  Cancel
                 </Typography>
               </Box>
             </Box>

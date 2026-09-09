@@ -323,17 +323,6 @@ const useSystemSettings = () => {
   return settings;
 };
 
-const getEmploymentCategoryInfo = (category, customCategory) => {
-  switch (parseInt(category)) {
-    case 0: return { label: "JO - Graduate",         color: "#F57C00", bgcolor: alpha("#F57C00", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 1: return { label: "JO - UnderGrad",         color: "#E64A19", bgcolor: alpha("#E64A19", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 2: return { label: "Regular - Non-Teaching", color: "#2E7D32", bgcolor: alpha("#2E7D32", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 3: return { label: "Teaching (30Hrs)",        color: "#1565C0", bgcolor: alpha("#1565C0", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 4: return { label: "Designated (40Hrs)",      color: "#7B1FA2", bgcolor: alpha("#7B1FA2", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    case 5: return { label: customCategory ? `Other (${String(customCategory).trim()})` : "Other (specify)", color: "#455A64", bgcolor: alpha("#455A64", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-    default: return { label: "Not Set", color: "#757575", bgcolor: alpha("#757575", 0.1), icon: <Circle sx={{ fontSize: 12 }} /> };
-  }
-};
 
 const getCategoryDisplayFromMap = (empCatEntry) => {
   if (!empCatEntry) return null;
@@ -1319,12 +1308,37 @@ const UsersList = () => {
   const getInitials = (n) => { if (!n) return "U"; const parts = n.trim().split(" ").filter(Boolean); if (parts.length === 1) return parts[0][0].toUpperCase(); return (parts[0][0] + parts[1][0]).toUpperCase(); };
 
   const resolveCategoryDisplay = useCallback((user) => {
-    const dynamicEntry = empCatMap[String(user.employeeNumber)];
-    if (dynamicEntry) {
-      return getCategoryDisplayFromMap(dynamicEntry);
+  const dynamicEntry = empCatMap[String(user.employeeNumber)];
+  if (dynamicEntry) return getCategoryDisplayFromMap(dynamicEntry);
+
+  // Fallback: no employment_category row for this employee. Look up the
+  // SAME id space against the SAME source of truth (typeConfigs) instead
+  // of a hardcoded legacy 0-5 switch.
+  const fallbackId = user.employmentCategory;
+  if (fallbackId !== null && fallbackId !== undefined && fallbackId !== "") {
+    const cfg = typeConfigs.find((t) => String(t.id) === String(fallbackId));
+    if (cfg) {
+      const label =
+        cfg.parentGroup && cfg.typeName
+          ? `${cfg.parentGroup} | ${cfg.typeName}`
+          : cfg.typeName || cfg.parentGroup || "Not Set";
+      const color = cfg.colorHex || "#757575";
+      return {
+        label,
+        color,
+        bgcolor: alpha(color, 0.1),
+        icon: <Circle sx={{ fontSize: 12 }} />,
+      };
     }
-    return getEmploymentCategoryInfo(user.employmentCategory, user.customCategory || user.custom_category);
-  }, [empCatMap]);
+  }
+
+  return {
+    label: "Not Set",
+    color: "#757575",
+    bgcolor: alpha("#757575", 0.1),
+    icon: <Circle sx={{ fontSize: 12 }} />,
+  };
+}, [empCatMap, typeConfigs]);
 
   const groupedTypeConfigs = useMemo(() => {
     const g = {};
