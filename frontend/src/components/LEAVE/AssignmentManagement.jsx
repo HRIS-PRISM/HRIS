@@ -220,6 +220,7 @@ const FloatingConversionWidget = () => {
   const [lcAbs,     setLcAbs]     = useState(0);
 
   useEffect(() => {
+    if (!open || ratesLoaded) return;
     (async () => {
       try {
         const [whRes, lcRes] = await Promise.allSettled([
@@ -251,7 +252,7 @@ const FloatingConversionWidget = () => {
       } catch { /* keep defaults */ }
       setRatesLoaded(true);
     })();
-  }, []);
+  }, [open, ratesLoaded]);
 
   const activeHoursTable = whDayType === "6hr" ? hours6Table : hours8Table;
 

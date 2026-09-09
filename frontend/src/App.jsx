@@ -134,6 +134,7 @@ import LeaveDatePickerModal from "./components/LEAVE/LeaveDatePicker";
 import LeaveAssignment from "./components/LEAVE/LeaveAssignment";
 import LeaveCredits from "./components/LEAVE/LeaveCredits";
 import Leave from "./components/FORMS/Leave";
+import LeaveBack from "./components/FORMS/LeaveBack";
 import LeaveCommutation from "./components/LEAVE/LeaveCommutation";
 import ServiceCredits from "./components/LEAVE/ServiceCredits";
 import LeaveRequestSupervisor from "./components/LEAVE/LeaveRequestSupervisor";
@@ -154,6 +155,7 @@ import AssignmentManagement from "./components/LEAVE/AssignmentManagement";
 import EarningsManagement from "./components/LEAVE/EarningsManagement";
 
 import RecordsPanel from "./components/LEAVE/RecordsPanel";
+import OfficialTimeFormSupervisor from "./components/ATTENDANCE/OfficialTimeFormSupervisor";
 import { adminPage, allUserPage, superTechPage, technicalPage, ADMIN_ROUTE_ROLES } from "./utils/gatedRoutes";
 
 
@@ -1170,6 +1172,16 @@ function App() {
               }
             />
             <Route
+              path="/official_time_supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
+                >
+                  <OfficialTimeFormSupervisor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/pds-templates"
               element={
                 <ProtectedRoute
@@ -1420,6 +1432,10 @@ function App() {
             <Route
               path="/leave-form"
               element={adminPage(Leave, 'leave-form', 'You do not have permission to access Leave forms.')}
+            />
+            <Route
+              path="/leave-back"
+              element={adminPage(LeaveBack, 'leave-back', 'You do not have permission to access Leave forms.')}
             />
             <Route
               path="/locator-slip"
@@ -2076,57 +2092,59 @@ function App() {
         </Dialog>
       </Box>
 
-      <Box
-        component="footer"
-        sx={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          width: "100%",
-          zIndex: (theme) => theme.zIndex.drawer + 1,
-          bgcolor: systemSettings.secondaryColor,
-          color: systemSettings.textColor,
-          py: 1.5,
-          px: 2,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          minHeight: "45px",
-          boxSizing: "border-box",
-        }}
-      >
-        <Box sx={{ width: "50px" }} />
-
-        <Typography
-          sx={{ fontWeight: "bold", textAlign: "center", flexGrow: 1 }}
+      {location.pathname !== "/leave-back" && (
+        <Box
+          component="footer"
+          sx={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            width: "100%",
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            bgcolor: systemSettings.secondaryColor,
+            color: systemSettings.textColor,
+            py: 1.5,
+            px: 2,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            minHeight: "45px",
+            boxSizing: "border-box",
+          }}
         >
-          {systemSettings.footerText}
-        </Typography>
+          <Box sx={{ width: "50px" }} />
 
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <IconButton
-            onClick={() => {
-              window.location.href = "/settings?tab=contactus";
-            }}
-            color="inherit"
-            size="small"
-            title="Contact Us"
+          <Typography
+            sx={{ fontWeight: "bold", textAlign: "center", flexGrow: 1 }}
           >
-            <ContactSupport fontSize="small" />
-          </IconButton>
-          <IconButton
-            component="a"
-            href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            color="inherit"
-            size="small"
-            title="Email Admin"
-          >
-            <Email fontSize="small" />
-          </IconButton>
+            {systemSettings.footerText}
+          </Typography>
+
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <IconButton
+              onClick={() => {
+                window.location.href = "/settings?tab=contactus";
+              }}
+              color="inherit"
+              size="small"
+              title="Contact Us"
+            >
+              <ContactSupport fontSize="small" />
+            </IconButton>
+            <IconButton
+              component="a"
+              href={`https://mail.google.com/mail/?view=cm&fs=1&to=${systemSettings.adminEmail}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              color="inherit"
+              size="small"
+              title="Email Admin"
+            >
+              <Email fontSize="small" />
+            </IconButton>
+          </Box>
         </Box>
-      </Box>
+      )}
     </ThemeProvider>
   );
 }

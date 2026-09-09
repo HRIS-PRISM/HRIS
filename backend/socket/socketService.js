@@ -165,6 +165,21 @@ function notifyCollegeTableChanged(action, data) {
 }
 
 /**
+ * Supervisor assignment realtime notifier
+ * Frontend pattern: listen to 'supervisorAssignmentChanged' then re-fetch.
+ *
+ * @param {'created'|'updated'|'deleted'} action
+ * @param {object} data - { id, supervisorEmployeeNumber, departmentCode }
+ */
+function notifySupervisorAssignmentChanged(action, data) {
+  broadcastToRoles(
+    ['staff', 'administrator', 'superadmin', 'technical'],
+    'supervisorAssignmentChanged',
+    { action, ...data },
+  );
+}
+
+/**
  * Personal Info realtime notifier (Option A pattern)
  * Called by personal info routes after DB changes.
  *
@@ -250,21 +265,52 @@ function notifyLearningChanged(action, data) {
   );
 }
 
+/** Read-only / noise actions that must not trigger campus-wide refetches. */
+const ATTENDANCE_SILENT_ACTIONS = new Set([
+  'leaves-fetched',
+  'holidays-fetched',
+  'suspensions-fetched',
+]);
+
+/** Actions that only affect print status UI — still emit, but mark as light. */
+const ATTENDANCE_LIGHT_ACTIONS = new Set([
+  'dtr-printed',
+]);
+
+let lastBulkAttendanceEmitAt = 0;
+const BULK_ATTENDANCE_DEBOUNCE_MS = 2000;
+
 /**
  * Attendance realtime notifier
  * Called by attendance routes after DB changes.
  *
- * Frontend pattern: listen to 'attendanceChanged' then re-fetch.
+ * Frontend pattern: listen to 'attendanceChanged' then re-fetch (filtered).
  *
- * @param {'created'|'updated'|'deleted'|'auto-sync'|'bulk-auto-sync'|'dtr-printed'|'overall-created'|'overall-updated'|'overall-deleted'} action
+ * @param {string} action
  * @param {object} data - event payload (keep lightweight)
+ * @returns {boolean} whether an event was emitted
  */
-function notifyAttendanceChanged(action, data) {
+function notifyAttendanceChanged(action, data = {}) {
+  if (ATTENDANCE_SILENT_ACTIONS.has(action)) {
+    return false;
+  }
+
+  // Debounce identical bulk storms (many tabs finishing sync at once)
+  if (action === 'bulk-auto-sync' || action === 'auto-sync') {
+    const now = Date.now();
+    if (now - lastBulkAttendanceEmitAt < BULK_ATTENDANCE_DEBOUNCE_MS) {
+      return false;
+    }
+    lastBulkAttendanceEmitAt = now;
+  }
+
+  const light = ATTENDANCE_LIGHT_ACTIONS.has(action);
   broadcastToRoles(
     ['staff', 'administrator', 'superadmin', 'technical'],
     'attendanceChanged',
-    { action, ...data },
+    { action, light, ...data },
   );
+  return true;
 }
 
 /**
@@ -423,4 +469,5 @@ module.exports = {
   notifyAnnouncementChanged,
   broadcastNewAuditLog,
   notifyContactThreadChanged,
+  notifySupervisorAssignmentChanged,
 };

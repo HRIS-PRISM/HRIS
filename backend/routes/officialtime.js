@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QA FIXES APPLIED (see previous revision history for #1–#22)
@@ -28,29 +28,29 @@ let express,
   upload,
   xlsx,
   fs,
-  fillExemptAttendance;
+  fillExemptAttendance,
+  notifyAttendanceChanged;
 try {
-  express = require('express');
+  express = require("express");
   router = express.Router();
-  db = require('../db');
-  ({ authenticateToken, logAudit } = require('../middleware/auth'));
-  ({ upload } = require('../middleware/upload'));
-  ({ fillExemptAttendance } = require('../services/autoAttendanceService'));
-  xlsx = require('xlsx');
-  fs = require('fs');
+  db = require("../db");
+  ({ authenticateToken, logAudit } = require("../middleware/auth"));
+  ({ upload } = require("../middleware/upload"));
+  ({ fillExemptAttendance } = require("../services/autoAttendanceService"));
+  ({ notifyAttendanceChanged } = require("../socket/socketService"));
+  xlsx = require("xlsx");
+  fs = require("fs");
 } catch (depErr) {
   console.error(
-    '[officialtime] FATAL: Failed to load dependency —',
+    "[officialtime] FATAL: Failed to load dependency —",
     depErr.message,
   );
   // Export a dummy router that always returns 503 so the server stays alive
-  const fallback = require('express').Router();
+  const fallback = require("express").Router();
   fallback.use((req, res) =>
-    res
-      .status(503)
-      .json({
-        error: 'Official Time module failed to load. Check server logs.',
-      }),
+    res.status(503).json({
+      error: "Official Time module failed to load. Check server logs.",
+    }),
   );
   module.exports = fallback;
   return;
@@ -59,13 +59,13 @@ try {
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // #15: 10 MB hard cap
 const DAYS_ORDER = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
 ];
 const VALID_TIME_RE = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i; // #10: strict time format
 
@@ -73,13 +73,197 @@ const VALID_TIME_RE = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i; // #10: strict time fo
 // PURE UTILITIES
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PURE UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
 function toDateOnlyString(val) {
-  if (val == null || val === '') return val;
-  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val))
-    return val.split('T')[0];
+  if (val == null || val === "") return val;
+  if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}/.test(val))
+    return val.split("T")[0];
   const d = new Date(val);
   if (Number.isNaN(d.getTime())) return val;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Parses any DB/JS date value into a real Date object (or null).
+// Used for ACTUAL comparisons — never truncates time.
+function toDateTime(val) {
+  if (val == null || val === "") return null;
+  const d = val instanceof Date ? val : new Date(val);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function getActiveSupervisorAssignmentId(user) {
+  const employeeNumber = user?.employeeNumber || user?.employeeID || user?.id;
+  if (!employeeNumber) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    db.query(
+      `SELECT id
+       FROM supervisor_assignment
+       WHERE TRIM(CAST(supervisorEmployeeNumber AS CHAR)) = TRIM(CAST(? AS CHAR))
+         AND status = 0
+       ORDER BY COALESCE(updatedAt, createdAt) DESC, id DESC
+       LIMIT 1`,
+      [employeeNumber],
+      (err, rows) => {
+        if (err) {
+          console.error("supervisor assignment lookup error:", err.message);
+          return resolve(null);
+        }
+        resolve(rows?.[0]?.id ?? null);
+      },
+    );
+  });
+}
+
+async function saveSupervisorOfficialTimeSnapshot({ user, employeeID, startDate, endDate }) {
+  const supervisorAssignmentId = await getActiveSupervisorAssignmentId(user);
+  if (supervisorAssignmentId == null) {
+    return {
+      saved: false,
+      reason: "No supervisor assignment covers the current Manila time.",
+    };
+  }
+
+  const rows = await queryAsync(
+    db,
+    `SELECT *
+     FROM officialtime
+     WHERE employeeID = ? AND startDate = ? AND endDate = ?
+     ORDER BY id ASC`,
+    [employeeID, startDate, endDate],
+  );
+  if (!rows?.length) {
+    return {
+      saved: false,
+      supervisorAssignmentId,
+      reason: `No official-time rows matched ${employeeID} for ${startDate} to ${endDate}.`,
+    };
+  }
+
+  await queryAsync(
+    db,
+    `INSERT INTO officialtime_history
+       (employeeID, supervisor_assignment_id, startDate, endDate, snapshot_data)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      employeeID,
+      supervisorAssignmentId,
+      startDate,
+      endDate,
+      JSON.stringify(rows),
+    ],
+  );
+
+  return {
+    saved: true,
+    supervisorAssignmentId,
+    rowCount: rows.length,
+  };
+}
+
+// Formats a Date/DB value as "YYYY-MM-DD hh:mm AM/PM" (e.g. "2026-09-30 05:00 PM").
+// This is the display format used in supervisor-assignment messages and API output.
+function formatDateTime12h(val) {
+  const d = toDateTime(val);
+  if (!d) return null;
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const hoursStr = String(hours).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hoursStr}:${minutes} ${ampm}`;
+}
+
+// #28: Resolve the CURRENT supervisor_assignment row for the logged-in user
+// (as a supervisor). "Current" = the row whose start/end actually covers
+// right now (full datetime precision, not just the calendar date). If none
+// covers now, we still return the most recent row so the caller can explain
+// *why* (expired vs. not started yet vs. never assigned).
+function getSupervisorAssignmentStatus(supervisorEmployeeNumber) {
+  return new Promise((resolve, reject) => {
+    if (!supervisorEmployeeNumber)
+      return resolve({ hasAssignment: false, active: false, reason: 'no_employee' });
+
+    db.query(
+      `SELECT departmentCode, role, start, end
+       FROM supervisor_assignment
+       WHERE supervisorEmployeeNumber = ?
+       ORDER BY end DESC`,
+      [supervisorEmployeeNumber],
+      (err, rows) => {
+        if (err) return reject(err);
+        if (!rows || !rows.length)
+          return resolve({ hasAssignment: false, active: false, reason: 'no_assignment' });
+
+        const now = new Date();
+
+        const current = rows.find((r) => {
+          const s = toDateTime(r.start);
+          const e = toDateTime(r.end);
+          return (!s || s <= now) && (!e || e >= now);
+        });
+
+        if (current) {
+          return resolve({
+            hasAssignment: true,
+            active: true,
+            departmentCode: current.departmentCode,
+            role: current.role,
+            start: formatDateTime12h(current.start),
+            end: formatDateTime12h(current.end),
+          });
+        }
+
+        const mostRecent = rows[0]; // rows sorted by end DESC
+        const mostRecentStart = toDateTime(mostRecent.start);
+        const mostRecentEnd = toDateTime(mostRecent.end);
+        resolve({
+          hasAssignment: true,
+          active: false,
+          expired: !!mostRecentEnd && mostRecentEnd < now,
+          notStarted: !!mostRecentStart && mostRecentStart > now,
+          departmentCode: mostRecent.departmentCode,
+          role: mostRecent.role,
+          start: formatDateTime12h(mostRecent.start),
+          end: formatDateTime12h(mostRecent.end),
+        });
+      },
+    );
+  });
+}
+
+// #28: Shared guard for every Excel-upload route. Sends the 403 itself when
+// blocked, so a route handler just does: `if (!status) return;`
+async function ensureActiveSupervisorAssignment(req, res) {
+  const supervisorEmployeeNumber =
+    req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
+  try {
+    const status = await getSupervisorAssignmentStatus(supervisorEmployeeNumber);
+    if (!status.active) {
+      const message = !status.hasAssignment
+        ? 'You do not have a supervisor assignment on record. Uploading Excel schedules is not permitted.'
+        : status.expired
+        ? `Your supervisor assignment for department "${status.departmentCode}" expired on ${status.end}. Please contact an administrator to renew it before uploading.`
+        : status.notStarted
+        ? `Your supervisor assignment for department "${status.departmentCode}" has not started yet (starts ${status.start}). You are not yet authorized to upload.`
+        : 'You are not currently authorized to upload Excel schedules.';
+      res.status(403).json({ message, supervisorAssignment: status });
+      return null;
+    }
+    return status;
+  } catch (err) {
+    res.status(500).json({ message: 'Error checking supervisor assignment.', detail: err.message });
+    return null;
+  }
 }
 
 // #14: Auto-format academic year server-side.
@@ -87,7 +271,7 @@ function autoFormatAcademicYear(raw) {
   if (!raw) return raw;
   const trimmed = String(raw).trim();
   if (/^\d{4}\s*-\s*\d{4}$/.test(trimmed)) {
-    const [startYear, endYear] = trimmed.split('-').map((part) => part.trim());
+    const [startYear, endYear] = trimmed.split("-").map((part) => part.trim());
     return `${startYear}-${endYear}`;
   }
   if (/^\d{4}$/.test(trimmed)) {
@@ -101,12 +285,12 @@ function autoFormatAcademicYear(raw) {
 // #9 & #17: Locale-safe, Lotus-bug-safe date normalisation
 // ─────────────────────────────────────────────────────────────────────────────
 function normDate(val) {
-  if (val == null || val === '') return null;
+  if (val == null || val === "") return null;
 
   // JS Date object — arrives when cellDates:true is used
   if (val instanceof Date) {
     if (Number.isNaN(val.getTime())) return null;
-    return `${val.getUTCFullYear()}-${String(val.getUTCMonth() + 1).padStart(2, '0')}-${String(val.getUTCDate()).padStart(2, '0')}`;
+    return `${val.getUTCFullYear()}-${String(val.getUTCMonth() + 1).padStart(2, "0")}-${String(val.getUTCDate()).padStart(2, "0")}`;
   }
 
   const s = String(val).trim();
@@ -115,7 +299,7 @@ function normDate(val) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
   // ISO with time component
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split("T")[0];
 
   // Excel serial number — use xlsx.SSF.parse_date_code which correctly handles
   // the Lotus 1900 leap-year bug (phantom Feb 29 1900, serial 60)
@@ -124,7 +308,7 @@ function normDate(val) {
     try {
       const parsed = xlsx.SSF.parse_date_code(serial);
       if (parsed && parsed.y && parsed.m && parsed.d) {
-        return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+        return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
       }
     } catch (_) {
       // SSF not available — fall through to manual calculation
@@ -135,7 +319,7 @@ function normDate(val) {
     const ms = excelEpoch.getTime() + corrected * 86400000;
     const d = new Date(ms);
     if (!Number.isNaN(d.getTime())) {
-      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
     }
   }
 
@@ -144,26 +328,26 @@ function normDate(val) {
   if (slashMatch) {
     const [, a, b, y] = slashMatch;
     const month = parseInt(a, 10);
-    const day   = parseInt(b, 10);
+    const day = parseInt(b, 10);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
   }
 
   // Fallback: parse via Date (UTC-safe)
   const d = new Date(val);
   if (Number.isNaN(d.getTime())) return null;
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 // #10: Strict time format validation — returns normalised "HH:MM:SS AM/PM" or null + reason
 function validateAndNormaliseTime(val, fieldName) {
-  if (val == null || val === '') return { value: '00:00:00 AM', valid: true };
+  if (val == null || val === "") return { value: "00:00:00 AM", valid: true };
   const s = String(val).trim();
 
   if (VALID_TIME_RE.test(s)) {
     const parts = s.match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
-    const hh = String(parts[1]).padStart(2, '0');
+    const hh = String(parts[1]).padStart(2, "0");
     return {
       value: `${hh}:${parts[2]}:${parts[3]} ${parts[4].toUpperCase()}`,
       valid: true,
@@ -172,7 +356,7 @@ function validateAndNormaliseTime(val, fieldName) {
 
   const noSec = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (noSec) {
-    const hh = String(noSec[1]).padStart(2, '0');
+    const hh = String(noSec[1]).padStart(2, "0");
     return {
       value: `${hh}:${noSec[2]}:00 ${noSec[3].toUpperCase()}`,
       valid: true,
@@ -184,11 +368,11 @@ function validateAndNormaliseTime(val, fieldName) {
     let hh = parseInt(h24[1], 10);
     const mm = h24[2],
       ss = h24[3];
-    const ap = hh >= 12 ? 'PM' : 'AM';
+    const ap = hh >= 12 ? "PM" : "AM";
     if (hh === 0) hh = 12;
     else if (hh > 12) hh -= 12;
     return {
-      value: `${String(hh).padStart(2, '0')}:${mm}:${ss} ${ap}`,
+      value: `${String(hh).padStart(2, "0")}:${mm}:${ss} ${ap}`,
       valid: true,
     };
   }
@@ -202,9 +386,9 @@ function validateAndNormaliseTime(val, fieldName) {
 
 // #6: Validate breaktime — must be empty, null, or a non-negative integer string
 function validateBreaktime(val) {
-  if (val == null || val === '') return { value: null, valid: true };
+  if (val == null || val === "") return { value: null, valid: true };
   const s = String(val).trim();
-  if (s === '') return { value: null, valid: true };
+  if (s === "") return { value: null, valid: true };
   if (!/^\d+$/.test(s))
     return {
       value: null,
@@ -217,17 +401,17 @@ function validateBreaktime(val) {
 function parseTimeToMinutes(val) {
   if (val == null) return null;
   const s = String(val).trim();
-  if (!s || s === '—') return null;
+  if (!s || s === "—") return null;
   const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
   if (!m) return null;
   let hh = Number(m[1]);
   const mm = Number(m[2]);
-  const ap = (m[4] || '').toUpperCase();
+  const ap = (m[4] || "").toUpperCase();
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
   if (hh < 0 || hh > 12 || mm < 0 || mm > 59) return null;
   if (ap) {
     if (hh === 12) hh = 0;
-    if (ap === 'PM') hh += 12;
+    if (ap === "PM") hh += 12;
   } else {
     if (hh > 23) return null;
   }
@@ -248,24 +432,24 @@ function getSegmentsForDayRow(row) {
   const bo = parseTimeToMinutes(row.officialBreaktimeOUT);
   if (ti != null && to != null) {
     if (bi != null && bo != null) {
-      add('Work time (Time In → Break In)', ti, bi);
-      add('Work time (Break Out → Time Out)', bo, to);
+      add("Work time (Time In → Break In)", ti, bi);
+      add("Work time (Break Out → Time Out)", bo, to);
     } else {
-      add('Work time (Time In → Time Out)', ti, to);
+      add("Work time (Time In → Time Out)", ti, to);
     }
   }
   add(
-    'Honorarium time',
+    "Honorarium time",
     parseTimeToMinutes(row.officialHonorariumTimeIN),
     parseTimeToMinutes(row.officialHonorariumTimeOUT),
   );
   add(
-    'Service Credits time',
+    "Service Credits time",
     parseTimeToMinutes(row.officialServiceCreditTimeIN),
     parseTimeToMinutes(row.officialServiceCreditTimeOUT),
   );
   add(
-    'Overtime time',
+    "Overtime time",
     parseTimeToMinutes(row.officialOverTimeIN),
     parseTimeToMinutes(row.officialOverTimeOUT),
   );
@@ -285,8 +469,8 @@ function findOverlapInSegments(segments) {
 function formatMinutesToTime(mins) {
   const m = Math.max(0, Math.min(1439, Number(mins)));
   const hh24 = Math.floor(m / 60);
-  const mm = String(m % 60).padStart(2, '0');
-  const ap = hh24 >= 12 ? 'PM' : 'AM';
+  const mm = String(m % 60).padStart(2, "0");
+  const ap = hh24 >= 12 ? "PM" : "AM";
   let hh12 = hh24 % 12;
   if (hh12 === 0) hh12 = 12;
   return `${hh12}:${mm} ${ap}`;
@@ -296,7 +480,7 @@ function formatTimeOverlapMessage({ day, employeeID, segA, segB }) {
   const os = Math.max(segA.start, segB.start),
     oe = Math.min(segA.end, segB.end);
   return (
-    `Schedule conflict on ${day || 'Unknown day'} for Employee ${employeeID}:\n` +
+    `Schedule conflict on ${day || "Unknown day"} for Employee ${employeeID}:\n` +
     `${segA.label} overlaps with ${segB.label} between ${formatMinutesToTime(os)} and ${formatMinutesToTime(oe)}.\n` +
     `Overlapping period: ${formatMinutesToTime(os)} – ${formatMinutesToTime(oe)}.\n` +
     `Please revise the schedule to remove the conflict.`
@@ -307,7 +491,7 @@ function buildTimeOverlapPayload({ day, employeeID, segA, segB }) {
   const os = Math.max(segA.start, segB.start),
     oe = Math.min(segA.end, segB.end);
   return {
-    day: day || 'Unknown day',
+    day: day || "Unknown day",
     employeeID: String(employeeID),
     segmentA: { label: segA.label, start: segA.start, end: segA.end },
     segmentB: { label: segB.label, start: segB.start, end: segB.end },
@@ -326,28 +510,28 @@ function buildTimeOverlapPayload({ day, employeeID, segA, segB }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const OFFICIAL_TIME_AUDIT_ROW_FIELDS = [
-  'day',
-  'officialTimeIN',
-  'officialBreaktimeIN',
-  'officialBreaktimeOUT',
-  'officialTimeOUT',
-  'officialHonorariumTimeIN',
-  'officialHonorariumTimeOUT',
-  'officialServiceCreditTimeIN',
-  'officialServiceCreditTimeOUT',
-  'officialOverTimeIN',
-  'officialOverTimeOUT',
-  'breaktime',
-  'status',
-  'startDate',
-  'endDate',
-  'academicYear',
+  "day",
+  "officialTimeIN",
+  "officialBreaktimeIN",
+  "officialBreaktimeOUT",
+  "officialTimeOUT",
+  "officialHonorariumTimeIN",
+  "officialHonorariumTimeOUT",
+  "officialServiceCreditTimeIN",
+  "officialServiceCreditTimeOUT",
+  "officialOverTimeIN",
+  "officialOverTimeOUT",
+  "breaktime",
+  "status",
+  "startDate",
+  "endDate",
+  "academicYear",
 ];
 
 function normalizeAuditValue(val) {
   if (val == null) return null;
   const s = String(val).trim();
-  return s === '' ? null : s;
+  return s === "" ? null : s;
 }
 
 // #11: Truncation is returned so callers can surface it in API response
@@ -372,8 +556,8 @@ function buildOfficialTimeAuditDetails(payload = {}) {
     200,
   );
   return {
-    module: 'officialtime',
-    source: base.source || 'unknown',
+    module: "officialtime",
+    source: base.source || "unknown",
     employeeID:
       base.employeeID == null ? null : String(base.employeeID).trim() || null,
     academicYear: normalizeAuditValue(base.academicYear),
@@ -392,7 +576,7 @@ function normalizeEmployeeList(list) {
   const arr = Array.isArray(list) ? list : [];
   return [
     ...new Set(
-      arr.map((v) => String(v == null ? '' : v).trim()).filter((v) => v !== ''),
+      arr.map((v) => String(v == null ? "" : v).trim()).filter((v) => v !== ""),
     ),
   ];
 }
@@ -403,9 +587,9 @@ function buildOfficialTimeActionAuditDetails(payload = {}) {
     base.affectedEmployeeNumbers,
   );
   return {
-    module: 'officialtime',
-    source: base.source || 'unknown',
-    status: base.status || 'success',
+    module: "officialtime",
+    source: base.source || "unknown",
+    status: base.status || "success",
     employeeID:
       base.employeeID == null ? null : String(base.employeeID).trim() || null,
     affectedEmployeeNumbers,
@@ -464,7 +648,7 @@ function getEmployeeDepartmentMap(employeeIDs) {
       `SELECT da.employeeNumber AS employeeID, dt.description AS department
        FROM department_assignment da
        INNER JOIN department_table dt ON da.code = dt.code
-       WHERE da.employeeNumber IN (${ids.map(() => '?').join(',')})`,
+       WHERE da.employeeNumber IN (${ids.map(() => "?").join(",")})`,
       ids,
       (err, rows) => {
         if (err) return reject(err);
@@ -492,7 +676,7 @@ function getEmployeeCategoryMap(employeeIDs) {
               CONCAT(etc.parentGroup, ' | ', etc.typeName) AS categoryLabel
        FROM employment_category ec
        INNER JOIN employment_type_config etc ON etc.id = ec.employmentCategory
-       WHERE ec.employeeNumber IN (${ids.map(() => '?').join(',')})`,
+       WHERE ec.employeeNumber IN (${ids.map(() => "?").join(",")})`,
       ids,
       (err, rows) => {
         if (err) return reject(err);
@@ -549,7 +733,7 @@ function getActiveSchedulesForEmployees(employeeIDs) {
     if (!ids.length) return resolve(new Map());
     db.query(
       `SELECT DISTINCT employeeID, startDate, endDate FROM officialtime
-       WHERE status = 'active' AND employeeID IN (${ids.map(() => '?').join(',')})`,
+       WHERE status = 'active' AND employeeID IN (${ids.map(() => "?").join(",")})`,
       ids,
       (err, rows) => {
         if (err) return reject(err);
@@ -581,8 +765,8 @@ function commitTransaction(conn) {
 }
 function rollbackTransaction(conn) {
   return new Promise((resolve) => {
-    if (!conn || typeof conn.rollback !== 'function') {
-      console.error('[officialtime] Invalid connection for rollback');
+    if (!conn || typeof conn.rollback !== "function") {
+      console.error("[officialtime] Invalid connection for rollback");
       return resolve();
     }
     conn.rollback(() => resolve());
@@ -604,7 +788,7 @@ function getConnectionAsync(pool) {
   });
 }
 function releaseConnection(conn) {
-  if (conn && typeof conn.release === 'function') conn.release();
+  if (conn && typeof conn.release === "function") conn.release();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -624,7 +808,7 @@ function normaliseRow(row) {
   const out = {};
   for (const key in row) {
     const cleanKey = String(key)
-      .replace(/\u00A0/g, '')
+      .replace(/\u00A0/g, "")
       .trim()
       .toLowerCase();
     out[cleanKey] = row[key];
@@ -636,7 +820,7 @@ function normaliseRow(row) {
 function hasDuplicateDay(rows) {
   const seen = new Set();
   for (const r of rows) {
-    const d = (r.day || '').trim().toLowerCase();
+    const d = (r.day || "").trim().toLowerCase();
     if (seen.has(d)) return r.day;
     seen.add(d);
   }
@@ -645,16 +829,16 @@ function hasDuplicateDay(rows) {
 
 // TIME_FIELDS for validation
 const TIME_FIELDS = [
-  'officialTimeIN',
-  'officialBreaktimeIN',
-  'officialBreaktimeOUT',
-  'officialTimeOUT',
-  'officialHonorariumTimeIN',
-  'officialHonorariumTimeOUT',
-  'officialServiceCreditTimeIN',
-  'officialServiceCreditTimeOUT',
-  'officialOverTimeIN',
-  'officialOverTimeOUT',
+  "officialTimeIN",
+  "officialBreaktimeIN",
+  "officialBreaktimeOUT",
+  "officialTimeOUT",
+  "officialHonorariumTimeIN",
+  "officialHonorariumTimeOUT",
+  "officialServiceCreditTimeIN",
+  "officialServiceCreditTimeOUT",
+  "officialOverTimeIN",
+  "officialOverTimeOUT",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -663,16 +847,13 @@ const TIME_FIELDS = [
 // ─────────────────────────────────────────────────────────────────────────────
 function readWorkbookSheet(filePath) {
   const workbook = xlsx.readFile(filePath, {
-    cellDates: true,   // parse date serials → JS Date objects (Lotus-bug-safe)
-    dateNF: 'yyyy-mm-dd', // format Date cells as YYYY-MM-DD strings in output
+    cellDates: true, // parse date serials → JS Date objects (Lotus-bug-safe)
+    dateNF: "yyyy-mm-dd", // format Date cells as YYYY-MM-DD strings in output
   });
-  return xlsx.utils.sheet_to_json(
-    workbook.Sheets[workbook.SheetNames[0]],
-    {
-      defval: null,
-      raw: false, // use formatted strings; Date cells become "YYYY-MM-DD" via dateNF
-    },
-  );
+  return xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {
+    defval: null,
+    raw: false, // use formatted strings; Date cells become "YYYY-MM-DD" via dateNF
+  });
 }
 
 /**
@@ -696,47 +877,47 @@ function parseSheetIntoGroups(cleanedSheet) {
     // Matching key: employeeID / employeeNumber. This is the ONLY field used
     // to identify the employee anywhere in this pipeline (grouping, DB
     // overlap checks, Department/Employment Category resolution, etc).
-    const employeeID = getField(r, 'employeeID', [
-      'employeenumber',
-      'employee number',
-      'employee_id',
+    const employeeID = getField(r, "employeeID", [
+      "employeenumber",
+      "employee number",
+      "employee_id",
     ]);
-    const day = getField(r, 'day', ['weekday']);
+    const day = getField(r, "day", ["weekday"]);
 
     // [NEW] Optional "Name" column — display-only. Never validated or
     // matched against system records; the system always resolves the real
     // employee name/department/employment category by employeeID. This is
     // included purely so uploaders/reviewers can eyeball whose row is whose
     // in the validate-preview table instead of only seeing employeeID.
-    const nameFromFile = getField(r, 'name', [
-      'employee name',
-      'employeename',
-      'full name',
-      'fullname',
+    const nameFromFile = getField(r, "name", [
+      "employee name",
+      "employeename",
+      "full name",
+      "fullname",
     ]);
 
     // #13: Collect skipped rows with specific reasons
     if (!employeeID) {
-      skippedRows.push({ row: excelRow, reason: 'Missing employeeID' });
+      skippedRows.push({ row: excelRow, reason: "Missing employeeID" });
       return;
     }
     if (!day) {
-      skippedRows.push({ row: excelRow, employeeID, reason: 'Missing day' });
+      skippedRows.push({ row: excelRow, employeeID, reason: "Missing day" });
       return;
     }
 
     const effectiveFrom = normDate(
-      getField(r, 'startDate', [
-        'effective_from',
-        'effective from',
-        'start date',
+      getField(r, "startDate", [
+        "effective_from",
+        "effective from",
+        "start date",
       ]),
     );
     const effectiveUntil = normDate(
-      getField(r, 'endDate', [
-        'effective_until',
-        'effective until',
-        'end date',
+      getField(r, "endDate", [
+        "effective_until",
+        "effective until",
+        "end date",
       ]),
     );
 
@@ -745,7 +926,7 @@ function parseSheetIntoGroups(cleanedSheet) {
         row: excelRow,
         employeeID,
         day,
-        reason: 'Missing or invalid startDate',
+        reason: "Missing or invalid startDate",
       });
       return;
     }
@@ -754,7 +935,7 @@ function parseSheetIntoGroups(cleanedSheet) {
         row: excelRow,
         employeeID,
         day,
-        reason: 'Missing or invalid endDate',
+        reason: "Missing or invalid endDate",
       });
       return;
     }
@@ -790,40 +971,40 @@ function parseSheetIntoGroups(cleanedSheet) {
     if (rowHasTimeError) return; // skip row if any time field is invalid
 
     // #6: Validate breaktime
-    const rawBreaktime = getField(r, 'breaktime', ['break time']);
+    const rawBreaktime = getField(r, "breaktime", ["break time"]);
     const breaktimeResult = validateBreaktime(rawBreaktime);
     if (!breaktimeResult.valid) {
       timeErrors.push({
         row: excelRow,
         employeeID,
         day,
-        field: 'breaktime',
+        field: "breaktime",
         reason: breaktimeResult.reason,
       });
       return;
     }
 
     // Status from file (stored for audit reference only — always inserted as 'active')
-    const statusFromFile = getField(r, 'status', []) || null;
+    const statusFromFile = getField(r, "status", []) || null;
 
     const key = groupKey(employeeID, effectiveFrom, effectiveUntil);
     if (!groups.has(key)) {
       // #14: Auto-format academicYear server-side
       const academicYearVal = (() => {
-        const ayRaw = getField(r, 'academicYear', ['academic year']);
-        const semRaw = getField(r, 'semester', []);
-        const yrRaw = getField(r, 'year', []);
+        const ayRaw = getField(r, "academicYear", ["academic year"]);
+        const semRaw = getField(r, "semester", []);
+        const yrRaw = getField(r, "year", []);
         const ay =
-          ayRaw != null && String(ayRaw).trim() !== ''
+          ayRaw != null && String(ayRaw).trim() !== ""
             ? autoFormatAcademicYear(String(ayRaw).trim())
             : null;
         const sem =
-          semRaw != null && String(semRaw).trim() !== ''
+          semRaw != null && String(semRaw).trim() !== ""
             ? String(semRaw).trim()
-            : '';
+            : "";
         if (ay && sem) return `${ay} ${sem}`.trim();
         if (ay) return ay;
-        if (yrRaw != null && String(yrRaw).trim() !== '') {
+        if (yrRaw != null && String(yrRaw).trim() !== "") {
           const y = Number(String(yrRaw).trim());
           if (Number.isFinite(y))
             return sem ? `${y}-${y + 1} ${sem}`.trim() : `${y}-${y + 1}`;
@@ -842,7 +1023,7 @@ function parseSheetIntoGroups(cleanedSheet) {
         // The employee's actual name/department/employment category always
         // comes from the system, resolved by employeeID.
         employeeName:
-          nameFromFile != null && String(nameFromFile).trim() !== ''
+          nameFromFile != null && String(nameFromFile).trim() !== ""
             ? String(nameFromFile).trim()
             : null,
         rows: [],
@@ -864,18 +1045,19 @@ function parseSheetIntoGroups(cleanedSheet) {
 // SHARED VALIDATION LOGIC (used by every upload route — single, department, category)
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 async function getEmployeeName(employeeID) {
   const rows = await queryAsync(
     db,
-    'SELECT firstName, middleName, lastName, nameExtension FROM person_table WHERE agencyEmployeeNum = ? LIMIT 1',
+    "SELECT firstName, middleName, lastName, nameExtension FROM person_table WHERE agencyEmployeeNum = ? LIMIT 1",
     [employeeID],
   );
   if (!rows || !rows.length) return null;
   const r = rows[0];
-  return `${r.firstName || ''} ${r.middleName || ''} ${r.lastName || ''} ${r.nameExtension || ''}`
-    .replace(/\s+/g, ' ')
-    .trim() || null;
+  return (
+    `${r.firstName || ""} ${r.middleName || ""} ${r.lastName || ""} ${r.nameExtension || ""}`
+      .replace(/\s+/g, " ")
+      .trim() || null
+  );
 }
 
 async function validateScheduleList(scheduleList) {
@@ -888,10 +1070,10 @@ async function validateScheduleList(scheduleList) {
     if (dupDay) {
       const name = await getEmployeeName(s.employeeID);
       errors.push({
-        type: 'duplicate_day',
+        type: "duplicate_day",
         employeeID: s.employeeID,
         day: dupDay,
-        message: `Duplicate day "${dupDay}" found for employee ${s.employeeID}${name ? ` (${name})` : ''} in range ${s.startDate} to ${s.endDate}.`,
+        message: `Duplicate day "${dupDay}" found for employee ${s.employeeID}${name ? ` (${name})` : ""} in range ${s.startDate} to ${s.endDate}.`,
       });
       continue;
     }
@@ -901,7 +1083,7 @@ async function validateScheduleList(scheduleList) {
       const overlap = findOverlapInSegments(segments);
       if (overlap) {
         errors.push({
-          type: 'time_overlap',
+          type: "time_overlap",
           employeeID: s.employeeID,
           day: row.day,
           message: formatTimeOverlapMessage({
@@ -939,7 +1121,7 @@ async function validateScheduleList(scheduleList) {
           )
         )
           errors.push({
-            type: 'date_overlap_in_file',
+            type: "date_overlap_in_file",
             employeeID: empId,
             message: `Overlapping schedule in file for employee ${empId}: ${list[i].startDate}–${list[i].endDate} overlaps ${list[j].startDate}–${list[j].endDate}.`,
           });
@@ -955,7 +1137,7 @@ async function validateScheduleList(scheduleList) {
     );
     if (overlaps)
       errors.push({
-        type: 'date_overlap_db',
+        type: "date_overlap_db",
         employeeID: s.employeeID,
         message: `Upload would overlap an existing active schedule for employee ${s.employeeID} (${s.startDate}–${s.endDate}). Please use a different date range or deactivate the existing schedule first.`,
       });
@@ -971,8 +1153,8 @@ async function validateScheduleList(scheduleList) {
 function safeUnlink(filePath) {
   if (!filePath) return;
   fs.unlink(filePath, (err) => {
-    if (err && err.code !== 'ENOENT')
-      console.error('[officialtime] Failed to delete temp file:', err.message);
+    if (err && err.code !== "ENOENT")
+      console.error("[officialtime] Failed to delete temp file:", err.message);
   });
 }
 
@@ -980,31 +1162,121 @@ function safeUnlink(filePath) {
 // SCHOOL YEAR ACTIVATOR (stubs)
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get('/officialtime/school-year/:empId', authenticateToken, (req, res) =>
+router.get("/officialtime/school-year/:empId", authenticateToken, (req, res) =>
   res.status(200).json(null),
 );
-router.post('/officialtime/school-year', authenticateToken, (req, res) =>
-  res.status(200).json({ message: 'OK' }),
+router.post("/officialtime/school-year", authenticateToken, (req, res) =>
+  res.status(200).json({ message: "OK" }),
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST batch official time lookup (DTR batch print — avoids N+1 per employee)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OFFICIAL_TIME_BATCH_CHUNK = 250;
+
+router.post("/officialtimetable/batch", authenticateToken, (req, res) => {
+  const { employeeNumbers, startDate, endDate } = req.body || {};
+  const ids = Array.isArray(employeeNumbers)
+    ? [...new Set(employeeNumbers.map((n) => String(n).trim()).filter(Boolean))]
+    : [];
+
+  if (!ids.length) {
+    return res.json({ byEmployee: {} });
+  }
+
+  const periodStart = startDate ? String(startDate).slice(0, 10) : null;
+  const periodEnd = endDate ? String(endDate).slice(0, 10) : null;
+
+  const byEmployee = {};
+  ids.forEach((id) => {
+    byEmployee[id] = [];
+  });
+
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += OFFICIAL_TIME_BATCH_CHUNK) {
+    chunks.push(ids.slice(i, i + OFFICIAL_TIME_BATCH_CHUNK));
+  }
+
+  const runChunk = (chunk) =>
+    new Promise((resolve, reject) => {
+      const placeholders = chunk.map(() => "?").join(",");
+      let sql = `SELECT * FROM officialtime WHERE employeeID IN (${placeholders})`;
+      const params = [...chunk];
+      if (periodStart && periodEnd) {
+        sql += " AND startDate <= ? AND endDate >= ?";
+        params.push(periodEnd, periodStart);
+      }
+      sql += " ORDER BY employeeID, startDate, endDate, id";
+
+      db.query(sql, params, (err, results) => {
+        if (err) return reject(err);
+        (results || []).forEach((row) => {
+          const emp = String(row.employeeID).trim();
+          if (!byEmployee[emp]) byEmployee[emp] = [];
+          byEmployee[emp].push({
+            ...row,
+            startDate: toDateOnlyString(row.startDate),
+            endDate: toDateOnlyString(row.endDate),
+          });
+        });
+        resolve();
+      });
+    });
+
+  Promise.all(chunks.map(runChunk))
+    .then(() => {
+      const skipAudit =
+        req.body?.skipAudit === true ||
+        req.body?.skipAudit === "1" ||
+        req.body?.skipAudit === "true";
+      if (!skipAudit) {
+        try {
+          logAudit(
+            req.user,
+            "View",
+            "Official Time",
+            null,
+            `batch:${ids.length}`,
+            buildOfficialTimeActionAuditDetails({
+              source: "view-db-batch",
+              employeeID: ids[0],
+              affectedEmployeeNumbers: ids.slice(0, 50),
+              startDate: periodStart,
+              endDate: periodEnd,
+              rowCount: Object.values(byEmployee).reduce(
+                (n, rows) => n + rows.length,
+                0,
+              ),
+            }),
+          );
+        } catch (e) {
+          console.error("Audit log error:", e);
+        }
+      }
+      res.json({ byEmployee });
+    })
+    .catch((err) => res.status(500).json({ error: err.message }));
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET official time table by employeeID
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
+router.get("/officialtimetable/:employeeID", authenticateToken, (req, res) => {
   const { employeeID } = req.params;
   const { date, startDate, endDate } = req.query;
 
-  let sql = 'SELECT * FROM officialtime WHERE employeeID = ?';
+  let sql = "SELECT * FROM officialtime WHERE employeeID = ?";
   const params = [employeeID];
   if (date) {
-    sql += ' AND ? BETWEEN startDate AND endDate';
+    sql += " AND ? BETWEEN startDate AND endDate";
     params.push(date);
   } else if (startDate && endDate) {
-    sql += ' AND startDate = ? AND endDate = ?';
+    sql += " AND startDate = ? AND endDate = ?";
     params.push(startDate, endDate);
   }
-  sql += ' ORDER BY startDate, endDate, id';
+  sql += " ORDER BY startDate, endDate, id";
 
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -1014,19 +1286,19 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
       endDate: toDateOnlyString(row.endDate),
     }));
     const skipAudit =
-      req.query.skipAudit === '1' ||
-      req.query.skipAudit === 'true' ||
-      req.query.audit === '0';
+      req.query.skipAudit === "1" ||
+      req.query.skipAudit === "true" ||
+      req.query.audit === "0";
     if (!skipAudit) {
       try {
         logAudit(
           req.user,
-          'View',
-          'Official Time',
+          "View",
+          "Official Time",
           null,
           employeeID,
           buildOfficialTimeActionAuditDetails({
-            source: 'view-db',
+            source: "view-db",
             employeeID,
             affectedEmployeeNumbers: [employeeID],
             startDate: startDate || date || null,
@@ -1035,7 +1307,7 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
           }),
         );
       } catch (e) {
-        console.error('Audit log error:', e);
+        console.error("Audit log error:", e);
       }
     }
     res.json(out);
@@ -1047,22 +1319,22 @@ router.get('/officialtimetable/:employeeID', authenticateToken, (req, res) => {
 // #1: Wrapped in DB transaction
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.post('/officialtimetable', authenticateToken, async (req, res) => {
-  const { employeeID, academicYear, startDate, endDate, status, records } =
+router.post("/officialtimetable", authenticateToken, async (req, res) => {
+  const { employeeID, academicYear, startDate, endDate, status, records, saveSupervisorHistory } =
     req.body || {};
 
   if (!employeeID)
-    return res.status(400).json({ message: 'employeeID is required.' });
+    return res.status(400).json({ message: "employeeID is required." });
   if (!startDate || !endDate)
     return res
       .status(400)
-      .json({ message: 'startDate and endDate are required.' });
+      .json({ message: "startDate and endDate are required." });
   if (new Date(startDate) > new Date(endDate))
     return res
       .status(400)
-      .json({ message: 'startDate must be on or before endDate.' });
+      .json({ message: "startDate must be on or before endDate." });
   if (!records || !Array.isArray(records) || !records.length)
-    return res.status(400).json({ message: 'No records to insert.' });
+    return res.status(400).json({ message: "No records to insert." });
 
   // #2: Active-only overlap check
   try {
@@ -1073,15 +1345,13 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
       endDate,
     );
     if (overlaps)
-      return res
-        .status(409)
-        .json({
-          message: `This date range (${startDate}–${endDate}) overlaps an existing active schedule for employee ${employeeID}. Choose different dates.`,
-        });
+      return res.status(409).json({
+        message: `This date range (${startDate}–${endDate}) overlaps an existing active schedule for employee ${employeeID}. Choose different dates.`,
+      });
   } catch (err) {
     return res
       .status(500)
-      .json({ error: 'Overlap check failed: ' + err.message });
+      .json({ error: "Overlap check failed: " + err.message });
   }
 
   // #14: Auto-format academicYear
@@ -1105,7 +1375,7 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
     r.officialServiceCreditTimeOUT ?? null,
     r.officialOverTimeIN ?? null,
     r.officialOverTimeOUT ?? null,
-    'active',
+    "active",
     r.breaktime ?? null,
   ]);
 
@@ -1133,6 +1403,19 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
     );
     await commitTransaction(conn);
 
+    if (saveSupervisorHistory === true) {
+      try {
+        await saveSupervisorOfficialTimeSnapshot({
+          user: req.user,
+          employeeID,
+          startDate: normDate(startDate),
+          endDate: normDate(endDate),
+        });
+      } catch (historyErr) {
+        console.error("Error saving supervisor official-time snapshot:", historyErr);
+      }
+    }
+
     let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
     try {
       autoAttendance = await fillExemptAttendance({
@@ -1147,7 +1430,7 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
     }
 
     res.json({
-      message: 'Official time records saved successfully',
+      message: "Official time records saved successfully",
       inserted: result.affectedRows,
       autoAttendance: {
         inserted: autoAttendance.inserted,
@@ -1157,19 +1440,23 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
         ? autoAttendance.errors
         : undefined,
     });
+    notifyAttendanceChanged("official-time-updated", {
+      scope: "officialtime",
+      personID: employeeID,
+      startDate: normDate(startDate),
+      endDate: normDate(endDate),
+    });
   } catch (err) {
     await rollbackTransaction(conn);
-    console.error('Error creating schedule version:', err);
+    console.error("Error creating schedule version:", err);
     if (
-      err.code === 'ER_DUP_ENTRY' ||
-      (err.message && err.message.includes('Duplicate'))
+      err.code === "ER_DUP_ENTRY" ||
+      (err.message && err.message.includes("Duplicate"))
     )
-      return res
-        .status(409)
-        .json({
-          message: 'A schedule already exists for this employee and day.',
-        });
-    res.status(500).json({ error: err.message || 'Database error' });
+      return res.status(409).json({
+        message: "A schedule already exists for this employee and day.",
+      });
+    res.status(500).json({ error: err.message || "Database error" });
   } finally {
     releaseConnection(conn);
   }
@@ -1180,38 +1467,37 @@ router.post('/officialtimetable', authenticateToken, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
-  '/upload-excel-faculty-official-time/validate',
+  "/upload-excel-faculty-official-time/validate",
   authenticateToken,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     if (!req.file)
-      return res.status(400).json({ message: 'No file uploaded.' });
+      return res.status(400).json({ message: "No file uploaded." });
     const filePath = req.file.path;
+
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+if (!supervisorStatus) { safeUnlink(filePath); return; }
 
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
-        return res
-          .status(400)
-          .json({
-            message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-          });
+        return res.status(400).json({
+          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        });
 
       const sheet = readWorkbookSheet(filePath);
 
       if (!sheet.length)
-        return res.status(400).json({ message: 'Excel file is empty.' });
+        return res.status(400).json({ message: "Excel file is empty." });
 
       const cleanedSheet = sheet.map(normaliseRow);
       const { groups, skippedRows, timeErrors } =
         parseSheetIntoGroups(cleanedSheet);
 
       if (timeErrors.length > 0)
-        return res
-          .status(400)
-          .json({
-            message: `Invalid time format(s) found in Excel.`,
-            timeErrors,
-          });
+        return res.status(400).json({
+          message: `Invalid time format(s) found in Excel.`,
+          timeErrors,
+        });
 
       const scheduleList = Array.from(groups.values()).filter(
         (g) => g.rows.length > 0,
@@ -1220,20 +1506,18 @@ router.post(
       if (scheduleList.length === 0)
         return res.status(400).json({
           message:
-            'No valid schedule blocks found. Ensure each row has employeeID, day, startDate, and endDate.',
+            "No valid schedule blocks found. Ensure each row has employeeID, day, startDate, and endDate.",
           skippedRows,
         });
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
-        return res
-          .status(400)
-          .json({
-            message: first.message,
-            overlap: first.overlap || null,
-            allErrors: validationErrors,
-          });
+        return res.status(400).json({
+          message: first.message,
+          overlap: first.overlap || null,
+          allErrors: validationErrors,
+        });
       }
 
       const statusWarnings = scheduleList.flatMap((s) =>
@@ -1241,7 +1525,7 @@ router.post(
           .filter(
             (r) =>
               r._statusFromFile &&
-              String(r._statusFromFile).toLowerCase() !== 'active',
+              String(r._statusFromFile).toLowerCase() !== "active",
           )
           .map(
             (r) =>
@@ -1263,7 +1547,7 @@ router.post(
       }
 
       return res.json({
-        message: 'Validation passed. No overlaps detected.',
+        message: "Validation passed. No overlaps detected.",
         schedules: scheduleList.map((s) => ({
           employeeID: s.employeeID,
           // [NEW] Display-only, from the Excel "Name" column if present.
@@ -1280,13 +1564,11 @@ router.post(
         ],
       });
     } catch (error) {
-      console.error('Error validating Excel file:', error);
-      return res
-        .status(500)
-        .json({
-          message: 'Error validating Excel file.',
-          detail: error.message,
-        });
+      console.error("Error validating Excel file:", error);
+      return res.status(500).json({
+        message: "Error validating Excel file.",
+        detail: error.message,
+      });
     } finally {
       safeUnlink(filePath); // #12
     }
@@ -1298,38 +1580,35 @@ router.post(
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
-  '/upload-excel-faculty-official-time',
+  "/upload-excel-faculty-official-time",
   authenticateToken,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     if (!req.file)
-      return res.status(400).json({ message: 'No file uploaded.' });
+      return res.status(400).json({ message: "No file uploaded." });
     const filePath = req.file.path;
-
+  const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+if (!supervisorStatus) { safeUnlink(filePath); return; }
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
-        return res
-          .status(400)
-          .json({
-            message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-          });
+        return res.status(400).json({
+          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        });
 
       const sheet = readWorkbookSheet(filePath);
 
       if (!sheet.length)
-        return res.status(400).json({ message: 'Excel file is empty.' });
+        return res.status(400).json({ message: "Excel file is empty." });
 
       const cleanedSheet = sheet.map(normaliseRow);
       const { groups, skippedRows, timeErrors } =
         parseSheetIntoGroups(cleanedSheet);
 
       if (timeErrors.length > 0)
-        return res
-          .status(400)
-          .json({
-            message: 'Invalid time format(s) found in Excel.',
-            timeErrors,
-          });
+        return res.status(400).json({
+          message: "Invalid time format(s) found in Excel.",
+          timeErrors,
+        });
 
       const scheduleList = Array.from(groups.values()).filter(
         (g) => g.rows.length > 0,
@@ -1337,18 +1616,16 @@ router.post(
       if (scheduleList.length === 0)
         return res
           .status(400)
-          .json({ message: 'No valid schedule blocks found.', skippedRows });
+          .json({ message: "No valid schedule blocks found.", skippedRows });
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
-        return res
-          .status(400)
-          .json({
-            message: first.message,
-            overlap: first.overlap || null,
-            allErrors: validationErrors,
-          });
+        return res.status(400).json({
+          message: first.message,
+          overlap: first.overlap || null,
+          allErrors: validationErrors,
+        });
       }
 
       const existingScheduleMap = await getActiveSchedulesForEmployees(
@@ -1398,7 +1675,7 @@ router.post(
             row.officialServiceCreditTimeOUT ?? null,
             row.officialOverTimeIN ?? null,
             row.officialOverTimeOUT ?? null,
-            'active',
+            "active",
             row.breaktime ?? null,
           ]);
 
@@ -1438,7 +1715,7 @@ router.post(
           for (const row of s.rows) {
             if (
               row._statusFromFile &&
-              String(row._statusFromFile).toLowerCase() !== 'active'
+              String(row._statusFromFile).toLowerCase() !== "active"
             )
               insertWarnings.push(
                 `Employee ${s.employeeID} day ${row.day}: Excel status "${row._statusFromFile}" ignored — inserted as "active".`,
@@ -1450,7 +1727,7 @@ router.post(
               startDate: s.startDate,
               endDate: s.endDate,
               day: row.day,
-              status: 'active',
+              status: "active",
               officialTimeIN: row.officialTimeIN,
               officialBreaktimeIN: row.officialBreaktimeIN,
               officialBreaktimeOUT: row.officialBreaktimeOUT,
@@ -1479,13 +1756,11 @@ router.post(
       }
 
       if (!insertedCount)
-        return res
-          .status(400)
-          .json({
-            message: 'Upload parsed successfully but no records were inserted.',
-            warnings: insertWarnings,
-            skippedRows,
-          });
+        return res.status(400).json({
+          message: "Upload parsed successfully but no records were inserted.",
+          warnings: insertWarnings,
+          skippedRows,
+        });
 
       const affectedEmployees = normalizeEmployeeList(
         scheduleList.map((s) => s.employeeID),
@@ -1499,12 +1774,12 @@ router.post(
         logAudit(
           req.user,
           `Upload official time via Excel (${insertedCount} rows)`,
-          'Official Time',
+          "Official Time",
           null,
           affectedEmployees.length === 1 ? affectedEmployees[0] : null,
           buildOfficialTimeActionAuditDetails({
-            source: 'excel-upload',
-            status: failedCount > 0 ? 'partial' : 'success',
+            source: "excel-upload",
+            status: failedCount > 0 ? "partial" : "success",
             affectedEmployeeNumbers: affectedEmployees,
             blockCount: scheduleList.length,
             rowCount: scheduleList.reduce(
@@ -1521,7 +1796,7 @@ router.post(
           }),
         );
       } catch (e) {
-        console.error('Audit log error:', e);
+        console.error("Audit log error:", e);
       }
 
       const allWarnings = [
@@ -1531,7 +1806,7 @@ router.post(
 
       res.json({
         message:
-          'Upload complete. Uploaded schedules are set to Active. Previous active schedules have been set to Inactive.',
+          "Upload complete. Uploaded schedules are set to Active. Previous active schedules have been set to Inactive.",
         inserted: insertedCount,
         updated: 0,
         autoAttendance: {
@@ -1541,14 +1816,18 @@ router.post(
         records: processedRecords,
         warnings: allWarnings.length > 0 ? allWarnings : undefined,
       });
-    } catch (error) {
-      console.error('Error processing Excel file:', error);
-      res
-        .status(500)
-        .json({
-          message: 'Error processing Excel file.',
-          detail: error.message,
+      if (affectedEmployees.length > 0) {
+        notifyAttendanceChanged("official-time-updated", {
+          scope: "officialtime",
+          personIDs: affectedEmployees,
         });
+      }
+    } catch (error) {
+      console.error("Error processing Excel file:", error);
+      res.status(500).json({
+        message: "Error processing Excel file.",
+        detail: error.message,
+      });
     } finally {
       safeUnlink(filePath); // #12: always clean up temp file
     }
@@ -1576,7 +1855,7 @@ function getDepartmentEmployeeIDs(department) {
   });
 }
 
-router.get('/officialtime/departments', authenticateToken, (req, res) => {
+router.get("/officialtime/departments", authenticateToken, (req, res) => {
   db.query(
     `SELECT DISTINCT dt.description AS department
      FROM department_table dt
@@ -1590,29 +1869,50 @@ router.get('/officialtime/departments', authenticateToken, (req, res) => {
   );
 });
 
+router.get(
+  "/officialtime/supervisor-assignment-status",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const supervisorEmployeeNumber =
+        req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
+      const status = await getSupervisorAssignmentStatus(
+        supervisorEmployeeNumber,
+      );
+      res.json(status);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 // #23: Employment Category dropdown source — mirrors /officialtime/departments
 // but reads employment_type_config directly (isActive=1). This is the source of
 // truth the frontend uses to populate both the All Users filter and the
 // category-scoped upload's target dropdown.
-router.get('/officialtime/employment-categories', authenticateToken, (req, res) => {
-  db.query(
-    `SELECT id, parentGroup, typeName
+router.get(
+  "/officialtime/employment-categories",
+  authenticateToken,
+  (req, res) => {
+    db.query(
+      `SELECT id, parentGroup, typeName
      FROM employment_type_config
      WHERE isActive = 1
      ORDER BY parentGroup ASC, typeName ASC`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(
-        (rows || []).map((r) => ({
-          id: r.id,
-          label: `${r.parentGroup} | ${r.typeName}`,
-          parentGroup: r.parentGroup,
-          typeName: r.typeName,
-        })),
-      );
-    },
-  );
-});
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(
+          (rows || []).map((r) => ({
+            id: r.id,
+            label: `${r.parentGroup} | ${r.typeName}`,
+            parentGroup: r.parentGroup,
+            typeName: r.typeName,
+          })),
+        );
+      },
+    );
+  },
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NOTE on Department/Employment-Category-scoped uploads below:
@@ -1627,33 +1927,38 @@ router.get('/officialtime/employment-categories', authenticateToken, (req, res) 
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
-  '/upload-excel-faculty-official-time-by-department/validate',
+  "/upload-excel-faculty-official-time-by-department/validate",
   authenticateToken,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     if (!req.file)
-      return res.status(400).json({ message: 'No file uploaded.' });
+      return res.status(400).json({ message: "No file uploaded." });
     const filePath = req.file.path;
+
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+    if (!supervisorStatus) {
+      safeUnlink(filePath);
+      return;
+    }
+
     const { department } = req.body || {};
 
     if (!department)
       return res
         .status(400)
-        .json({ message: 'department is required for this upload route.' });
+        .json({ message: "department is required for this upload route." });
 
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
-        return res
-          .status(400)
-          .json({
-            message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-          });
+        return res.status(400).json({
+          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        });
 
       const deptEmployeeIDs = await getDepartmentEmployeeIDs(department);
 
       const sheet = readWorkbookSheet(filePath);
       if (!sheet.length)
-        return res.status(400).json({ message: 'Excel file is empty.' });
+        return res.status(400).json({ message: "Excel file is empty." });
 
       const cleanedSheet = sheet.map(normaliseRow);
       const { groups, skippedRows, timeErrors } =
@@ -1662,7 +1967,10 @@ router.post(
       if (timeErrors.length > 0)
         return res
           .status(400)
-          .json({ message: 'Invalid time format(s) found in Excel.', timeErrors });
+          .json({
+            message: "Invalid time format(s) found in Excel.",
+            timeErrors,
+          });
 
       let scheduleList = Array.from(groups.values()).filter(
         (g) => g.rows.length > 0,
@@ -1671,9 +1979,8 @@ router.post(
       const allEmployeeIDsInFile = [
         ...new Set(scheduleList.map((s) => String(s.employeeID))),
       ];
-      const employeeDeptMap = await getEmployeeDepartmentMap(
-        allEmployeeIDsInFile,
-      );
+      const employeeDeptMap =
+        await getEmployeeDepartmentMap(allEmployeeIDsInFile);
       const distinctDeptsInFile = [
         ...new Set(
           allEmployeeIDsInFile
@@ -1685,7 +1992,7 @@ router.post(
       if (distinctDeptsInFile.length > 1) {
         const otherDepts = distinctDeptsInFile.filter((d) => d !== department);
         multiDeptWarnings.push(
-          `This file contains employees from multiple departments (${distinctDeptsInFile.join(', ')}). Only rows for employees in "${department}" will be processed — rows for ${otherDepts.length ? otherDepts.join(', ') : 'other departments'} will be skipped.`,
+          `This file contains employees from multiple departments (${distinctDeptsInFile.join(", ")}). Only rows for employees in "${department}" will be processed — rows for ${otherDepts.length ? otherDepts.join(", ") : "other departments"} will be skipped.`,
         );
       }
 
@@ -1697,7 +2004,7 @@ router.post(
           if (!inDept) {
             const actualDept = employeeDeptMap.get(String(s.employeeID));
             outOfDeptWarnings.push(
-              `Employee ${s.employeeID}${actualDept ? ` (belongs to "${actualDept}")` : ''} is not assigned to department "${department}" — skipped. Use the regular upload if you intended to include them.`,
+              `Employee ${s.employeeID}${actualDept ? ` (belongs to "${actualDept}")` : ""} is not assigned to department "${department}" — skipped. Use the regular upload if you intended to include them.`,
             );
           }
           return inDept;
@@ -1711,20 +2018,18 @@ router.post(
 
       if (scheduleList.length === 0)
         return res.status(400).json({
-          message: 'No valid schedule blocks found for this department.',
+          message: "No valid schedule blocks found for this department.",
           skippedRows,
         });
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
-        return res
-          .status(400)
-          .json({
-            message: first.message,
-            overlap: first.overlap || null,
-            allErrors: validationErrors,
-          });
+        return res.status(400).json({
+          message: first.message,
+          overlap: first.overlap || null,
+          allErrors: validationErrors,
+        });
       }
 
       const statusWarnings = scheduleList.flatMap((s) =>
@@ -1732,7 +2037,7 @@ router.post(
           .filter(
             (r) =>
               r._statusFromFile &&
-              String(r._statusFromFile).toLowerCase() !== 'active',
+              String(r._statusFromFile).toLowerCase() !== "active",
           )
           .map(
             (r) =>
@@ -1774,10 +2079,13 @@ router.post(
         ],
       });
     } catch (error) {
-      console.error('Error validating department Excel file:', error);
+      console.error("Error validating department Excel file:", error);
       return res
         .status(500)
-        .json({ message: 'Error validating Excel file.', detail: error.message });
+        .json({
+          message: "Error validating Excel file.",
+          detail: error.message,
+        });
     } finally {
       safeUnlink(filePath);
     }
@@ -1785,33 +2093,33 @@ router.post(
 );
 
 router.post(
-  '/upload-excel-faculty-official-time-by-department',
+  "/upload-excel-faculty-official-time-by-department",
   authenticateToken,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     if (!req.file)
-      return res.status(400).json({ message: 'No file uploaded.' });
+      return res.status(400).json({ message: "No file uploaded." });
     const filePath = req.file.path;
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+if (!supervisorStatus) { safeUnlink(filePath); return; }
     const { department } = req.body || {};
 
     if (!department)
       return res
         .status(400)
-        .json({ message: 'department is required for this upload route.' });
+        .json({ message: "department is required for this upload route." });
 
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
-        return res
-          .status(400)
-          .json({
-            message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-          });
+        return res.status(400).json({
+          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        });
 
       const deptEmployeeIDs = await getDepartmentEmployeeIDs(department);
 
       const sheet = readWorkbookSheet(filePath);
       if (!sheet.length)
-        return res.status(400).json({ message: 'Excel file is empty.' });
+        return res.status(400).json({ message: "Excel file is empty." });
 
       const cleanedSheet = sheet.map(normaliseRow);
       const { groups, skippedRows, timeErrors } =
@@ -1820,7 +2128,10 @@ router.post(
       if (timeErrors.length > 0)
         return res
           .status(400)
-          .json({ message: 'Invalid time format(s) found in Excel.', timeErrors });
+          .json({
+            message: "Invalid time format(s) found in Excel.",
+            timeErrors,
+          });
 
       let scheduleList = Array.from(groups.values()).filter(
         (g) => g.rows.length > 0,
@@ -1829,9 +2140,8 @@ router.post(
       const allEmployeeIDsInFile = [
         ...new Set(scheduleList.map((s) => String(s.employeeID))),
       ];
-      const employeeDeptMap = await getEmployeeDepartmentMap(
-        allEmployeeIDsInFile,
-      );
+      const employeeDeptMap =
+        await getEmployeeDepartmentMap(allEmployeeIDsInFile);
       const distinctDeptsInFile = [
         ...new Set(
           allEmployeeIDsInFile
@@ -1843,7 +2153,7 @@ router.post(
       if (distinctDeptsInFile.length > 1) {
         const otherDepts = distinctDeptsInFile.filter((d) => d !== department);
         multiDeptWarnings.push(
-          `This file contained employees from multiple departments (${distinctDeptsInFile.join(', ')}). Only rows for "${department}" were processed — rows for ${otherDepts.length ? otherDepts.join(', ') : 'other departments'} were skipped.`,
+          `This file contained employees from multiple departments (${distinctDeptsInFile.join(", ")}). Only rows for "${department}" were processed — rows for ${otherDepts.length ? otherDepts.join(", ") : "other departments"} were skipped.`,
         );
       }
 
@@ -1854,7 +2164,7 @@ router.post(
           if (!inDept) {
             const actualDept = employeeDeptMap.get(String(s.employeeID));
             outOfDeptWarnings.push(
-              `Employee ${s.employeeID}${actualDept ? ` (belongs to "${actualDept}")` : ''} is not assigned to department "${department}" — skipped.`,
+              `Employee ${s.employeeID}${actualDept ? ` (belongs to "${actualDept}")` : ""} is not assigned to department "${department}" — skipped.`,
             );
           }
           return inDept;
@@ -1862,23 +2172,19 @@ router.post(
       }
 
       if (scheduleList.length === 0)
-        return res
-          .status(400)
-          .json({
-            message: `No valid schedule blocks found for department "${department}".`,
-            skippedRows,
-          });
+        return res.status(400).json({
+          message: `No valid schedule blocks found for department "${department}".`,
+          skippedRows,
+        });
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
-        return res
-          .status(400)
-          .json({
-            message: first.message,
-            overlap: first.overlap || null,
-            allErrors: validationErrors,
-          });
+        return res.status(400).json({
+          message: first.message,
+          overlap: first.overlap || null,
+          allErrors: validationErrors,
+        });
       }
 
       const existingScheduleMap = await getActiveSchedulesForEmployees(
@@ -1932,7 +2238,7 @@ router.post(
             row.officialServiceCreditTimeOUT ?? null,
             row.officialOverTimeIN ?? null,
             row.officialOverTimeOUT ?? null,
-            'active',
+            "active",
             row.breaktime ?? null,
           ]);
 
@@ -1971,7 +2277,7 @@ router.post(
           for (const row of s.rows) {
             if (
               row._statusFromFile &&
-              String(row._statusFromFile).toLowerCase() !== 'active'
+              String(row._statusFromFile).toLowerCase() !== "active"
             )
               insertWarnings.push(
                 `Employee ${s.employeeID} day ${row.day}: Excel status "${row._statusFromFile}" ignored — inserted as "active".`,
@@ -1983,7 +2289,7 @@ router.post(
               startDate: s.startDate,
               endDate: s.endDate,
               day: row.day,
-              status: 'active',
+              status: "active",
               officialTimeIN: row.officialTimeIN,
               officialBreaktimeIN: row.officialBreaktimeIN,
               officialBreaktimeOUT: row.officialBreaktimeOUT,
@@ -2008,13 +2314,11 @@ router.post(
       }
 
       if (!insertedCount)
-        return res
-          .status(400)
-          .json({
-            message: 'Upload parsed successfully but no records were inserted.',
-            warnings: insertWarnings,
-            skippedRows,
-          });
+        return res.status(400).json({
+          message: "Upload parsed successfully but no records were inserted.",
+          warnings: insertWarnings,
+          skippedRows,
+        });
 
       const affectedEmployees = normalizeEmployeeList(
         scheduleList.map((s) => s.employeeID),
@@ -2023,38 +2327,53 @@ router.post(
         logAudit(
           req.user,
           `Upload official time via Excel for department "${department}" (${insertedCount} rows)`,
-          'Official Time',
+          "Official Time",
           null,
           null,
           buildOfficialTimeActionAuditDetails({
-            source: 'excel-upload-by-department',
+            source: "excel-upload-by-department",
             affectedEmployeeNumbers: affectedEmployees,
             blockCount: scheduleList.length,
-            rowCount: scheduleList.reduce((sum, s) => sum + (s.rows?.length || 0), 0),
+            rowCount: scheduleList.reduce(
+              (sum, s) => sum + (s.rows?.length || 0),
+              0,
+            ),
             insertedCount,
             skippedCount: skippedRows.length,
             notes: `department=${department}`,
           }),
         );
       } catch (e) {
-        console.error('Audit log error:', e);
+        console.error("Audit log error:", e);
       }
 
       res.json({
         message: `Upload complete for department "${department}". Uploaded schedules are Active; previous active schedules for affected employees set to Inactive.`,
         inserted: insertedCount,
-        autoAttendance: { inserted: autoAttendanceInserted, skipped: autoAttendanceSkipped },
+        autoAttendance: {
+          inserted: autoAttendanceInserted,
+          skipped: autoAttendanceSkipped,
+        },
         records: processedRecords,
         warnings: [
           ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
           ...insertWarnings,
         ],
       });
+      if (affectedEmployees.length > 0) {
+        notifyAttendanceChanged("official-time-updated", {
+          scope: "officialtime",
+          personIDs: affectedEmployees,
+        });
+      }
     } catch (error) {
-      console.error('Error processing department Excel file:', error);
+      console.error("Error processing department Excel file:", error);
       res
         .status(500)
-        .json({ message: 'Error processing Excel file.', detail: error.message });
+        .json({
+          message: "Error processing Excel file.",
+          detail: error.message,
+        });
     } finally {
       safeUnlink(filePath);
     }
@@ -2076,48 +2395,60 @@ router.post(
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
-  '/upload-excel-faculty-official-time-by-category/validate',
+  "/upload-excel-faculty-official-time-by-category/validate",
   authenticateToken,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     if (!req.file)
-      return res.status(400).json({ message: 'No file uploaded.' });
+      return res.status(400).json({ message: "No file uploaded." });
     const filePath = req.file.path;
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+if (!supervisorStatus) { safeUnlink(filePath); return; }
     const { employmentCategory } = req.body || {};
-    const categoryId = employmentCategory ? parseInt(employmentCategory, 10) : null;
+    const categoryId = employmentCategory
+      ? parseInt(employmentCategory, 10)
+      : null;
 
     if (!categoryId)
       return res
         .status(400)
-        .json({ message: 'employmentCategory is required for this upload route.' });
+        .json({
+          message: "employmentCategory is required for this upload route.",
+        });
 
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
-        return res
-          .status(400)
-          .json({
-            message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-          });
+        return res.status(400).json({
+          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        });
 
       const categoryLabel = await getEmploymentCategoryLabel(categoryId);
       if (!categoryLabel)
-        return res.status(404).json({ message: 'Employment category not found.' });
+        return res
+          .status(404)
+          .json({ message: "Employment category not found." });
 
       const categoryEmployeeIDs = await getCategoryEmployeeIDs(categoryId);
 
       const sheet = readWorkbookSheet(filePath);
       if (!sheet.length)
-        return res.status(400).json({ message: 'Excel file is empty.' });
+        return res.status(400).json({ message: "Excel file is empty." });
 
       const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } = parseSheetIntoGroups(cleanedSheet);
+      const { groups, skippedRows, timeErrors } =
+        parseSheetIntoGroups(cleanedSheet);
 
       if (timeErrors.length > 0)
         return res
           .status(400)
-          .json({ message: 'Invalid time format(s) found in Excel.', timeErrors });
+          .json({
+            message: "Invalid time format(s) found in Excel.",
+            timeErrors,
+          });
 
-      let scheduleList = Array.from(groups.values()).filter((g) => g.rows.length > 0);
+      let scheduleList = Array.from(groups.values()).filter(
+        (g) => g.rows.length > 0,
+      );
 
       // Cross-category detection — evaluated against the FULL, unfiltered
       // list so every category actually present in the file can be named
@@ -2135,9 +2466,11 @@ router.post(
       ];
       const multiCategoryWarnings = [];
       if (distinctCategoriesInFile.length > 1) {
-        const otherCats = distinctCategoriesInFile.filter((c) => c !== categoryLabel);
+        const otherCats = distinctCategoriesInFile.filter(
+          (c) => c !== categoryLabel,
+        );
         multiCategoryWarnings.push(
-          `This file contains employees from multiple employment categories (${distinctCategoriesInFile.join(', ')}). Only rows for employees in "${categoryLabel}" will be processed — rows for ${otherCats.length ? otherCats.join(', ') : 'other categories'} will be skipped.`,
+          `This file contains employees from multiple employment categories (${distinctCategoriesInFile.join(", ")}). Only rows for employees in "${categoryLabel}" will be processed — rows for ${otherCats.length ? otherCats.join(", ") : "other categories"} will be skipped.`,
         );
       }
 
@@ -2148,9 +2481,11 @@ router.post(
         scheduleList = scheduleList.filter((s) => {
           const inCategory = categoryEmployeeIDs.has(String(s.employeeID));
           if (!inCategory) {
-            const actualCat = employeeCatMap.get(String(s.employeeID))?.categoryLabel;
+            const actualCat = employeeCatMap.get(
+              String(s.employeeID),
+            )?.categoryLabel;
             outOfCategoryWarnings.push(
-              `Employee ${s.employeeID}${actualCat ? ` (belongs to "${actualCat}")` : ' (no employment category assigned)'} is not assigned to employment category "${categoryLabel}" — skipped. Use the regular upload if you intended to include them.`,
+              `Employee ${s.employeeID}${actualCat ? ` (belongs to "${actualCat}")` : " (no employment category assigned)"} is not assigned to employment category "${categoryLabel}" — skipped. Use the regular upload if you intended to include them.`,
             );
           }
           return inCategory;
@@ -2164,20 +2499,19 @@ router.post(
 
       if (scheduleList.length === 0)
         return res.status(400).json({
-          message: 'No valid schedule blocks found for this employment category.',
+          message:
+            "No valid schedule blocks found for this employment category.",
           skippedRows,
         });
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
-        return res
-          .status(400)
-          .json({
-            message: first.message,
-            overlap: first.overlap || null,
-            allErrors: validationErrors,
-          });
+        return res.status(400).json({
+          message: first.message,
+          overlap: first.overlap || null,
+          allErrors: validationErrors,
+        });
       }
 
       const statusWarnings = scheduleList.flatMap((s) =>
@@ -2185,7 +2519,7 @@ router.post(
           .filter(
             (r) =>
               r._statusFromFile &&
-              String(r._statusFromFile).toLowerCase() !== 'active',
+              String(r._statusFromFile).toLowerCase() !== "active",
           )
           .map(
             (r) =>
@@ -2228,10 +2562,13 @@ router.post(
         ],
       });
     } catch (error) {
-      console.error('Error validating employment category Excel file:', error);
+      console.error("Error validating employment category Excel file:", error);
       return res
         .status(500)
-        .json({ message: 'Error validating Excel file.', detail: error.message });
+        .json({
+          message: "Error validating Excel file.",
+          detail: error.message,
+        });
     } finally {
       safeUnlink(filePath);
     }
@@ -2239,48 +2576,60 @@ router.post(
 );
 
 router.post(
-  '/upload-excel-faculty-official-time-by-category',
+  "/upload-excel-faculty-official-time-by-category",
   authenticateToken,
-  upload.single('file'),
+  upload.single("file"),
   async (req, res) => {
     if (!req.file)
-      return res.status(400).json({ message: 'No file uploaded.' });
+      return res.status(400).json({ message: "No file uploaded." });
     const filePath = req.file.path;
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+if (!supervisorStatus) { safeUnlink(filePath); return; }
     const { employmentCategory } = req.body || {};
-    const categoryId = employmentCategory ? parseInt(employmentCategory, 10) : null;
+    const categoryId = employmentCategory
+      ? parseInt(employmentCategory, 10)
+      : null;
 
     if (!categoryId)
       return res
         .status(400)
-        .json({ message: 'employmentCategory is required for this upload route.' });
+        .json({
+          message: "employmentCategory is required for this upload route.",
+        });
 
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
-        return res
-          .status(400)
-          .json({
-            message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-          });
+        return res.status(400).json({
+          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+        });
 
       const categoryLabel = await getEmploymentCategoryLabel(categoryId);
       if (!categoryLabel)
-        return res.status(404).json({ message: 'Employment category not found.' });
+        return res
+          .status(404)
+          .json({ message: "Employment category not found." });
 
       const categoryEmployeeIDs = await getCategoryEmployeeIDs(categoryId);
 
       const sheet = readWorkbookSheet(filePath);
       if (!sheet.length)
-        return res.status(400).json({ message: 'Excel file is empty.' });
+        return res.status(400).json({ message: "Excel file is empty." });
 
       const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } = parseSheetIntoGroups(cleanedSheet);
+      const { groups, skippedRows, timeErrors } =
+        parseSheetIntoGroups(cleanedSheet);
 
       if (timeErrors.length > 0)
         return res
           .status(400)
-          .json({ message: 'Invalid time format(s) found in Excel.', timeErrors });
+          .json({
+            message: "Invalid time format(s) found in Excel.",
+            timeErrors,
+          });
 
-      let scheduleList = Array.from(groups.values()).filter((g) => g.rows.length > 0);
+      let scheduleList = Array.from(groups.values()).filter(
+        (g) => g.rows.length > 0,
+      );
 
       const allEmployeeIDsInFile = [
         ...new Set(scheduleList.map((s) => String(s.employeeID))),
@@ -2295,9 +2644,11 @@ router.post(
       ];
       const multiCategoryWarnings = [];
       if (distinctCategoriesInFile.length > 1) {
-        const otherCats = distinctCategoriesInFile.filter((c) => c !== categoryLabel);
+        const otherCats = distinctCategoriesInFile.filter(
+          (c) => c !== categoryLabel,
+        );
         multiCategoryWarnings.push(
-          `This file contained employees from multiple employment categories (${distinctCategoriesInFile.join(', ')}). Only rows for "${categoryLabel}" were processed — rows for ${otherCats.length ? otherCats.join(', ') : 'other categories'} were skipped.`,
+          `This file contained employees from multiple employment categories (${distinctCategoriesInFile.join(", ")}). Only rows for "${categoryLabel}" were processed — rows for ${otherCats.length ? otherCats.join(", ") : "other categories"} were skipped.`,
         );
       }
 
@@ -2306,9 +2657,11 @@ router.post(
         scheduleList = scheduleList.filter((s) => {
           const inCategory = categoryEmployeeIDs.has(String(s.employeeID));
           if (!inCategory) {
-            const actualCat = employeeCatMap.get(String(s.employeeID))?.categoryLabel;
+            const actualCat = employeeCatMap.get(
+              String(s.employeeID),
+            )?.categoryLabel;
             outOfCategoryWarnings.push(
-              `Employee ${s.employeeID}${actualCat ? ` (belongs to "${actualCat}")` : ' (no employment category assigned)'} is not assigned to employment category "${categoryLabel}" — skipped.`,
+              `Employee ${s.employeeID}${actualCat ? ` (belongs to "${actualCat}")` : " (no employment category assigned)"} is not assigned to employment category "${categoryLabel}" — skipped.`,
             );
           }
           return inCategory;
@@ -2316,23 +2669,19 @@ router.post(
       }
 
       if (scheduleList.length === 0)
-        return res
-          .status(400)
-          .json({
-            message: `No valid schedule blocks found for employment category "${categoryLabel}".`,
-            skippedRows,
-          });
+        return res.status(400).json({
+          message: `No valid schedule blocks found for employment category "${categoryLabel}".`,
+          skippedRows,
+        });
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
-        return res
-          .status(400)
-          .json({
-            message: first.message,
-            overlap: first.overlap || null,
-            allErrors: validationErrors,
-          });
+        return res.status(400).json({
+          message: first.message,
+          overlap: first.overlap || null,
+          allErrors: validationErrors,
+        });
       }
 
       const existingScheduleMap = await getActiveSchedulesForEmployees(
@@ -2386,7 +2735,7 @@ router.post(
             row.officialServiceCreditTimeOUT ?? null,
             row.officialOverTimeIN ?? null,
             row.officialOverTimeOUT ?? null,
-            'active',
+            "active",
             row.breaktime ?? null,
           ]);
 
@@ -2414,7 +2763,8 @@ router.post(
             });
             autoAttendanceInserted += autoResult.inserted;
             autoAttendanceSkipped += autoResult.skipped;
-            if (autoResult.errors.length > 0) insertWarnings.push(...autoResult.errors);
+            if (autoResult.errors.length > 0)
+              insertWarnings.push(...autoResult.errors);
           } catch (autoErr) {
             insertWarnings.push(
               `Employee ${s.employeeID}: Auto-attendance trigger failed. Reason: ${autoErr.message}`,
@@ -2424,7 +2774,7 @@ router.post(
           for (const row of s.rows) {
             if (
               row._statusFromFile &&
-              String(row._statusFromFile).toLowerCase() !== 'active'
+              String(row._statusFromFile).toLowerCase() !== "active"
             )
               insertWarnings.push(
                 `Employee ${s.employeeID} day ${row.day}: Excel status "${row._statusFromFile}" ignored — inserted as "active".`,
@@ -2436,7 +2786,7 @@ router.post(
               startDate: s.startDate,
               endDate: s.endDate,
               day: row.day,
-              status: 'active',
+              status: "active",
               officialTimeIN: row.officialTimeIN,
               officialBreaktimeIN: row.officialBreaktimeIN,
               officialBreaktimeOUT: row.officialBreaktimeOUT,
@@ -2461,13 +2811,11 @@ router.post(
       }
 
       if (!insertedCount)
-        return res
-          .status(400)
-          .json({
-            message: 'Upload parsed successfully but no records were inserted.',
-            warnings: insertWarnings,
-            skippedRows,
-          });
+        return res.status(400).json({
+          message: "Upload parsed successfully but no records were inserted.",
+          warnings: insertWarnings,
+          skippedRows,
+        });
 
       const affectedEmployees = normalizeEmployeeList(
         scheduleList.map((s) => s.employeeID),
@@ -2476,38 +2824,53 @@ router.post(
         logAudit(
           req.user,
           `Upload official time via Excel for employment category "${categoryLabel}" (${insertedCount} rows)`,
-          'Official Time',
+          "Official Time",
           null,
           null,
           buildOfficialTimeActionAuditDetails({
-            source: 'excel-upload-by-category',
+            source: "excel-upload-by-category",
             affectedEmployeeNumbers: affectedEmployees,
             blockCount: scheduleList.length,
-            rowCount: scheduleList.reduce((sum, s) => sum + (s.rows?.length || 0), 0),
+            rowCount: scheduleList.reduce(
+              (sum, s) => sum + (s.rows?.length || 0),
+              0,
+            ),
             insertedCount,
             skippedCount: skippedRows.length,
             notes: `employmentCategory=${categoryLabel}`,
           }),
         );
       } catch (e) {
-        console.error('Audit log error:', e);
+        console.error("Audit log error:", e);
       }
 
       res.json({
         message: `Upload complete for employment category "${categoryLabel}". Uploaded schedules are Active; previous active schedules for affected employees set to Inactive.`,
         inserted: insertedCount,
-        autoAttendance: { inserted: autoAttendanceInserted, skipped: autoAttendanceSkipped },
+        autoAttendance: {
+          inserted: autoAttendanceInserted,
+          skipped: autoAttendanceSkipped,
+        },
         records: processedRecords,
         warnings: [
           ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
           ...insertWarnings,
         ],
       });
+      if (affectedEmployees.length > 0) {
+        notifyAttendanceChanged("official-time-updated", {
+          scope: "officialtime",
+          personIDs: affectedEmployees,
+        });
+      }
     } catch (error) {
-      console.error('Error processing employment category Excel file:', error);
+      console.error("Error processing employment category Excel file:", error);
       res
         .status(500)
-        .json({ message: 'Error processing Excel file.', detail: error.message });
+        .json({
+          message: "Error processing Excel file.",
+          detail: error.message,
+        });
     } finally {
       safeUnlink(filePath);
     }
@@ -2521,91 +2884,226 @@ router.post(
 // existing department info, so the frontend can filter/display both.
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get('/officialtime/users-status', authenticateToken, (req, res) => {
+router.get("/officialtime/users-status", authenticateToken, (req, res) => {
+  const loggedInEmployeeNumber = req.user.employeeNumber;
+
   const sql = `
     SELECT
-      u.employeeNumber, u.email, u.role,
-      p.firstName, p.middleName, p.lastName, p.nameExtension,
+      u.employeeNumber,
+      u.email,
+      u.role,
+      p.firstName,
+      p.middleName,
+      p.lastName,
+      p.nameExtension,
+
       dt.description AS department,
+
       etc2.id AS employmentCategoryId,
       etc2.parentGroup AS employmentCategoryGroup,
       etc2.typeName AS employmentCategoryType,
-      latest_ot.academicYear, latest_ot.startDate, latest_ot.endDate,
-      CASE WHEN COALESCE(active_days.dayCount, 0) >= 7 THEN 1 ELSE 0 END AS hasDefaultOfficialTime,
+
+      latest_ot.academicYear,
+      latest_ot.startDate,
+      latest_ot.endDate,
+
+      CASE
+        WHEN COALESCE(active_days.dayCount, 0) >= 7
+        THEN 1
+        ELSE 0
+      END AS hasDefaultOfficialTime,
+
       COALESCE(active_days.dayCount, 0) AS officialTimeDaysCount
+
     FROM users u
-    LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
-    LEFT JOIN department_assignment da ON u.employeeNumber = da.employeeNumber
-    LEFT JOIN department_table dt ON da.code = dt.code
-    LEFT JOIN employment_category ec2 ON u.employeeNumber = ec2.employeeNumber
-    LEFT JOIN employment_type_config etc2 ON ec2.employmentCategory = etc2.id
+
+    LEFT JOIN person_table p
+      ON u.employeeNumber = p.agencyEmployeeNum
+
+    LEFT JOIN department_assignment da
+      ON u.employeeNumber = da.employeeNumber
+
+    LEFT JOIN department_table dt
+      ON da.code = dt.code
+
+    LEFT JOIN employment_category ec2
+      ON u.employeeNumber = ec2.employeeNumber
+
+    LEFT JOIN employment_type_config etc2
+      ON ec2.employmentCategory = etc2.id
+
     LEFT JOIN (
-      SELECT employeeID, COUNT(DISTINCT day) AS dayCount
-      FROM officialtime WHERE status = 'active' OR status IS NULL
+      SELECT
+        employeeID,
+        COUNT(DISTINCT day) AS dayCount
+      FROM officialtime
+      WHERE status = 'active'
+         OR status IS NULL
       GROUP BY employeeID
-    ) active_days ON u.employeeNumber = active_days.employeeID
+    ) active_days
+      ON u.employeeNumber = active_days.employeeID
+
     LEFT JOIN (
-      SELECT o.employeeID, o.academicYear, o.startDate, o.endDate
+      SELECT
+        o.employeeID,
+        o.academicYear,
+        o.startDate,
+        o.endDate
       FROM officialtime o
+
       INNER JOIN (
-        SELECT employeeID, MAX(startDate) AS maxStart
-        FROM officialtime WHERE status = 'active'
+        SELECT
+          employeeID,
+          MAX(startDate) AS maxStart
+        FROM officialtime
+        WHERE status = 'active'
         GROUP BY employeeID
-      ) m ON o.employeeID = m.employeeID AND o.startDate = m.maxStart
+      ) m
+        ON o.employeeID = m.employeeID
+       AND o.startDate = m.maxStart
+
       WHERE o.status = 'active'
-      GROUP BY o.employeeID
-    ) latest_ot ON u.employeeNumber = latest_ot.employeeID
-    GROUP BY u.employeeNumber, u.email, u.role, p.firstName, p.middleName, p.lastName,
-             p.nameExtension, dt.description, etc2.id, etc2.parentGroup, etc2.typeName,
-             latest_ot.academicYear, latest_ot.startDate,
-             latest_ot.endDate, active_days.dayCount
-    ORDER BY p.lastName, p.firstName
+
+      GROUP BY
+        o.employeeID,
+        o.academicYear,
+        o.startDate,
+        o.endDate
+    ) latest_ot
+      ON u.employeeNumber = latest_ot.employeeID
+
+    WHERE
+      (
+        /* ==========================================
+           SUPERADMIN / TECHNICAL
+           Can see ALL employees
+           ========================================== */
+        EXISTS (
+          SELECT 1
+          FROM users currentUser
+          WHERE currentUser.employeeNumber = ?
+            AND LOWER(currentUser.role) IN (
+              'superadmin',
+              'technical'
+            )
+        )
+
+        OR
+
+        /* ==========================================
+           SUPERVISOR
+           Can only see employees in assigned department
+           ========================================== */
+        EXISTS (
+          SELECT 1
+          FROM supervisor_assignment sa
+          WHERE sa.supervisorEmployeeNumber = ?
+            AND LOWER(sa.role) = 'supervisor'
+            AND sa.departmentCode = da.code
+        )
+      )
+
+    GROUP BY
+      u.employeeNumber,
+      u.email,
+      u.role,
+      p.firstName,
+      p.middleName,
+      p.lastName,
+      p.nameExtension,
+      dt.description,
+      etc2.id,
+      etc2.parentGroup,
+      etc2.typeName,
+      latest_ot.academicYear,
+      latest_ot.startDate,
+      latest_ot.endDate,
+      active_days.dayCount
+
+    ORDER BY
+      p.lastName,
+      p.firstName
   `;
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error('Error fetching users:', err);
-      return res.status(500).json({ error: err.message });
-    }
-    try {
-      logAudit(
-        req.user,
-        'View',
-        'Official Time Users Status',
-        null,
-        null,
-        buildOfficialTimeActionAuditDetails({
-          source: 'view-users-status',
-          rowCount: (results || []).length,
-        }),
-      );
-    } catch (e) {
-      console.error('Audit log error:', e);
-    }
-    res.json(
-      (results || []).map((row) => ({
-        employeeNumber: row.employeeNumber,
-        email: row.email,
-        role: row.role,
-        firstName: row.firstName || '',
-        middleName: row.middleName || '',
-        lastName: row.lastName || '',
-        nameExtension: row.nameExtension || '',
-        fullName:
-          `${row.firstName || ''} ${row.middleName ? row.middleName + ' ' : ''}${row.lastName || ''}${row.nameExtension ? ' ' + row.nameExtension : ''}`.trim(),
-        department: row.department || '',
-        employmentCategoryId: row.employmentCategoryId || null,
-        employmentCategoryLabel:
-          row.employmentCategoryGroup && row.employmentCategoryType
-            ? `${row.employmentCategoryGroup} | ${row.employmentCategoryType}`
+
+  db.query(
+    sql,
+    [
+      loggedInEmployeeNumber,
+      loggedInEmployeeNumber,
+    ],
+    (err, results) => {
+      if (err) {
+        console.error("Error fetching users:", err);
+
+        return res.status(500).json({
+          error: err.message,
+        });
+      }
+
+      try {
+        logAudit(
+          req.user,
+          "View",
+          "Official Time Users Status",
+          null,
+          null,
+          buildOfficialTimeActionAuditDetails({
+            source: "view-users-status",
+            rowCount: (results || []).length,
+          }),
+        );
+      } catch (e) {
+        console.error("Audit log error:", e);
+      }
+
+      res.json(
+        (results || []).map((row) => ({
+          employeeNumber: row.employeeNumber,
+          email: row.email,
+          role: row.role,
+
+          firstName: row.firstName || "",
+          middleName: row.middleName || "",
+          lastName: row.lastName || "",
+          nameExtension: row.nameExtension || "",
+
+          fullName:
+            `${row.firstName || ""} ${
+              row.middleName ? row.middleName + " " : ""
+            }${row.lastName || ""}${
+              row.nameExtension ? " " + row.nameExtension : ""
+            }`.trim(),
+
+          department: row.department || "",
+
+          employmentCategoryId:
+            row.employmentCategoryId || null,
+
+          employmentCategoryLabel:
+            row.employmentCategoryGroup &&
+            row.employmentCategoryType
+              ? `${row.employmentCategoryGroup} | ${row.employmentCategoryType}`
+              : null,
+
+          academicYear: row.academicYear || null,
+
+          startDate: row.startDate
+            ? toDateOnlyString(row.startDate)
             : null,
-        academicYear: row.academicYear || null,
-        startDate: row.startDate ? toDateOnlyString(row.startDate) : null,
-        endDate: row.endDate ? toDateOnlyString(row.endDate) : null,
-        hasDefaultOfficialTime: row.hasDefaultOfficialTime === 1,
-        officialTimeDaysCount: row.officialTimeDaysCount || 0,
-      })),
-    );
-  });
+
+          endDate: row.endDate
+            ? toDateOnlyString(row.endDate)
+            : null,
+
+          hasDefaultOfficialTime:
+            row.hasDefaultOfficialTime === 1,
+
+          officialTimeDaysCount:
+            row.officialTimeDaysCount || 0,
+        })),
+      );
+    },
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2613,39 +3111,39 @@ router.get('/officialtime/users-status', authenticateToken, (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
-  '/officialtime/set-default-for-users',
+  "/officialtime/set-default-for-users",
   authenticateToken,
   (req, res) => {
     const { employeeNumbers } = req.body;
     const defaultTimes = {
-      officialTimeIN: '08:00:00 AM',
-      officialBreaktimeIN: '00:00:00 AM',
-      officialBreaktimeOUT: '00:00:00 AM',
-      officialTimeOUT: '05:00:00 PM',
-      officialHonorariumTimeIN: '00:00:00 AM',
-      officialHonorariumTimeOUT: '00:00:00 AM',
-      officialServiceCreditTimeIN: '00:00:00 AM',
-      officialServiceCreditTimeOUT: '00:00:00 AM',
-      officialOverTimeIN: '00:00:00 AM',
-      officialOverTimeOUT: '00:00:00 AM',
-      breaktime: '',
+      officialTimeIN: "08:00:00 AM",
+      officialBreaktimeIN: "00:00:00 AM",
+      officialBreaktimeOUT: "00:00:00 AM",
+      officialTimeOUT: "05:00:00 PM",
+      officialHonorariumTimeIN: "00:00:00 AM",
+      officialHonorariumTimeOUT: "00:00:00 AM",
+      officialServiceCreditTimeIN: "00:00:00 AM",
+      officialServiceCreditTimeOUT: "00:00:00 AM",
+      officialOverTimeIN: "00:00:00 AM",
+      officialOverTimeOUT: "00:00:00 AM",
+      breaktime: "",
     };
     const days = DAYS_ORDER;
 
-    let userQuery = 'SELECT employeeNumber FROM users';
+    let userQuery = "SELECT employeeNumber FROM users";
     let queryParams = [];
     if (
       employeeNumbers &&
       Array.isArray(employeeNumbers) &&
       employeeNumbers.length > 0
     ) {
-      userQuery += ` WHERE employeeNumber IN (${employeeNumbers.map(() => '?').join(',')})`;
+      userQuery += ` WHERE employeeNumber IN (${employeeNumbers.map(() => "?").join(",")})`;
       queryParams = employeeNumbers;
     }
 
     db.query(userQuery, queryParams, (err, users) => {
       if (err) {
-        console.error('Error fetching users:', err);
+        console.error("Error fetching users:", err);
         return res.status(500).json({ error: err.message });
       }
 
@@ -2657,7 +3155,7 @@ router.post(
       const processUser = (user, callback) => {
         const employeeID = user.employeeNumber;
         db.query(
-          'SELECT COUNT(*) as count FROM officialtime WHERE employeeID = ?',
+          "SELECT COUNT(*) as count FROM officialtime WHERE employeeID = ?",
           [employeeID],
           (checkErr, checkResult) => {
             if (checkErr) {
@@ -2673,8 +3171,8 @@ router.post(
             const values = days.map((day) => [
               employeeID,
               null,
-              '1970-01-01',
-              '2099-12-31',
+              "1970-01-01",
+              "2099-12-31",
               day,
               defaultTimes.officialTimeIN,
               defaultTimes.officialBreaktimeIN,
@@ -2686,7 +3184,7 @@ router.post(
               defaultTimes.officialServiceCreditTimeOUT,
               defaultTimes.officialOverTimeIN,
               defaultTimes.officialOverTimeOUT,
-              'active',
+              "active",
               defaultTimes.breaktime,
             ]);
 
@@ -2719,12 +3217,12 @@ router.post(
             logAudit(
               req.user,
               `Set default official time for ${processedCount} users`,
-              'Official Time',
+              "Official Time",
               null,
               affectedEmployees.length === 1 ? affectedEmployees[0] : null,
               buildOfficialTimeActionAuditDetails({
-                source: 'set-default-for-users',
-                status: errors.length > 0 ? 'partial' : 'success',
+                source: "set-default-for-users",
+                status: errors.length > 0 ? "partial" : "success",
                 affectedEmployeeNumbers: affectedEmployees,
                 insertedCount,
                 skippedCount,
@@ -2736,10 +3234,10 @@ router.post(
               }),
             );
           } catch (e) {
-            console.error('Audit log error:', e);
+            console.error("Audit log error:", e);
           }
           return res.json({
-            message: 'Default official time set successfully',
+            message: "Default official time set successfully",
             processed: processedCount,
             inserted: insertedCount,
             insertedUsers: Math.floor((insertedCount || 0) / 7),
@@ -2755,7 +3253,7 @@ router.post(
 
       if (users.length === 0)
         return res.json({
-          message: 'No users found',
+          message: "No users found",
           processed: 0,
           inserted: 0,
         });
@@ -2770,80 +3268,68 @@ router.post(
 // ─────────────────────────────────────────────────────────────────────────────
 
 router.post(
-  '/officialtime/bulk-schedules',
+  "/officialtime/bulk-schedules",
   authenticateToken,
   async (req, res) => {
     const { employeeIDs, blocks, records } = req.body || {};
 
     if (!employeeIDs || !Array.isArray(employeeIDs) || !employeeIDs.length)
-      return res
-        .status(400)
-        .json({
-          message: 'employeeIDs is required and must be a non-empty array.',
-        });
+      return res.status(400).json({
+        message: "employeeIDs is required and must be a non-empty array.",
+      });
     if (!blocks || !Array.isArray(blocks) || !blocks.length)
-      return res
-        .status(400)
-        .json({
-          message:
-            'blocks is required and must contain at least one schedule block.',
-        });
+      return res.status(400).json({
+        message:
+          "blocks is required and must contain at least one schedule block.",
+      });
     if (!records || !Array.isArray(records) || !records.length)
-      return res
-        .status(400)
-        .json({
-          message: 'records is required and must contain at least one day row.',
-        });
+      return res.status(400).json({
+        message: "records is required and must contain at least one day row.",
+      });
 
     // Validate time overlaps in the template rows
     for (const row of records) {
       const segments = getSegmentsForDayRow(row);
       const overlap = findOverlapInSegments(segments);
       if (overlap)
-        return res
-          .status(400)
-          .json({
-            message: formatTimeOverlapMessage({
-              day: row.day,
-              employeeID: 'multiple',
-              segA: overlap.a,
-              segB: overlap.b,
-            }),
-            overlap: buildTimeOverlapPayload({
-              day: row.day,
-              employeeID: 'multiple',
-              segA: overlap.a,
-              segB: overlap.b,
-            }),
-          });
+        return res.status(400).json({
+          message: formatTimeOverlapMessage({
+            day: row.day,
+            employeeID: "multiple",
+            segA: overlap.a,
+            segB: overlap.b,
+          }),
+          overlap: buildTimeOverlapPayload({
+            day: row.day,
+            employeeID: "multiple",
+            segA: overlap.a,
+            segB: overlap.b,
+          }),
+        });
     }
 
     // #7: Duplicate day in template
     const dupDay = hasDuplicateDay(records);
     if (dupDay)
-      return res
-        .status(400)
-        .json({
-          message: `Duplicate day "${dupDay}" found in records. Each day must appear only once.`,
-        });
+      return res.status(400).json({
+        message: `Duplicate day "${dupDay}" found in records. Each day must appear only once.`,
+      });
 
     for (const b of blocks) {
       if (!b || !b.startDate || !b.endDate)
         return res
           .status(400)
-          .json({ message: 'Each block must have startDate and endDate.' });
+          .json({ message: "Each block must have startDate and endDate." });
       if (new Date(b.startDate) > new Date(b.endDate))
-        return res
-          .status(400)
-          .json({
-            message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).`,
-          });
+        return res.status(400).json({
+          message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).`,
+        });
     }
 
     const results = [];
 
     for (const empIdRaw of employeeIDs) {
-      const employeeID = String(empIdRaw || '').trim();
+      const employeeID = String(empIdRaw || "").trim();
       if (!employeeID) continue;
 
       const empResult = { employeeID, inserted: 0, errors: [] };
@@ -2896,8 +3382,8 @@ router.post(
           const academicYearVal = (() => {
             const ay = b.academicYear
               ? autoFormatAcademicYear(String(b.academicYear).trim())
-              : ''; // #14
-            const sem = b.semester ? String(b.semester).trim() : '';
+              : ""; // #14
+            const sem = b.semester ? String(b.semester).trim() : "";
             if (ay && sem) return `${ay} ${sem}`.trim();
             return ay || sem || null;
           })();
@@ -2918,7 +3404,7 @@ router.post(
             r.officialServiceCreditTimeOUT ?? null,
             r.officialOverTimeIN ?? null,
             r.officialOverTimeOUT ?? null,
-            'active',
+            "active",
             r.breaktime ?? null,
           ]);
 
@@ -2965,12 +3451,12 @@ router.post(
       logAudit(
         req.user,
         `Bulk create official time (${employeeIDs.length} employees)`,
-        'Official Time',
+        "Official Time",
         null,
         affectedEmployees.length === 1 ? affectedEmployees[0] : null,
         buildOfficialTimeActionAuditDetails({
-          source: 'bulk-create',
-          status: failedCount > 0 ? 'partial' : 'success',
+          source: "bulk-create",
+          status: failedCount > 0 ? "partial" : "success",
           affectedEmployeeNumbers: affectedEmployees,
           blockCount: Array.isArray(blocks) ? blocks.length : null,
           rowCount:
@@ -2985,10 +3471,17 @@ router.post(
         }),
       );
     } catch (e) {
-      console.error('Audit log error:', e);
+      console.error("Audit log error:", e);
     }
 
-    res.json({ message: 'Bulk schedules processed.', totalInserted, results });
+    res.json({ message: "Bulk schedules processed.", totalInserted, results });
+    const notified = normalizeEmployeeList(employeeIDs);
+    if (notified.length > 0) {
+      notifyAttendanceChanged("official-time-updated", {
+        scope: "officialtime",
+        personIDs: notified,
+      });
+    }
   },
 );
 
@@ -2996,81 +3489,96 @@ router.post(
 // PUT — edit an existing active schedule
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT — edit an existing active schedule
+// [FIX] No longer silently falls back to "whatever is currently active" when
+// origEndDate is missing or doesn't match. origEndDate is now required, and
+// the update only proceeds if that exact (startDate, endDate) pair is still
+// the active schedule in the DB — otherwise it returns a clear error instead
+// of quietly redirecting the edit onto a different period.
+// ─────────────────────────────────────────────────────────────────────────────
+
 router.put(
-  '/officialtimetable/:employeeID',
+  "/officialtimetable/:employeeID",
   authenticateToken,
   async (req, res) => {
     const { employeeID } = req.params;
-    const { startDate, endDate, origEndDate, records } = req.body || {};
+    const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
 
     if (!startDate)
-      return res.status(400).json({ message: 'startDate is required.' });
+      return res.status(400).json({ message: "startDate is required." });
     if (!endDate)
-      return res.status(400).json({ message: 'endDate is required.' });
+      return res.status(400).json({ message: "endDate is required." });
     if (new Date(startDate) > new Date(endDate))
       return res
         .status(400)
-        .json({ message: 'endDate cannot be before startDate.' });
+        .json({ message: "endDate cannot be before startDate." });
     if (!records || !Array.isArray(records) || !records.length)
-      return res.status(400).json({ message: 'No records provided.' });
+      return res.status(400).json({ message: "No records provided." });
 
     const normalizedStartDate = normDate(startDate);
     const normalizedEndDate = normDate(endDate);
     const normalizedOrigEndDate = origEndDate ? normDate(origEndDate) : null;
 
     if (!normalizedStartDate)
-      return res.status(400).json({ message: 'Invalid startDate format.' });
+      return res.status(400).json({ message: "Invalid startDate format." });
     if (!normalizedEndDate)
-      return res.status(400).json({ message: 'Invalid endDate format.' });
-    if (normalizedOrigEndDate === null && origEndDate)
-      return res.status(400).json({ message: 'Invalid origEndDate format.' });
+      return res.status(400).json({ message: "Invalid endDate format." });
+    if (origEndDate && normalizedOrigEndDate === null)
+      return res.status(400).json({ message: "Invalid origEndDate format." });
+
+    // [FIX] origEndDate is now mandatory — it's the only reliable way to
+    // identify exactly which schedule block the client meant to edit.
+    // Falling back to "whatever endDate happens to be active for this
+    // startDate" is what let edits land on the wrong period.
+    if (!normalizedOrigEndDate) {
+      return res.status(400).json({
+        message:
+          "origEndDate is required to identify which schedule period to update.",
+      });
+    }
 
     for (const row of records) {
       const segments = getSegmentsForDayRow(row);
       const overlap = findOverlapInSegments(segments);
       if (overlap)
-        return res
-          .status(422)
-          .json({
-            message: formatTimeOverlapMessage({
-              day: row.day,
-              employeeID,
-              segA: overlap.a,
-              segB: overlap.b,
-            }),
-            overlap: buildTimeOverlapPayload({
-              day: row.day,
-              employeeID,
-              segA: overlap.a,
-              segB: overlap.b,
-            }),
-          });
+        return res.status(422).json({
+          message: formatTimeOverlapMessage({
+            day: row.day,
+            employeeID,
+            segA: overlap.a,
+            segB: overlap.b,
+          }),
+          overlap: buildTimeOverlapPayload({
+            day: row.day,
+            employeeID,
+            segA: overlap.a,
+            segB: overlap.b,
+          }),
+        });
     }
 
-    let lookupEndDate = normalizedOrigEndDate || null;
+    const lookupEndDate = normalizedOrigEndDate;
 
     try {
-      if (!lookupEndDate) {
-        const activeEndDates = await new Promise((resolve, reject) => {
-          db.query(
-            `SELECT endDate, COUNT(*) AS rowCount
-           FROM officialtime
-           WHERE employeeID = ? AND startDate = ? AND status = 'active'
-           GROUP BY endDate
-           ORDER BY rowCount DESC, endDate DESC
-           LIMIT 1`,
-            [employeeID, normalizedStartDate],
-            (err, rows) => (err ? reject(err) : resolve(rows || [])),
-          );
+      // [FIX] Strict existence check: the (startDate, lookupEndDate) pair
+      // must currently be the ACTIVE schedule for this employee. If it
+      // isn't — e.g. it was superseded by a newer schedule, or the client
+      // opened a stale/non-active block — fail loudly instead of silently
+      // updating a different period.
+      const matchCheck = await new Promise((resolve, reject) => {
+        db.query(
+          `SELECT COUNT(*) AS cnt FROM officialtime
+           WHERE employeeID = ? AND startDate = ? AND endDate = ? AND status = 'active'`,
+          [employeeID, normalizedStartDate, lookupEndDate],
+          (err, rows) => (err ? reject(err) : resolve(rows || [])),
+        );
+      });
+
+      if (!matchCheck.length || Number(matchCheck[0].cnt) === 0) {
+        return res.status(404).json({
+          message: `This schedule (startDate ${normalizedStartDate}, endDate ${lookupEndDate}) is not currently the active period for employee ${employeeID}, so it can't be edited. It may already have been superseded by a newer schedule — refresh and try again.`,
         });
-
-        if (!activeEndDates.length) {
-          return res.status(404).json({
-            message: `No active schedule found for employee ${employeeID} with startDate ${normalizedStartDate}.`,
-          });
-        }
-
-        lookupEndDate = toDateOnlyString(activeEndDates[0].endDate);
       }
 
       let updatedCount = 0;
@@ -3109,6 +3617,19 @@ router.put(
         });
       }
 
+      if (saveSupervisorHistory === true) {
+        try {
+          await saveSupervisorOfficialTimeSnapshot({
+            user: req.user,
+            employeeID,
+            startDate: normalizedStartDate,
+            endDate: normalizedEndDate,
+          });
+        } catch (historyErr) {
+          console.error("Error saving supervisor official-time snapshot:", historyErr);
+        }
+      }
+
       let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
       try {
         autoAttendance = await fillExemptAttendance({
@@ -3123,7 +3644,7 @@ router.put(
       }
 
       res.json({
-        message: 'Official time updated successfully.',
+        message: "Official time updated successfully.",
         updated: updatedCount,
         autoAttendance: {
           inserted: autoAttendance.inserted,
@@ -3133,10 +3654,231 @@ router.put(
           ? autoAttendance.errors
           : undefined,
       });
+      notifyAttendanceChanged("official-time-updated", {
+        scope: "officialtime",
+        personID: employeeID,
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+      });
     } catch (err) {
-      console.error('Error updating official time:', err);
-      res.status(500).json({ error: err.message || 'Database error' });
+      console.error("Error updating official time:", err);
+      res.status(500).json({ error: err.message || "Database error" });
     }
+  },
+);
+
+router.get("/officialtime/past-periods", authenticateToken, (req, res) => {
+  const supervisorEmployeeNumber =
+    req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
+
+  db.query(
+    `SELECT sa.id, sa.departmentCode, dt.description AS department, sa.start, sa.end, sa.status
+     FROM supervisor_assignment sa
+     LEFT JOIN department_table dt ON dt.code = sa.departmentCode
+     WHERE sa.supervisorEmployeeNumber = ?
+     ORDER BY COALESCE(sa.updatedAt, sa.createdAt) DESC,
+              sa.createdAt DESC,
+              sa.id DESC`,
+    [supervisorEmployeeNumber],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const now = new Date();
+      res.json(
+        (rows || []).map((r) => {
+          const s = toDateTime(r.start);
+          const e = toDateTime(r.end);
+          const isCurrentlyActive =
+            Number(r.status) === 0 && (!s || s <= now) && (!e || e >= now);
+          return {
+            id: r.id,
+            department: r.department || r.departmentCode,
+            startDate: r.start,
+            endDate: r.end,
+            active: isCurrentlyActive,
+          };
+        }),
+      );
+    },
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAST PERIODS — supervisor_assignment history + audit_log cross-reference
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /officialtime/past-periods/:id/changed-employees
+// :id = supervisor_assignment.id. Resolves that assignment's department,
+// then finds distinct employees whose Official Time audit entry contains
+// this supervisor_assignment ID.
+router.get(
+  "/officialtime/past-periods/:id/changed-employees",
+  authenticateToken,
+  (req, res) => {
+    const { id } = req.params;
+
+    db.query(
+      `SELECT sa.departmentCode, sa.start, sa.end
+       FROM supervisor_assignment sa
+       WHERE sa.id = ? LIMIT 1`,
+      [id],
+      (err, saRows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!saRows.length)
+          return res.status(404).json({ error: "Period not found." });
+
+        const { departmentCode } = saRows[0];
+
+        db.query(
+          `SELECT h.employeeID AS employeeNumber,
+                  COUNT(*) AS changeCount,
+                  CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS name
+           FROM officialtime_history h
+           LEFT JOIN person_table p
+             ON p.agencyEmployeeNum = h.employeeID
+           WHERE h.supervisor_assignment_id = ?
+             AND h.employeeID IS NOT NULL
+             AND h.employeeID <> ''
+             AND EXISTS (
+               SELECT 1
+               FROM department_assignment da
+               WHERE TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(h.employeeID AS CHAR))
+                 AND da.code = ?
+             )
+           GROUP BY h.employeeID, name
+           ORDER BY name IS NULL, name ASC`,
+          [Number(id), departmentCode],
+          (err2, rows) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            res.json(
+              (rows || []).map((row) => ({
+                employeeNumber: row.employeeNumber,
+                name: row.name && row.name.trim() ? row.name.trim() : `Employee ${row.employeeNumber}`,
+                changeCount: Number(row.changeCount) || 0,
+              })),
+            );
+          },
+        );
+      },
+    );
+  },
+);
+
+// GET /officialtime/past-periods/:id/employees/:employeeNumber/changes
+// Returns that employee's current officialtime day-rows (best-effort — see
+// note below) plus a changedFields list parsed from audit_log.details_json
+// when possible.
+router.get(
+  "/officialtime/past-periods/:id/employees/:employeeNumber/changes",
+  authenticateToken,
+  (req, res) => {
+    const { id, employeeNumber } = req.params;
+
+    db.query(
+      `SELECT sa.departmentCode, sa.start, sa.end
+       FROM supervisor_assignment sa
+       WHERE sa.id = ? LIMIT 1`,
+      [id],
+      (err, saRows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!saRows.length)
+          return res.status(404).json({ error: "Period not found." });
+
+        const { start, end } = saRows[0];
+        const periodStart = toDateTime(start);
+        const periodEnd = toDateTime(end);
+
+        // Pull every audit_log row for this employee, most recent first, and
+        // retain only entries belonging to this supervisor assignment.
+        db.query(
+          `SELECT logID, action, timestamp, record_id, details_json
+           FROM audit_log
+           WHERE table_name = 'Official Time'
+             AND targetEmployeeNumber = ?
+           ORDER BY timestamp DESC`,
+          [employeeNumber],
+          (err2, auditRows) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+
+            const filteredAuditRows = (auditRows || []).filter((row) => {
+              const timestamp = toDateTime(row.timestamp);
+              return (
+                timestamp &&
+                periodStart &&
+                periodEnd &&
+                timestamp >= periodStart &&
+                timestamp <= periodEnd
+              );
+            });
+
+            // Best-effort field-level diff extraction. details_json's exact
+            // schema isn't confirmed yet — this tries a couple of likely
+            // shapes and silently skips anything it can't parse. Tighten
+            // this once the real details_json structure is confirmed.
+            const changedFields = [];
+            for (const row of filteredAuditRows) {
+              let parsed;
+              try {
+                parsed = JSON.parse(row.details_json || "{}");
+              } catch {
+                continue;
+              }
+              // Shape A: { records: [{ day, officialTimeIN, ... }] }
+              if (Array.isArray(parsed.records)) {
+                for (const rec of parsed.records) {
+                  if (!rec.day) continue;
+                  Object.keys(rec).forEach((k) => {
+                    if (k !== "day") changedFields.push({ day: rec.day, field: k });
+                  });
+                }
+              }
+              // Shape B: { changedFields: [{ day, field }] }
+              if (Array.isArray(parsed.changedFields)) {
+                changedFields.push(...parsed.changedFields);
+              }
+              // Shape C: { day, field } flat (single-field edit)
+              if (parsed.day && parsed.field) {
+                changedFields.push({ day: parsed.day, field: parsed.field });
+              }
+            }
+
+            // Use the newest schedule snapshot captured while this
+            // supervisor assignment was active. Do not read live officialtime
+            // rows here because later edits would overwrite this period's view.
+            db.query(
+              `SELECT snapshot_data
+               FROM officialtime_history
+               WHERE employeeID = ? AND supervisor_assignment_id = ?
+               ORDER BY id DESC
+               LIMIT 1`,
+              [employeeNumber, Number(id)],
+              (err3, snapshotRows) => {
+                if (err3) return res.status(500).json({ error: err3.message });
+
+                let records = [];
+                if (snapshotRows?.[0]?.snapshot_data) {
+                  try {
+                    records = JSON.parse(snapshotRows[0].snapshot_data) || [];
+                  } catch {
+                    records = [];
+                  }
+                }
+
+                res.json({
+                  records,
+                  changedFields,
+                  auditEntries: filteredAuditRows.map((r) => ({
+                    logID: r.logID,
+                    action: r.action,
+                    timestamp: r.timestamp,
+                  })),
+                });
+              },
+            );
+          },
+        );
+      },
+    );
   },
 );
 

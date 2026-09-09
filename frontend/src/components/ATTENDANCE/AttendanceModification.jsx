@@ -139,8 +139,19 @@ const T = {
 const RECORDS_ROW_GRID =
   'minmax(72px, 0.9fr) minmax(68px, 0.75fr) minmax(44px, 0.55fr) repeat(4, minmax(104px, 1.05fr)) minmax(120px, 1fr) minmax(130px, 1.1fr)';
 const FULL_MONTH_ROW_GRID =
-  'minmax(56px, 0.65fr) minmax(68px, 0.75fr) minmax(44px, 0.55fr) repeat(4, minmax(104px, 1.05fr)) minmax(120px, 1fr) minmax(130px, 1.1fr)';
-const MOD_TABLE_MIN_WIDTH = 1020;
+  '28px minmax(56px, 0.65fr) minmax(68px, 0.75fr) minmax(44px, 0.55fr) repeat(4, minmax(104px, 1.05fr)) minmax(120px, 1fr) minmax(130px, 1.1fr)';
+const MOD_TABLE_MIN_WIDTH = 1048;
+
+const rowHasOfficialSchedule = (record) =>
+  !!(
+    record?.officialTimeIN ||
+    record?.officialTimeOUT ||
+    record?.officialBreaktimeIN ||
+    record?.officialBreaktimeOUT
+  );
+
+const canFullMonthAutoFill = (record, autoFilledRows) =>
+  !!record?.date && !autoFilledRows.has(record.date);
 
 /** Shown in EDIT REMARKS after force-sync from Device module */
 const DEVICE_RESTORE_REMARK_PREFIX = 'Returned data from the device';
@@ -515,9 +526,11 @@ const ModernTextField = styled(TextField)(() => ({
 }));
 
 const scrollbarSx = {
-  '&::-webkit-scrollbar': { width: 4 },
-  '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
-  '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
+  '&::-webkit-scrollbar': { width: 8, height: 8 },
+  '&::-webkit-scrollbar-thumb': { bgcolor: alpha(T.accent, 0.35), borderRadius: 4 },
+  '&::-webkit-scrollbar-track': { bgcolor: alpha(T.accent, 0.06) },
+  scrollbarWidth: 'thin',
+  scrollbarColor: `${alpha(T.accent, 0.35)} ${alpha(T.accent, 0.06)}`,
 };
 
 const PanelHeader = ({ icon: Icon, title, right }) => (
@@ -560,33 +573,56 @@ const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, ic
   </Box>
 );
 
-// ─── Auto-colon Time Input ─────────────────────────────────────────────────
+// ─── Auto-colon Time Input (display HH:MM; store HH:MM:00 for API) ─────────
 const digitsOnly = (str) => (str || '').replace(/\D/g, '');
 const formatTimeDigits = (digits) => {
-  const d = digits.slice(0, 6);
+  const d = digits.slice(0, 4);
   if (d.length <= 2) return d;
-  if (d.length <= 4) return `${d.slice(0, 2)}:${d.slice(2)}`;
-  return `${d.slice(0, 2)}:${d.slice(2, 4)}:${d.slice(4)}`;
+  return `${d.slice(0, 2)}:${d.slice(2)}`;
 };
-const parseStoredTime = (val) => {
-  if (!val || String(val).trim() === '') return { digits: '', ampm: 'AM' };
+/** Strip seconds from displayed time labels (e.g. "06:04:00 AM" → "06:04 AM"). */
+const displayTimeNoSeconds = (val) => {
+  if (!val || String(val).trim() === '') return val || '';
+  return String(val).replace(/(\d{1,2}:\d{2}):\d{2}/, '$1');
+};
+const parseStoredTime = (val, defaultAmPm = 'AM') => {
+  if (!val || String(val).trim() === '') return { digits: '', ampm: defaultAmPm };
   const str = String(val).trim().toUpperCase();
-  let ampm = 'AM';
+  let ampm = defaultAmPm;
   let timePart = str;
   if (str.endsWith(' PM')) { ampm = 'PM'; timePart = str.slice(0, -3).trim(); }
   else if (str.endsWith(' AM')) { ampm = 'AM'; timePart = str.slice(0, -3).trim(); }
   else if (str.endsWith('PM')) { ampm = 'PM'; timePart = str.slice(0, -2).trim(); }
   else if (str.endsWith('AM')) { ampm = 'AM'; timePart = str.slice(0, -2).trim(); }
   else { const hm = str.match(/^(\d{1,2}):/); if (hm) ampm = parseInt(hm[1], 10) >= 12 ? 'PM' : 'AM'; }
-  return { digits: digitsOnly(timePart), ampm };
+  // Keep HHMM only — ignore seconds from stored HH:MM:SS values
+  return { digits: digitsOnly(timePart).slice(0, 4), ampm };
 };
-const buildStoredTime = (digits, ampm) => { if (!digits) return ''; return `${formatTimeDigits(digits)} ${ampm}`; };
+const buildStoredTime = (digits, ampm) => {
+  if (!digits) return '';
+  const formatted = formatTimeDigits(digits);
+  // Persist with :00 when HH:MM is complete so backend stays HH:MM:SS
+  const withSeconds = digits.length >= 4 ? `${formatted}:00` : formatted;
+  return `${withSeconds} ${ampm}`;
+};
 
-const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled }) => {
-  const { digits: initDigits, ampm: initAmPm } = parseStoredTime(value);
+/** Empty-field AM/PM defaults — TIME IN stays AM; break + time out default to PM. */
+const DEFAULT_AMPM_BY_FIELD = {
+  timeIN: 'AM',
+  breaktimeIN: 'PM',
+  breaktimeOUT: 'PM',
+  timeOUT: 'PM',
+};
+
+const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled, defaultAmPm = 'AM' }) => {
+  const { digits: initDigits, ampm: initAmPm } = parseStoredTime(value, defaultAmPm);
   const [localDigits, setLocalDigits] = useState(initDigits);
   const [ampm, setAmPm] = useState(initAmPm);
-  useEffect(() => { const { digits, ampm: ap } = parseStoredTime(value); setLocalDigits(digits); setAmPm(ap); }, [value]);
+  useEffect(() => {
+    const { digits, ampm: ap } = parseStoredTime(value, defaultAmPm);
+    setLocalDigits(digits);
+    setAmPm(ap);
+  }, [value, defaultAmPm]);
 
   const borderColor = unsaved ? '#e65100' : savedMod ? '#2e7d32' : autoFilled ? T.accent : isNewRow ? 'rgba(245,158,11,0.4)' : T.accentBorder;
   const bgColor = unsaved ? 'rgba(230,81,0,0.04)' : savedMod ? 'rgba(46,125,50,0.04)' : autoFilled ? T.accentFaint : isNewRow ? 'rgba(245,158,11,0.04)' : '#fff';
@@ -594,23 +630,64 @@ const TimeInput = ({ value, onChange, unsaved, savedMod, isNewRow, autoFilled })
   const handleKeyDown = (e) => {
     if (e.key === 'Backspace') { e.preventDefault(); const nd = localDigits.slice(0, -1); setLocalDigits(nd); onChange({ target: { value: buildStoredTime(nd, ampm) } }); return; }
     if (e.key === 'Delete') { e.preventDefault(); setLocalDigits(''); onChange({ target: { value: '' } }); return; }
-    if (/^\d$/.test(e.key)) { e.preventDefault(); if (localDigits.length >= 6) return; const nd = localDigits + e.key; setLocalDigits(nd); onChange({ target: { value: buildStoredTime(nd, ampm) } }); }
+    if (/^\d$/.test(e.key)) { e.preventDefault(); if (localDigits.length >= 4) return; const nd = localDigits + e.key; setLocalDigits(nd); onChange({ target: { value: buildStoredTime(nd, ampm) } }); }
   };
   const toggleAmPm = () => { const n = ampm === 'AM' ? 'PM' : 'AM'; setAmPm(n); onChange({ target: { value: buildStoredTime(localDigits, n) } }); };
+  const clearTime = () => {
+    if (!localDigits) return;
+    setLocalDigits('');
+    setAmPm(defaultAmPm);
+    onChange({ target: { value: '' } });
+  };
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center' }}>
       <input
-        type="text" value={formatTimeDigits(localDigits)} onKeyDown={handleKeyDown} onChange={() => {}} placeholder="HH:MM:SS"
-        style={{ width: '78px', padding: '6px 7px', borderRadius: '6px 0 0 6px', border: `1.5px solid ${borderColor}`, borderRight: 'none', fontSize: '0.76rem', outline: 'none', fontFamily: 'monospace', fontWeight: 600, boxSizing: 'border-box', background: bgColor, color: T.text, transition: 'border-color 0.15s', letterSpacing: '0.04em', caretColor: T.accent }}
+        type="text" value={formatTimeDigits(localDigits)} onKeyDown={handleKeyDown} onChange={() => {}} placeholder="HH:MM"
+        style={{ width: '62px', padding: '6px 7px', borderRadius: '6px 0 0 6px', border: `1.5px solid ${borderColor}`, borderRight: 'none', fontSize: '0.76rem', outline: 'none', fontFamily: 'monospace', fontWeight: 600, boxSizing: 'border-box', background: bgColor, color: T.text, transition: 'border-color 0.15s', letterSpacing: '0.04em', caretColor: T.accent }}
         onFocus={(e) => { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 1.5px ${T.accent}22`; }}
         onBlur={(e) => { e.target.style.borderColor = borderColor; e.target.style.boxShadow = 'none'; }}
       />
       <button type="button" onClick={toggleAmPm} title={`Click to switch to ${ampm === 'AM' ? 'PM' : 'AM'}`}
-        style={{ width: '30px', padding: '6px 3px', borderRadius: '0 6px 6px 0', border: `1.5px solid ${borderColor}`, fontSize: '0.65rem', fontWeight: 800, fontFamily: T.font, cursor: 'pointer', background: ampm === 'AM' ? 'rgba(25,118,210,0.10)' : 'rgba(198,40,40,0.10)', color: ampm === 'AM' ? '#1565c0' : '#b71c1c', transition: 'all 0.15s', letterSpacing: '0.03em', userSelect: 'none', lineHeight: 1, boxSizing: 'border-box' }}
+        style={{ width: '30px', padding: '6px 3px', borderRadius: 0, border: `1.5px solid ${borderColor}`, borderRight: 'none', fontSize: '0.65rem', fontWeight: 800, fontFamily: T.font, cursor: 'pointer', background: ampm === 'AM' ? 'rgba(25,118,210,0.10)' : 'rgba(198,40,40,0.10)', color: ampm === 'AM' ? '#1565c0' : '#b71c1c', transition: 'all 0.15s', letterSpacing: '0.03em', userSelect: 'none', lineHeight: 1, boxSizing: 'border-box' }}
         onMouseEnter={(e) => { e.currentTarget.style.background = ampm === 'AM' ? 'rgba(25,118,210,0.18)' : 'rgba(198,40,40,0.18)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = ampm === 'AM' ? 'rgba(25,118,210,0.10)' : 'rgba(198,40,40,0.10)'; }}
       >{ampm}</button>
+      <button
+        type="button"
+        onClick={clearTime}
+        disabled={!localDigits}
+        title="Clear time"
+        aria-label="Clear time"
+        style={{
+          width: '22px',
+          padding: '6px 0',
+          borderRadius: '0 6px 6px 0',
+          border: `1.5px solid ${borderColor}`,
+          fontSize: '0.7rem',
+          fontWeight: 800,
+          fontFamily: T.font,
+          cursor: localDigits ? 'pointer' : 'default',
+          background: localDigits ? 'rgba(183,28,28,0.06)' : bgColor,
+          color: localDigits ? '#b71c1c' : alpha(T.text, 0.28),
+          transition: 'all 0.15s',
+          lineHeight: 1,
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: localDigits ? 1 : 0.55,
+        }}
+        onMouseEnter={(e) => {
+          if (!localDigits) return;
+          e.currentTarget.style.background = 'rgba(183,28,28,0.14)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = localDigits ? 'rgba(183,28,28,0.06)' : bgColor;
+        }}
+      >
+        <Close sx={{ fontSize: 12 }} />
+      </button>
     </Box>
   );
 };
@@ -624,12 +701,63 @@ const isIncompleteRecord = (record) => {
   return filled.length < 4;
 };
 
+// ─── Fill Break helpers — used by the new "Fill Break" row action ─────────
+const BREAK_IN_DEFAULT = '12:00:00 PM';
+const BREAK_OUT_DEFAULT = '01:00:00 PM';
+const isNoBreakValue = (v) => !v || String(v).trim() === '';
+
+// TimeInput cluster = HH:MM (62) + AM/PM (30) + clear (22)
+const TIME_INPUT_CLUSTER_PX = 62 + 30 + 22;
+// Row grid uses gap={1.25} → 10px with default MUI spacing
+const ROW_GRID_GAP_PX = 10;
+/**
+ * Width from start of BRK IN column through BRK OUT's X button:
+ * half of the 2-col span + half gap + one time-input cluster.
+ */
+const FILL_BREAK_WIDTH = `calc(50% + ${ROW_GRID_GAP_PX / 2}px + ${TIME_INPUT_CLUSTER_PX}px)`;
+
+/** Pill button — spans BRK IN + BRK OUT when both break fields are empty */
+const FillBreakBtn = ({ onClick }) => (
+  <Tooltip title="Auto-fill Break In (12:00 PM) & Break Out (1:00 PM)" placement="top">
+    <Box sx={{ width: '100%', display: 'block' }}>
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          background: 'rgba(106,31,138,0.08)',
+          border: '1px solid rgba(106,31,138,0.32)',
+          borderRadius: '6px',
+          padding: '5px 10px',
+          cursor: 'pointer',
+          color: '#6a1f8a',
+          fontSize: '0.62rem',
+          fontWeight: 800,
+          fontFamily: T.font,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 4,
+          whiteSpace: 'nowrap',
+          width: '100%',
+          boxSizing: 'border-box',
+          transition: 'background-color 0.15s, border-color 0.15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.16)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(106,31,138,0.08)'; }}
+      >
+        <AccessTime sx={{ fontSize: 11 }} />
+        Fill Break
+      </button>
+    </Box>
+  </Tooltip>
+);
+
 // ─── OrigValueRow — for auto-fill, always show what was there before ───────
 const OrigValueRow = ({ origVal, color }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.2 }}>
     <History sx={{ fontSize: 9, color: color || T.accentMid, flexShrink: 0 }} />
     <Typography sx={{ fontSize: '0.6rem', color: color || T.accentMid, fontFamily: 'monospace', fontStyle: 'italic', whiteSpace: 'nowrap' }}>
-      orig: {origVal || '—'}
+      orig: {displayTimeNoSeconds(origVal) || '—'}
     </Typography>
   </Box>
 );
@@ -727,6 +855,7 @@ const RecordsRow = memo(function RecordsRow({
   onFieldChange,
   autoFilledRows,
   onAutoFill,
+  onFillBreak,
 }) {
   const rowKey = `${record.personID}-${record.date}`;
   const isAutoFilled = autoFilledRows.has(rowKey);
@@ -745,6 +874,11 @@ const RecordsRow = memo(function RecordsRow({
   const pendingAutofillRemarks = autoFillMeta?.remarks || '';
   const isRestoredToDefault = isDeviceRestoreRemark(savedRemarks);
   const isStateCorrected = isStateCorrectedRemark(savedRemarks);
+
+  // Fill Break — only offer it when the row isn't auto-filled and both break
+  // fields are currently empty (nothing to overwrite/lose).
+  const breakBothEmpty = isNoBreakValue(record.breaktimeIN) && isNoBreakValue(record.breaktimeOUT);
+  const showFillBreak = !isAutoFilled && breakBothEmpty;
 
   const leftBorder = isStateCorrected ? `2px solid ${T.accent}` : isAutoFilled ? `3px solid ${T.accent}` : isRestoredToDefault ? '2px solid #1976d2' : rowDirty ? '3px solid #e65100' : rowSavedMod ? '3px solid #2e7d32' : isManual ? '3px solid #7b1fa2' : '3px solid transparent';
   const rowBg = isStateCorrected ? alpha(T.accent, 0.02) : isAutoFilled ? T.accentFaint : isRestoredToDefault ? 'rgba(33,150,243,0.03)' : rowDirty ? alpha('#e65100', 0.04) : rowSavedMod ? alpha('#2e7d32', 0.04) : isManual ? alpha('#7b1fa2', 0.04) : index % 2 === 0 ? '#fff' : T.rowOdd;
@@ -785,6 +919,28 @@ const RecordsRow = memo(function RecordsRow({
           const origVal = autoFillMeta?.originalValues?.[field];
           // FIX 3: suppress "was:" when row is auto-filled — "orig:" already covers it
           const showWas = !isAutoFilled && baselineVal && baselineVal !== currentVal;
+          const isBreakField = field === 'breaktimeIN' || field === 'breaktimeOUT';
+          // When both breaks are empty, cover BRK IN + BRK OUT up to the clear (X) edge
+          if (showFillBreak && isBreakField) {
+            if (field === 'breaktimeIN') return null;
+            return (
+              <Box
+                key="fill-break"
+                sx={{
+                  // Records grid: emp | date | day | timeIN | brkIN | brkOUT | timeOUT | …
+                  gridColumn: '5 / 7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  minWidth: 0,
+                }}
+              >
+                <Box sx={{ width: FILL_BREAK_WIDTH, maxWidth: '100%' }}>
+                  <FillBreakBtn onClick={() => onFillBreak(index)} />
+                </Box>
+              </Box>
+            );
+          }
           return (
             <Box key={field}>
               <MemoTimeInput
@@ -793,6 +949,7 @@ const RecordsRow = memo(function RecordsRow({
                 unsaved={unsaved}
                 savedMod={savedMod}
                 autoFilled={isAutoFilled}
+                defaultAmPm={DEFAULT_AMPM_BY_FIELD[field] || 'AM'}
               />
               {showWas && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.3 }}>
@@ -805,7 +962,7 @@ const RecordsRow = memo(function RecordsRow({
                     color: unsaved ? '#e65100' : T.faint,
                     fontWeight: unsaved ? 700 : 400,
                   }}>
-                    {`was: ${baselineVal}`}
+                    {`was: ${displayTimeNoSeconds(baselineVal)}`}
                   </Typography>
                 </Box>
               )}
@@ -849,6 +1006,10 @@ const FullMonthRow = memo(function FullMonthRow({
   onFieldChange,
   autoFilledRows,
   onAutoFill,
+  onFillBreak,
+  selected = false,
+  onToggleSelect,
+  canSelectForFill = false,
 }) {
   const rowKey = record.date;
   const isAutoFilled = autoFilledRows.has(rowKey);
@@ -862,7 +1023,8 @@ const FullMonthRow = memo(function FullMonthRow({
   const rowSavedMod = !record.isNew && !rowDirty && rowEverModified;
   const hasTyped = record.isNew && hasAnyTime(record);
 
-  const showAutoFill = !!(record.officialTimeIN || record.officialTimeOUT) && !isAutoFilled;
+  const hasOfficialTimes = rowHasOfficialSchedule(record);
+  const showAutoFill = hasOfficialTimes && !isAutoFilled;
 
   const savedRemarks = record.remarks || '';
   const savedAutofillRemarks = record.autofill_remarks || '';
@@ -870,12 +1032,43 @@ const FullMonthRow = memo(function FullMonthRow({
   const isRestoredToDefault = isDeviceRestoreRemark(savedRemarks);
   const isStateCorrected = isStateCorrectedRemark(savedRemarks);
 
+  // Fill Break — only offer it when the row isn't auto-filled and both break
+  // fields are currently empty (nothing to overwrite/lose).
+  const breakBothEmpty = isNoBreakValue(record.breaktimeIN) && isNoBreakValue(record.breaktimeOUT);
+  const showFillBreak = !isAutoFilled && breakBothEmpty;
+
   const leftBorder = isStateCorrected ? `2px solid ${T.accent}` : isAutoFilled ? `3px solid ${T.accent}` : isRestoredToDefault ? '2px solid #1976d2' : rowDirty ? '3px solid #e65100' : rowSavedMod ? '3px solid #2e7d32' : hasTyped ? '3px solid #f59e0b' : '3px solid transparent';
   const rowBg = isStateCorrected ? alpha(T.accent, 0.02) : isAutoFilled ? T.accentFaint : isRestoredToDefault ? 'rgba(33,150,243,0.03)' : rowDirty ? alpha('#e65100', 0.04) : rowSavedMod ? alpha('#2e7d32', 0.04) : record.isNew ? T.noRecord : weekend ? T.weekend : index % 2 === 0 ? '#fff' : T.rowOdd;
 
   return (
     <Box sx={{ borderBottom: `1px solid ${T.divider}`, borderLeft: leftBorder, transition: 'background 0.13s', bgcolor: rowBg, '&:hover': { bgcolor: isAutoFilled ? alpha(T.accent, 0.09) : T.rowHover }, minWidth: 0, animation: isAutoFilled ? 'autoFillPulse 0.6s ease-out' : 'none' }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: FULL_MONTH_ROW_GRID, px: 2, py: 1, gap: 1.25, alignItems: 'center', minWidth: MOD_TABLE_MIN_WIDTH }}>
+        {/* Select */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Tooltip
+            title={
+              canSelectForFill
+                ? 'Select for bulk auto-fill'
+                : 'Already auto-filled'
+            }
+            placement="top"
+          >
+            <span>
+              <Checkbox
+                size="small"
+                checked={selected}
+                disabled={!canSelectForFill}
+                onChange={() => onToggleSelect?.(record.date)}
+                sx={{
+                  p: 0,
+                  color: T.accentBorder,
+                  '&.Mui-checked': { color: T.accent },
+                  '&.Mui-disabled': { opacity: 0.35 },
+                }}
+              />
+            </span>
+          </Tooltip>
+        </Box>
         {/* Status */}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.35, alignItems: 'center' }}>
           {record.isNew ? (
@@ -911,6 +1104,28 @@ const FullMonthRow = memo(function FullMonthRow({
           const origVal = autoFillMeta?.originalValues?.[field];
           // FIX 3: suppress "was:" when row is auto-filled — "orig:" already covers it
           const showWas = !record.isNew && !isAutoFilled && baselineVal && baselineVal !== currentVal;
+          const isBreakField = field === 'breaktimeIN' || field === 'breaktimeOUT';
+          // When both breaks are empty, cover BRK IN + BRK OUT up to the clear (X) edge
+          if (showFillBreak && isBreakField) {
+            if (field === 'breaktimeIN') return null;
+            return (
+              <Box
+                key="fill-break"
+                sx={{
+                  // Full-month grid: select | status | date | day | timeIN | brkIN | brkOUT | timeOUT | …
+                  gridColumn: '6 / 8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  minWidth: 0,
+                }}
+              >
+                <Box sx={{ width: FILL_BREAK_WIDTH, maxWidth: '100%' }}>
+                  <FillBreakBtn onClick={() => onFillBreak(index)} />
+                </Box>
+              </Box>
+            );
+          }
           return (
             <Box key={field}>
               <MemoTimeInput
@@ -920,6 +1135,7 @@ const FullMonthRow = memo(function FullMonthRow({
                 savedMod={savedMod}
                 isNewRow={record.isNew}
                 autoFilled={isAutoFilled}
+                defaultAmPm={DEFAULT_AMPM_BY_FIELD[field] || 'AM'}
               />
               {showWas && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, mt: 0.3 }}>
@@ -932,7 +1148,7 @@ const FullMonthRow = memo(function FullMonthRow({
                     color: unsaved ? '#e65100' : T.faint,
                     fontWeight: unsaved ? 700 : 400,
                   }}>
-                    {`was: ${baselineVal}`}
+                    {`was: ${displayTimeNoSeconds(baselineVal)}`}
                   </Typography>
                 </Box>
               )}
@@ -1240,10 +1456,11 @@ const EmployeeProfileCard = ({
 };
 
 // ─── Remarks Dialog (for auto-fill) ────────────────────────────────────────
-const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
+const RemarksDialog = ({ open, onClose, onConfirm, date, isNew, bulkCount = 0 }) => {
   const [remarks, setRemarks] = useState('');
   useEffect(() => { if (open) setRemarks(''); }, [open]);
   const canConfirm = remarks.trim().length > 0;
+  const isBulk = bulkCount > 1;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth
@@ -1256,9 +1473,13 @@ const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
             <EventAvailable sx={{ fontSize: 22, color: '#FEF9E1' }} />
           </Box>
           <Box sx={{ zIndex: 1 }}>
-            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#FEF9E1', lineHeight: 1.2, fontFamily: T.font }}>Auto-Fill Official Time</Typography>
+            <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: '#FEF9E1', lineHeight: 1.2, fontFamily: T.font }}>
+              {isBulk ? `Auto-Fill ${bulkCount} Days` : 'Auto-Fill Official Time'}
+            </Typography>
             <Typography sx={{ fontSize: '0.75rem', color: 'rgba(254,249,225,0.75)', mt: 0.3, fontFamily: T.font }}>
-              {date} — {isNew ? 'Create new record' : 'Override all time fields'}
+              {isBulk
+                ? `${bulkCount} selected days — bulk schedule fill`
+                : `${date} — ${isNew ? 'Create new record' : 'Override all time fields'}`}
             </Typography>
           </Box>
         </Box>
@@ -1266,7 +1487,11 @@ const RemarksDialog = ({ open, onClose, onConfirm, date, isNew }) => {
       <DialogContent sx={{ p: 0, bgcolor: '#FFFDF5' }}>
         <Box sx={{ px: 3, pt: 2.5, pb: 2 }}>
           <Typography sx={{ fontSize: '0.82rem', color: T.muted, mb: 2, fontFamily: T.font, lineHeight: 1.6 }}>
-            This will <strong>overwrite all four time fields</strong> (Time IN, Breaktime IN, Breaktime OUT, Time OUT) using the employee's official schedule for this date. Please provide a reason below.
+            {isBulk ? (
+              <>This will <strong>overwrite all four time fields</strong> on <strong>{bulkCount} selected days</strong>, using each day&apos;s official schedule. One reason will apply to all selected rows (e.g. PVP / leave with pay).</>
+            ) : (
+              <>This will <strong>overwrite all four time fields</strong> (Time IN, Breaktime IN, Breaktime OUT, Time OUT) using the employee&apos;s official schedule for this date. Please provide a reason below.</>
+            )}
           </Typography>
           <Box sx={{ p: 2, borderRadius: '8px', border: `1.5px solid ${remarks.trim() ? T.accentBorder : alpha(T.accent, 0.12)}`, bgcolor: remarks.trim() ? T.accentFaint : '#fff', transition: 'all 0.2s' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
@@ -1493,7 +1718,13 @@ const AuthorizationDialog = ({
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
-const AttendanceSearch = () => {
+/** @param {{ embedded?: boolean, initialContext?: object|null, onClose?: () => void, onRecordsSaved?: () => void }} props */
+const AttendanceSearch = ({
+  embedded = false,
+  initialContext = null,
+  onClose,
+  onRecordsSaved,
+} = {}) => {
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
   const INITIAL_VISIBLE_ROWS = 60;
@@ -1504,12 +1735,32 @@ const AttendanceSearch = () => {
 
   const { hasAccess, loading: accessLoading } = usePageAccess('search-attendance');
 
-  const [personID, setPersonID] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const seedEmpNum = String(initialContext?.employeeNumber || '').trim();
+  const seedStart = initialContext?.startDate || '';
+  const seedEnd = initialContext?.endDate || '';
+
+  const [personID, setPersonID] = useState(seedEmpNum);
+  const [startDate, setStartDate] = useState(seedStart);
+  const [endDate, setEndDate] = useState(seedEnd);
+  const [selectedYear, setSelectedYear] = useState(() => {
+    if (initialContext?.selectedYear != null) return initialContext.selectedYear;
+    if (seedStart) {
+      const y = Number(String(seedStart).slice(0, 4));
+      return Number.isFinite(y) ? y : new Date().getFullYear();
+    }
+    return new Date().getFullYear();
+  });
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    if (initialContext?.selectedMonth != null) return initialContext.selectedMonth;
+    if (seedStart) {
+      const m = Number(String(seedStart).slice(5, 7)) - 1;
+      return Number.isFinite(m) && m >= 0 && m <= 11 ? m : null;
+    }
+    return null;
+  });
+  const [selectedEmployee, setSelectedEmployee] = useState(() =>
+    initialContext?.employee ? toProfileEmployee(initialContext.employee) : null,
+  );
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
   const [sexMap, setSexMap] = useState({});
@@ -1534,10 +1785,12 @@ const AttendanceSearch = () => {
 
   const [autoFilledRecordsRows, setAutoFilledRecordsRows] = useState(new Map());
   const [autoFilledFullRows, setAutoFilledFullRows] = useState(new Map());
+  const [selectedFullMonthDates, setSelectedFullMonthDates] = useState(new Set());
   const [pendingAutoFill, setPendingAutoFill] = useState(null);
   const [remarksDialogOpen, setRemarksDialogOpen] = useState(false);
   const [pendingAutoFillDate, setPendingAutoFillDate] = useState('');
   const [pendingIsNew, setPendingIsNew] = useState(false);
+  const [pendingAutoFillBulkCount, setPendingAutoFillBulkCount] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1563,6 +1816,23 @@ const AttendanceSearch = () => {
 
   const visibleRecords = useMemo(() => records.slice(0, recordsVisibleCount), [records, recordsVisibleCount]);
   const visibleFullRecords = useMemo(() => fullRecords.slice(0, fullVisibleCount), [fullRecords, fullVisibleCount]);
+
+  const fillableFullMonthDates = useMemo(
+    () => fullRecords.filter((r) => canFullMonthAutoFill(r, autoFilledFullRows)).map((r) => r.date),
+    [fullRecords, autoFilledFullRows],
+  );
+
+  const selectedFillableCount = useMemo(
+    () => fillableFullMonthDates.filter((d) => selectedFullMonthDates.has(d)).length,
+    [fillableFullMonthDates, selectedFullMonthDates],
+  );
+
+  const allFillableSelected =
+    fillableFullMonthDates.length > 0 &&
+    fillableFullMonthDates.every((d) => selectedFullMonthDates.has(d));
+
+  const someFillableSelected =
+    fillableFullMonthDates.some((d) => selectedFullMonthDates.has(d)) && !allFillableSelected;
 
   const handleWorkflowHydrate = useCallback((payload) => {
     setPersonID(payload.employeeNumber);
@@ -1843,6 +2113,7 @@ const AttendanceSearch = () => {
       fullCacheRef.current.set(cacheKey, fetched);
       if (fullCacheRef.current.size > 20) { const firstKey = fullCacheRef.current.keys().next().value; fullCacheRef.current.delete(firstKey); }
       setFullRecords(fetched); setSavedFullRecords(deepClone(fetched));
+      setSelectedFullMonthDates(new Set());
       if (!preserveBaseline) {
         // ── Fresh load: build keyed baseline Map, reset session state ─────────
         const bm = new Map();
@@ -1893,6 +2164,7 @@ const AttendanceSearch = () => {
     setLoadedTabs(new Set());
     setRecordsVisibleCount(INITIAL_VISIBLE_ROWS); setFullVisibleCount(INITIAL_VISIBLE_ROWS);
     setAutoFilledRecordsRows(new Map()); setAutoFilledFullRows(new Map());
+    setSelectedFullMonthDates(new Set());
     setHasSearched(true); setSubmittedID(String(personID || '').trim());
     const timer = setTimeout(() => {
       if (activeTab === 'records') fetchRecords(true, { force: true, auditView: true });
@@ -2002,6 +2274,7 @@ const AttendanceSearch = () => {
           viewType: 'records',
         });
       }
+      if (typeof onRecordsSaved === 'function') onRecordsSaved();
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save records. Please try again.';
       setError(msg); showSnackbar(msg, 'error');
@@ -2019,6 +2292,28 @@ const AttendanceSearch = () => {
     if (toSave.length === 0) { showSnackbar('No changes to save.', 'info'); return; }
 
     const changedDateKeys = new Set(toSave.map((r) => r.date));
+
+    // FIX: changeEntries / changesSummary were previously referenced further
+    // below (inside logAttendanceModificationSave) WITHOUT ever being defined
+    // in this function's scope. That caused a ReferenceError to be thrown
+    // AFTER the PUT request had already succeeded and records had already been
+    // refreshed — so the save actually went through, but the thrown error was
+    // caught by the catch block below and displayed as "Failed to save
+    // records..." even though nothing failed. Building them here (mirroring
+    // saveAll) fixes the false failure message.
+    const changeEntries = toSave.map((rec) => {
+      if (rec.isNew) {
+        return {
+          date: rec.date,
+          changes: EDITABLE_FIELDS
+            .filter((f) => rec[f] && String(rec[f]).trim() !== '')
+            .map((f) => ({ field: f, label: FIELD_LABELS[f], before: '—', after: rec[f] })),
+        };
+      }
+      const saved = savedFullRecords.find((s) => s.date === rec.date);
+      return { date: rec.date, changes: getChanges(rec, saved) };
+    });
+    const changesSummary = buildModificationChangeSummary(changeEntries);
 
     const modSet = new Set(fullEverModified);
     toSave.forEach((rec) => {
@@ -2061,6 +2356,7 @@ const AttendanceSearch = () => {
         saveRemarks: remarks || null,
         viewType: 'full_month',
       });
+      if (typeof onRecordsSaved === 'function') onRecordsSaved();
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to save records. Please try again.';
       setError(msg); showSnackbar(msg, 'error');
@@ -2068,27 +2364,134 @@ const AttendanceSearch = () => {
   };
 
   const handleInputChange = useCallback((index, field, value) => {
-    const updated = [...records]; updated[index] = { ...updated[index], [field]: value }; setRecords(updated);
-  }, [records]);
+    setRecords((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
 
   const handleFullInputChange = useCallback((index, field, value) => {
-    const updated = [...fullRecords]; updated[index] = { ...updated[index], [field]: value }; setFullRecords(updated);
-  }, [fullRecords]);
+    setFullRecords((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  }, []);
+
+  // ── Fill Break — Records tab. Fills Break In (12:00 PM) & Break Out
+  // (1:00 PM) in one atomic state update so both fields are guaranteed to be
+  // applied together (avoids the "only the last field change sticks" issue
+  // that using handleInputChange twice in a row would otherwise cause).
+  const handleFillBreakRecords = useCallback((index) => {
+    setRecords((prev) => {
+      const updated = [...prev];
+      const rec = updated[index];
+      if (!rec) return prev;
+      const breakIn = isNoBreakValue(rec.breaktimeIN) ? BREAK_IN_DEFAULT : rec.breaktimeIN;
+      const breakOut = isNoBreakValue(rec.breaktimeOUT) ? BREAK_OUT_DEFAULT : rec.breaktimeOUT;
+      updated[index] = { ...rec, breaktimeIN: breakIn, breaktimeOUT: breakOut };
+      return updated;
+    });
+  }, []);
+
+  // ── Fill Break — Full Month tab. Same atomic-update approach as above.
+  const handleFillBreakFull = useCallback((index) => {
+    setFullRecords((prev) => {
+      const updated = [...prev];
+      const rec = updated[index];
+      if (!rec) return prev;
+      const breakIn = isNoBreakValue(rec.breaktimeIN) ? BREAK_IN_DEFAULT : rec.breaktimeIN;
+      const breakOut = isNoBreakValue(rec.breaktimeOUT) ? BREAK_OUT_DEFAULT : rec.breaktimeOUT;
+      updated[index] = { ...rec, breaktimeIN: breakIn, breaktimeOUT: breakOut };
+      return updated;
+    });
+  }, []);
 
   const handleAutoFillClickRecords = useCallback((index) => {
     const record = records[index]; if (!record) return;
-    setPendingAutoFill({ index, tab: 'records' }); setPendingAutoFillDate(record.date || ''); setPendingIsNew(false); setRemarksDialogOpen(true);
+    setPendingAutoFill({ index, tab: 'records' });
+    setPendingAutoFillDate(record.date || '');
+    setPendingIsNew(false);
+    setPendingAutoFillBulkCount(0);
+    setRemarksDialogOpen(true);
   }, [records]);
 
   const handleAutoFillClickFull = useCallback((index) => {
     const record = fullRecords[index]; if (!record) return;
-    setPendingAutoFill({ index, tab: 'fullMonth' }); setPendingAutoFillDate(record.date || ''); setPendingIsNew(record.isNew || false); setRemarksDialogOpen(true);
+    setPendingAutoFill({ index, tab: 'fullMonth' });
+    setPendingAutoFillDate(record.date || '');
+    setPendingIsNew(record.isNew || false);
+    setPendingAutoFillBulkCount(0);
+    setRemarksDialogOpen(true);
   }, [fullRecords]);
+
+  const handleToggleFullMonthSelect = useCallback((date) => {
+    setSelectedFullMonthDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllFillableFullMonth = useCallback(() => {
+    setSelectedFullMonthDates((prev) => {
+      const allSelected =
+        fillableFullMonthDates.length > 0 &&
+        fillableFullMonthDates.every((d) => prev.has(d));
+      return allSelected ? new Set() : new Set(fillableFullMonthDates);
+    });
+  }, [fillableFullMonthDates]);
+
+  const handleBulkAutoFillClickFull = useCallback(() => {
+    const dates = fillableFullMonthDates.filter((d) => selectedFullMonthDates.has(d));
+    if (!dates.length) {
+      showSnackbar('Select at least one day.', 'warning');
+      return;
+    }
+    setPendingAutoFill({ tab: 'fullMonth', bulk: true, dates });
+    setPendingAutoFillDate(dates.length === 1 ? dates[0] : `${dates[0]} … ${dates[dates.length - 1]}`);
+    setPendingIsNew(false);
+    setPendingAutoFillBulkCount(dates.length);
+    setRemarksDialogOpen(true);
+  }, [fillableFullMonthDates, selectedFullMonthDates, showSnackbar]);
+
+  const handleClearSelectedTimesFull = useCallback(() => {
+    const dates = [...selectedFullMonthDates];
+    if (!dates.length) {
+      showSnackbar('Select at least one day to clear.', 'warning');
+      return;
+    }
+    setFullRecords((prev) =>
+      prev.map((row) => {
+        if (!selectedFullMonthDates.has(row.date)) return row;
+        return {
+          ...row,
+          timeIN: '',
+          breaktimeIN: '',
+          breaktimeOUT: '',
+          timeOUT: '',
+        };
+      }),
+    );
+    // Drop auto-fill markers for cleared rows so UI reflects empty times
+    setAutoFilledFullRows((prev) => {
+      if (!prev?.size) return prev;
+      const next = new Map(prev);
+      dates.forEach((date) => next.delete(date));
+      return next;
+    });
+    showSnackbar(
+      `Cleared Time IN / Break / Time OUT on ${dates.length} selected day${dates.length === 1 ? '' : 's'}.`,
+      'info',
+    );
+  }, [selectedFullMonthDates, showSnackbar]);
 
   const handleAutoFillConfirm = useCallback((remarks) => {
     setRemarksDialogOpen(false);
     if (!pendingAutoFill) return;
-    const { index, tab } = pendingAutoFill;
+    const { index, tab, bulk, dates } = pendingAutoFill;
 
     if (tab === 'records') {
       const record = records[index]; if (!record) return;
@@ -2105,6 +2508,41 @@ const AttendanceSearch = () => {
       const key = `${record.personID}-${record.date}`;
       setAutoFilledRecordsRows((prev) => new Map([...prev, [key, { remarks, originalValues }]]));
       showSnackbar(`Auto-filled times for ${record.date}. Click Save to persist.`, 'info');
+    } else if (bulk && Array.isArray(dates) && dates.length > 0) {
+      const updated = [...fullRecords];
+      let filledCount = 0;
+      const filledDates = [];
+      dates.forEach((date) => {
+        const rowIndex = updated.findIndex((r) => r.date === date);
+        if (rowIndex === -1) return;
+        const record = updated[rowIndex];
+        const originalValues = {};
+        EDITABLE_FIELDS.forEach((f) => { originalValues[f] = record[f] || ''; });
+        updated[rowIndex] = {
+          ...record,
+          timeIN: record.officialTimeIN || '',
+          breaktimeIN: record.officialBreaktimeIN || '',
+          breaktimeOUT: record.officialBreaktimeOUT || '',
+          timeOUT: record.officialTimeOUT || '',
+        };
+        filledDates.push({ date, originalValues });
+        filledCount += 1;
+      });
+      setFullRecords(updated);
+      setAutoFilledFullRows((prev) => {
+        const next = new Map(prev);
+        filledDates.forEach(({ date, originalValues }) => {
+          next.set(date, { remarks, originalValues });
+        });
+        return next;
+      });
+      setSelectedFullMonthDates(new Set());
+      showSnackbar(
+        filledCount > 0
+          ? `Auto-filled ${filledCount} day(s). Click Save to persist.`
+          : 'No rows were auto-filled.',
+        filledCount > 0 ? 'info' : 'warning',
+      );
     } else {
       const record = fullRecords[index]; if (!record) return;
       const originalValues = {};
@@ -2121,7 +2559,8 @@ const AttendanceSearch = () => {
       showSnackbar(`Auto-filled times for ${record.date}. Click Save to persist.`, 'info');
     }
     setPendingAutoFill(null);
-  }, [pendingAutoFill, records, fullRecords]);
+    setPendingAutoFillBulkCount(0);
+  }, [pendingAutoFill, records, fullRecords, showSnackbar]);
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
@@ -2153,6 +2592,7 @@ const AttendanceSearch = () => {
     setLoadedTabs(new Set()); setRecordsVisibleCount(INITIAL_VISIBLE_ROWS); setFullVisibleCount(INITIAL_VISIBLE_ROWS);
     setSubmittedID(''); setHasSearched(false); setLoading(false);
     setAutoFilledRecordsRows(new Map()); setAutoFilledFullRows(new Map());
+    setSelectedFullMonthDates(new Set());
     recordsCacheRef.current.clear(); fullCacheRef.current.clear();
     recordsControllerRef.current?.abort(); fullControllerRef.current?.abort();
   };
@@ -2263,12 +2703,12 @@ const AttendanceSearch = () => {
     }
 
     const recordsColumns = ['EMP #', 'DATE', 'DAY', 'TIME IN', 'BRK IN', 'BRK OUT', 'TIME OUT', 'FILL REMARKS', 'EDIT REMARKS'];
-    const fullColumns    = ['STATUS', 'DATE', 'DAY', 'TIME IN', 'BRK IN', 'BRK OUT', 'TIME OUT', 'FILL REMARKS', 'EDIT REMARKS'];
+    const fullColumns    = ['', 'STATUS', 'DATE', 'DAY', 'TIME IN', 'BRK IN', 'BRK OUT', 'TIME OUT', 'FILL REMARKS', 'EDIT REMARKS'];
 
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
         {/* Tab bar */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, px: 2, pt: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, px: 2, pt: 1.5, borderBottom: `1px solid ${T.divider}`, flexShrink: 0, minWidth: 0 }}>
           <TabBtn active={activeTab === 'records'} icon={TableRows} label="Device Records" badge={recordsCount > 0 ? recordsCount : null} onClick={() => handleTabSwitch('records')} />
           <TabBtn active={activeTab === 'fullMonth'} icon={EventNote} label="Full Month Records" badge={fullDaysCount > 0 ? fullDaysCount : null} onClick={() => handleTabSwitch('fullMonth')} />
           {activeTab === 'fullMonth' && missingCount > 0 && (
@@ -2277,20 +2717,22 @@ const AttendanceSearch = () => {
               <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: '#b45309', fontFamily: T.font }}>{missingCount} missing {missingCount === 1 ? 'day' : 'days'}</Typography>
             </Box>
           )}
-          <Box sx={{ ml: 'auto', mb: 0.5, display: 'flex', alignItems: 'center' }}>
-            <HeaderActionBtn
-              variant="contained"
-              icon={<AccessTime sx={{ fontSize: 15 }} />}
-              label="Go to DTR Overall"
-              onClick={handleGoToOverallDTR}
-              disabled={!personID || !startDate || !endDate}
-            />
-          </Box>
+          {!embedded && (
+            <Box sx={{ ml: 'auto', mb: 0.5, display: 'flex', alignItems: 'center' }}>
+              <HeaderActionBtn
+                variant="contained"
+                icon={<AccessTime sx={{ fontSize: 15 }} />}
+                label="Go to DTR Overall"
+                onClick={handleGoToOverallDTR}
+                disabled={!personID || !startDate || !endDate}
+              />
+            </Box>
+          )}
         </Box>
 
         {/* ── Records-only tab ── */}
         {activeTab === 'records' && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
             {recordsCount > 0 && (
               <Box sx={{ px: 2.5, py: 0.75, bgcolor: '#fafafa', borderBottom: `1px solid ${T.divider}`, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
                 {[{ color: '#e65100', label: 'Unsaved' }, { color: '#2e7d32', label: 'Saved mod' }, { color: '#7b1fa2', label: 'Admin added' }, { color: T.accent, label: 'Auto-filled' }].map(({ color, label }) => (
@@ -2300,11 +2742,11 @@ const AttendanceSearch = () => {
                   </Box>
                 ))}
                 <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                 Type digits · Click AM/PM to toggle · Fill = auto-fill · "was:" = original DB value · Click remarks to expand
+                 Type digits · Click AM/PM to toggle · Fill = auto-fill · Fill Break = quick 12PM–1PM break · "was:" = original DB value · Click remarks to expand
                 </Typography>
               </Box>
             )}
-            <Box ref={resultsRef} sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+            <Box ref={resultsRef} sx={{ flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
               {recordsCount > 0 && (
                 <Box sx={{
                   display: 'grid',
@@ -2340,6 +2782,7 @@ const AttendanceSearch = () => {
                     onFieldChange={handleInputChange}
                     autoFilledRows={autoFilledRecordsRows}
                     onAutoFill={handleAutoFillClickRecords}
+                    onFillBreak={handleFillBreakRecords}
                   />
                 ))
               )}
@@ -2369,8 +2812,8 @@ const AttendanceSearch = () => {
 
         {/* ── Full Month tab ── */}
         {activeTab === 'fullMonth' && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
-            <Box sx={{ px: 2.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+            <Box sx={{ px: 2.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                 <EventNote sx={{ fontSize: 14, color: T.accent }} />
                 <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, fontFamily: T.font }}>Full Month</Typography>
@@ -2385,6 +2828,81 @@ const AttendanceSearch = () => {
                   </Box>
                 )}
               </Box>
+              {fullDaysCount > 0 && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                  <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontFamily: T.font }}>
+                    {selectedFillableCount > 0
+                      ? `${selectedFillableCount} selected`
+                      : `${fillableFullMonthDates.length} fillable`}
+                  </Typography>
+                  {selectedFillableCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFullMonthDates(new Set())}
+                      style={{
+                        background: 'transparent',
+                        border: `1px solid ${T.accentBorder}`,
+                        borderRadius: '6px',
+                        padding: '4px 10px',
+                        cursor: 'pointer',
+                        color: T.accent,
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        fontFamily: T.font,
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleBulkAutoFillClickFull}
+                    disabled={selectedFillableCount === 0}
+                    style={{
+                      background: selectedFillableCount > 0 ? T.accent : T.accentFaint,
+                      border: `1px solid ${selectedFillableCount > 0 ? T.accent : T.accentBorder}`,
+                      borderRadius: '6px',
+                      padding: '5px 12px',
+                      cursor: selectedFillableCount > 0 ? 'pointer' : 'not-allowed',
+                      color: selectedFillableCount > 0 ? '#FEF9E1' : T.accentMid,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                      opacity: selectedFillableCount > 0 ? 1 : 0.65,
+                    }}
+                  >
+                    <EventAvailable sx={{ fontSize: 14 }} />
+                    Fill Selected ({selectedFillableCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearSelectedTimesFull}
+                    disabled={selectedFullMonthDates.size === 0}
+                    title="Clear Time IN, Break IN/OUT, and Time OUT on selected rows"
+                    style={{
+                      background: selectedFullMonthDates.size > 0 ? '#fff' : T.accentFaint,
+                      border: `1px solid ${selectedFullMonthDates.size > 0 ? '#b71c1c' : T.accentBorder}`,
+                      borderRadius: '6px',
+                      padding: '5px 12px',
+                      cursor: selectedFullMonthDates.size > 0 ? 'pointer' : 'not-allowed',
+                      color: selectedFullMonthDates.size > 0 ? '#b71c1c' : T.accentMid,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      fontFamily: T.font,
+                      opacity: selectedFullMonthDates.size > 0 ? 1 : 0.65,
+                    }}
+                  >
+                    <Clear sx={{ fontSize: 14 }} />
+                    Clear All ({selectedFullMonthDates.size})
+                  </button>
+                </Box>
+              )}
             </Box>
 
             {fullDaysCount > 0 && (
@@ -2396,11 +2914,11 @@ const AttendanceSearch = () => {
                   </Box>
                 ))}
                 <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontStyle: 'italic', ml: 'auto', fontFamily: T.font }}>
-                  Fill = auto-fill · "was:" = original DB value · "orig:" = before auto-fill · Click remarks to expand
+                  Select rows for bulk fill (PVP / leave with pay) · Fill Selected = auto-fill · Clear All = wipe Time IN/Break/Time OUT · Fill Break = quick 12PM–1PM break
                 </Typography>
               </Box>
             )}
-            <Box ref={fullResultsRef} sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+            <Box ref={fullResultsRef} sx={{ flexGrow: 1, flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
               {fullDaysCount > 0 && (
                 <Box sx={{
                   display: 'grid',
@@ -2415,7 +2933,38 @@ const AttendanceSearch = () => {
                   zIndex: 2,
                 }}>
                   {fullColumns.map((col, i) => (
-                    <Typography key={col} sx={{ color: i >= 7 ? (i === 7 ? '#ffd080' : '#a0e8b0') : '#FEF9E1', fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.07em', fontFamily: T.font }}>{col}</Typography>
+                    i === 0 ? (
+                      <Box key="select-all" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Tooltip title="Select all fillable days" placement="top">
+                          <Checkbox
+                            size="small"
+                            checked={allFillableSelected}
+                            indeterminate={someFillableSelected}
+                            disabled={fillableFullMonthDates.length === 0}
+                            onChange={handleSelectAllFillableFullMonth}
+                            sx={{
+                              p: 0,
+                              color: 'rgba(254,249,225,0.55)',
+                              '&.Mui-checked': { color: '#FEF9E1' },
+                              '&.MuiCheckbox-indeterminate': { color: '#FEF9E1' },
+                            }}
+                          />
+                        </Tooltip>
+                      </Box>
+                    ) : (
+                      <Typography
+                        key={col}
+                        sx={{
+                          color: i >= 8 ? (i === 8 ? '#ffd080' : '#a0e8b0') : '#FEF9E1',
+                          fontSize: '0.58rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.07em',
+                          fontFamily: T.font,
+                        }}
+                      >
+                        {col}
+                      </Typography>
+                    )
                   ))}
                 </Box>
               )}
@@ -2437,6 +2986,10 @@ const AttendanceSearch = () => {
                     onFieldChange={handleFullInputChange}
                     autoFilledRows={autoFilledFullRows}
                     onAutoFill={handleAutoFillClickFull}
+                    onFillBreak={handleFillBreakFull}
+                    selected={selectedFullMonthDates.has(record.date)}
+                    onToggleSelect={handleToggleFullMonthSelect}
+                    canSelectForFill={canFullMonthAutoFill(record, autoFilledFullRows)}
                   />
                 ))
               )}
@@ -2454,7 +3007,7 @@ const AttendanceSearch = () => {
               <Box sx={{ px: 2.5, py: 1, bgcolor: T.accentFaint, borderTop: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
                 <AddCircleOutline sx={{ fontSize: 12, color: T.accentMid }} />
                 <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontFamily: T.font }}>
-                  Type times into any <strong style={{ color: '#92400e' }}>NO REC</strong> row, or click <strong style={{ color: '#1565c0' }}>Auto-Fill</strong> to auto-populate from the official schedule.
+                  Select multiple <strong style={{ color: '#92400e' }}>NO REC</strong> or existing rows, then use <strong style={{ color: T.accent }}>Fill Selected</strong> for PVP / leave-with-pay batches. Individual rows still have <strong style={{ color: '#1565c0' }}>Fill Schd.</strong>
                 </Typography>
               </Box>
             )}
@@ -2478,17 +3031,37 @@ const AttendanceSearch = () => {
   };
 
   // ─── Render ────────────────────────────────────────────────────────────
-  return (
-    <Fade in timeout={400}>
-      <Box sx={{ fontFamily: T.font }}>
+  const root = (
+      <Box
+        sx={{
+          fontFamily: T.font,
+          ...(embedded
+            ? {
+                height: '100%',
+                width: '100%',
+                minWidth: 0,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                bgcolor: '#f7f8fa',
+              }
+            : {}),
+        }}
+      >
         <style>{shimmerKf}</style>
 
         <RemarksDialog
           open={remarksDialogOpen}
-          onClose={() => { setRemarksDialogOpen(false); setPendingAutoFill(null); }}
+          onClose={() => {
+            setRemarksDialogOpen(false);
+            setPendingAutoFill(null);
+            setPendingAutoFillBulkCount(0);
+          }}
           onConfirm={handleAutoFillConfirm}
           date={pendingAutoFillDate}
           isNew={pendingIsNew}
+          bulkCount={pendingAutoFillBulkCount}
         />
 
         <AuthorizationDialog
@@ -2516,20 +3089,113 @@ const AttendanceSearch = () => {
 
         <LoadingOverlay open={loading} message={activeTab === 'fullMonth' ? 'Loading full month attendance…' : 'Loading attendance records…'} />
 
-        <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+        <Box
+          sx={
+            embedded
+              ? {
+                  height: '100%',
+                  width: '100%',
+                  maxWidth: '100%',
+                  p: 1.75,
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  minHeight: 0,
+                }
+              : ATTENDANCE_COMPACT_PAGE_SX
+          }
+        >
           {/* Page Header */}
-          <SectionCard sx={{ mb: 2 }}>
-            <Box sx={{ px: 4, py: 3, background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
-              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1 }}>
-                <Edit sx={{ fontSize: 30, color: T.accent }} />
-                <Box>
-                  <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25, fontFamily: T.font }}>Attendance Management</Typography>
-                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>Admin Portal · Review and manage attendance records</Typography>
+          {embedded ? (
+            <Box
+              sx={{
+                flexShrink: 0,
+                mb: 1.25,
+                px: 1.75,
+                py: 1.1,
+                borderRadius: '10px',
+                border: `1px solid ${T.accentBorder}`,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1,
+                minWidth: 0,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                <Edit sx={{ fontSize: 20, color: T.accent, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: '0.95rem', fontWeight: 900, color: T.accent, lineHeight: 1.15, fontFamily: T.font }}>
+                    Attendance Modification
+                  </Typography>
+                  <Typography noWrap sx={{ fontSize: '0.68rem', color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>
+                    Edit records without leaving DTR
+                  </Typography>
                 </Box>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative', zIndex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+                <HeaderActionBtn
+                  variant="outlined"
+                  icon={<Refresh sx={{ fontSize: 15 }} />}
+                  label="Refresh"
+                  onClick={handleRefresh}
+                  disabled={!personID || !startDate || !endDate}
+                />
+                {typeof onClose === 'function' && (
+                  <Tooltip title="Close panel">
+                    <IconButton
+                      onClick={onClose}
+                      aria-label="Close modification panel"
+                      sx={{
+                        color: '#fff',
+                        bgcolor: T.accent,
+                        width: 34,
+                        height: 34,
+                        border: `1px solid ${T.accentDark}`,
+                        boxShadow: `0 2px 6px ${alpha(T.accent, 0.35)}`,
+                        '&:hover': {
+                          bgcolor: T.accentDark,
+                          boxShadow: `0 3px 10px ${alpha(T.accent, 0.45)}`,
+                        },
+                      }}
+                    >
+                      <Close sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+            </Box>
+          ) : (
+          <SectionCard sx={{ mb: 2, flexShrink: 0 }}>
+            <Box
+              sx={{
+                px: 4,
+                py: 3,
+                background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                position: 'relative',
+                overflow: 'hidden',
+                gap: 1.5,
+              }}
+            >
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, position: 'relative', zIndex: 1, minWidth: 0 }}>
+                <Edit sx={{ fontSize: 30, color: T.accent, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: '1.2rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25, fontFamily: T.font }}>
+                    Attendance Management
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 600, fontFamily: T.font }}>
+                    Admin Portal · Review and manage attendance records
+                  </Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative', zIndex: 1, flexShrink: 0 }}>
                 <AttendanceWorkflowNav
                   inline
                   prevStep={prevStep}
@@ -2553,35 +3219,88 @@ const AttendanceSearch = () => {
               </Box>
             </Box>
           </SectionCard>
+          )}
 
           <Collapse in={!!error}>
-            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font }}>{error}</Alert>
+            <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font, flexShrink: 0 }}>{error}</Alert>
           </Collapse>
           <Collapse in={!!success}>
-            <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font }}>{success}</Alert>
+            <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem', fontFamily: T.font, flexShrink: 0 }}>{success}</Alert>
           </Collapse>
 
-          <Grid container spacing={2}>
-            <Grid item xs={12} lg={3}>
-              <SectionCard sx={filterSidebarCardSx}>
+          {embedded ? (
+            <Box
+              sx={{
+                flex: 1,
+                minHeight: 0,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                gap: 1.5,
+                overflow: 'hidden',
+              }}
+            >
+              <SectionCard
+                sx={{
+                  width: { xs: '100%', md: 300 },
+                  flex: { xs: '0 0 auto', md: '0 0 300px' },
+                  flexShrink: 0,
+                  maxHeight: { xs: 240, md: '100%' },
+                  height: { xs: 'auto', md: '100%' },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
                 <AttendanceFilterHeader />
                 {renderLeftPanel()}
               </SectionCard>
-            </Grid>
-            <Grid item xs={12} lg={9}>
-              <SectionCard sx={{ ...attendanceMainPanelHeightSx, display: 'flex', flexDirection: 'column' }}>
+              <SectionCard
+                sx={{
+                  flex: '1 1 0%',
+                  minWidth: 0,
+                  minHeight: 0,
+                  height: { xs: 'auto', md: '100%' },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
                 {renderRightPanel()}
               </SectionCard>
+            </Box>
+          ) : (
+            <Grid container spacing={2}>
+              <Grid item xs={12} lg={3}>
+                <SectionCard sx={filterSidebarCardSx}>
+                  <AttendanceFilterHeader />
+                  {renderLeftPanel()}
+                </SectionCard>
+              </Grid>
+              <Grid item xs={12} lg={9}>
+                <SectionCard sx={{ ...attendanceMainPanelHeightSx, display: 'flex', flexDirection: 'column' }}>
+                  {renderRightPanel()}
+                </SectionCard>
+              </Grid>
             </Grid>
-          </Grid>
+          )}
         </Box>
 
-        <Zoom in={showScrollTop}>
-          <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <KeyboardArrowUp />
-          </Fab>
-        </Zoom>
+        {!embedded && (
+          <Zoom in={showScrollTop}>
+            <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+              <KeyboardArrowUp />
+            </Fab>
+          </Zoom>
+        )}
       </Box>
+  );
+
+  if (embedded) return root;
+
+  return (
+    <Fade in timeout={400}>
+      {root}
     </Fade>
   );
 };

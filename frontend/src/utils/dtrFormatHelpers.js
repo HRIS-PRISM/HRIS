@@ -1,12 +1,143 @@
 export const DTR_WIDTH_IN = '8.7in';
 
-export const DTR_CELL_WATERMARK_LABELS = ['HOLIDAY', 'ON LEAVE', 'SUSPENSION'];
+export const DTR_NON_WORKING_DAY_LABEL = 'NON-WORKING DAY';
+
+export const DTR_ABSENT_LABEL = 'ABSENT';
+
+export const DTR_CELL_WATERMARK_LABELS = [
+  'HOLIDAY',
+  'ON LEAVE',
+  'SUSPENSION',
+  DTR_ABSENT_LABEL,
+  'HALF DAY',
+  'NOT HALF DAY',
+  DTR_NON_WORKING_DAY_LABEL,
+];
+
+export const isDtrCellWatermarkText = (text) => {
+  const t = String(text || '').trim().toUpperCase();
+  if (!t) return false;
+  if (DTR_CELL_WATERMARK_LABELS.includes(t)) return true;
+  // Leave types e.g. VACATION LEAVE, SICK LEAVE
+  return /\bLEAVE\b/.test(t);
+};
+
+/** Leave / holiday / suspension → one merged banner row (like NON-WORKING DAY). */
+export const isDtrCalendarBannerRow = (indicator) =>
+  Boolean(
+    indicator?.label &&
+      (indicator.type === 'leave' ||
+        indicator.type === 'holiday' ||
+        indicator.type === 'suspension'),
+  );
 
 export const dtrTimeValueEmpty = (v) =>
   v == null || (typeof v === 'string' && v.trim() === '');
 
-/** Inline cell text — html2canvas captures plain span text reliably (no absolute overlays). */
+const WEEKDAY_NAMES_DTR = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/** Calendar weekday for YYYY-MM-DD (Asia/Manila). */
+export const getDtrWeekdayName = (ymd) => {
+  const s = String(ymd ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  try {
+    const d = new Date(`${s}T12:00:00+08:00`);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila',
+      weekday: 'long',
+    }).formatToParts(d);
+    const w = parts.find((p) => p.type === 'weekday')?.value || '';
+    return WEEKDAY_NAMES_DTR.includes(w) ? w : '';
+  } catch {
+    return WEEKDAY_NAMES_DTR[new Date(`${s}T12:00:00`).getDay()] || '';
+  }
+};
+
+export const isDtrWeekendDay = (fullDate, dayName) => {
+  const name = dayName || getDtrWeekdayName(fullDate);
+  return name === 'Saturday' || name === 'Sunday';
+};
+
+export const isDtrWeekdayName = (fullDate, dayName) => {
+  const name = dayName || getDtrWeekdayName(fullDate);
+  return (
+    name === 'Monday' ||
+    name === 'Tuesday' ||
+    name === 'Wednesday' ||
+    name === 'Thursday' ||
+    name === 'Friday'
+  );
+};
+
+const hasNoDtrPunches = (timeFields) => {
+  const { timeIN, breaktimeIN, breaktimeOUT, timeOUT } = timeFields || {};
+  return (
+    dtrTimeValueEmpty(timeIN) &&
+    dtrTimeValueEmpty(breaktimeIN) &&
+    dtrTimeValueEmpty(breaktimeOUT) &&
+    dtrTimeValueEmpty(timeOUT)
+  );
+};
+
+/**
+ * Saturday/Sunday with no official schedule and no punches → NON-WORKING DAY.
+ * Mon–Fri never use this banner (even when unscheduled).
+ * Saturday/Sunday with official time or attendance punches show data normally.
+ */
+export const isDtrNonWorkingDayRow = ({
+  isNotScheduledDay,
+  indicator,
+  timeFields,
+  hasPeriodRecords = true,
+  fullDate,
+  dayName,
+}) => {
+  if (!hasPeriodRecords) return false;
+  if (!isNotScheduledDay || indicator?.label) return false;
+  if (!isDtrWeekendDay(fullDate, dayName)) return false;
+  return hasNoDtrPunches(timeFields);
+};
+
+/**
+ * Mon–Fri with no official schedule and no punches → banner with weekday name
+ * (e.g. "Monday"), not NON-WORKING DAY.
+ * Returns the weekday label, or '' when not applicable.
+ */
+export const getDtrUnscheduledWeekdayBanner = ({
+  isNotScheduledDay,
+  indicator,
+  timeFields,
+  hasPeriodRecords = true,
+  fullDate,
+  dayName,
+}) => {
+  if (!hasPeriodRecords) return '';
+  if (!isNotScheduledDay || indicator?.label) return '';
+  const name = dayName || getDtrWeekdayName(fullDate);
+  if (!isDtrWeekdayName(fullDate, name)) return '';
+  if (!hasNoDtrPunches(timeFields)) return '';
+  return String(name).toUpperCase();
+};
+
 export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
+  // Leave / holiday / suspension always win — do not show official-time autofill punches
+  if (
+    indicator?.label &&
+    (indicator.type === 'leave' ||
+      indicator.type === 'holiday' ||
+      indicator.type === 'suspension')
+  ) {
+    return { text: indicator.label, isWatermark: true };
+  }
   if (!dtrTimeValueEmpty(rawVal)) {
     return { text: displayText, isWatermark: false };
   }
@@ -15,9 +146,6 @@ export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
   }
   return { text: '', isWatermark: false };
 };
-
-export const isDtrCellWatermarkText = (text) =>
-  DTR_CELL_WATERMARK_LABELS.includes(String(text || '').trim().toUpperCase());
 
 export const DTR_WM_INLINE_STYLE = {
   fontSize: '8.5px',
@@ -100,6 +228,34 @@ export const toPhCalendarYmd = (value) => {
     /* ignore */
   }
   return s.split('T')[0];
+};
+
+/** Label for DTR leave watermark (e.g. Vacation Leave, Sick Leave). */
+export const formatDtrLeaveLabel = (leaveReq) => {
+  const desc = String(
+    leaveReq?.leave_description || leaveReq?.title || leaveReq?.label || '',
+  ).trim();
+  const code = String(leaveReq?.leave_code || '').trim();
+  if (desc) return desc.toUpperCase();
+  if (code) return code.toUpperCase();
+  return 'ON LEAVE';
+};
+
+/** Find HR-approved leave covering YYYY-MM-DD from leave_request rows. */
+export const findApprovedLeaveForDate = (dateString, approvedLeaves) => {
+  const check = toPhCalendarYmd(dateString);
+  if (!check || !Array.isArray(approvedLeaves) || !approvedLeaves.length)
+    return null;
+  return (
+    approvedLeaves.find((req) => {
+      const dates = Array.isArray(req.leave_date)
+        ? req.leave_date
+        : String(req.leave_date || '')
+            .split(',')
+            .map((d) => d.trim());
+      return dates.some((d) => toPhCalendarYmd(d) === check);
+    }) || null
+  );
 };
 
 export const normRecordYmd = (dateVal) => toPhCalendarYmd(dateVal);
@@ -244,8 +400,18 @@ export const openPdfBlobForPrint = (pdf, fileName) => {
       }
     }, 100);
     setTimeout(() => clearInterval(timer), 5000);
+  } else {
+    // Popup blocked after async work — still deliver the PDF via download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
   setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  return Boolean(win);
 };
 
 export const formatStartDate = (dateString) => {

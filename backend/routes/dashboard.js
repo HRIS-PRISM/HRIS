@@ -72,28 +72,46 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const { days = 7 } = req.query; // Default to 7 days
-      const data = [];
+      const dayCount = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      const start = new Date();
+      start.setDate(start.getDate() - (dayCount - 1));
+      start.setHours(0, 0, 0, 0);
 
-      for (let i = parseInt(days) - 1; i >= 0; i--) {
+      const rangeStartMs = start.getTime();
+      const rangeEndMs = end.getTime();
+
+      const [rows] = await db.promise().query(
+        `SELECT DATE(FROM_UNIXTIME(AttendanceDateTime/1000)) AS punchDate,
+                COUNT(DISTINCT PersonID) AS count
+         FROM attendancerecordinfo
+         WHERE AttendanceState = 1
+           AND AttendanceDateTime BETWEEN ? AND ?
+         GROUP BY punchDate`,
+        [rangeStartMs, rangeEndMs],
+      );
+
+      const countByDate = new Map(
+        (rows || []).map((r) => {
+          const d =
+            r.punchDate instanceof Date
+              ? r.punchDate.toISOString().slice(0, 10)
+              : String(r.punchDate).slice(0, 10);
+          return [d, Number(r.count) || 0];
+        }),
+      );
+
+      const data = [];
+      for (let i = dayCount - 1; i >= 0; i--) {
         const date = new Date();
+        date.setHours(12, 0, 0, 0);
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-
-        const dayStart = new Date(dateStr).getTime();
-        const dayEnd = dayStart + 24 * 60 * 60 * 1000;
-
-        const [result] = await db
-          .promise()
-          .query(
-            'SELECT COUNT(DISTINCT PersonID) as count FROM attendancerecordinfo WHERE AttendanceState = 1 AND AttendanceDateTime BETWEEN ? AND ?',
-            [dayStart, dayEnd]
-          );
-
         data.push({
           date: dateStr,
           day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-          present: result[0].count,
+          present: countByDate.get(dateStr) || 0,
         });
       }
 

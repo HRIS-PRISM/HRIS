@@ -27,6 +27,10 @@ import {
   TrendingUp as EarnIcon,
   Pending as PendingIcon,
   CurrencyExchange as CommutationIcon,
+  Block as BlockIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  VisibilityOff as VisibilityOffIcon,
 } from "@mui/icons-material";
 import LoadingOverlay from "../LoadingOverlay";
 import SuccessfulOverlay from "../SuccessfulOverlay";
@@ -47,7 +51,14 @@ import {
   computeAssignmentBalances,
   getAssignFormRemainingHours,
   getLeaveTypeDisplayRemaining,
+  isPeriodVoided,
+  resolveCurrentDisplayPeriod,
+  findNextActivePeriodAfter,
+  LEAVE_LEDGER_ENTRY_LABELS,
+  leavePeriodHistoryKey,
 } from "./leaveAssignmentBalanceUtils";
+import usePayrollPeriodLock from "../../hooks/usePayrollPeriodLock";
+import { PAYROLL_LOCK_TOOLTIP } from "../../utils/payrollPeriodLock";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -568,11 +579,24 @@ const CURRENT = {
   border: "rgba(46,125,50,0.28)",
 };
 
+/** Warm bronze — prior-period carry (distinct from current green & maroon accent) */
+const PREVIOUS_BAL = {
+  main:  "#7a6a4f",
+  dark:  "#5c4f3a",
+  faint: "rgba(122,106,79,0.12)",
+};
+
 const COMMUTED_ROW = {
   bg:     "rgba(109,35,35,0.07)",
   bgAlt:  "rgba(109,35,35,0.04)",
   border: "rgba(109,35,35,0.28)",
   stripe: "repeating-linear-gradient(-45deg, rgba(109,35,35,0.03) 0px, rgba(109,35,35,0.03) 4px, transparent 4px, transparent 10px)",
+};
+
+const VOIDED_ROW = {
+  bg:    "rgba(0,0,0,0.04)",
+  bgAlt: "rgba(0,0,0,0.025)",
+  border: "rgba(0,0,0,0.12)",
 };
 
 /** User-facing commutation terminology — not immediate cash; for in-service or retirement per salary grade */
@@ -613,7 +637,7 @@ const LEAVE_BALANCE_COLUMNS = [
 ];
 
 /** Fixed row height for split balance columns (P. Credit → Earned) */
-const BALANCE_ROW_H = 72;
+const BALANCE_ROW_H = 112;
 const BALANCE_MID_Y = BALANCE_ROW_H / 2;
 
 const balanceRowLineColor = (highlight, commuted) => {
@@ -798,18 +822,18 @@ const fmtDays3  = (h) => (toNum(h) / 8).toFixed(3);
 const fmtPeriodVal = (h, unit) => (unit === "hours" ? `${fmtHours3(h)} h` : `${fmtDays3(h)} d`);
 const fmtPeriodAlt = (h, unit) => (unit === "hours" ? `${fmtDays3(h)} d` : `${fmtHours3(h)} h`);
 
-const PeriodAmtDisplay = ({ hours, unit, strong = false, highlight = false, muted = false, commuted = false }) => (
+const PeriodAmtDisplay = ({ hours, unit, strong = false, highlight = false, muted = false, commuted = false, accentColor = null }) => (
   <>
     <Typography sx={{
       fontSize: "0.8rem",
       fontWeight: strong && !commuted ? 700 : 500,
-      color: commuted ? T.faint : strong ? CURRENT.main : muted ? T.muted : T.text,
+      color: commuted ? T.faint : accentColor || (strong ? CURRENT.main : muted ? T.muted : highlight ? CURRENT.main : T.text),
       fontFamily: T.poppins, lineHeight: 1.2, fontVariantNumeric: "tabular-nums",
       ...(commuted ? { fontStyle: "italic" } : {}),
     }}>
       {fmtPeriodVal(hours, unit)}
     </Typography>
-    <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+    <Typography sx={{ fontSize: "0.62rem", color: accentColor ? alpha(accentColor, 0.72) : T.faint, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
       {fmtPeriodAlt(hours, unit)}
     </Typography>
   </>
@@ -903,44 +927,78 @@ const ForwardedStatusChip = ({ label, size = "sm" }) => (
 
 const hoursClose = (a, b) => Math.abs(toNum(a) - toNum(b)) < BALANCE_HRS_EPS;
 
-const getPeriodForwardInfo = (period, periodIndex, allPeriods) => {
-  if (periodIndex <= 0 || isCommutedLocked(period)) return null;
+const getPeriodForwardInfo = (period, _periodIndex, allPeriods, earningsList) => {
+  if (isCommutedLocked(period) || isPeriodVoided(period)) return null;
 
-  const { adjustedHrs, remHrs, computedRemainingHrs } = computePeriodBalanceFlow(period);
-  const closingBalance = computedRemainingHrs;
-  const newer = allPeriods[periodIndex - 1];
-  const currentPeriod = allPeriods[0] ?? null;
-  if (!newer || !currentPeriod) return null;
+  const { remHrs, computedRemainingHrs } = computePeriodBalanceFlow(period, { earningsList });
+  const forwardAmount = remHrs > BALANCE_HRS_EPS ? remHrs : computedRemainingHrs;
+  if (forwardAmount <= BALANCE_HRS_EPS) return null;
+
+  const newer = findNextActivePeriodAfter(period, allPeriods);
+  if (!newer) return null;
 
   const newerOpening = toNum(newer.allocated_hours);
-  const newerCarry =
-    toNum(newer.carried_forward_hours) > BALANCE_HRS_EPS
-      ? toNum(newer.carried_forward_hours)
-      : newerOpening;
+  const newerCarry = toNum(newer.carried_forward_hours);
 
-  // Rolled forward when next period's Current Balance matches this period's closing balance
   const rolledToNext =
-    newerOpening > BALANCE_HRS_EPS &&
-    (hoursClose(newerOpening, remHrs) ||
-      hoursClose(newerOpening, closingBalance) ||
-      (remHrs <= BALANCE_HRS_EPS && closingBalance > BALANCE_HRS_EPS));
+    (newerCarry > BALANCE_HRS_EPS &&
+      (hoursClose(newerCarry, forwardAmount) || newerCarry >= forwardAmount - BALANCE_HRS_EPS)) ||
+    (newerOpening > BALANCE_HRS_EPS &&
+      (hoursClose(newerOpening, forwardAmount) || newerOpening >= forwardAmount - BALANCE_HRS_EPS));
 
   if (!rolledToNext) return null;
 
-  const forwardedHours = hoursClose(newerCarry, remHrs) || hoursClose(newerCarry, closingBalance)
-    ? newerCarry
-    : remHrs <= BALANCE_HRS_EPS
-      ? closingBalance
-      : remHrs;
-
+  const currentPeriod = resolveCurrentDisplayPeriod(allPeriods);
   const targetIsCurrent =
-    normalizePeriodKey(newer) === normalizePeriodKey(currentPeriod) ||
-    Number(newer.id) === Number(currentPeriod.id);
+    !!currentPeriod &&
+    (normalizePeriodKey(newer) === normalizePeriodKey(currentPeriod) ||
+      Number(newer.id) === Number(currentPeriod.id));
 
   return {
-    forwardedHours,
-    targetLabel: periodLabel(newer.period_year, newer.period_semester),
+    forwardedHours: forwardAmount,
+    targetLabel: periodLabel(newer.period_year, newer.period_semester ?? newer.period_month),
     targetIsCurrent,
+  };
+};
+
+/** Split Current Balance into Given (this period) + Previous (carry-forward) for the active row. */
+const resolveCurrentBalanceSplit = (period, _periodIndex, allPeriods, earningsList) => {
+  if (!period || isCommutedLocked(period) || isPeriodVoided(period)) return null;
+
+  const allocated = toNum(period.allocated_hours);
+  const storedCarry = toNum(period.carried_forward_hours);
+
+  const effectivePrior = getPriorPeriodSnapshot(
+    allPeriods,
+    period.period_year,
+    period.period_semester ?? period.period_month,
+  );
+
+  let forwardedHrs = 0;
+  let sourceLabel = null;
+
+  if (effectivePrior) {
+    const priorFlow = computePeriodBalanceFlow(effectivePrior, { earningsList });
+    forwardedHrs = priorFlow.remHrs;
+    sourceLabel = periodLabel(
+      effectivePrior.period_year,
+      effectivePrior.period_semester ?? effectivePrior.period_month,
+    );
+  } else if (storedCarry > BALANCE_HRS_EPS) {
+    forwardedHrs = storedCarry;
+  }
+
+  if (allocated > BALANCE_HRS_EPS && forwardedHrs > allocated + BALANCE_HRS_EPS) {
+    forwardedHrs = allocated;
+  }
+
+  const givenHrs = Math.max(0, allocated - forwardedHrs);
+
+  return {
+    givenHrs,
+    forwardedHrs,
+    baseOpeningHrs: givenHrs,
+    sourceLabel,
   };
 };
 
@@ -968,6 +1026,130 @@ const CommutedRemainingCell = ({ hours, unit, groupPos }) => (
     </BalanceRowLayout>
   </TableCell>
 );
+
+const BalanceRowTag = ({ label, color = T.muted }) => (
+  <Typography sx={{
+    fontSize: "0.55rem",
+    fontWeight: 700,
+    color,
+    fontFamily: T.poppins,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    lineHeight: 1.2,
+    mb: 0.15,
+  }}>
+    {label}
+  </Typography>
+);
+
+const CurrentBalanceSplitCell = ({
+  topHours,
+  bottomForward,
+  showPreviousRow = false,
+  unit,
+  highlight = false,
+  muted = false,
+  commuted = false,
+  groupPos,
+}) => {
+  const isActiveHighlight = highlight && !commuted;
+  const line = balanceRowLineColor(isActiveHighlight, commuted);
+  const hasPrevious = bottomForward && bottomForward.forwardedHrs > BALANCE_HRS_EPS;
+
+  return (
+    <TableCell
+      align="right"
+      sx={{
+        ...splitCellSx(commuted, isActiveHighlight, groupPos),
+        py: 0,
+        px: 0,
+        verticalAlign: "top",
+      }}
+    >
+      <Box
+        sx={{
+          minHeight: BALANCE_ROW_H,
+          position: "relative",
+          "&::after": {
+            content: '""',
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: BALANCE_MID_Y,
+            borderTop: `1px solid ${line}`,
+            pointerEvents: "none",
+          },
+        }}
+      >
+        <Box sx={{
+          height: BALANCE_MID_Y,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "flex-end",
+          px: 1.5,
+          boxSizing: "border-box",
+        }}>
+          <BalanceRowTag label="New Given Bal." color={isActiveHighlight ? CURRENT.dark : T.muted} />
+          <PeriodAmtDisplay
+            hours={topHours}
+            unit={unit}
+            strong={highlight}
+            highlight={highlight}
+            muted={muted || topHours <= BALANCE_HRS_EPS}
+            commuted={commuted}
+          />
+        </Box>
+        <Box sx={{
+          minHeight: BALANCE_MID_Y,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "flex-end",
+          px: 1.5,
+          py: 0.35,
+          gap: 0.15,
+          boxSizing: "border-box",
+        }}>
+          {showPreviousRow || hasPrevious ? (
+            <>
+              <BalanceRowTag label="Previous Bal." color={PREVIOUS_BAL.dark} />
+              {hasPrevious ? (
+                <>
+                  <PeriodAmtDisplay hours={bottomForward.forwardedHrs} unit={unit} strong accentColor={PREVIOUS_BAL.dark} />
+                  {bottomForward.sourceLabel && (
+                    <Tooltip
+                      title={`Opening balance of ${fmtPeriodVal(bottomForward.forwardedHrs, unit)} carries from ${bottomForward.sourceLabel}'s remaining balance.`}
+                      placement="top"
+                      arrow
+                    >
+                      <Box sx={{ display: "inline-flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 0.35, maxWidth: "100%", cursor: "default" }}>
+                        <ForwardIcon sx={{ fontSize: 11, color: PREVIOUS_BAL.main, flexShrink: 0, mt: 0.1 }} />
+                        <Typography sx={{
+                          fontSize: "0.58rem",
+                          color: PREVIOUS_BAL.main,
+                          fontFamily: T.poppins,
+                          lineHeight: 1.25,
+                          textAlign: "right",
+                          whiteSpace: "normal",
+                          wordBreak: "break-word",
+                        }}>
+                          {`From ${bottomForward.sourceLabel}`}
+                        </Typography>
+                      </Box>
+                    </Tooltip>
+                  )}
+                </>
+              ) : (
+                <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1.2 }}>—</Typography>
+              )}
+            </>
+          ) : null}
+        </Box>
+      </Box>
+    </TableCell>
+  );
+};
 
 const RemainingSplitCell = ({ hours, unit, forwardInfo, highlight = false, groupPos }) => {
   const isActiveHighlight = highlight;
@@ -1001,6 +1183,206 @@ const RemainingSplitCell = ({ hours, unit, forwardInfo, highlight = false, group
   );
 };
 
+const formatLeaveTxnDate = (dt) => {
+  if (!dt) return "—";
+  try {
+    return new Date(dt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "—";
+  }
+};
+
+const VoidedStatusChip = ({ size = "sm" }) => (
+  <Box sx={{
+    display: "inline-flex", alignItems: "center", lineHeight: 1,
+    px: size === "sm" ? 0.65 : 0.85,
+    py: size === "sm" ? 0.12 : 0.2,
+    borderRadius: "4px",
+    border: `1px dashed ${alpha(T.muted, 0.45)}`,
+    bgcolor: "rgba(0,0,0,0.04)",
+  }}>
+    <Typography sx={{
+      fontSize: size === "sm" ? "0.58rem" : "0.68rem",
+      fontWeight: 600,
+      color: T.muted,
+      fontFamily: T.poppins,
+      letterSpacing: "0.04em",
+    }}>
+      Voided
+    </Typography>
+  </Box>
+);
+
+const LeavePeriodHistoryPanel = ({ history, unit, loading, isCurrentPeriod = false, isPeriodVoidedRow = false }) => {
+  const [auditTrailOpen, setAuditTrailOpen] = useState(false);
+
+  useEffect(() => {
+    setAuditTrailOpen(false);
+  }, [history?.period_year, history?.period_semester, history?.leave_code]);
+
+  if (loading && !history) {
+    return (
+      <Box sx={{ py: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+        <CircularProgress size={14} sx={{ color: T.faint }} />
+        <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>Loading period transaction record…</Typography>
+      </Box>
+    );
+  }
+  if (!history) {
+    return (
+      <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins, py: 1 }}>
+        Could not load period transaction record.
+      </Typography>
+    );
+  }
+
+  const currentLines = Array.isArray(history.ledger_lines_active) ? history.ledger_lines_active : [];
+  const voidedLines = Array.isArray(history.ledger_lines_voided) ? history.ledger_lines_voided : [];
+
+  const fmtLedgerAmt = (hours, { prefix = "", voided = false } = {}) => {
+    if (hours == null || !Number.isFinite(toNum(hours))) return "—";
+    return (
+      <Typography component="span" sx={{
+        fontSize: "0.68rem", fontWeight: 600,
+        color: voided ? T.faint : T.text,
+        textDecoration: voided ? "line-through" : "none",
+        fontFamily: T.poppins, fontVariantNumeric: "tabular-nums",
+      }}>
+        {prefix}{fmtPeriodVal(hours, unit)}
+      </Typography>
+    );
+  };
+
+  const renderTxnTable = (lines, { voidedSection = false } = {}) => {
+    if (!lines.length) return null;
+    const headers = [
+      "#", "Date", "Event",
+      LEAVE_BALANCE_LABELS.pCredit.label,
+      LEAVE_BALANCE_LABELS.deducted.label,
+      LEAVE_BALANCE_LABELS.adjusted.label,
+      LEAVE_BALANCE_LABELS.earned.label,
+      LEAVE_BALANCE_LABELS.remaining.label,
+      "Status",
+    ];
+
+    return (
+      <Box sx={{ overflowX: "auto", mb: voidedSection ? 0 : 1.5 }}>
+        <Table size="small" sx={{ minWidth: 880, "& .MuiTableCell-root": { py: 0.45, px: 0.6, fontSize: "0.65rem", fontFamily: T.poppins, borderColor: T.divider } }}>
+          <TableHead>
+            <TableRow sx={{ bgcolor: voidedSection ? VOIDED_ROW.bg : "#f5f6f8" }}>
+              {headers.map((h) => (
+                <TableCell key={h} sx={{ fontWeight: 700, color: T.muted, whiteSpace: "nowrap", fontSize: "0.62rem" }}>{h}</TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {lines.map((line, idx) => {
+              const voided = voidedSection || !!line.is_voided;
+              const isEarning = line.line_type === "earning";
+              const eventLabel = line.event_label || LEAVE_LEDGER_ENTRY_LABELS[line.entry_kind] || line.entry_kind || "Entry";
+              return (
+                <TableRow
+                  key={`${voidedSection ? "void" : "act"}-${line.id}-${idx}`}
+                  sx={{
+                    opacity: voided ? 0.85 : 1,
+                    bgcolor: line.is_active && !voidedSection ? "rgba(46,125,50,0.05)" : voided ? VOIDED_ROW.bgAlt : "inherit",
+                  }}
+                >
+                  <TableCell>{idx + 1}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    {voided && line.voided_at ? formatLeaveTxnDate(line.voided_at) : formatLeaveTxnDate(line.created_at)}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>{eventLabel}</TableCell>
+                  {isEarning ? (
+                    <>
+                      <TableCell sx={{ color: T.faint }}>—</TableCell>
+                      <TableCell sx={{ color: T.faint }}>—</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.post_deduction, { voided })}</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.earnings_delta, { prefix: "+", voided })}</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.remaining_balance, { voided })}</TableCell>
+                    </>
+                  ) : (
+                    <>
+                      <TableCell>{fmtLedgerAmt(line.current_balance, { voided })}</TableCell>
+                      <TableCell>
+                        {toNum(line.deducted_delta) > 0
+                          ? fmtLedgerAmt(line.deducted_delta, { prefix: "−", voided })
+                          : fmtLedgerAmt(line.deducted, { voided })}
+                      </TableCell>
+                      <TableCell>{fmtLedgerAmt(line.post_deduction, { voided })}</TableCell>
+                      <TableCell sx={{ color: T.faint }}>—</TableCell>
+                      <TableCell>{fmtLedgerAmt(line.remaining_balance, { voided })}</TableCell>
+                    </>
+                  )}
+                  <TableCell>
+                    {voided ? (
+                      <Chip label="Voided" size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: VOIDED_ROW.bg, color: T.faint, fontFamily: T.poppins }} />
+                    ) : line.is_active ? (
+                      <Chip label="Active" size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: CURRENT.faint, color: CURRENT.dark, fontFamily: T.poppins }} />
+                    ) : isEarning ? (
+                      <Chip label={line.earn_status || "approved"} size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: "rgba(46,125,50,0.1)", color: CURRENT.dark, fontFamily: T.poppins }} />
+                    ) : (
+                      <Chip label="Recorded" size="small" sx={{ height: 18, fontSize: "0.58rem", bgcolor: "#eee", color: T.faint, fontFamily: T.poppins }} />
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+    );
+  };
+
+  return (
+    <Box sx={{ py: 1, px: 0.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 0.75, flexWrap: "wrap" }}>
+        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: T.poppins }}>
+          Period transaction record ({currentLines.length})
+        </Typography>
+        {isPeriodVoidedRow && (
+          <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic" }}>
+            This period has been voided — amounts shown for audit only.
+          </Typography>
+        )}
+        {!isCurrentPeriod && !isPeriodVoidedRow && (
+          <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, fontStyle: "italic" }}>
+            Historical period — read-only transaction record.
+          </Typography>
+        )}
+      </Box>
+      {currentLines.length === 0 ? (
+        <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins, mb: 1.5 }}>
+          No active transactions recorded for this period.
+        </Typography>
+      ) : (
+        renderTxnTable(currentLines)
+      )}
+
+      {voidedLines.length > 0 && (
+        <Box sx={{ mt: 1.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", mb: 0.75 }}>
+            <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: T.poppins }}>
+              Voided audit trail ({voidedLines.length})
+            </Typography>
+            <Tooltip title={auditTrailOpen ? "Hide voided audit trail" : "Show voided audit trail"} placement="top">
+              <IconButton
+                size="small"
+                onClick={() => setAuditTrailOpen((o) => !o)}
+                aria-label={auditTrailOpen ? "Hide voided audit trail" : "Show voided audit trail"}
+                sx={{ p: 0.4, color: T.muted, border: `1px solid ${T.divider}`, borderRadius: "6px", "&:hover": { bgcolor: "rgba(0,0,0,0.04)", color: T.text } }}
+              >
+                {auditTrailOpen ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <HistoryIcon sx={{ fontSize: 16 }} />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+          {auditTrailOpen && renderTxnTable(voidedLines, { voidedSection: true })}
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 const LeavePeriodSectionRow = ({ label, variant = "section" }) => (
   <TableRow>
     <TableCell
@@ -1026,49 +1408,79 @@ const LeavePeriodSectionRow = ({ label, variant = "section" }) => (
   </TableRow>
 );
 
-const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, allPeriods, onTransferPeriod, commuteLoadingId, earningsList }) => {
+const LeavePeriodTableRow = ({
+  period, unit, isCurrent, rowIndex, periodIndex, allPeriods, onTransferPeriod, onVoidPeriod,
+  onEditPeriod,
+  onDeletePeriod,
+  commuteLoadingId, voidLoadingId, earningsList,
+  expanded = false, onToggleExpand, periodHistory = null, historyLoading = false, payrollLocked = false,
+}) => {
   const isLocked = isCommutedLocked(period);
+  const isVoided = isPeriodVoided(period);
   const { carriedHrs, usedHrs, earnedHrs, adjustedHrs, remHrs, commutedHrs } = computePeriodBalanceFlow(period, { earningsList });
   const creditPool = Math.max(0, carriedHrs + earnedHrs);
-  const pctUsed = isLocked ? 0 : (creditPool > 0 ? Math.min((usedHrs / creditPool) * 100, 100) : 0);
-  const forwardInfo = getPeriodForwardInfo(period, periodIndex, allPeriods);
+  const pctUsed = isLocked || isVoided ? 0 : (creditPool > 0 ? Math.min((usedHrs / creditPool) * 100, 100) : 0);
+  const forwardInfo = getPeriodForwardInfo(period, periodIndex, allPeriods, earningsList);
+  const balanceSplit = isCurrent && !isVoided && !isLocked
+    ? resolveCurrentBalanceSplit(period, periodIndex, allPeriods, earningsList)
+    : null;
+  const showCurrentBalanceSplit = !!balanceSplit;
 
   return (
+    <>
     <TableRow
       sx={{
         bgcolor: isLocked
           ? COMMUTED_ROW.bg
-          : isCurrent
-            ? "rgba(46,125,50,0.12)"
-            : rowIndex % 2 === 1 ? "#fafbfc" : "#fff",
+          : isVoided
+            ? VOIDED_ROW.bg
+            : isCurrent
+              ? "rgba(46,125,50,0.12)"
+              : rowIndex % 2 === 1 ? "#fafbfc" : "#fff",
         backgroundImage: isLocked ? COMMUTED_ROW.stripe : "none",
         outline: isLocked
           ? `1px solid ${COMMUTED_ROW.border}`
-          : isCurrent
-            ? `1px solid ${CURRENT.border}`
-            : "none",
+          : isVoided
+            ? `1px solid ${VOIDED_ROW.border}`
+            : isCurrent
+              ? `1px solid ${CURRENT.border}`
+              : "none",
         outlineOffset: -1,
-        "& td": isCurrent && !isLocked ? { borderBottomColor: "rgba(46,125,50,0.15)" } : undefined,
-        "&:hover": { bgcolor: isLocked ? COMMUTED_ROW.bg : isCurrent ? "rgba(46,125,50,0.16)" : "#f5f6f8" },
+        opacity: isVoided ? 0.92 : 1,
+        "& td": isCurrent && !isLocked && !isVoided ? { borderBottomColor: "rgba(46,125,50,0.15)" } : undefined,
+        "&:hover": {
+          bgcolor: isLocked ? COMMUTED_ROW.bg : isVoided ? VOIDED_ROW.bgAlt : isCurrent ? "rgba(46,125,50,0.16)" : "#f5f6f8",
+        },
       }}
     >
       <TableCell sx={{
         py: 0, px: 0, verticalAlign: "top",
-        borderBottom: `1px solid ${isLocked ? COMMUTED_ROW.border : T.divider}`,
-        borderLeft: isLocked ? `3px solid ${T.accent}` : isCurrent ? `3px solid ${CURRENT.main}` : "3px solid transparent",
-        bgcolor: isLocked ? COMMUTED_ROW.bgAlt : "inherit",
+        borderBottom: `1px solid ${isLocked ? COMMUTED_ROW.border : isVoided ? VOIDED_ROW.border : T.divider}`,
+        borderLeft: isLocked ? `3px solid ${T.accent}` : isVoided ? `3px solid ${T.muted}` : isCurrent ? `3px solid ${CURRENT.main}` : "3px solid transparent",
+        bgcolor: isLocked ? COMMUTED_ROW.bgAlt : isVoided ? VOIDED_ROW.bgAlt : "inherit",
       }}>
         <BalanceRowPlain align="left">
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+            {onToggleExpand && (
+              <IconButton
+                size="small"
+                onClick={() => onToggleExpand(period)}
+                sx={{ p: 0.25, color: T.muted, "&:hover": { bgcolor: "rgba(0,0,0,0.04)" } }}
+                aria-label={expanded ? "Collapse period transaction record" : "Expand period transaction record"}
+              >
+                {expanded ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+              </IconButton>
+            )}
             <Typography sx={{
               fontSize: "0.82rem",
-              fontWeight: isCurrent && !isLocked ? 600 : 500,
-              color: isLocked ? T.muted : isCurrent ? CURRENT.dark : T.text,
+              fontWeight: isCurrent && !isLocked && !isVoided ? 600 : 500,
+              color: isVoided ? T.faint : isLocked ? T.muted : isCurrent ? CURRENT.dark : T.text,
               fontFamily: T.poppins, lineHeight: 1.2,
+              textDecoration: isVoided ? "line-through" : "none",
             }}>
               {periodLabel(period.period_year, period.period_semester ?? period.period_month)}
             </Typography>
-            {isCurrent && !isLocked && (
+            {isCurrent && !isLocked && !isVoided && (
               <Box sx={{ px: 0.75, py: 0.15, borderRadius: "4px", bgcolor: CURRENT.main, lineHeight: 1 }}>
                 <Typography sx={{ fontSize: "0.58rem", fontWeight: 600, color: "#fff", textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: T.poppins }}>Current</Typography>
               </Box>
@@ -1081,15 +1493,32 @@ const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, a
               </Tooltip>
             )}
           </Box>
-          {!isLocked && creditPool > 0 && (
+          {!isLocked && !isVoided && creditPool > 0 && (
             <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, mt: 0.3 }}>{pctUsed.toFixed(0)}% utilized</Typography>
           )}
           </BalanceRowPlain>
       </TableCell>
-      <PeriodAmtCell hours={carriedHrs} unit={unit} highlight={isCurrent} muted={!isCurrent && carriedHrs === 0} commuted={isLocked} groupPos="start" splitRow="top" />
-      <PeriodAmtCell hours={usedHrs} unit={unit} highlight={isCurrent} commuted={isLocked} groupPos="mid" splitRow="top" />
-      <PeriodAmtCell hours={adjustedHrs} unit={unit} highlight={isCurrent} strong={isCurrent && !isLocked} commuted={isLocked} groupPos="end" splitRow="top" />
-      <PeriodAmtCell hours={earnedHrs} unit={unit} highlight={isCurrent} commuted={isLocked} groupPos="start" splitRow="bottom" />
+      {showCurrentBalanceSplit ? (
+        <CurrentBalanceSplitCell
+          topHours={balanceSplit.givenHrs}
+          bottomForward={
+            balanceSplit.forwardedHrs > BALANCE_HRS_EPS
+              ? { forwardedHrs: balanceSplit.forwardedHrs, sourceLabel: balanceSplit.sourceLabel }
+              : null
+          }
+          showPreviousRow
+          unit={unit}
+          highlight={isCurrent && !isVoided}
+          muted={balanceSplit.givenHrs <= BALANCE_HRS_EPS}
+          commuted={isLocked}
+          groupPos="start"
+        />
+      ) : (
+        <PeriodAmtCell hours={carriedHrs} unit={unit} highlight={isCurrent && !isVoided} muted={!isCurrent && carriedHrs === 0 || isVoided} commuted={isLocked} groupPos="start" splitRow="top" />
+      )}
+      <PeriodAmtCell hours={usedHrs} unit={unit} highlight={isCurrent && !isVoided} commuted={isLocked || isVoided} groupPos="mid" splitRow="top" />
+      <PeriodAmtCell hours={adjustedHrs} unit={unit} highlight={isCurrent && !isVoided} strong={isCurrent && !isLocked && !isVoided} commuted={isLocked || isVoided} groupPos="end" splitRow="top" />
+      <PeriodAmtCell hours={earnedHrs} unit={unit} highlight={isCurrent && !isVoided} commuted={isLocked || isVoided} groupPos="start" splitRow="bottom" />
       {isLocked ? (
         <CommutedRemainingCell hours={commutedHrs} unit={unit} groupPos="end" />
       ) : (
@@ -1097,40 +1526,148 @@ const LeavePeriodTableRow = ({ period, unit, isCurrent, rowIndex, periodIndex, a
           hours={remHrs}
           unit={unit}
           forwardInfo={forwardInfo}
-          highlight={isCurrent}
+          highlight={isCurrent && !isVoided}
           groupPos="end"
         />
       )}
       <TableCell align="right" sx={{
         py: 0, px: 0, verticalAlign: "top",
-        borderBottom: `1px solid ${isLocked ? COMMUTED_ROW.border : T.divider}`,
-        bgcolor: isLocked ? COMMUTED_ROW.bgAlt : isCurrent ? CURRENT.faint : "inherit",
+        borderBottom: `1px solid ${isLocked ? COMMUTED_ROW.border : isVoided ? VOIDED_ROW.border : T.divider}`,
+        bgcolor: isLocked ? COMMUTED_ROW.bgAlt : isVoided ? VOIDED_ROW.bgAlt : isCurrent ? CURRENT.faint : "inherit",
       }}>
         <BalanceRowPlain>
-          {isCurrent && !isLocked && remHrs > 0 && (
-          <Tooltip title={COMMUTATION_COPY.purpose} placement="top" arrow>
-            <Button
-              size="small"
-              variant="contained"
-              disabled={!!commuteLoadingId}
-              onClick={(e) => onTransferPeriod(e, period)}
-              startIcon={commuteLoadingId === period.id ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <CommutationIcon sx={{ fontSize: "14px !important" }} />}
-              sx={{
-                textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
-                py: 0.4, px: 1.5, minWidth: 0,
-                bgcolor: T.accent, color: "#fff",
-                boxShadow: `0 1px 4px ${alpha(T.accent, 0.35)}`,
-                "&:hover": { bgcolor: T.accentDark, boxShadow: `0 2px 8px ${alpha(T.accent, 0.4)}` },
-                "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.45), color: "#fff" },
-              }}
-            >
-              {commuteLoadingId === period.id ? "…" : COMMUTATION_COPY.action}
-            </Button>
-          </Tooltip>
+          {(!isLocked && !isVoided && onEditPeriod) && (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 0.5, width: "100%", minWidth: 96 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={(e) => { e.stopPropagation(); onEditPeriod(period); }}
+                startIcon={<EditIcon sx={{ fontSize: "14px !important" }} />}
+                sx={{
+                  textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                  py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                  borderColor: T.accentBorder, color: T.accent,
+                  bgcolor: "transparent",
+                  "&:hover": { borderColor: T.accent, bgcolor: alpha(T.accent, 0.04) },
+                }}
+              >
+                Edit
+              </Button>
+              {onDeletePeriod && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={(e) => { e.stopPropagation(); onDeletePeriod(period); }}
+                  startIcon={<DeleteIcon sx={{ fontSize: "14px !important" }} />}
+                  sx={{
+                    textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                    py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                    borderColor: "#c62828", color: "#c62828",
+                    bgcolor: "transparent",
+                    "&:hover": { borderColor: "#b71c1c", bgcolor: "rgba(198,40,40,0.06)" },
+                  }}
+                >
+                  Delete
+                </Button>
+              )}
+              {isCurrent && !isLocked && !isVoided && (onVoidPeriod || (remHrs > 0 && onTransferPeriod)) && (
+                <Box sx={{ display: "grid", gap: 0.5 }}>
+                  {onVoidPeriod && (
+                    <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : "Void current period (assignment, earnings, and usage)"}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={voidLoadingId === period.id || payrollLocked}
+                          onClick={() => onVoidPeriod(period)}
+                          startIcon={
+                            payrollLocked
+                              ? <CheckIcon sx={{ fontSize: "14px !important", color: "#1565c0" }} />
+                              : voidLoadingId === period.id
+                                ? <CircularProgress size={12} sx={{ color: "#c62828" }} />
+                                : <BlockIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                            py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                            borderColor: payrollLocked ? "rgba(21,101,192,0.35)" : "#c62828",
+                            color: payrollLocked ? "#1565c0" : "#c62828",
+                            bgcolor: payrollLocked ? "rgba(21,101,192,0.06)" : "transparent",
+                            "&:hover": payrollLocked
+                              ? { bgcolor: "rgba(21,101,192,0.06)" }
+                              : { borderColor: "#b71c1c", bgcolor: "rgba(198,40,40,0.06)" },
+                            "&.Mui-disabled": payrollLocked
+                              ? { borderColor: "rgba(21,101,192,0.35)", color: "#1565c0", bgcolor: "rgba(21,101,192,0.06)" }
+                              : undefined,
+                          }}
+                        >
+                          {voidLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : "Void"}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
+                  {remHrs > 0 && onTransferPeriod && (
+                    <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : COMMUTATION_COPY.purpose}>
+                      <span>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          disabled={!!commuteLoadingId || payrollLocked}
+                          onClick={(e) => onTransferPeriod(e, period)}
+                          startIcon={
+                            commuteLoadingId === period.id
+                              ? <CircularProgress size={12} sx={{ color: "#fff" }} />
+                              : <CommutationIcon sx={{ fontSize: "14px !important" }} />
+                          }
+                          sx={{
+                            textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
+                            py: 0.4, px: 1.5, minWidth: 96, width: "100%",
+                            bgcolor: T.accent, color: "#fff",
+                            boxShadow: `0 1px 4px ${alpha(T.accent, 0.35)}`,
+                            "&:hover": { bgcolor: T.accentDark, boxShadow: `0 2px 8px ${alpha(T.accent, 0.4)}` },
+                            "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.45), color: "#fff" },
+                          }}
+                        >
+                          {commuteLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : COMMUTATION_COPY.action}
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
+                </Box>
+              )}
+            </Box>
+          )}
+          {isVoided && (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.35 }}>
+              <Tooltip title="This period has been voided. Amounts are shown for audit only." placement="top" arrow>
+                <Box component="span" sx={{ display: "inline-flex" }}>
+                  <VoidedStatusChip size="sm" />
+                </Box>
+              </Tooltip>
+              {period.voided_at && (
+                <Typography sx={{ fontSize: "0.58rem", color: T.faint, fontFamily: T.poppins, lineHeight: 1.2 }}>
+                  {formatLeaveTxnDate(period.voided_at)}
+                </Typography>
+              )}
+            </Box>
           )}
         </BalanceRowPlain>
       </TableCell>
     </TableRow>
+    {expanded && (
+      <TableRow>
+        <TableCell colSpan={LEAVE_BALANCE_COLUMNS.length} sx={{ py: 0, px: 2, bgcolor: "#fafbfc", borderBottom: `1px solid ${T.divider}` }}>
+          <LeavePeriodHistoryPanel
+            history={periodHistory}
+            unit={unit}
+            loading={historyLoading}
+            isCurrentPeriod={isCurrent}
+            isPeriodVoidedRow={isVoided}
+          />
+        </TableCell>
+      </TableRow>
+    )}
+    </>
   );
 };
 
@@ -1148,6 +1685,34 @@ const groupPreviousPeriodsByYear = (previousPeriods) => {
   return items;
 };
 
+const buildEmployeeLeaveGroups = (empData) => {
+  const grouped = (Array.isArray(empData) ? empData : []).reduce((acc, a) => {
+    const lc = String(a.leave_code ?? "").trim();
+    if (!lc) return acc;
+    if (!acc[lc]) acc[lc] = { leave_code: lc, periods: [] };
+    acc[lc].periods.push(a);
+    return acc;
+  }, {});
+  Object.values(grouped).forEach((g) => {
+    g.periods = latestPeriodsByKey(g.periods);
+  });
+  return grouped;
+};
+
+const pickLeaveTypeGroup = (grouped, leaveCode) => {
+  const code = String(leaveCode ?? "").trim();
+  if (!code) return null;
+  return grouped[code] ?? Object.values(grouped).find((g) => String(g.leave_code).trim() === code) ?? null;
+};
+
+const patchPeriodVoided = (periods, targetPeriod, voidedAt = new Date().toISOString()) =>
+  (Array.isArray(periods) ? periods : []).map((p) =>
+    (targetPeriod?.id != null && p.id === targetPeriod.id)
+    || (targetPeriod && normalizePeriodKey(p) === normalizePeriodKey(targetPeriod))
+      ? { ...p, voided_at: voidedAt }
+      : p,
+  );
+
 const EmployeeLeavesModal = ({
   open,
   onClose,
@@ -1161,8 +1726,17 @@ const EmployeeLeavesModal = ({
   empCatMap,
   getEmployeeInfo,
   onTransferPeriod,
+  onVoidPeriod,
+  onDeletePeriod,
+  onEditPeriod,
   commuteLoadingId,
+  voidLoadingId,
   approvedEarnings = [],
+  onTogglePeriodExpand,
+  periodHistoryCache = {},
+  historyLoadingKeys = {},
+  expandedPeriodKeys = {},
+  isPeriodLockedForPayroll = null,
 }) => {
   const [earningsList, setEarningsList] = useState([]);
 
@@ -1197,12 +1771,50 @@ const EmployeeLeavesModal = ({
   const periods = selectedLeaveType
     ? sortPeriodsDescBalance(latestPeriodsByKey(selectedLeaveType.periods))
     : [];
-  const latestPeriod = periods[0] ?? null;
-  const currentPeriod = latestPeriod ?? null;
-  const previousPeriods = periods.slice(1);
+  const currentPeriod = resolveCurrentDisplayPeriod(periods);
+  const currentKey = currentPeriod ? leavePeriodHistoryKey(currentPeriod) : null;
+  const previousPeriods = periods.filter(
+    (p) => !currentKey || leavePeriodHistoryKey(p) !== currentKey,
+  );
   const previousGrouped = groupPreviousPeriodsByYear(previousPeriods);
   const ltObj = selectedLeaveType ? leaveTypes.find((x) => x.leave_code === selectedLeaveType.leave_code) : null;
   const leaveTypeDesc = ltObj?.leave_description || selectedLeaveType?.leave_code || "";
+
+  const periodRowProps = (period, { isCurrent, rowIndex, periodIndex }) => {
+    const enrichedPeriod = {
+      ...period,
+      employeeNumber: period.employeeNumber ?? employeeLeaves.employeeNumber,
+      leave_code: period.leave_code ?? selectedLeaveType?.leave_code,
+    };
+    const key = leavePeriodHistoryKey(enrichedPeriod);
+    const sem = enrichedPeriod.period_semester ?? enrichedPeriod.period_month;
+    // Determine employee category and allow delete only for technical roles
+    const empCatForPeriod = empCatMap[enrichedPeriod.employeeNumber?.toString()] || null;
+    const techKeywords = /\b(technical|tech|it|engineer|developer)\b/i;
+    const allowDelete = empCatForPeriod && empCatForPeriod.label && techKeywords.test(empCatForPeriod.label);
+    return {
+      period: enrichedPeriod,
+      unit,
+      isCurrent,
+      rowIndex,
+      periodIndex,
+      allPeriods: periods,
+      onTransferPeriod,
+      onVoidPeriod,
+      onEditPeriod,
+      onDeletePeriod: allowDelete ? onDeletePeriod : undefined,
+      commuteLoadingId,
+      voidLoadingId,
+      earningsList,
+      expanded: !!expandedPeriodKeys[key],
+      onToggleExpand: onTogglePeriodExpand,
+      periodHistory: periodHistoryCache[key] ?? null,
+      historyLoading: !!historyLoadingKeys[key],
+      payrollLocked: isPeriodLockedForPayroll
+        ? isPeriodLockedForPayroll(employeeLeaves.employeeNumber, period.period_year, sem)
+        : false,
+    };
+  };
 
   return (
     <Modal open={open} onClose={onClose} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: { xs: 1, sm: 2 } }}>
@@ -1318,7 +1930,7 @@ const EmployeeLeavesModal = ({
                     </Typography>
                   </Box>
                 )}
-                {currentPeriod && !isCommutedLocked(currentPeriod) && (() => {
+                {currentPeriod && !isCommutedLocked(currentPeriod) && !isPeriodVoided(currentPeriod) && (() => {
                   const flow = computePeriodBalanceFlow(currentPeriod, { earningsList });
                   return (
                   <Box sx={{ px: 3, py: 1.25, borderBottom: `1px solid ${CURRENT.border}`, bgcolor: "rgba(46,125,50,0.06)", display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
@@ -1368,15 +1980,13 @@ const EmployeeLeavesModal = ({
                     <>
                       <LeavePeriodSectionRow label="Current period" variant="current" />
                       <LeavePeriodTableRow
-                        period={currentPeriod}
-                        unit={unit}
-                        isCurrent
-                        rowIndex={0}
-                        periodIndex={0}
-                        allPeriods={periods}
-                        onTransferPeriod={onTransferPeriod}
-                        commuteLoadingId={commuteLoadingId}
-                        earningsList={earningsList}
+                        {...periodRowProps(currentPeriod, {
+                          isCurrent: true,
+                          rowIndex: 0,
+                          periodIndex: periods.findIndex(
+                            (p) => normalizePeriodKey(p) === normalizePeriodKey(currentPeriod),
+                          ),
+                        })}
                       />
                     </>
                   )}
@@ -1394,15 +2004,7 @@ const EmployeeLeavesModal = ({
                         return (
                           <LeavePeriodTableRow
                             key={item.period.id}
-                            period={item.period}
-                            unit={unit}
-                            isCurrent={false}
-                            rowIndex={rowIndex}
-                            periodIndex={periodIndex}
-                            allPeriods={periods}
-                            onTransferPeriod={onTransferPeriod}
-                            commuteLoadingId={commuteLoadingId}
-                            earningsList={earningsList}
+                            {...periodRowProps(item.period, { isCurrent: false, rowIndex, periodIndex })}
                           />
                         );
                       })}
@@ -1415,16 +2017,16 @@ const EmployeeLeavesModal = ({
           </Box>
 
           {/* Earnings — current period only, pinned footer */}
-          {selectedLeaveType && latestPeriod && !isCommutedLocked(latestPeriod) && (
+          {selectedLeaveType && currentPeriod && !isCommutedLocked(currentPeriod) && !isPeriodVoided(currentPeriod) && (
             <Box sx={{ px: 3, py: 1, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafbfc", flexShrink: 0 }}>
               <EarningsBanner
                 employeeNumber={employeeLeaves.employeeNumber}
                 leaveCode={selectedLeaveType.leave_code}
-                periodYear={latestPeriod.period_year}
-                periodSemester={latestPeriod.period_semester}
+                periodYear={currentPeriod.period_year}
+                periodSemester={currentPeriod.period_semester}
                 unit={unit}
-                baseRemainingHours={latestPeriod.remaining_hours}
-                baseTotalHours={latestPeriod.total_hours}
+                baseRemainingHours={currentPeriod.remaining_hours}
+                baseTotalHours={currentPeriod.total_hours}
                 subtle
               />
             </Box>
@@ -2174,7 +2776,16 @@ const LeaveAssignment = () => {
   const [successAction, setSuccessAction] = useState("");
   const [error,         setError]         = useState("");
   const [commuteLoadingId, setCommuteLoadingId] = useState(null);
+  const [voidLoadingId, setVoidLoadingId] = useState(null);
+  const [periodHistoryCache, setPeriodHistoryCache] = useState({});
+  const [expandedPeriodKeys, setExpandedPeriodKeys] = useState({});
+  const [historyLoadingKeys, setHistoryLoadingKeys] = useState({});
+  const periodHistoryCacheRef = useRef({});
+  const historyFetchInflightRef = useRef({});
+  const periodHistoryPrefetchKeyRef = useRef(null);
   const [employeeAssignments, setEmployeeAssignments] = useState([]);
+
+  const { isPeriodLockedForPayroll, refreshPayrollKeys } = usePayrollPeriodLock();
 
   const [employeeLeavesModalOpen,    setEmployeeLeavesModalOpen]    = useState(false);
   const [selectedEmployeeLeaves,     setSelectedEmployeeLeaves]     = useState(null);
@@ -2187,11 +2798,23 @@ const LeaveAssignment = () => {
   const [viewMode,            setViewMode]            = useState("grid");
 
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
-      await Promise.all([fetchAssignments(), fetchApprovedEarnings(), fetchLeaveTypes(), fetchEmployees(), fetchDeptMap(), fetchEmpCatMap()]);
-      setPageLoading(false);
+      // Critical path: show Records as soon as assignments + leave types arrive.
+      await Promise.all([fetchAssignments(), fetchLeaveTypes()]);
+      if (!cancelled) setPageLoading(false);
+      // Deferred: employee picker / filters / remaining-balance math.
+      void Promise.all([
+        fetchApprovedEarnings(),
+        fetchEmployees(),
+        fetchDeptMap(),
+        fetchEmpCatMap(),
+      ]);
     };
     init();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => { setRecordsPage(0); }, [searchTerm, deptFilter]);
@@ -2418,20 +3041,15 @@ assignments.forEach((a) => {
     };
   }, [socket, connected, refreshLeaveAssignmentData]);
 
-  useEffect(() => {
-    if (!selectedEmployee?.employeeNumber) return;
-    refreshLeaveAssignmentData();
-  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, refreshLeaveAssignmentData]);
-
+  // Selecting employee/period filters client-side — do not re-download full tables.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      if (!selectedEmployee?.employeeNumber) return;
       refreshLeaveAssignmentData();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [selectedEmployee?.employeeNumber, refreshLeaveAssignmentData]);
+  }, [refreshLeaveAssignmentData]);
 
   const fetchLeaveTypes = async () => {
     try { const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`); setLeaveTypes(Array.isArray(r.data) ? r.data : []); }
@@ -2543,11 +3161,12 @@ assignments.forEach((a) => {
     const id      = editAssignment?.id;
     const empNum  = editAssignment?.employeeNumber?.toString().trim();
     const lc      = editAssignment?.leave_code;
+    const month   = normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester);
     if (!id || !empNum || !lc) { setError("Please fill in all required fields"); return; }
-    if (isDuplicateAssignment(empNum, lc, editAssignment.period_year, editAssignment.id)) { setError("This employee already has an assignment for this leave type and period"); return; }
+    if (isDuplicateAssignment(empNum, lc, editAssignment.period_year, editAssignment.id, month)) { setError("This employee already has an assignment for this leave type and period"); return; }
     try {
       await axios.put(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`,
-        { leave_code: lc, employeeNumber: empNum, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: normalizeMonth(editAssignment?.period_month ?? editAssignment?.period_semester) ?? null },
+        { leave_code: lc, employeeNumber: empNum, allocated_hours: editAllocatedHours, period_year: parseInt(editAssignment.period_year, 10) || new Date().getFullYear(), period_semester: normalizeMonth(editAssignment?.period_semester ?? editAssignment?.period_month) ?? null, period_month: month ?? null },
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");
@@ -2569,38 +3188,62 @@ assignments.forEach((a) => {
     } catch (err) { setError("Error updating: " + (err.response?.data?.error || err.message)); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, closeOuter = true) => {
     if (!window.confirm("Are you sure you want to delete this assignment?")) return;
     try {
       await axios.delete(`${API_BASE_URL}/leaveRoute/leave_assignment/${id}`, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
       setEditAssignment(null); setOriginalAssignment(null); setIsEditing(false); setError("");
-      setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null);
+      if (closeOuter) {
+        setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null);
+      }
       await fetchAssignments();
+      if (!closeOuter && selectedEmployeeLeaves) {
+        const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        });
+        const all = Array.isArray(updated.data) ? updated.data : [];
+        const empData = all.filter((a) => a.employeeNumber?.toString() === selectedEmployeeLeaves.employeeNumber?.toString());
+        const grouped = empData.reduce((acc, a) => {
+          if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
+          acc[a.leave_code].periods.push(a);
+          return acc;
+        }, {});
+        Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
+        setSelectedEmployeeLeaves((p) => ({ ...p, leaveTypes: Object.values(grouped) }));
+        if (selectedLeaveTypeInModal) { const r = grouped[selectedLeaveTypeInModal.leave_code]; if (r) setSelectedLeaveTypeInModal(r); }
+      }
       setSuccessAction("delete"); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 1000);
     } catch (err) { setError("Error deleting: " + (err.response?.data?.error || err.message)); }
   };
 
+  const handleDeletePeriod = async (period) => {
+    await handleDelete(period.id, false);
+  };
+
   const refreshModalState = useCallback(async (empNum, leaveCode) => {
-    await fetchAssignments();
-    const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`);
+    const token = localStorage.getItem("token");
+    const updated = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
     const all = Array.isArray(updated.data) ? updated.data : [];
+    setAssignments(all);
+
     const empData = all.filter((a) => a.employeeNumber?.toString() === empNum?.toString());
-    const grouped = empData.reduce((acc, a) => {
-      if (!acc[a.leave_code]) acc[a.leave_code] = { leave_code: a.leave_code, periods: [] };
-      acc[a.leave_code].periods.push(a);
-      return acc;
-    }, {});
-    Object.values(grouped).forEach((g) => { g.periods = latestPeriodsByKey(g.periods); });
+    const grouped = buildEmployeeLeaveGroups(empData);
+
     setSelectedEmployeeLeaves((prev) => {
       if (!prev) return prev;
       return { ...prev, leaveTypes: Object.values(grouped) };
     });
-    if (leaveCode) {
-      const r = grouped[leaveCode];
-      if (r) setSelectedLeaveTypeInModal(r);
-    }
+
+    setSelectedLeaveTypeInModal((prev) => {
+      const code = String(leaveCode ?? prev?.leave_code ?? "").trim();
+      const r = pickLeaveTypeGroup(grouped, code);
+      return r ?? prev;
+    });
+
     return grouped;
-  }, []); // eslint-disable-line
+  }, []);
 
   const handleOpenCommutationWarning = useCallback((period) => {
     if (!period?.id) return;
@@ -2612,7 +3255,7 @@ assignments.forEach((a) => {
     );
 
     const allPeriods = sortPeriodsDescBalance(latestPeriodsByKey(siblings));
-    const currentPeriod = allPeriods[0] ?? null;
+    const currentPeriod = resolveCurrentDisplayPeriod(allPeriods) ?? allPeriods[0] ?? null;
     if (!currentPeriod) return;
 
     const isCurrent = normalizePeriodKey(period) === normalizePeriodKey(currentPeriod);
@@ -2620,6 +3263,156 @@ assignments.forEach((a) => {
 
     setCommutationWarning({ period: currentPeriod });
   }, [assignments]);
+
+  const clearPeriodHistoryCache = useCallback((period) => {
+    if (!period) {
+      periodHistoryCacheRef.current = {};
+      setPeriodHistoryCache({});
+      return;
+    }
+    const key = leavePeriodHistoryKey(period);
+    delete periodHistoryCacheRef.current[key];
+    setPeriodHistoryCache((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const fetchPeriodHistory = useCallback(async (period, { force = false } = {}) => {
+    if (!period?.employeeNumber || !period?.leave_code) return null;
+    const key = leavePeriodHistoryKey(period);
+    if (!force && periodHistoryCacheRef.current[key]) return periodHistoryCacheRef.current[key];
+    if (historyFetchInflightRef.current[key]) return historyFetchInflightRef.current[key];
+
+    setHistoryLoadingKeys((prev) => ({ ...prev, [key]: true }));
+    const promise = (async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment/period-history`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            employeeNumber: period.employeeNumber,
+            leave_code: period.leave_code,
+            period_year: period.period_year,
+            period_semester: period.period_semester ?? period.period_month,
+          },
+        });
+        periodHistoryCacheRef.current[key] = r.data;
+        setPeriodHistoryCache((prev) => ({ ...prev, [key]: r.data }));
+        return r.data;
+      } catch {
+        return null;
+      } finally {
+        setHistoryLoadingKeys((prev) => ({ ...prev, [key]: false }));
+        delete historyFetchInflightRef.current[key];
+      }
+    })();
+    historyFetchInflightRef.current[key] = promise;
+    return promise;
+  }, []);
+
+  const togglePeriodExpand = useCallback(async (period) => {
+    const key = leavePeriodHistoryKey(period);
+    if (expandedPeriodKeys[key]) {
+      setExpandedPeriodKeys((prev) => ({ ...prev, [key]: false }));
+      return;
+    }
+    setExpandedPeriodKeys((prev) => ({ ...prev, [key]: true }));
+    await fetchPeriodHistory(period);
+  }, [expandedPeriodKeys, fetchPeriodHistory]);
+
+  const prefetchCurrentPeriodHistory = useCallback(async (leaveType, employeeNumber) => {
+    if (!leaveType?.periods?.length) return;
+    const periods = sortPeriodsDescBalance(latestPeriodsByKey(leaveType.periods));
+    const current = resolveCurrentDisplayPeriod(periods) ?? periods[0];
+    if (!current) return;
+    const enriched = {
+      ...current,
+      employeeNumber: current.employeeNumber ?? employeeNumber,
+      leave_code: current.leave_code ?? leaveType.leave_code,
+    };
+    const key = leavePeriodHistoryKey(enriched);
+    setExpandedPeriodKeys((prev) => ({ ...prev, [key]: true }));
+    await fetchPeriodHistory(enriched);
+  }, [fetchPeriodHistory]);
+
+  const handleVoidPeriod = useCallback(async (period) => {
+    if (!period?.id) return;
+    const siblings = assignments.filter(
+      (a) => a.employeeNumber?.toString() === period.employeeNumber?.toString() && a.leave_code === period.leave_code,
+    );
+    const allPeriods = sortPeriodsDescBalance(latestPeriodsByKey(siblings));
+    const current = resolveCurrentDisplayPeriod(allPeriods);
+    if (!current || normalizePeriodKey(current) !== normalizePeriodKey(period)) {
+      setError("Only the latest leave assignment period can be voided.");
+      return;
+    }
+    const sem = period.period_semester ?? period.period_month;
+    if (isPeriodLockedForPayroll(period.employeeNumber, period.period_year, sem)) {
+      setError(PAYROLL_LOCK_TOOLTIP);
+      return;
+    }
+    const label = periodLabel(period.period_year, sem);
+    if (!window.confirm(
+      `This will void the current leave period (${label}), including earnings and usage records. Balances will be recalculated. This cannot be undone.`,
+    )) return;
+
+    setVoidLoadingId(period.id);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(
+        `${API_BASE_URL}/leaveRoute/leave_assignment/${period.id}/void-period`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const voidedAt = new Date().toISOString();
+      const leaveCode = String(period.leave_code ?? "").trim();
+      const empKey = period.employeeNumber?.toString();
+
+      setAssignments((prev) =>
+        prev.map((a) => {
+          if (a.employeeNumber?.toString() !== empKey) return a;
+          if (String(a.leave_code ?? "").trim() !== leaveCode) return a;
+          if (normalizePeriodKey(a) !== normalizePeriodKey(period)) return a;
+          return { ...a, voided_at: voidedAt };
+        }),
+      );
+      setSelectedEmployeeLeaves((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          leaveTypes: prev.leaveTypes.map((lt) => {
+            if (String(lt.leave_code ?? "").trim() !== leaveCode) return lt;
+            return { ...lt, periods: patchPeriodVoided(lt.periods, period, voidedAt) };
+          }),
+        };
+      });
+      setSelectedLeaveTypeInModal((prev) => {
+        if (!prev || String(prev.leave_code ?? "").trim() !== leaveCode) return prev;
+        return { ...prev, periods: patchPeriodVoided(prev.periods, period, voidedAt) };
+      });
+      periodHistoryPrefetchKeyRef.current = null;
+
+      clearPeriodHistoryCache(period);
+      const grouped = await refreshModalState(period.employeeNumber, leaveCode);
+      const lt = pickLeaveTypeGroup(grouped, leaveCode);
+      if (lt) await prefetchCurrentPeriodHistory(lt, period.employeeNumber);
+      setSuccessAction("void");
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+    } catch (err) {
+      setError("Void failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setVoidLoadingId(null);
+    }
+  }, [
+    assignments,
+    isPeriodLockedForPayroll,
+    clearPeriodHistoryCache,
+    refreshModalState,
+    prefetchCurrentPeriodHistory,
+  ]);
 
   const handleTransferToCommutation = useCallback(async () => {
     if (!commutationWarning) return;
@@ -2681,19 +3474,59 @@ assignments.forEach((a) => {
     });
   }, [assignments, searchTerm, deptFilter, deptMap]);
 
-  const getEmployeeInfo = (num) => employees.find((e) => e.employeeNumber?.toString() === num?.toString()) || { fullName: num || "Unknown" };
+  const employeeByNumber = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(employees) ? employees : []).forEach((e) => {
+      const num = e?.employeeNumber?.toString();
+      if (num) map.set(num, e);
+    });
+    return map;
+  }, [employees]);
 
-  const groupedByEmployee = filteredAssignments.reduce((acc, a) => {
-    const num = a.employeeNumber?.toString() || "Unknown";
-    if (!acc[num]) { const info = getEmployeeInfo(num); acc[num] = { employeeNumber: num, fullName: buildDisplayName(info) || num, firstName: info.firstName, lastName: info.lastName, leaveTypes: {} }; }
-    const lc = a.leave_code;
-    if (!acc[num].leaveTypes[lc]) acc[num].leaveTypes[lc] = { leave_code: lc, periods: [] };
-    acc[num].leaveTypes[lc].periods.push(a);
-    return acc;
-  }, {});
+  const employeeGroups = useMemo(() => {
+    const grouped = {};
+    filteredAssignments.forEach((a) => {
+      const num = a.employeeNumber?.toString() || "Unknown";
+      if (!grouped[num]) {
+        const info =
+          employeeByNumber.get(num) || {
+            fullName: a.fullName || num,
+            firstName: a.firstName,
+            lastName: a.lastName,
+            employeeNumber: num,
+          };
+        grouped[num] = {
+          employeeNumber: num,
+          fullName: buildDisplayName(info) || a.fullName || num,
+          firstName: info.firstName || a.firstName,
+          lastName: info.lastName || a.lastName,
+          leaveTypes: {},
+        };
+      }
+      const lc = a.leave_code;
+      if (!grouped[num].leaveTypes[lc]) {
+        grouped[num].leaveTypes[lc] = { leave_code: lc, periods: [] };
+      }
+      grouped[num].leaveTypes[lc].periods.push(a);
+    });
+    return Object.values(grouped)
+      .map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) }))
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+  }, [filteredAssignments, employeeByNumber, buildDisplayName]);
 
-  const employeeGroups  = Object.values(groupedByEmployee).map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) })).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
-  const paginatedGroups = useMemo(() => { const s = recordsPage * recordsRowsPerPage; return employeeGroups.slice(s, s + recordsRowsPerPage); }, [employeeGroups, recordsPage, recordsRowsPerPage]);
+  const paginatedGroups = useMemo(() => {
+    const s = recordsPage * recordsRowsPerPage;
+    return employeeGroups.slice(s, s + recordsRowsPerPage);
+  }, [employeeGroups, recordsPage, recordsRowsPerPage]);
+
+  const getEmployeeInfo = useCallback(
+    (num) =>
+      employeeByNumber.get(num?.toString()) || {
+        fullName: num || "Unknown",
+        employeeNumber: num,
+      },
+    [employeeByNumber],
+  );
 
   const getAssignRemainingHours = useCallback((leaveCode) => {
     return getAssignFormRemainingHours({
@@ -2713,6 +3546,31 @@ assignments.forEach((a) => {
     setSelectedLeaveTypeInModal(sortedLeaveTypes[0] || null);
     setEmployeeLeavesModalOpen(true);
   };
+
+  useEffect(() => {
+    if (employeeLeavesModalOpen) refreshPayrollKeys();
+  }, [employeeLeavesModalOpen, refreshPayrollKeys]);
+
+  useEffect(() => {
+    if (!employeeLeavesModalOpen) {
+      periodHistoryPrefetchKeyRef.current = null;
+      return;
+    }
+    if (!selectedLeaveTypeInModal || !selectedEmployeeLeaves) return;
+
+    const emp = selectedEmployeeLeaves.employeeNumber;
+    const code = selectedLeaveTypeInModal.leave_code;
+    const prefetchKey = `${emp}|${code}`;
+    if (periodHistoryPrefetchKeyRef.current === prefetchKey) return;
+    periodHistoryPrefetchKeyRef.current = prefetchKey;
+
+    prefetchCurrentPeriodHistory(selectedLeaveTypeInModal, emp);
+  }, [
+    employeeLeavesModalOpen,
+    selectedLeaveTypeInModal?.leave_code,
+    selectedEmployeeLeaves?.employeeNumber,
+    prefetchCurrentPeriodHistory,
+  ]);
 
   if (accessLoading || pageLoading) return <LeaveAssignmentWireframe />;
   if (!hasAccess) return <AccessDenied />;
@@ -3285,7 +4143,13 @@ assignments.forEach((a) => {
 
           <EmployeeLeavesModal
             open={employeeLeavesModalOpen}
-            onClose={() => { setEmployeeLeavesModalOpen(false); setSelectedEmployeeLeaves(null); setSelectedLeaveTypeInModal(null); }}
+            onClose={() => {
+              setEmployeeLeavesModalOpen(false);
+              setSelectedEmployeeLeaves(null);
+              setSelectedLeaveTypeInModal(null);
+              setExpandedPeriodKeys({});
+              setPeriodHistoryCache({});
+            }}
             employeeLeaves={selectedEmployeeLeaves}
             leaveTypes={leaveTypes}
             unit={unit}
@@ -3296,7 +4160,16 @@ assignments.forEach((a) => {
             empCatMap={empCatMap}
             getEmployeeInfo={getEmployeeInfo}
             commuteLoadingId={commuteLoadingId}
+            voidLoadingId={voidLoadingId}
             onTransferPeriod={(e, period) => { e.stopPropagation(); handleOpenCommutationWarning(period); }}
+            onVoidPeriod={handleVoidPeriod}
+            onDeletePeriod={handleDeletePeriod}
+            onEditPeriod={handleOpenModal}
+            onTogglePeriodExpand={togglePeriodExpand}
+            periodHistoryCache={periodHistoryCache}
+            historyLoadingKeys={historyLoadingKeys}
+            expandedPeriodKeys={expandedPeriodKeys}
+            isPeriodLockedForPayroll={isPeriodLockedForPayroll}
             approvedEarnings={approvedEarnings}
           />
 
@@ -3411,15 +4284,11 @@ assignments.forEach((a) => {
                             </FormControl>
                           </Grid>
                           <Grid item xs={12} sm={6}>
-                            <CreditInput label="Current Balance" valueHours={editAllocatedHours} onChangeHours={setEditAllocatedHours} unit={unit} disabled={isEditLocked} color="#1976d2" />
+                            <Box sx={{ p: 1.5, borderRadius: 2, border: `1px solid ${alpha(T.accent, 0.25)}`, bgcolor: "rgba(25,118,210,0.04)" }}>
+                              <CreditInput label={`Current Balance (${unit === "hours" ? "hrs" : "days"})`} valueHours={editAllocatedHours} onChangeHours={setEditAllocatedHours} unit={unit} disabled={isEditLocked} color="#1976d2" />
+                              <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 0.75, fontFamily: T.poppins }}>Enter the balance in the selected unit and the system will keep the hours equivalent.</Typography>
+                            </Box>
                           </Grid>
-                          {!isEditLocked && (
-                            <Grid item xs={12}>
-                              <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: T.accent, mb: 0.75, fontFamily: T.poppins }}>Override: Still Available (hours)</Typography>
-                              <FieldInput type="number" value={toNum(editAssignment.remaining_hours)} onChange={(e) => setEditAssignment({ ...editAssignment, remaining_hours: parseFloat(e.target.value) || 0 })} fullWidth size="small" inputProps={{ min: 0, step: "any" }}
-                                InputProps={{ endAdornment: <InputAdornment position="end"><Typography variant="caption" sx={{ color: "#888", fontWeight: 700, fontFamily: T.poppins }}>hrs</Typography></InputAdornment> }} />
-                            </Grid>
-                          )}
                         </Grid>
                       </Box>
                       <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1, flexShrink: 0 }}>

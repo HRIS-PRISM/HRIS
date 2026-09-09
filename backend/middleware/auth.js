@@ -13,8 +13,56 @@ const ADMIN_ROLES = ['admin', 'administrator', 'superadmin', 'technical'];
 const SUPERADMIN_ROLES = ['superadmin', 'technical'];
 const TECHNICAL_ROLES = ['technical'];
 
+/** Short TTL cache so every API call does not re-hit users + canonical emp lookup. */
+const ENRICH_TTL_MS = Math.max(
+  5_000,
+  parseInt(process.env.AUTH_ENRICH_TTL_MS || '60000', 10) || 60_000,
+);
+const enrichCache = new Map(); // key -> { expiresAt, value }
+
+function enrichCacheKey(user) {
+  if (user?.id != null) return `id:${user.id}`;
+  if (user?.employeeNumber) return `emp:${String(user.employeeNumber).trim()}`;
+  return null;
+}
+
+function getCachedEnrich(key) {
+  const hit = enrichCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    enrichCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function setCachedEnrich(key, value) {
+  if (!key) return;
+  enrichCache.set(key, { value, expiresAt: Date.now() + ENRICH_TTL_MS });
+  // Prevent unbounded growth under many unique tokens/users
+  if (enrichCache.size > 2000) {
+    const firstKey = enrichCache.keys().next().value;
+    enrichCache.delete(firstKey);
+  }
+}
+
+/**
+ * Enrich JWT user with DB employeeNumber/role/email.
+ * @param {object} user - decoded JWT payload
+ * @returns {Promise<object>} enriched user (same shape + canonical employeeNumber)
+ */
 async function enrichUserFromDb(user) {
   if (!user) return user;
+
+  const cacheKey = enrichCacheKey(user);
+  if (cacheKey) {
+    const cached = getCachedEnrich(cacheKey);
+    if (cached) {
+      return { ...user, ...cached };
+    }
+  }
+
+  let enriched = user;
 
   if (user.id) {
     const [rows] = await db.promise().query(
@@ -23,21 +71,33 @@ async function enrichUserFromDb(user) {
     );
     if (rows[0]?.employeeNumber) {
       const canonical = await resolveCanonicalEmployeeNumber(rows[0].employeeNumber);
-      return {
+      enriched = {
         ...user,
         employeeNumber: canonical || String(rows[0].employeeNumber).trim(),
         role: rows[0].role || user.role,
         email: rows[0].email || user.email,
       };
     }
-  }
-
-  if (user.employeeNumber) {
+  } else if (user.employeeNumber) {
     const canonical = await resolveCanonicalEmployeeNumber(user.employeeNumber);
-    return { ...user, employeeNumber: canonical || String(user.employeeNumber).trim() };
+    enriched = { ...user, employeeNumber: canonical || String(user.employeeNumber).trim() };
   }
 
-  return user;
+  if (cacheKey && enriched !== user) {
+    setCachedEnrich(cacheKey, {
+      employeeNumber: enriched.employeeNumber,
+      role: enriched.role,
+      email: enriched.email,
+    });
+  } else if (cacheKey && user.employeeNumber) {
+    setCachedEnrich(cacheKey, {
+      employeeNumber: enriched.employeeNumber,
+      role: enriched.role,
+      email: enriched.email,
+    });
+  }
+
+  return enriched;
 }
 
 function authenticateToken(req, res, next) {

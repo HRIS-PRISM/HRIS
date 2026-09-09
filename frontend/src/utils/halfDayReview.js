@@ -9,9 +9,10 @@ import {
   isScheduledByOfficialTime,
   getOfficialSchedWorkSec,
   hasNoPunches,
-  hasMorningPunch,
-  hasAfternoonPunch,
-  isNonTeachingHalfDayByPunches,
+  isHalfDayByPunchPattern,
+  isHalfDayByTimeInOutOnly,
+  computeArrivalLateSec,
+  computeEarlyLeaveUndertimeSec,
 } from './officialAttendanceFromDailyRows';
 import { sanitizeDurationHhMmSs } from './dtrLateUndertimeFromOverall';
 
@@ -419,13 +420,17 @@ export function detectSuggestedHalfDay(row, moduleType, calendarMaps) {
   if (getOfficialSchedWorkSec(row) == null) return false;
 
   if (moduleType === MODULE_TYPES.NON_TEACHING) {
-    return isNonTeachingHalfDayByPunches(row);
+    if (hasNoPunches(row)) return false;
+  } else if (hasNoPunchesTimeInOutOnly(row)) {
+    return false;
   }
 
-  if (hasNoPunchesTimeInOutOnly(row)) return false;
-  const morning = !EMPTY_PUNCH(row?.timeIN);
-  const afternoon = !EMPTY_PUNCH(row?.timeOUT);
-  return morning !== afternoon;
+  // Faculty 30hrs only requires Time IN + Time OUT; break punches are ignored.
+  if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
+    return isHalfDayByTimeInOutOnly(row);
+  }
+
+  return isHalfDayByPunchPattern(row);
 }
 
 function hasNoPunchesTimeInOutOnly(row) {
@@ -434,10 +439,7 @@ function hasNoPunchesTimeInOutOnly(row) {
 
 export function createSuggestedEntry(row, moduleType) {
   const suggested = computeSuggestedTardinessFromPunches(row, moduleType);
-  const detectedReason =
-    moduleType === MODULE_TYPES.NON_TEACHING
-      ? 'xor_time_in_out'
-      : 'xor_punch';
+  const detectedReason = 'punch_pattern';
   return {
     date: normalizeReviewDate(row.date),
     status: HALF_DAY_STATUS.SUGGESTED,
@@ -597,6 +599,33 @@ export const countSuggestedHalfDays = (reviewByDate, rows, moduleType, calendarM
   return n;
 };
 
+/** Punch-based late seconds for one row (matches table AM/PM or faculty calc). */
+export function getPunchLateSecondsForModule(row, moduleType) {
+  if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
+    const sysTard =
+      row?.formattedfinalcalcFaculty === 'NaN:NaN:NaN'
+        ? row?.formattedFacultyMaxRenderedTime
+        : row?.formattedfinalcalcFaculty;
+    const sysSec = parseOfficialTimeToSeconds(sysTard);
+    return sysSec != null ? Math.max(0, sysSec) : 0;
+  }
+  if (
+    moduleType === MODULE_TYPES.NON_TEACHING ||
+    moduleType === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return getAmPmSlotLateSecondsFromRow(row);
+  }
+  const schedWorkSec = getOfficialSchedWorkSec(row);
+  if (schedWorkSec == null) return 0;
+  const inSec = parseOfficialTimeToSeconds(row?.timeIN);
+  const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
+  let renderedSec = 0;
+  if (inSec != null && outSec != null) {
+    renderedSec = Math.max(0, outSec - inSec);
+  }
+  return Math.max(0, schedWorkSec - renderedSec);
+}
+
 /** Absent unchanged; half-day buckets only for HR-approved dates. */
 export function computeReviewAwareAbsenceBuckets(
   rows,
@@ -608,7 +637,10 @@ export function computeReviewAwareAbsenceBuckets(
   let halfDays = 0;
   let absentSecTotal = 0;
   let halfDayShortfallSecTotal = 0;
+  /** Late that feeds Overall Tardiness and Late Total (excludes approved half-day days). */
   let lateShortfallSecTotal = 0;
+  /** Same as lateShortfall — kept for callers that still read lateTotalDisplay*. */
+  let lateTotalDisplaySec = 0;
 
   const isFacultyInOut =
     moduleType === MODULE_TYPES.DESIGNATED_40HRS ||
@@ -638,44 +670,20 @@ export function computeReviewAwareAbsenceBuckets(
         entry,
         moduleType,
       );
+      // Half-day shortfall → Overall only; not Late Total
       return;
     }
 
     if (entry?.status === HALF_DAY_STATUS.REJECTED) {
-      lateShortfallSecTotal += getRejectedHalfDayLateSeconds(entry, moduleType);
+      const rej = getRejectedHalfDayLateSeconds(entry, moduleType);
+      lateShortfallSecTotal += rej;
+      lateTotalDisplaySec += rej;
       return;
     }
 
-    // Faculty 30hrs: use precomputed regular tardiness (matches table).
-    if (moduleType === MODULE_TYPES.FACULTY_30HRS) {
-      const sysTard =
-        row?.formattedfinalcalcFaculty === 'NaN:NaN:NaN'
-          ? row?.formattedFacultyMaxRenderedTime
-          : row?.formattedfinalcalcFaculty;
-      const sysSec = parseOfficialTimeToSeconds(sysTard);
-      if (sysSec != null) {
-        lateShortfallSecTotal += Math.max(0, sysSec);
-        return;
-      }
-    }
-
-    // Non-Teaching / Designated: AM + PM slot tardiness (not full-day IN→OUT span).
-    if (
-      moduleType === MODULE_TYPES.NON_TEACHING ||
-      moduleType === MODULE_TYPES.DESIGNATED_40HRS
-    ) {
-      lateShortfallSecTotal += getAmPmSlotLateSecondsFromRow(row);
-      return;
-    }
-
-    const inSec = parseOfficialTimeToSeconds(row?.timeIN);
-    const outSec = parseOfficialTimeToSeconds(row?.timeOUT);
-    let renderedSec = 0;
-    if (inSec != null && outSec != null) {
-      renderedSec = Math.max(0, outSec - inSec);
-    }
-    const deficit = Math.max(0, schedWorkSec - renderedSec);
-    lateShortfallSecTotal += deficit;
+    const punchLate = getPunchLateSecondsForModule(row, moduleType);
+    lateShortfallSecTotal += punchLate;
+    lateTotalDisplaySec += punchLate;
   });
 
   const overallShortfallSecTotal =
@@ -687,10 +695,12 @@ export function computeReviewAwareAbsenceBuckets(
     absentSecTotal,
     halfDayShortfallSecTotal,
     lateShortfallSecTotal,
+    lateTotalDisplaySec,
     overallShortfallSecTotal,
     absentTime: formatOfficialAttendanceSeconds(absentSecTotal),
     halfDayShortfallTime: formatOfficialAttendanceSeconds(halfDayShortfallSecTotal),
     lateShortfallTime: formatOfficialAttendanceSeconds(lateShortfallSecTotal),
+    lateTotalDisplayTime: formatOfficialAttendanceSeconds(lateTotalDisplaySec),
     overallShortfallTime: formatOfficialAttendanceSeconds(overallShortfallSecTotal),
   };
 }
@@ -815,27 +825,12 @@ export function getRowTotalRenderedDisplay(
 }
 
 /**
- * Non-Teaching / Designated late seconds from AM + PM slots (matches table cells).
+ * Non-Teaching / Designated late seconds: arrival late + early-leave undertime.
  */
 export function getAmPmSlotLateSecondsFromRow(row) {
-  const amRaw =
-    !row?.officialTimeIN ||
-    !row?.breaktimeIN ||
-    row?.formattedfinalcalcFacultyAM === 'NaN:NaN:NaN'
-      ? row?.formattedFacultyMaxRenderedTimeAM
-      : row?.formattedfinalcalcFacultyAM;
-  const pmRaw =
-    !row?.officialBreaktimeOUT ||
-    !row?.timeOUT ||
-    row?.formattedfinalcalcFacultyPM === 'NaN:NaN:NaN'
-      ? row?.formattedFacultyMaxRenderedTimePM
-      : row?.formattedfinalcalcFacultyPM;
-  const amSec = parseOfficialTimeToSeconds(amRaw);
-  const pmSec = parseOfficialTimeToSeconds(pmRaw);
-  let total = 0;
-  if (amSec != null) total += Math.max(0, amSec);
-  if (pmSec != null) total += Math.max(0, pmSec);
-  return total;
+  return (
+    (computeArrivalLateSec(row) ?? 0) + (computeEarlyLeaveUndertimeSec(row) ?? 0)
+  );
 }
 
 /** Absent-day shortfall for Total Tardiness column (counts toward Overall, not Late Total). */
@@ -948,7 +943,7 @@ export function getRowHalfDayUiStatus(row, reviewByDate, moduleType, calendarMap
 
 /** Matches ON LEAVE / SUSPENSION watermark shape on DTR punch cells. */
 export function getDtrHalfDayIndicator(halfUi) {
-  if (halfUi === 'approved') {
+  if (halfUi === 'approved' || halfUi === 'suggested') {
     return {
       type: 'halfDay',
       label: 'HALF DAY',
@@ -969,16 +964,79 @@ export function getDtrHalfDayIndicator(halfUi) {
   return null;
 }
 
-/** Holiday / leave / suspension wins over half-day watermark. */
+/** Absent row — same palette as attendance modules (T.absent). */
+export function getDtrAbsentIndicator() {
+  return {
+    type: 'absent',
+    label: 'ABSENT',
+    bgColor: 'rgba(183, 28, 28, 0.2)',
+    textColor: '#000',
+    borderColor: '#b71c1c',
+  };
+}
+
+/**
+ * Scheduled work day with no punches → ABSENT on DTR.
+ * Only when the period has attendance records (`hasPeriodRecords`).
+ * Empty DTR (no data) stays blank — holidays still come from `dateIndicator`.
+ */
+export function isDtrAbsentRow({
+  record,
+  dateIndicator,
+  isNotScheduledDay,
+  moduleType = MODULE_TYPES.NON_TEACHING,
+  hasPeriodRecords = true,
+}) {
+  if (!hasPeriodRecords) return false;
+  if (dateIndicator || isNotScheduledDay) return false;
+  const row = record || {};
+  return moduleType === MODULE_TYPES.NON_TEACHING
+    ? hasNoPunches(row)
+    : hasNoPunchesTimeInOutOnly(row);
+}
+
+/** Holiday / leave / suspension wins over absent / half-day watermark. */
 export function mergeDtrDateAndHalfDayIndicators(dateIndicator, halfDayIndicator) {
   if (dateIndicator) return dateIndicator;
   return halfDayIndicator;
+}
+
+/** Calendar / leave / suspension → absent → half-day watermark. */
+export function resolveDtrRowIndicator(
+  dateIndicator,
+  { absentIndicator, halfDayIndicator } = {},
+) {
+  if (dateIndicator) return dateIndicator;
+  if (absentIndicator) return absentIndicator;
+  return halfDayIndicator || null;
 }
 
 /** Subtle row tint — same pattern as getDateIndicator bg on DTR rows. */
 export function getDtrHalfDayRowTint(halfDayIndicator, fallback = 'transparent') {
   if (!halfDayIndicator?.bgColor) return fallback;
   return String(halfDayIndicator.bgColor).replace(/,\s*[\d.]+\)$/i, ', 0.08)');
+}
+
+export function getDtrAbsentRowTint(absentIndicator, fallback = 'transparent') {
+  if (!absentIndicator?.bgColor) return fallback;
+  return String(absentIndicator.bgColor).replace(/,\s*[\d.]+\)$/i, ', 0.08)');
+}
+
+/** Row background priority: calendar → absent → half-day (suggested uses lighter tint). */
+export function resolveDtrRowTint(
+  dateIndicator,
+  { absentIndicator, halfDayIndicator, suggestedHalfDay = false } = {},
+) {
+  if (dateIndicator?.bgColor) {
+    return String(dateIndicator.bgColor).replace(/,\s*[\d.]+\)$/i, ', 0.08)');
+  }
+  if (absentIndicator) return getDtrAbsentRowTint(absentIndicator);
+  if (halfDayIndicator) {
+    return suggestedHalfDay
+      ? 'rgba(106, 27, 154, 0.06)'
+      : getDtrHalfDayRowTint(halfDayIndicator);
+  }
+  return 'transparent';
 }
 
 /** Subtitle under Late / Undertime columns on DTR (approved half-day policy). */

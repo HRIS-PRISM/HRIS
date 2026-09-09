@@ -10,7 +10,10 @@ import { MODULE_TYPES } from '../../utils/halfDayReview';
 import {
   DTR_WIDTH_IN,
   DTR_WM_INLINE_STYLE,
+  DTR_NON_WORKING_DAY_LABEL,
   resolveDtrAmPmCellText,
+  isDtrNonWorkingDayRow,
+  getDtrUnscheduledWeekdayBanner,
   toPhCalendarYmd,
   normRecordYmd,
   recordMatchesDay,
@@ -18,6 +21,9 @@ import {
   formatMonth,
   formatStartDate,
   formatEndDate,
+  formatDtrLeaveLabel,
+  findApprovedLeaveForDate,
+  isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
 
 // ─── Official-time helpers (ported from DailyTimeRecordOverall) ───────────
@@ -215,10 +221,11 @@ export default function DtrTablePairView({
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    if (isApprovedLeaveDate(date))
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
       return {
         type: 'leave',
-        label: 'ON LEAVE',
+        label: formatDtrLeaveLabel(leaveReq),
         bgColor: 'rgba(46,125,50,0.2)',
         textColor: '#000',
         borderColor: '#2e7d32',
@@ -468,7 +475,7 @@ export default function DtrTablePairView({
             >
               <div
                 style={{
-                  borderBottom: '2px solid black',
+                  borderBottom: '1px solid black',
                   width: '100%',
                   margin: '2px 0 3px 0',
                 }}
@@ -489,7 +496,7 @@ export default function DtrTablePairView({
               </div>
               <div
                 style={{
-                  borderBottom: '2px solid black',
+                  borderBottom: '1px solid black',
                   width: '100%',
                   margin: '2px 0 3px 0',
                 }}
@@ -591,7 +598,7 @@ export default function DtrTablePairView({
               <span
                 style={{
                   display: 'inline-block',
-                  borderBottom: '1.5px solid black',
+                  borderBottom: '1px solid black',
                   flexGrow: 1,
                   minWidth: '300px',
                   marginBottom: '2px',
@@ -641,7 +648,7 @@ export default function DtrTablePairView({
               <span
                 style={{
                   display: 'inline-block',
-                  borderBottom: '1.5px solid black',
+                  borderBottom: '1px solid black',
                   flexGrow: 1,
                   minWidth: '318px',
                   marginBottom: '2px',
@@ -737,7 +744,7 @@ export default function DtrTablePairView({
   const renderDTRFooter = () => (
     <tr>
       <td colSpan="7" style={{ padding: '10px 5px' }}>
-        <hr style={{ borderTop: '2px solid black', width: '100%' }} />
+        <hr style={{ borderTop: '1px solid black', width: '100%' }} />
         <p
           style={{
             textAlign: 'justify',
@@ -761,7 +768,7 @@ export default function DtrTablePairView({
             marginTop: '40px',
           }}
         >
-          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
+          <hr style={{ borderTop: '1px solid black', margin: 0 }} />
           <p
             style={{
               fontSize: '9px',
@@ -778,7 +785,7 @@ export default function DtrTablePairView({
           />
           <hr
             style={{
-              borderTop: '1.5px solid black',
+              borderTop: '1px solid black',
               width: '100%',
               margin: '2px 0 0 0',
             }}
@@ -802,7 +809,7 @@ export default function DtrTablePairView({
             textAlign: 'center',
           }}
         >
-          <hr style={{ borderTop: '2px solid black', margin: 0 }} />
+          <hr style={{ borderTop: '1px solid black', margin: 0 }} />
           <p
             style={{
               fontSize: '9px',
@@ -890,6 +897,7 @@ export default function DtrTablePairView({
         officialTimesByDay: officialTimes,
         fullDate,
       });
+      const hasPeriodRecords = Array.isArray(sourceRecords) && sourceRecords.length > 0;
       const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
         record,
         fullDate,
@@ -912,6 +920,114 @@ export default function DtrTablePairView({
               isPendingHalfDay,
             });
       void halfDayDatesSet;
+      const isNonWorkingDayRow = isDtrNonWorkingDayRow({
+        isNotScheduledDay,
+        indicator,
+        timeFields: tf,
+        hasPeriodRecords,
+        fullDate,
+      });
+      const unscheduledWeekdayLabel = getDtrUnscheduledWeekdayBanner({
+        isNotScheduledDay,
+        indicator,
+        timeFields: tf,
+        hasPeriodRecords,
+        fullDate,
+      });
+      const nonWorkingRowTint =
+        isNonWorkingDayRow || unscheduledWeekdayLabel
+          ? 'rgba(128, 128, 128, 0.06)'
+          : rowTint;
+      if (isDtrCalendarBannerRow(indicator)) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{indicator.label}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (isNonWorkingDayRow) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{DTR_NON_WORKING_DAY_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (unscheduledWeekdayLabel) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{unscheduledWeekdayLabel}</span>
+            </td>
+          </tr>
+        );
+      }
       return (
         <tr key={i}>
           <td

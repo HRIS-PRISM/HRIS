@@ -18,6 +18,9 @@ import {
   ArrowForward,
   Close,
   Refresh,
+  Edit,
+  Schedule,
+  Assignment,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -31,6 +34,7 @@ import {
   Chip,
   Dialog,
   DialogContent,
+  Drawer,
   Fade,
   FormControl,
   FormControlLabel,
@@ -89,7 +93,15 @@ import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
 import LoadingOverlay from '../LoadingOverlay';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
+import AttendanceModification from './AttendanceModification';
+import OfficialTimeForm from './OfficialTimeForm';
+import DtrSavedSummaryPanel from './DtrSavedSummaryPanel';
+import AttendanceComputationDrawer from './AttendanceComputationDrawer';
 import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import {
+  resolveDrawerFromComputationModule,
+  HUB_COMPUTATION_BUTTONS,
+} from '../../utils/attendanceHubFlow';
 import {
   fetchDailyLateUndertime,
   fetchDailyLateUndertimeBatch,
@@ -98,22 +110,49 @@ import {
   isDtrDateScheduledByOfficialTime,
   isDtrHalfDayLateUndertimePending,
   parseHalfDayDatesSet,
+  getDayNameFromYmd,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
+import { computeAndApplyModuleLateUndertime } from '../../utils/computeModuleLateUndertimeForDtr';
 import {
   buildReviewByDate,
   parseHalfDayReviewJson,
   MODULE_TYPES,
+  getRowHalfDayUiStatus,
+  getDtrHalfDayIndicator,
+  getDtrAbsentIndicator,
+  isDtrAbsentRow,
+  resolveDtrRowIndicator,
+  resolveDtrRowTint,
 } from '../../utils/halfDayReview';
 import {
   DTR_WIDTH_IN,
   DTR_WM_INLINE_STYLE,
+  DTR_NON_WORKING_DAY_LABEL,
+  DTR_ABSENT_LABEL,
   dtrTimeValueEmpty,
   isDtrCellWatermarkText,
+  isDtrNonWorkingDayRow,
+  getDtrUnscheduledWeekdayBanner,
   resolveDtrAmPmCellText,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
   openPdfBlobForPrint,
+  formatDtrLeaveLabel,
+  findApprovedLeaveForDate,
+  isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
+const COMPUTATION_DRAWER_KEYS = new Set([
+  'nonTeaching',
+  'faculty30',
+  'facultyDesignated',
+]);
+
+const isHubDrawerOpen = (drawer) =>
+  drawer === 'modification' ||
+  drawer === 'officialTime' ||
+  COMPUTATION_DRAWER_KEYS.has(drawer);
+
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
   accent: '#6d2323',
@@ -156,6 +195,36 @@ const REGULAR_DAY_ABBREV = {
   Wednesday: 'W',
   Thursday: 'Th',
   Friday: 'F',
+};
+
+/**
+ * Map an employee's computed attendance module type to the same coarse
+ * "personnel scope" bucket used on suspension records (personnel_scope).
+ * DTR-DISPLAY ONLY — does not touch late/undertime calculation, which
+ * already has its own identical helper in computeModuleLateUndertimeForDtr.js.
+ */
+const scopeForModuleType = (mod) => {
+  if (mod === MODULE_TYPES.NON_TEACHING) return 'non_teaching';
+  if (
+    mod === MODULE_TYPES.FACULTY_30HRS ||
+    mod === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return 'academic';
+  }
+  return null;
+};
+
+/**
+ * A suspension applies to this employee's DTR only if its personnel_scope
+ * is "all", or matches the employee's resolved scope exactly.
+ * DTR-DISPLAY ONLY.
+ */
+const suspensionAppliesToScope = (susp, employeeScope) => {
+  if (!susp) return false;
+  const scope = susp.personnel_scope || 'all';
+  if (scope === 'all') return true;
+  if (!employeeScope) return false;
+  return scope === employeeScope;
 };
 
 const formatOfficialClock = (timeString, formatTimeFn) => {
@@ -494,7 +563,10 @@ const getAuthHeaders = () => {
   };
 };
 
-const PAGE_SIZE = 30;
+/** Employees per attendance API request (by employeeNumbers — no SQL re-rank). */
+const ATTENDANCE_CHUNK = 60;
+/** Parallel attendance chunk requests while hydrating the table. */
+const ATTENDANCE_CONCURRENCY = 6;
 
 /** YYYY-MM-DD as a Philippines calendar day */
 const toPhCalendarYmd = (value) => {
@@ -596,6 +668,8 @@ const DailyTimeRecordFaculty = ({
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [previewUsers, setPreviewUsers] = useState([]);
+  /** Only one off-screen DTR at a time for capture (avoids mounting N tables on Bulk Print). */
+  const [captureUser, setCaptureUser] = useState(null);
   const [printingAll, setPrintingAll] = useState(false);
   const [printingStatus, setPrintingStatus] = useState('');
 
@@ -636,6 +710,15 @@ const DailyTimeRecordFaculty = ({
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
+  /** Sliding hub drawer: officialTime | modification | computation modules */
+  const [moduleDrawer, setModuleDrawer] = useState(null);
+  /** Last opened computation module — kept after drawer closes so Save to Summary stays enabled */
+  const [activeComputationDrawer, setActiveComputationDrawer] = useState(null);
+  const [lateComputeLoading, setLateComputeLoading] = useState(null);
+  const [computationSaveSignal, setComputationSaveSignal] = useState(0);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
+  /** Bumped after Attendance Modification saves so computation modules remount + refetch. */
+  const [attendanceRevision, setAttendanceRevision] = useState(0);
 
   const { hasAccess, loading: accessLoading } = usePageAccess(pageAccessIdentifier);
 
@@ -666,12 +749,18 @@ const DailyTimeRecordFaculty = ({
               item.parentGroup && item.typeName
                 ? `${item.parentGroup} | ${item.typeName}`
                 : item.categoryLabel || '';
-            if (label) {
-              map[String(item.employeeNumber)] = {
-                label,
-                colorHex: item.colorHex || '#757575',
-              };
-            }
+            const employmentCategory =
+              item.employmentCategory != null && item.employmentCategory !== ''
+                ? item.employmentCategory
+                : null;
+            if (!label && employmentCategory == null) return;
+            map[String(item.employeeNumber)] = {
+              label: label || '',
+              colorHex: item.colorHex || '#757575',
+              employmentCategory,
+              typeName: item.typeName || '',
+              parentGroup: item.parentGroup || '',
+            };
           });
           setEmpCatMap(map);
         }
@@ -753,6 +842,16 @@ const DailyTimeRecordFaculty = ({
   }, [inboundDtrNavState]);
 
   useEffect(() => {
+    const mod = location.state?.openComputationModule;
+    if (!mod || !personID || !hasSearchedSingle) return;
+    const drawer = resolveDrawerFromComputationModule(mod);
+    if (drawer) {
+      setActiveComputationDrawer(drawer);
+      setModuleDrawer(drawer);
+    }
+  }, [location.state, personID, hasSearchedSingle]);
+
+  useEffect(() => {
     const st = location.state;
     if (st && typeof st === 'object' && st.startDate && st.endDate) {
       if (st.isBulk && Array.isArray(st.users) && st.users.length > 0) return;
@@ -815,6 +914,10 @@ const DailyTimeRecordFaculty = ({
     onHydrate: handleWorkflowHydrate,
   });
 
+  const handleHubNext = useCallback(() => {
+    goNext();
+  }, [goNext]);
+
   useAttendanceCompactPage();
 
   // ─── Format helpers ────────────────────────────────────────────────────
@@ -844,6 +947,18 @@ const DailyTimeRecordFaculty = ({
     if (!timeString) return '';
     const normalized = String(timeString).replace(/\s+/g, ' ').trim();
     return normalized.replace(/^(\d{1,2}:\d{2}):\d{2}(\s?[AP]M)?$/i, '$1$2');
+  };
+
+  /** "15:00" / "15:00:00" -> "3:00 PM" for the partial-suspension DTR remark. */
+  const formatSuspensionEffectiveTime = (t) => {
+    if (!t) return '';
+    const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return String(t);
+    let h = parseInt(m[1], 10);
+    const min = m[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${h}:${min} ${ampm}`;
   };
 
   const MONTHS_LONG = [
@@ -1019,50 +1134,13 @@ const DailyTimeRecordFaculty = ({
   const fetchOfficialTimes = useCallback(
     async (employeeID, periodStart, periodEnd) => {
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/officialtimetable/${employeeID}`,
-          { ...getAuthHeaders(), params: { skipAudit: '1' } },
+        const timesMap = await fetchOfficialTimesBatch(
+          [employeeID],
+          periodStart,
+          periodEnd,
+          getAuthHeaders,
         );
-
-        const allRows = response.data || [];
-
-        const filtered =
-          periodStart && periodEnd
-            ? allRows.filter((r) => {
-                const schedStart = r.startDate
-                  ? String(r.startDate).split('T')[0]
-                  : null;
-                const schedEnd = r.endDate
-                  ? String(r.endDate).split('T')[0]
-                  : null;
-                if (!schedStart || !schedEnd) return false;
-                return schedStart <= periodEnd && schedEnd >= periodStart;
-              })
-            : allRows;
-
-        const map = filtered.reduce((acc, r) => {
-          if (
-            !acc[r.day] ||
-            (r.id && acc[r.day]._id && r.id > acc[r.day]._id)
-          ) {
-            acc[r.day] = {
-              _id: r.id,
-              officialTimeIN: r.officialTimeIN,
-              officialTimeOUT: r.officialTimeOUT,
-              officialBreaktimeIN: r.officialBreaktimeIN,
-              officialBreaktimeOUT: r.officialBreaktimeOUT,
-            };
-          }
-          return acc;
-        }, {});
-
-        const cleanMap = Object.fromEntries(
-          Object.entries(map).map(([day, val]) => {
-            const { _id, ...rest } = val;
-            return [day, rest];
-          }),
-        );
-
+        const cleanMap = timesMap[employeeID] || timesMap[String(employeeID)] || {};
         setOfficialTimes(cleanMap);
       } catch (err) {
         console.error('Error fetching official times:', err);
@@ -1095,58 +1173,11 @@ const DailyTimeRecordFaculty = ({
     async (employeeNumbers, periodStart, periodEnd) => {
       if (!employeeNumbers || employeeNumbers.length === 0) return;
       try {
-        const timesMap = {};
-        await Promise.all(
-          employeeNumbers.map(async (empID) => {
-            try {
-              const response = await axios.get(
-                `${API_BASE_URL}/officialtimetable/${empID}`,
-                { ...getAuthHeaders(), params: { skipAudit: '1' } },
-              );
-              const allRows = response.data || [];
-              const filtered =
-                periodStart && periodEnd
-                  ? allRows.filter((r) => {
-                      const schedStart = r.startDate
-                        ? String(r.startDate).split('T')[0]
-                        : null;
-                      const schedEnd = r.endDate
-                        ? String(r.endDate).split('T')[0]
-                        : null;
-                      if (!schedStart || !schedEnd) return false;
-                      return schedStart <= periodEnd && schedEnd >= periodStart;
-                    })
-                  : allRows;
-              const map = filtered.reduce((acc, r) => {
-                if (
-                  !acc[r.day] ||
-                  (r.id && acc[r.day]._id && r.id > acc[r.day]._id)
-                ) {
-                  acc[r.day] = {
-                    _id: r.id,
-                    officialTimeIN: r.officialTimeIN,
-                    officialTimeOUT: r.officialTimeOUT,
-                    officialBreaktimeIN: r.officialBreaktimeIN,
-                    officialBreaktimeOUT: r.officialBreaktimeOUT,
-                  };
-                }
-                return acc;
-              }, {});
-              const cleanMap = Object.fromEntries(
-                Object.entries(map).map(([day, val]) => {
-                  const { _id, ...rest } = val;
-                  return [day, rest];
-                }),
-              );
-              timesMap[empID] = cleanMap;
-            } catch (err) {
-              console.error(
-                `Error fetching official times for employee ${empID}:`,
-                err,
-              );
-              timesMap[empID] = {};
-            }
-          }),
+        const timesMap = await fetchOfficialTimesBatch(
+          employeeNumbers,
+          periodStart,
+          periodEnd,
+          getAuthHeaders,
         );
         setBatchOfficialTimesMap(timesMap);
       } catch (error) {
@@ -1182,6 +1213,193 @@ const DailyTimeRecordFaculty = ({
       }));
     },
     [startDate, endDate],
+  );
+
+  const hasOfficialTimeSchedule = useMemo(() => {
+    const ot = officialTimes || {};
+    return Object.values(ot).some(
+      (sched) =>
+        sched?.officialTimeIN &&
+        sched?.officialTimeOUT &&
+        String(sched.officialTimeIN).trim() !== '00:00:00 AM' &&
+        String(sched.officialTimeOUT).trim() !== '00:00:00 PM',
+    );
+  }, [officialTimes]);
+
+  const appliedLateUtModuleType = useMemo(() => {
+    if (!personID) return null;
+    const key = String(personID);
+    const byDate = computedLateByEmployee[key];
+    if (!byDate || Object.keys(byDate).length === 0) return null;
+    return computationModuleTypeByEmployee[key] || null;
+  }, [personID, computedLateByEmployee, computationModuleTypeByEmployee]);
+
+  const appliedLateUtLabel = useMemo(() => {
+    if (!appliedLateUtModuleType) return null;
+    return (
+      HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === appliedLateUtModuleType)
+        ?.label || null
+    );
+  }, [appliedLateUtModuleType]);
+
+  const appliedLateUtColor = useMemo(() => {
+    if (!appliedLateUtModuleType) return T.accent;
+    return (
+      HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === appliedLateUtModuleType)
+        ?.categoryColor || T.accent
+    );
+  }, [appliedLateUtModuleType]);
+
+  const hubDrawerInitialContext = useMemo(
+    () => ({
+      employeeNumber: personID || '',
+      startDate: startDate || '',
+      endDate: endDate || '',
+      selectedYear,
+      selectedMonth,
+      fullName: employeeName || selectedEmployee?.fullName || '',
+      employee: selectedEmployee || (personID
+        ? {
+            employeeNumber: personID,
+            name: employeeName || '',
+            fullName: employeeName || '',
+          }
+        : null),
+    }),
+    [
+      personID,
+      startDate,
+      endDate,
+      selectedYear,
+      selectedMonth,
+      employeeName,
+      selectedEmployee,
+    ],
+  );
+
+  const openComputationDrawer = useCallback(
+    (drawerKey) => {
+      if (!drawerKey || !COMPUTATION_DRAWER_KEYS.has(drawerKey)) return;
+      if (!hasOfficialTimeSchedule) {
+        setSnackbar({
+          open: true,
+          message:
+            'No Official Time schedule found. Open Official Time to set it up first.',
+          severity: 'warning',
+        });
+        setModuleDrawer('officialTime');
+        return;
+      }
+      setActiveComputationDrawer(drawerKey);
+      setModuleDrawer(drawerKey);
+    },
+    [hasOfficialTimeSchedule],
+  );
+
+  const handleSavedToSummary = useCallback(async () => {
+    setSummaryRefreshKey((k) => k + 1);
+    setActiveComputationDrawer(null);
+    setModuleDrawer(null);
+    if (personID) {
+      try {
+        await loadComputedLateForEmployee(personID);
+      } catch (err) {
+        console.error('Failed to refresh late/undertime after summary save:', err);
+      }
+    }
+    setSnackbar({
+      open: true,
+      message: 'Attendance summary saved. Totals are now shown below.',
+      severity: 'success',
+    });
+  }, [personID, loadComputedLateForEmployee]);
+
+  const applyModuleLateUndertime = useCallback(
+    async (moduleType) => {
+      if (!moduleType) return;
+      if (!personID || !startDate || !endDate) {
+        setSnackbar({
+          open: true,
+          message: 'Select an employee and month first.',
+          severity: 'warning',
+        });
+        return;
+      }
+      if (!hasSearchedSingle) {
+        setSnackbar({
+          open: true,
+          message: 'Load the DTR for this employee first.',
+          severity: 'warning',
+        });
+        return;
+      }
+      if (!hasOfficialTimeSchedule) {
+        setSnackbar({
+          open: true,
+          message:
+            'No Official Time schedule found. Open Official Time to set it up first.',
+          severity: 'warning',
+        });
+        setModuleDrawer('officialTime');
+        return;
+      }
+      setLateComputeLoading(moduleType);
+      try {
+        const result = await computeAndApplyModuleLateUndertime({
+          personID,
+          startDate,
+          endDate,
+          moduleType,
+        });
+        const key = String(personID);
+        setComputedLateByEmployee((prev) => ({
+          ...prev,
+          [key]: result.byDate || {},
+        }));
+        setHalfDayDatesByEmployee((prev) => ({
+          ...prev,
+          [key]: parseHalfDayDatesSet(result.halfDayDates),
+        }));
+        setHalfDayReviewByEmployee((prev) => ({
+          ...prev,
+          [key]: buildReviewByDate(
+            parseHalfDayReviewJson(result.half_day_review),
+          ),
+        }));
+        setComputationModuleTypeByEmployee((prev) => ({
+          ...prev,
+          [key]: result.computation_module_type || moduleType,
+        }));
+        const label =
+          HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === moduleType)
+            ?.label || 'Module';
+        setSnackbar({
+          open: true,
+          message: `${label} late/undertime applied to DTR.`,
+          severity: 'success',
+        });
+      } catch (err) {
+        console.error('Module late/undertime compute failed:', err);
+        const msg =
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
+          'Failed to apply late/undertime.';
+        setSnackbar({ open: true, message: msg, severity: 'error' });
+        if (/official time|no matching official/i.test(String(msg))) {
+          setModuleDrawer('officialTime');
+        }
+      } finally {
+        setLateComputeLoading(null);
+      }
+    },
+    [
+      personID,
+      startDate,
+      endDate,
+      hasSearchedSingle,
+      hasOfficialTimeSchedule,
+    ],
   );
 
   const loadComputedLateBatch = useCallback(
@@ -1335,12 +1553,74 @@ const DailyTimeRecordFaculty = ({
     fetchAllUsersDTRRef.current = fetchAllUsersDTR;
   });
 
+  const loadComputedLateForEmployeeRef = useRef(loadComputedLateForEmployee);
+  const loadComputedLateBatchRef = useRef(loadComputedLateBatch);
+  useEffect(() => {
+    loadComputedLateForEmployeeRef.current = loadComputedLateForEmployee;
+    loadComputedLateBatchRef.current = loadComputedLateBatch;
+  });
+
   // ─── Socket realtime ───────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !connected) return;
     let debounceTimer = null;
+
+    const matchesCurrentEmployee = (changedIDs) => {
+      const currentPersonID =
+        personID != null && personID !== '' ? String(personID) : '';
+      if (!currentPersonID || changedIDs.length === 0) return changedIDs.length === 0;
+      return changedIDs.includes(currentPersonID);
+    };
+
+    const refreshComputedLate = (changedIDs) => {
+      if (viewMode === 'single') {
+        if (!hasSearchedSingle || !personID || !startDate || !endDate) return;
+        if (changedIDs.length > 0 && !matchesCurrentEmployee(changedIDs)) return;
+        loadComputedLateForEmployeeRef.current?.(personID);
+        setSummaryRefreshKey((k) => k + 1);
+        return;
+      }
+      if (!startDate || !endDate || allUsersDTR.length === 0) return;
+      const targets =
+        changedIDs.length > 0
+          ? changedIDs
+          : allUsersDTR.map((u) => u.employeeNumber).filter(Boolean);
+      if (targets.length === 0) return;
+      loadComputedLateBatchRef.current?.(targets);
+      setSummaryRefreshKey((k) => k + 1);
+    };
+
     const handleAttendanceChanged = (payload) => {
       const action = payload?.action;
+      if (
+        action === 'leaves-fetched' ||
+        action === 'holidays-fetched' ||
+        action === 'suspensions-fetched'
+      ) {
+        return;
+      }
+
+      const changedIDs = Array.isArray(payload?.personIDs)
+        ? payload.personIDs.map((id) => String(id))
+        : payload?.personID != null
+          ? [String(payload.personID)]
+          : [];
+
+      // Computation modules (Non-Teaching / 30hrs / Designated) save late/UT here.
+      // Must refresh DTR late columns — do not treat as noise.
+      if (
+        action === 'overall-daily-late-updated' ||
+        action === 'overall-daily-late-created' ||
+        action === 'overall-updated' ||
+        action === 'overall-created'
+      ) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => refreshComputedLate(changedIDs), 200);
+        return;
+      }
+
+      if (payload?.light) return;
+
       if (action === 'dtr-printed') {
         const printed = Array.isArray(payload?.employeeNumbers)
           ? payload.employeeNumbers
@@ -1361,15 +1641,17 @@ const DailyTimeRecordFaculty = ({
         }
         return;
       }
-      const changedIDs = Array.isArray(payload?.personIDs)
-        ? payload.personIDs
-        : payload?.personID
-          ? [payload.personID]
-          : [];
+
       const isBulk = action === 'bulk-auto-sync';
+      const currentPersonID =
+        personID != null && personID !== '' ? String(personID) : '';
       if (viewMode === 'single') {
         if (changedIDs.length === 0 && !isBulk) return;
-        if (personID && changedIDs.length > 0 && !changedIDs.includes(personID))
+        if (
+          currentPersonID &&
+          changedIDs.length > 0 &&
+          !changedIDs.includes(currentPersonID)
+        )
           return;
         if (hasSearchedSingle && personID && startDate && endDate)
           fetchRecordsRef.current?.();
@@ -1378,7 +1660,10 @@ const DailyTimeRecordFaculty = ({
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (changedIDs.length === 0 && !isBulk) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 150);
+      debounceTimer = setTimeout(
+        () => fetchAllUsersDTRRef.current?.({ quiet: true }),
+        1500,
+      );
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
@@ -1396,73 +1681,99 @@ const DailyTimeRecordFaculty = ({
     hasSearchedSingle,
   ]);
 
+  // Refetch when user returns to this tab (missed socket while elsewhere)
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      // Ignore quick alt-tab flicker; only refresh after being away briefly
+      if (!hiddenAt || Date.now() - hiddenAt < 2000) return;
+      if (viewMode === 'single') {
+        if (hasSearchedSingle && personID && startDate && endDate) {
+          fetchRecordsRef.current?.();
+        }
+        return;
+      }
+      if (startDate && endDate && allUsersDTR.length > 0) {
+        // Keep the table visible — background refresh only
+        fetchAllUsersDTRRef.current?.({ quiet: true });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [
+    viewMode,
+    personID,
+    startDate,
+    endDate,
+    allUsersDTR.length,
+    hasSearchedSingle,
+  ]);
+
   // ─── Batch fetch ───────────────────────────────────────────────────────
-  const fetchAllUsersDTR = useCallback(async () => {
+  /** @param {{ quiet?: boolean }} [opts] quiet = refresh without clearing the table / selection */
+  const fetchAllUsersDTR = useCallback(async (opts = {}) => {
+    const quiet = opts?.quiet === true;
     if (!startDate || !endDate) {
-      showAlert('Date Required', 'Please select start date and end date first');
+      if (!quiet) {
+        showAlert('Date Required', 'Please select start date and end date first');
+      }
       return;
     }
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     const { signal } = abortControllerRef.current;
-    setLoadingAllUsers(true);
-    setLoadPhase('Loading employee list…');
-    setAllUsersDTR([]);
-    setBatchOfficialTimesMap({});
-    setComputedLateByEmployee({});
-    setHalfDayDatesByEmployee({});
-    setSelectedUsers(new Set());
-    setCurrentPage(1);
+    if (!quiet) {
+      setLoadingAllUsers(true);
+      setLoadPhase('Loading employee list…');
+      setAllUsersDTR([]);
+      setBatchOfficialTimesMap({});
+      setComputedLateByEmployee({});
+      setHalfDayDatesByEmployee({});
+      setSelectedUsers(new Set());
+      setCurrentPage(1);
+    } else {
+      setLoadPhase('Refreshing…');
+    }
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
-      const empListParams = { startDate, endDate };
-
-      const [empRes, deptRes, catRes] = await Promise.all([
-        axios
-          .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
-            params: empListParams,
-            ...cfg(),
-          })
-          .catch((e) => {
-            if (!signal.aborted) console.warn('emp list:', e.message);
-            return { data: [] };
-          }),
-        axios
-          .get(`${API_BASE_URL}/api/department-assignment`, cfg())
-          .catch(() => ({ data: [] })),
-        axios
-          .get(
-            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-            cfg(),
-          )
-          .catch(() => ({ data: [] })),
-      ]);
+      // Names only first — dept/category come from maps already loaded on mount.
+      const empRes = await axios
+        .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
+          params: { startDate, endDate, skipAudit: '1' },
+          ...cfg(),
+        })
+        .catch((e) => {
+          if (!signal.aborted) console.warn('emp list:', e.message);
+          return { data: [] };
+        });
       if (signal.aborted) return;
+
       const empList = empRes.data || [];
       if (empList.length === 0) {
-        setAllUsersDTR([]);
-        setBatchOfficialTimesMap({});
-        setLoadingAllUsers(false);
-        setLoadPhase('');
-        showAlert(
-          'No Records Found',
-          'No attendance records found for the selected date range.',
-        );
+        if (!quiet) {
+          setAllUsersDTR([]);
+          setBatchOfficialTimesMap({});
+          setLoadingAllUsers(false);
+          setLoadPhase('');
+          showAlert(
+            'No Records Found',
+            'No attendance records found for the selected date range.',
+          );
+        } else {
+          setLoadPhase('');
+        }
         return;
       }
-      const deptMap = new Map();
-      (deptRes.data || []).forEach((d) => {
-        if (d.employeeNumber && d.code)
-          deptMap.set(String(d.employeeNumber), d.code);
-      });
-      const catMap = new Map();
-      (catRes.data || []).forEach((c) => {
-        catMap.set(String(c.employeeNumber), c.employmentCategory);
-      });
+
       const skeletonUsers = empList.map((emp) => {
         const empNum = emp.personID;
-        const deptCode = deptMap.get(String(empNum)) || '';
-        const empCat = catMap.get(String(empNum));
+        const empKey = String(empNum);
+        const deptCode = departmentAssignmentsMap[empKey] || '';
+        const empCat = empCatMap[empKey]?.employmentCategory;
         const displayName =
           emp.firstName && emp.lastName
             ? formatFullName({
@@ -1495,69 +1806,87 @@ const DailyTimeRecordFaculty = ({
           },
         };
       });
-      setAllUsersDTR(skeletonUsers);
-      setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
-      const empListIds = empList.map((e) => e.personID);
-      axios
-        .post(
-          `${API_BASE_URL}/attendance/api/dtr-print-status`,
-          {
-            employeeNumbers: empListIds,
-            year: new Date(startDate).getFullYear(),
-            month: new Date(startDate).getMonth() + 1,
-          },
-          cfg(),
-        )
-        .then((psRes) => {
-          if (signal.aborted) return;
-          const newMap = new Map();
-          (psRes.data || []).forEach((s) =>
-            newMap.set(s.employee_number, {
-              printed_at: s.printed_at,
-              printed_by: s.printed_by,
-            }),
-          );
-          setPrintStatusMap(newMap);
-        })
-        .catch((e) => {
-          if (!signal.aborted) console.error('print status:', e);
-        });
 
-      const totalPages = Math.ceil(empList.length / PAGE_SIZE);
-      const pageResults = await Promise.all(
-        Array.from({ length: totalPages }, (_, index) => index + 1).map(
-          async (page) => {
-            if (signal.aborted) return { page, data: [] };
-            setLoadPhase(`Loading attendance page ${page} of ${totalPages}…`);
+      if (quiet) {
+        // Keep existing rows/records on screen; replace only as chunks arrive
+        setAllUsersDTR((prev) => {
+          const prevById = new Map(
+            prev.map((u) => [String(u.employeeNumber), u]),
+          );
+          return skeletonUsers.map((u) => {
+            const existing = prevById.get(String(u.employeeNumber));
+            if (!existing) return u;
+            return {
+              ...u,
+              records: existing.records || [],
+              hasRecords: existing.hasRecords,
+              _loading: false,
+            };
+          });
+        });
+      } else {
+        setAllUsersDTR(skeletonUsers);
+        setLoadingAllUsers(false);
+      }
+      setLoadPhase(
+        quiet
+          ? `Refreshing attendance (0 / ${empList.length})…`
+          : `Loading attendance (0 / ${empList.length})…`,
+      );
+
+      const empNums = skeletonUsers.map((u) => u.employeeNumber);
+      const chunks = [];
+      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
+        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
+      }
+
+      let hydrated = 0;
+      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
+        if (signal.aborted) break;
+        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
+        const batchRows = await Promise.all(
+          batch.map(async (chunk) => {
+            if (signal.aborted) return [];
             try {
               const pageRes = await axios.post(
                 `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-                { startDate, endDate, page, pageSize: PAGE_SIZE },
+                {
+                  startDate,
+                  endDate,
+                  employeeNumbers: chunk,
+                  skipCount: true,
+                  skipAudit: true,
+                },
                 cfg(),
               );
-              return { page, data: pageRes.data?.data || [] };
+              return pageRes.data?.data || [];
             } catch (e) {
               if (!signal.aborted)
-                console.error(`Page ${page} fetch failed:`, e.message);
-              return { page, data: [] };
+                console.error('Attendance chunk fetch failed:', e.message);
+              return [];
             }
-          },
-        ),
-      );
-      if (signal.aborted) return;
-      let mergedUsers = skeletonUsers.slice();
-      pageResults
-        .sort((a, b) => a.page - b.page)
-        .forEach(({ data: pageData }) => {
-          const pageMap = new Map();
-          pageData.forEach((record) => {
-            const id = record.personID || record.agencyEmployeeNum;
-            if (!pageMap.has(id)) pageMap.set(id, []);
-            pageMap.get(id).push(record);
-          });
-          mergedUsers = mergedUsers.map((user) => {
-            if (!pageMap.has(user.employeeNumber)) return user;
-            const rows = pageMap.get(user.employeeNumber);
+          }),
+        );
+        if (signal.aborted) return;
+
+        const pageMap = new Map();
+        batchRows.flat().forEach((record) => {
+          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
+          if (!id) return;
+          if (!pageMap.has(id)) pageMap.set(id, []);
+          pageMap.get(id).push(record);
+        });
+
+        hydrated += batch.reduce((n, c) => n + c.length, 0);
+        setLoadPhase(
+          `${quiet ? 'Refreshing' : 'Loading'} attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+        );
+
+        setAllUsersDTR((prev) =>
+          prev.map((user) => {
+            const key = String(user.employeeNumber);
+            if (!pageMap.has(key)) return user;
+            const rows = pageMap.get(key);
             const filtered = filterByDtrType(rows, dtrType);
             return {
               ...user,
@@ -1565,47 +1894,81 @@ const DailyTimeRecordFaculty = ({
               hasRecords: filtered.length > 0,
               _loading: false,
             };
-          });
-        });
-      setAllUsersDTR(mergedUsers.slice());
+          }),
+        );
+      }
+
+      if (signal.aborted) return;
+
       setAllUsersDTR((prev) =>
         prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
       );
+      setLoadPhase('');
 
-      // ── Second empNums usage — kept as-is (no conflict now) ──
-      const empNums = mergedUsers.map((u) => u.employeeNumber);
-      fetchBatchOfficialTimes(empNums, startDate, endDate).catch(() => {});
-      if (dtrType === 'regular') {
-        loadComputedLateBatch(empNums).catch(() => {});
-      }
+      const empListIds = empList.map((e) => e.personID);
+
+      // Secondary data — after names are visible (official time, print status, late)
+      Promise.all([
+        fetchBatchOfficialTimes(empNums, startDate, endDate),
+        axios
+          .post(
+            `${API_BASE_URL}/attendance/api/dtr-print-status`,
+            {
+              employeeNumbers: empListIds,
+              year: new Date(startDate).getFullYear(),
+              month: new Date(startDate).getMonth() + 1,
+            },
+            cfg(),
+          )
+          .then((psRes) => {
+            if (signal.aborted) return;
+            const newMap = new Map();
+            (psRes.data || []).forEach((s) =>
+              newMap.set(s.employee_number, {
+                printed_at: s.printed_at,
+                printed_by: s.printed_by,
+              }),
+            );
+            setPrintStatusMap(newMap);
+          }),
+        dtrType === 'regular'
+          ? loadComputedLateBatch(empNums)
+          : Promise.resolve(),
+      ]).catch((e) => {
+        if (!signal.aborted) console.warn('DTR batch secondary load:', e);
+      });
     } catch (error) {
       if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('fetchAllUsersDTR error:', error);
-      showAlert(
-        'Fetch Error',
-        error.response?.data?.error || 'Error fetching attendance records.',
-      );
-      setAllUsersDTR([]);
-      setBatchOfficialTimesMap({});
+      if (!quiet) {
+        showAlert(
+          'Fetch Error',
+          error.response?.data?.error || 'Error fetching attendance records.',
+        );
+        setAllUsersDTR([]);
+        setBatchOfficialTimesMap({});
+      } else {
+        setLoadPhase('');
+      }
     } finally {
       if (!signal?.aborted) {
         setLoadingAllUsers(false);
-        setLoadPhase('');
       }
     }
   }, [
     startDate,
     endDate,
     dtrType,
-    departmentFilter,
     fetchBatchOfficialTimes,
     loadComputedLateBatch,
+    departmentAssignmentsMap,
+    empCatMap,
   ]);
 
   useEffect(() => {
     if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode, departmentFilter]);
+  }, [startDate, endDate, viewMode]);
 
   // ─── Month click ────────────────────────────────────────────────────────
   const handleMonthClick = (idx) => {
@@ -1925,6 +2288,34 @@ const DailyTimeRecordFaculty = ({
     }
   };
 
+  /** Mount a single off-screen DTR, wait for ref, capture, then unmount. */
+  const mountAndCaptureUserDtr = async (user, scale = 2) => {
+    if (!user?.employeeNumber) throw new Error('Invalid user for DTR capture');
+    setCaptureUser(user);
+    await new Promise((r) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setTimeout(r, 40));
+      });
+    });
+
+    const empKey = String(user.employeeNumber);
+    const started = Date.now();
+    let ref = bulkDTRRefs.current[empKey];
+    while (!ref && Date.now() - started < 8000) {
+      await new Promise((r) => setTimeout(r, 30));
+      ref = bulkDTRRefs.current[empKey];
+    }
+    if (!ref) throw new Error(`DTR element not found for ${empKey}`);
+
+    try {
+      return await captureDtrElement(ref, scale);
+    } finally {
+      setCaptureUser(null);
+      delete bulkDTRRefs.current[empKey];
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  };
+
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
@@ -2015,14 +2406,11 @@ const DailyTimeRecordFaculty = ({
       setPreviewUsers([user]);
       setCurrentPreviewIndex(0);
       setPreviewModalOpen(false);
-      await new Promise((r) => setTimeout(r, 300));
-      const ref = bulkDTRRefs.current[user.employeeNumber];
-      if (!ref) throw new Error('DTR element not found. Please try again.');
       setPrintingStatus('Capturing DTR layout...');
-      const canvas = await captureDtrElement(ref, 2);
+      const canvas = await mountAndCaptureUserDtr(user, 2);
       if (!canvas || canvas.width === 0)
         throw new Error('Failed to capture DTR.');
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = canvas.toDataURL('image/jpeg', 0.85);
       if (!imgData || imgData === 'data:,')
         throw new Error('Failed to generate image.');
       const pdf = new jsPDF({
@@ -2036,7 +2424,7 @@ const DailyTimeRecordFaculty = ({
         ph = pdf.internal.pageSize.getHeight();
       pdf.addImage(
         imgData,
-        'PNG',
+        'JPEG',
         (pw - dtrW) / 2,
         (ph - dtrH) / 2,
         dtrW,
@@ -2067,6 +2455,7 @@ const DailyTimeRecordFaculty = ({
       console.error('Error printing individual DTR:', error);
       showAlert('Print Error', `Error printing DTR: ${error.message}`);
     } finally {
+      setCaptureUser(null);
       setPrintingStatus('');
       setPrintingAll(false);
     }
@@ -2093,26 +2482,24 @@ const DailyTimeRecordFaculty = ({
         pw = pdf.internal.pageSize.getWidth(),
         ph = pdf.internal.pageSize.getHeight();
       const captureScale =
-        previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
       let successCount = 0;
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
         if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
           setPrintingStatus(
             `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
           );
         }
-        if (!ref) continue;
         try {
-          const canvas = await captureDtrElement(ref, captureScale);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale);
           if (!canvas || canvas.width === 0) continue;
-          const imgData = canvas.toDataURL('image/png');
+          const imgData = canvas.toDataURL('image/jpeg', 0.82);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
           pdf.addImage(
             imgData,
-            'PNG',
+            'JPEG',
             (pw - dtrW) / 2,
             (ph - dtrH) / 2,
             dtrW,
@@ -2157,6 +2544,7 @@ const DailyTimeRecordFaculty = ({
       console.error('Error printing DTRs:', error);
       showAlert('Print Error', `Error: ${error.message || 'Unknown error'}`);
     } finally {
+      setCaptureUser(null);
       setPrintingStatus('');
       setPrintingAll(false);
     }
@@ -2183,26 +2571,24 @@ const DailyTimeRecordFaculty = ({
         pw = pdf.internal.pageSize.getWidth(),
         ph = pdf.internal.pageSize.getHeight();
       const captureScale =
-        previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
       let successCount = 0;
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
         if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
           setPrintingStatus(
             `Capturing DTR ${i + 1} of ${previewUsers.length}...`,
           );
         }
-        if (!ref) continue;
         try {
-          const canvas = await captureDtrElement(ref, captureScale);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale);
           if (!canvas || canvas.width === 0) continue;
-          const imgData = canvas.toDataURL('image/png');
+          const imgData = canvas.toDataURL('image/jpeg', 0.82);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
           pdf.addImage(
             imgData,
-            'PNG',
+            'JPEG',
             (pw - dtrW) / 2,
             (ph - dtrH) / 2,
             dtrW,
@@ -2224,6 +2610,7 @@ const DailyTimeRecordFaculty = ({
     } catch (error) {
       showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
     } finally {
+      setCaptureUser(null);
       setPrintingStatus('');
       setPrintingAll(false);
     }
@@ -2256,29 +2643,45 @@ const DailyTimeRecordFaculty = ({
     return false;
   };
 
-  const getDateIndicator = (dateString) => {
+  /**
+   * DTR-DISPLAY scope filter: `employeeScope` is passed in from the caller
+   * (per-employee, since this view can render many employees at once in
+   * batch mode) and is used only to filter which suspension record — if
+   * any — applies to this employee's DTR. Everything else (leave, holiday,
+   * whole-day vs partial suspension label/type) is unchanged.
+   */
+  const getDateIndicator = (dateString, employeeScope = null) => {
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    if (isApprovedLeaveDate(date))
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
       return {
         type: 'leave',
-        label: 'ON LEAVE',
+        label: formatDtrLeaveLabel(leaveReq),
         bgColor: 'rgba(46,125,50,0.2)',
         textColor: '#000',
         borderColor: '#2e7d32',
       };
     const susp = suspensions.find((s) =>
-      isDateInRange(date, s.date_start || s.date, s.date_end || s.date),
+      isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
+      suspensionAppliesToScope(s, employeeScope),
     );
-    if (susp)
+    if (susp) {
+      const suspensionType = susp.suspension_type || 'whole_day';
+      const isPartial = suspensionType === 'partial_day' && susp.effective_time;
       return {
         type: 'suspension',
-        label: 'SUSPENSION',
+        suspensionType,
+        effectiveTime: susp.effective_time || null,
+        label: isPartial
+          ? `SUSPENSION FROM ${formatSuspensionEffectiveTime(susp.effective_time)}`
+          : 'SUSPENSION',
         bgColor: 'rgba(211,47,47,0.2)',
         textColor: '#000',
         borderColor: '#d32f2f',
       };
+    }
     const hol = holidays.find((h) =>
       isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
     );
@@ -2992,44 +3395,124 @@ const DailyTimeRecordFaculty = ({
       } else if (selectedMonth !== null) {
         fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
       }
-      const indicator = getDateIndicator(fullDate);
-      const tf = getTimeFields(record, type);
-      const rt = getRenderedTimeData(record, type);
-      const rowTint = indicator
-        ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)')
-        : 'transparent';
       const empKey =
         employeeNumber != null
           ? String(employeeNumber)
           : String(personID || '');
-      const computed =
-        empKey && fullDate
-          ? computedLateByEmployee[empKey]?.[fullDate] || null
-          : null;
-      const halfDaySet = empKey
-        ? halfDayDatesByEmployee[empKey] || new Set()
-        : new Set();
-      const isExcludedDay =
-        indicator?.type === 'holiday' ||
-        indicator?.type === 'suspension' ||
-        indicator?.type === 'leave';
-      const hasIncompletePunch = Boolean(
-        record &&
-        ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
-          (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
-      );
+      const moduleType =
+        computationModuleTypeByEmployee[empKey] ||
+        MODULE_TYPES.NON_TEACHING;
+      // DTR-DISPLAY scope filter: resolve this employee's coarse scope
+      // ("academic" / "non_teaching") from their already-known module type,
+      // then pass it into getDateIndicator so only suspensions that apply
+      // to this employee are ever shown. No new API call — reuses
+      // computationModuleTypeByEmployee, which is already tracked per-row.
+      const employeeScope = scopeForModuleType(moduleType);
+      const dateIndicator = getDateIndicator(fullDate, employeeScope);
+      const isPartialSuspensionRow =
+        dateIndicator?.type === 'suspension' &&
+        dateIndicator?.suspensionType === 'partial_day';
+      const tf = getTimeFields(record, type);
+      const rt = getRenderedTimeData(record, type);
       const isNotScheduledDay = !isDtrDateScheduledByOfficialTime({
         record,
         officialTimesByDay: officialTimesForUser,
         fullDate,
       });
+
+      // ── Does this employee/period actually have an Official Time schedule set? ──
+      // Without a schedule there is no basis to call a blank day "scheduled but
+      // absent" — it's simply unknown, so we must not render the ABSENT banner
+      // (nor the grayed-out "non-working day" banner) and instead show the row
+      // normally with whatever device punch data exists (blank if none).
+      // This mirrors the `hasOfficialTimeSchedule` check used for the single-view
+      // warning banner, but scoped per-user so it also works for the batch view.
+      const hasScheduleForUser = Object.values(officialTimesForUser || {}).some(
+        (sched) =>
+          sched?.officialTimeIN &&
+          sched?.officialTimeOUT &&
+          String(sched.officialTimeIN).trim() !== '00:00:00 AM' &&
+          String(sched.officialTimeOUT).trim() !== '00:00:00 PM',
+      );
+
+      const dayName = getDayNameFromYmd(fullDate);
+      const dayOfficial =
+        (dayName && officialTimesForUser?.[dayName]) || {};
+      const rowForStatus = {
+        ...(record || {}),
+        ...dayOfficial,
+        date: fullDate || record?.date,
+        timeIN: tf.timeIN,
+        breaktimeIN: tf.breaktimeIN,
+        breaktimeOUT: tf.breaktimeOUT,
+        timeOUT: tf.timeOUT,
+      };
+      const hasPeriodRecords =
+        Array.isArray(sourceRecords) && sourceRecords.length > 0;
+      // Scheduled workday + no punches on DTR = absent (only when period has data
+      // AND an official time schedule exists to establish this was a scheduled workday).
+      // With no schedule, we can't distinguish "not scheduled" from "no data yet",
+      // so we deliberately skip the absent check and fall through to a normal row.
+      // Partial-day suspensions must never be flagged absent — the punches for the
+      // portion of the day that was still a working day need to remain visible.
+      const rowIsAbsent =
+        type === 'regular' &&
+        hasScheduleForUser &&
+        !isPartialSuspensionRow &&
+        isDtrAbsentRow({
+          record: rowForStatus,
+          dateIndicator,
+          isNotScheduledDay,
+          moduleType,
+          hasPeriodRecords,
+        });
+      const halfUi =
+        type === 'regular' && !dateIndicator && !rowIsAbsent
+          ? getRowHalfDayUiStatus(
+              rowForStatus,
+              halfDayReviewByEmployee[empKey] || {},
+              moduleType,
+            )
+          : null;
+      const halfDayIndicator = halfUi ? getDtrHalfDayIndicator(halfUi) : null;
+      const absentIndicator = rowIsAbsent ? getDtrAbsentIndicator() : null;
+      // Partial-suspension rows skip the shared indicator resolver entirely —
+      // that keeps resolveDtrAmPmCellText from watermark-hiding the actual
+      // punch times for the portion of the day that was still a working day.
+      const indicator = isPartialSuspensionRow
+        ? null
+        : resolveDtrRowIndicator(dateIndicator, {
+            absentIndicator,
+            halfDayIndicator,
+          });
+      let rowTint = resolveDtrRowTint(dateIndicator, {
+        absentIndicator,
+        halfDayIndicator,
+        suggestedHalfDay: halfUi === 'suggested',
+      });
+      if (isPartialSuspensionRow) {
+        // Light suspension tint only — punches stay fully visible, unlike a
+        // whole-day suspension banner row.
+        rowTint = 'rgba(211,47,47,0.06)';
+      }
+      const computed =
+        empKey && fullDate
+          ? computedLateByEmployee[empKey]?.[fullDate] || null
+          : null;
+      const isExcludedDay =
+        dateIndicator?.type === 'holiday' ||
+      (dateIndicator?.type === 'suspension' && !isPartialSuspensionRow) ||
+        dateIndicator?.type === 'leave';
+      const hasIncompletePunch = Boolean(
+        record &&
+        ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
+          (!dtrRawEmpty(record?.timeIN) && dtrRawEmpty(record?.timeOUT))),
+      );
       const isPendingHalfDay = isDtrHalfDayLateUndertimePending({
         record,
         fullDate,
         reviewByDate: halfDayReviewByEmployee[empKey] || {},
-        moduleType:
-          computationModuleTypeByEmployee[empKey] ||
-          MODULE_TYPES.NON_TEACHING,
+        moduleType,
       });
       const { lateDisplay, undertimeDisplay } =
         type !== 'regular'
@@ -3046,6 +3529,156 @@ const DailyTimeRecordFaculty = ({
               isNotScheduledDay,
               isPendingHalfDay,
             });
+      const isNonWorkingDayRow =
+        !isPartialSuspensionRow &&
+        isDtrNonWorkingDayRow({
+          isNotScheduledDay,
+          indicator: dateIndicator,
+          timeFields: tf,
+          hasPeriodRecords,
+          fullDate,
+          dayName,
+        });
+      // Same reasoning as rowIsAbsent above: without a schedule we can't tell a
+      // genuine non-working day from "we simply don't know" — so suppress the
+      // grayed-out banner too and just show the raw device data for that day.
+      // Partial-day suspensions are excluded here as well so the row falls
+      // through to the normal per-column render instead of a merged banner.
+      const unscheduledWeekdayLabel =
+        hasScheduleForUser && !isPartialSuspensionRow
+          ? getDtrUnscheduledWeekdayBanner({
+              isNotScheduledDay,
+              indicator: dateIndicator,
+              timeFields: tf,
+              hasPeriodRecords,
+              fullDate,
+              dayName,
+            })
+          : null;
+      const nonWorkingRowTint =
+        isNonWorkingDayRow || unscheduledWeekdayLabel
+          ? 'rgba(128, 128, 128, 0.06)'
+          : rowTint;
+      if (isDtrCalendarBannerRow(dateIndicator) && !isPartialSuspensionRow) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{dateIndicator.label}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (isNonWorkingDayRow) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{DTR_NON_WORKING_DAY_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (unscheduledWeekdayLabel) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: nonWorkingRowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{unscheduledWeekdayLabel}</span>
+            </td>
+          </tr>
+        );
+      }
+      if (type === 'regular' && rowIsAbsent) {
+        return (
+          <tr key={i}>
+            <td
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                position: 'relative',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            </td>
+            <td
+              colSpan={6}
+              style={{
+                ...cellStyle,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={DTR_WM_INLINE_STYLE}>{DTR_ABSENT_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
       return (
         <tr key={i}>
           <td
@@ -3058,6 +3691,19 @@ const DailyTimeRecordFaculty = ({
             }}
           >
             <div style={{ fontWeight: 'bold', fontSize: '10px' }}>{day}</div>
+            {isPartialSuspensionRow && (
+              <div
+                style={{
+                  fontSize: '6px',
+                  fontWeight: 700,
+                  color: '#b71c1c',
+                  lineHeight: 1.05,
+                  marginTop: 1,
+                }}
+              >
+                SUSP {formatSuspensionEffectiveTime(dateIndicator.effectiveTime)}
+              </div>
+            )}
           </td>
           {type === 'regular' ? (
             <>
@@ -3248,7 +3894,9 @@ const DailyTimeRecordFaculty = ({
     <div
       key={user.employeeNumber}
       ref={(el) => {
-        if (el) bulkDTRRefs.current[user.employeeNumber] = el;
+        const key = String(user.employeeNumber);
+        if (el) bulkDTRRefs.current[key] = el;
+        else delete bulkDTRRefs.current[key];
       }}
       style={{
         position: 'absolute',
@@ -3689,8 +4337,8 @@ const DailyTimeRecordFaculty = ({
                           opacity: 0.9,
                         }}
                       >
-                        Administrative Panel • View and print employee DTR
-                        records
+                        Central hub — Device → DTR → Summary. Use Modification
+                        only when punch data needs editing.
                       </Typography>
                     </Box>
                   </Box>
@@ -3708,7 +4356,7 @@ const DailyTimeRecordFaculty = ({
                       prevStep={prevStep}
                       nextStep={nextStep}
                       onPrevious={goPrevious}
-                      onNext={goNext}
+                      onNext={handleHubNext}
                     />
                     {viewMode === 'multiple' && allUsersDTR.length > 0 && (
                       <Box
@@ -3871,206 +4519,233 @@ const DailyTimeRecordFaculty = ({
                                 </Box>
                               )}
                             </Box>
-                            {selectedMonth !== null && records.length > 0 && (
-                              <Box sx={{ display: 'flex', gap: 1 }}>
-                                <Tooltip
-                                  placement="top"
-                                  title={
-                                    <Box
-                                      sx={{
-                                        p: 0.5,
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: 1,
-                                      }}
-                                    >
-                                      <Typography
-                                        variant="caption"
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                flexShrink: 0,
+                                flexWrap: 'wrap',
+                                justifyContent: 'flex-end',
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: '0.7rem',
+                                  color: T.faint,
+                                  display: { xs: 'none', lg: 'block' },
+                                }}
+                              >
+                                Hub tools:
+                              </Typography>
+                              <Tooltip
+                                title="Open Official Time Schedule without leaving this page"
+                                placement="top"
+                              >
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={
+                                      <Schedule
+                                        sx={{ fontSize: '15px !important' }}
+                                      />
+                                    }
+                                    onClick={() =>
+                                      setModuleDrawer('officialTime')
+                                    }
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Official Time
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip
+                                title="Edit punch times when device data needs correction (optional step)"
+                                placement="top"
+                              >
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={
+                                      <Edit sx={{ fontSize: '15px !important' }} />
+                                    }
+                                    onClick={() =>
+                                      setModuleDrawer('modification')
+                                    }
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Modification
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              <Divider
+                                orientation="vertical"
+                                flexItem
+                                sx={{
+                                  mx: 0.25,
+                                  borderColor: T.accentBorder,
+                                  display: { xs: 'none', md: 'block' },
+                                }}
+                              />
+                              <Typography
+                                sx={{
+                                  fontSize: '0.7rem',
+                                  color: T.faint,
+                                  display: { xs: 'none', lg: 'block' },
+                                }}
+                              >
+                                Apply Late/UT:
+                              </Typography>
+                              {appliedLateUtLabel && (
+                                <Chip
+                                  size="small"
+                                  label={`Applied: ${appliedLateUtLabel}`}
+                                  sx={{
+                                    height: 22,
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                    bgcolor: appliedLateUtColor,
+                                    color: '#fff',
+                                    display: { xs: 'none', md: 'inline-flex' },
+                                  }}
+                                />
+                              )}
+                              {HUB_COMPUTATION_BUTTONS.map((btn) => {
+                                const isLoading =
+                                  lateComputeLoading === btn.moduleType;
+                                const isApplied =
+                                  appliedLateUtModuleType === btn.moduleType;
+                                const categoryColor =
+                                  btn.categoryColor || T.accent;
+                                const disabled =
+                                  !personID ||
+                                  !hasSearchedSingle ||
+                                  Boolean(lateComputeLoading);
+                                return (
+                                  <Tooltip
+                                    key={`apply-${btn.drawer}`}
+                                    title={
+                                      isApplied
+                                        ? `${btn.label} — currently applied to DTR late/undertime`
+                                        : btn.applyTip
+                                    }
+                                    placement="top"
+                                  >
+                                    <span>
+                                      <AccentButton
+                                        variant="outlined"
+                                        size="small"
+                                        disabled={disabled}
+                                        startIcon={
+                                          isLoading ? (
+                                            <CircularProgress
+                                              size={14}
+                                              sx={{ color: 'inherit' }}
+                                            />
+                                          ) : (
+                                            <AccessTime
+                                              sx={{
+                                                fontSize: '15px !important',
+                                              }}
+                                            />
+                                          )
+                                        }
+                                        onClick={() =>
+                                          applyModuleLateUndertime(
+                                            btn.moduleType,
+                                          )
+                                        }
                                         sx={{
+                                          height: 32,
+                                          fontSize: '0.72rem',
                                           fontWeight: 700,
-                                          fontSize: '11px',
-                                          letterSpacing: '0.05em',
+                                          px: 1.25,
+                                          ...(isApplied
+                                            ? {
+                                                bgcolor: categoryColor,
+                                                color: '#fff',
+                                                borderColor: categoryColor,
+                                                boxShadow: `0 2px 8px ${alpha(categoryColor, 0.35)}`,
+                                                '&:hover': {
+                                                  bgcolor: categoryColor,
+                                                  filter: 'brightness(0.92)',
+                                                  borderColor: categoryColor,
+                                                },
+                                                '&.Mui-focusVisible': {
+                                                  bgcolor: categoryColor,
+                                                  borderColor: categoryColor,
+                                                },
+                                              }
+                                            : {
+                                                color: categoryColor,
+                                                borderColor: alpha(
+                                                  categoryColor,
+                                                  0.45,
+                                                ),
+                                                bgcolor: alpha(
+                                                  categoryColor,
+                                                  0.1,
+                                                ),
+                                                '&:hover': {
+                                                  bgcolor: alpha(
+                                                    categoryColor,
+                                                    0.18,
+                                                  ),
+                                                  borderColor: categoryColor,
+                                                },
+                                              }),
+                                          '&.Mui-disabled': { opacity: 0.55 },
                                         }}
                                       >
-                                        LEGEND
-                                      </Typography>
-                                      {[
-                                        {
-                                          label: 'Holiday',
-                                          bg: 'rgba(237,108,2,0.25)',
-                                          border: '#ed6c02',
-                                        },
-                                        {
-                                          label: 'Suspension',
-                                          bg: 'rgba(211,47,47,0.2)',
-                                          border: '#d32f2f',
-                                        },
-                                        {
-                                          label: 'On Leave',
-                                          bg: 'rgba(46,125,50,0.2)',
-                                          border: '#2e7d32',
-                                        },
-                                      ].map(({ label, bg, border }) => (
-                                        <Box
-                                          key={label}
-                                          sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 1,
-                                          }}
-                                        >
-                                          <Box
-                                            sx={{
-                                              width: 28,
-                                              height: 16,
-                                              backgroundColor: bg,
-                                              border: `1.5px solid ${border}`,
-                                              borderRadius: '3px',
-                                              flexShrink: 0,
-                                            }}
-                                          />
-                                          <Typography
-                                            variant="caption"
-                                            sx={{
-                                              fontSize: '11px',
-                                              fontWeight: 500,
-                                            }}
-                                          >
-                                            {label}
-                                          </Typography>
-                                        </Box>
-                                      ))}
-                                    </Box>
-                                  }
-                                  arrow
-                                  componentsProps={{
-                                    tooltip: {
-                                      sx: {
-                                        bgcolor: 'white',
-                                        color: '#333',
-                                        boxShadow:
-                                          '0 4px 20px rgba(0,0,0,0.15)',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: '10px',
-                                        p: 1.5,
-                                      },
-                                    },
-                                    arrow: { sx: { color: 'white' } },
-                                  }}
-                                >
-                                  <IconButton
-                                    size="small"
-                                    sx={{
-                                      bgcolor: alpha(T.accent, 0.08),
-                                      border: `1px solid ${T.accentBorder}`,
-                                      color: T.accent,
-                                      fontSize: '13px',
-                                      fontWeight: 700,
-                                      width: 32,
-                                      height: 32,
-                                      '&:hover': {
-                                        bgcolor: alpha(T.accent, 0.15),
-                                      },
-                                    }}
-                                  >
-                                    ?
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Print DTR" placement="top">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => {
-                                      try {
-                                        logAttendanceModuleAction({
-                                          module:
-                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
-                                          auditButton: 'Print',
-                                          targetEmployeeNumber:
-                                            String(personID) || '#all-users',
-                                          targetEmployeeName:
-                                            employeeName || null,
-                                          targetUsername:
-                                            selectedEmployee?.username || null,
-                                          periodStart: startDate,
-                                          periodEnd: endDate,
-                                          monthLabel: buildAuditPeriodLabel({
-                                            selectedMonth,
-                                            monthNames: monthsShort,
-                                            selectedYear,
-                                            startDate,
-                                            endDate,
-                                          }),
-                                          auditEvent: 'dtr_overall_print',
-                                        });
-                                      } catch (e) {
-                                        console.error('Audit log failed', e);
-                                      }
-                                      printPage();
-                                    }}
-                                    sx={{
-                                      bgcolor: alpha(T.accent, 0.08),
-                                      border: `1px solid ${T.accentBorder}`,
-                                      color: T.accent,
-                                      width: 32,
-                                      height: 32,
-                                      '&:hover': {
-                                        bgcolor: alpha(T.accent, 0.15),
-                                      },
-                                    }}
-                                  >
-                                    <PrintIcon sx={{ fontSize: 16 }} />
-                                  </IconButton>
-                                </Tooltip>
-                                <AccentButton
-                                  variant="contained"
-                                  size="small"
-                                  startIcon={
-                                    <PictureAsPdfIcon
-                                      sx={{ fontSize: '13px !important' }}
-                                    />
-                                  }
-                                  onClick={() => {
-                                    try {
-                                      logAttendanceModuleAction({
-                                        module:
-                                          ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
-                                        auditButton: 'Download PDF',
-                                        targetEmployeeNumber:
-                                          String(personID) || '#all-users',
-                                        targetEmployeeName:
-                                          employeeName || null,
-                                        targetUsername:
-                                          selectedEmployee?.username || null,
-                                        periodStart: startDate,
-                                        periodEnd: endDate,
-                                        monthLabel: buildAuditPeriodLabel({
-                                          selectedMonth,
-                                          monthNames: monthsShort,
-                                          selectedYear,
-                                          startDate,
-                                          endDate,
-                                        }),
-                                        auditEvent: 'dtr_overall_download',
-                                      });
-                                    } catch (e) {
-                                      console.error('Audit log failed', e);
-                                    }
-                                    downloadPDF();
-                                  }}
-                                  sx={{
-                                    fontSize: '0.78rem',
-                                    bgcolor: T.accent,
-                                    color: '#fff',
-                                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
-                                    '&:hover': { bgcolor: T.accentDark },
-                                  }}
-                                >
-                                  Download PDF
-                                </AccentButton>
-                              </Box>
-                            )}
+                                        {btn.label}
+                                      </AccentButton>
+                                    </span>
+                                  </Tooltip>
+                                );
+                              })}
+                            </Box>
                           </Box>
                         </Box>
+
+                        {personID && hasSearchedSingle && !hasOfficialTimeSchedule && (
+                          <Alert
+                            severity="warning"
+                            sx={{ mx: 2, mt: 1.5, borderRadius: 2, fontSize: '0.78rem' }}
+                            action={
+                              <Button
+                                color="inherit"
+                                size="small"
+                                onClick={() => setModuleDrawer('officialTime')}
+                                sx={{ fontWeight: 700, textTransform: 'none' }}
+                              >
+                                Open Official Time
+                              </Button>
+                            }
+                          >
+                            No Official Time schedule for this employee/period.
+                            Set official time before computation or late/undertime.
+                          </Alert>
+                        )}
 
                         <Box
                           sx={{
@@ -4191,6 +4866,29 @@ const DailyTimeRecordFaculty = ({
                           )}
                         </Box>
 
+                        {personID && hasSearchedSingle && (
+                          <Box
+                            className="no-print"
+                            sx={{
+                              px: 2,
+                              pt: 1.5,
+                              pb: 0.5,
+                              flexShrink: 0,
+                              borderTop: `1px solid ${T.divider}`,
+                            }}
+                          >
+                            <DtrSavedSummaryPanel
+                              key={summaryRefreshKey}
+                              personID={personID}
+                              startDate={startDate}
+                              endDate={endDate}
+                              computationButtons={HUB_COMPUTATION_BUTTONS}
+                              onOpenComputation={openComputationDrawer}
+                              activeDrawer={activeComputationDrawer}
+                            />
+                          </Box>
+                        )}
+
                         {selectedMonth !== null && records.length > 0 && (
                           <Box
                             className="no-print"
@@ -4201,23 +4899,257 @@ const DailyTimeRecordFaculty = ({
                               bgcolor: T.accentFaint,
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 1,
+                              justifyContent: 'space-between',
+                              gap: 1.5,
                               flexShrink: 0,
+                              flexWrap: 'wrap',
                             }}
                           >
-                            <PictureAsPdfIcon
+                            <Box
                               sx={{
-                                fontSize: 13,
-                                color: alpha(T.accent, 0.45),
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1.25,
+                                minWidth: 0,
+                                flex: 1,
                               }}
-                            />
-                            <Typography
-                              sx={{ fontSize: '0.7rem', color: T.faint }}
                             >
-                              Download generates a PDF of the DTR for{' '}
-                              {employeeName} — {monthsShort[selectedMonth]}{' '}
-                              {selectedYear}
-                            </Typography>
+                              <Tooltip
+                                placement="top"
+                                title={
+                                  <Box
+                                    sx={{
+                                      p: 0.5,
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: 1,
+                                    }}
+                                  >
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        fontWeight: 700,
+                                        fontSize: '11px',
+                                        letterSpacing: '0.05em',
+                                      }}
+                                    >
+                                      LEGEND
+                                    </Typography>
+                                    {[
+                                      {
+                                        label: 'Holiday',
+                                        bg: 'rgba(237,108,2,0.25)',
+                                        border: '#ed6c02',
+                                      },
+                                      {
+                                        label: 'Suspension',
+                                        bg: 'rgba(211,47,47,0.2)',
+                                        border: '#d32f2f',
+                                      },
+                                      {
+                                        label: 'On Leave',
+                                        bg: 'rgba(46,125,50,0.2)',
+                                        border: '#2e7d32',
+                                      },
+                                    ].map(({ label, bg, border }) => (
+                                      <Box
+                                        key={label}
+                                        sx={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 1,
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            width: 28,
+                                            height: 16,
+                                            backgroundColor: bg,
+                                            border: `1.5px solid ${border}`,
+                                            borderRadius: '3px',
+                                            flexShrink: 0,
+                                          }}
+                                        />
+                                        <Typography
+                                          variant="caption"
+                                          sx={{
+                                            fontSize: '11px',
+                                            fontWeight: 500,
+                                          }}
+                                        >
+                                          {label}
+                                        </Typography>
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                }
+                                arrow
+                                componentsProps={{
+                                  tooltip: {
+                                    sx: {
+                                      bgcolor: 'white',
+                                      color: '#333',
+                                      boxShadow:
+                                        '0 4px 20px rgba(0,0,0,0.15)',
+                                      border: '1px solid #e0e0e0',
+                                      borderRadius: '10px',
+                                      p: 1.5,
+                                    },
+                                  },
+                                  arrow: { sx: { color: 'white' } },
+                                }}
+                              >
+                                <AccentButton
+                                  variant="contained"
+                                  size="small"
+                                  aria-label="Color legend"
+                                  sx={{
+                                    minWidth: 32,
+                                    width: 32,
+                                    height: 32,
+                                    p: 0,
+                                    fontSize: '0.85rem',
+                                    fontWeight: 800,
+                                    bgcolor: T.accent,
+                                    color: '#fff',
+                                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                    '&:hover': { bgcolor: T.accentDark },
+                                  }}
+                                >
+                                  ?
+                                </AccentButton>
+                              </Tooltip>
+                              <PictureAsPdfIcon
+                                sx={{
+                                  fontSize: 13,
+                                  color: alpha(T.accent, 0.45),
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <Typography
+                                sx={{ fontSize: '0.7rem', color: T.faint }}
+                              >
+                                Download generates a PDF of the DTR for{' '}
+                                {employeeName} — {monthsShort[selectedMonth]}{' '}
+                                {selectedYear}
+                              </Typography>
+                            </Box>
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Tooltip title="Print this Daily Time Record" placement="top">
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    aria-label="Print DTR"
+                                    startIcon={
+                                      <PrintIcon
+                                        sx={{ fontSize: '15px !important' }}
+                                      />
+                                    }
+                                    onClick={() => {
+                                      try {
+                                        logAttendanceModuleAction({
+                                          module:
+                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
+                                          auditButton: 'Print',
+                                          targetEmployeeNumber:
+                                            String(personID) || '#all-users',
+                                          targetEmployeeName:
+                                            employeeName || null,
+                                          targetUsername:
+                                            selectedEmployee?.username || null,
+                                          periodStart: startDate,
+                                          periodEnd: endDate,
+                                          monthLabel: buildAuditPeriodLabel({
+                                            selectedMonth,
+                                            monthNames: monthsShort,
+                                            selectedYear,
+                                            startDate,
+                                            endDate,
+                                          }),
+                                          auditEvent: 'dtr_overall_print',
+                                        });
+                                      } catch (e) {
+                                        console.error('Audit log failed', e);
+                                      }
+                                      printPage();
+                                    }}
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Print DTR
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title="Download this DTR as a PDF file" placement="top">
+                                <span>
+                                  <AccentButton
+                                    variant="contained"
+                                    size="small"
+                                    startIcon={
+                                      <PictureAsPdfIcon
+                                        sx={{ fontSize: '15px !important' }}
+                                      />
+                                    }
+                                    onClick={() => {
+                                      try {
+                                        logAttendanceModuleAction({
+                                          module:
+                                            ATTENDANCE_AUDIT_MODULES.DTR_OVERALL,
+                                          auditButton: 'Download PDF',
+                                          targetEmployeeNumber:
+                                            String(personID) || '#all-users',
+                                          targetEmployeeName:
+                                            employeeName || null,
+                                          targetUsername:
+                                            selectedEmployee?.username || null,
+                                          periodStart: startDate,
+                                          periodEnd: endDate,
+                                          monthLabel: buildAuditPeriodLabel({
+                                            selectedMonth,
+                                            monthNames: monthsShort,
+                                            selectedYear,
+                                            startDate,
+                                            endDate,
+                                          }),
+                                          auditEvent: 'dtr_overall_download',
+                                        });
+                                      } catch (e) {
+                                        console.error('Audit log failed', e);
+                                      }
+                                      downloadPDF();
+                                    }}
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      px: 1.5,
+                                      bgcolor: T.accent,
+                                      color: '#fff',
+                                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                                      '&:hover': { bgcolor: T.accentDark },
+                                    }}
+                                  >
+                                    Download PDF
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                            </Box>
                           </Box>
                         )}
                       </>
@@ -4284,6 +5216,17 @@ const DailyTimeRecordFaculty = ({
                                     {filteredUsers.length} users
                                   </Typography>
                                 </Box>
+                              )}
+                              {!!loadPhase && !loadingAllUsers && (
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    color: T.muted,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {loadPhase}
+                                </Typography>
                               )}
                             </Box>
                             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -5192,7 +6135,7 @@ const DailyTimeRecordFaculty = ({
                       </>
                     )}
 
-                    {/* Off-screen bulk DTR nodes */}
+                    {/* Single off-screen DTR — mounted only while capturing */}
                     <Box
                       sx={{
                         position: 'absolute',
@@ -5203,7 +6146,7 @@ const DailyTimeRecordFaculty = ({
                         overflow: 'hidden',
                       }}
                     >
-                      {previewUsers.map((user) => renderUserDTRTable(user))}
+                      {captureUser ? renderUserDTRTable(captureUser) : null}
                     </Box>
                   </SectionCard>
                 </Grid>
@@ -5658,6 +6601,117 @@ const DailyTimeRecordFaculty = ({
           </Box>
         </Fade>
       )}
+
+      {/* ── Sliding hub panels (Official Time / Modification / Computation) ── */}
+      <Drawer
+        anchor="right"
+        open={isHubDrawerOpen(moduleDrawer)}
+        onClose={() => setModuleDrawer(null)}
+        className="no-print"
+        ModalProps={{ keepMounted: false }}
+        // Keep below AppBar/footer (1201); inset paper so chrome does not clip content
+        sx={{ zIndex: 1200 }}
+        PaperProps={{
+          sx: {
+            top: { xs: 0, sm: '62px' },
+            bottom: { xs: 0, sm: '48px' },
+            height: { xs: '100%', sm: 'auto' },
+            maxHeight: { xs: '100dvh', sm: 'calc(100dvh - 110px)' },
+            // Explicit width — without this, temporary Drawer sizes to content and
+            // the records table collapses, leaving only a cramped filter column.
+            width: { xs: '100%', sm: '90vw' },
+            maxWidth: { xs: '100vw', sm: 1480 },
+            minWidth: { sm: 960 },
+            borderRadius: { xs: 0, sm: '14px 0 0 14px' },
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            bgcolor: '#f7f8fa',
+            boxShadow: `-12px 0 40px ${alpha('#000', 0.22)}`,
+            borderLeft: `1px solid ${alpha(T.accent, 0.12)}`,
+          },
+        }}
+        SlideProps={{ timeout: 320 }}
+      >
+        {moduleDrawer === 'modification' && (
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              width: '100%',
+              height: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <AttendanceModification
+              key={`mod-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}`}
+              embedded
+              onClose={() => setModuleDrawer(null)}
+              onRecordsSaved={() => {
+                setAttendanceRevision((n) => n + 1);
+                fetchRecordsRef.current?.();
+              }}
+              initialContext={{
+                employeeNumber: personID || '',
+                startDate: startDate || '',
+                endDate: endDate || '',
+                selectedYear,
+                selectedMonth,
+                employee: selectedEmployee || (personID
+                  ? {
+                      employeeNumber: personID,
+                      name: employeeName || '',
+                      fullName: employeeName || '',
+                    }
+                  : null),
+              }}
+            />
+          </Box>
+        )}
+        {moduleDrawer === 'officialTime' && (
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              minWidth: 0,
+              width: '100%',
+              height: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <OfficialTimeForm
+              key={`ot-drawer-${personID || 'none'}`}
+              embedded
+              onClose={() => setModuleDrawer(null)}
+              initialContext={{
+                employeeNumber: personID || '',
+                employee: selectedEmployee || (personID
+                  ? {
+                      employeeNumber: personID,
+                      name: employeeName || '',
+                      fullName: employeeName || '',
+                    }
+                  : null),
+              }}
+            />
+          </Box>
+        )}
+        {COMPUTATION_DRAWER_KEYS.has(moduleDrawer) && (
+          <AttendanceComputationDrawer
+            drawerKey={moduleDrawer}
+            initialContext={hubDrawerInitialContext}
+            saveSignal={computationSaveSignal}
+            refreshEpoch={attendanceRevision}
+            onClose={() => setModuleDrawer(null)}
+            onSavedToSummary={handleSavedToSummary}
+          />
+        )}
+      </Drawer>
     </>
   );
 };

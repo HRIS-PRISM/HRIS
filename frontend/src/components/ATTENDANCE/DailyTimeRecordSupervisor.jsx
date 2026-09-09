@@ -43,6 +43,7 @@ import {
 import {
   fetchDailyLateUndertimeBatch, parseHalfDayDatesSet,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
 import { MODULE_TYPES } from '../../utils/halfDayReview';
 import DtrTablePairView, { DtrTableContainer } from './DtrTablePairView';
 
@@ -60,8 +61,6 @@ const getUserRole = () => {
     return JSON.parse(atob(token.split('.')[1])).role || null;
   } catch { return null; }
 };
-
-const PAGE_SIZE = 30;
 
 const T = {
   accent: '#6d2323',
@@ -178,6 +177,7 @@ const DailyTimeRecordSupervisor = () => {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUsers, setPreviewUsers] = useState([]);
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [captureUser, setCaptureUser] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
   const bulkDTRRefs = useRef({});
@@ -252,45 +252,12 @@ const DailyTimeRecordSupervisor = () => {
 
   const fetchBatchOfficialTimes = useCallback(async (employeeNumbers, periodStart, periodEnd) => {
     if (!employeeNumbers?.length) return {};
-    const timesMap = {};
-    await Promise.all(employeeNumbers.map(async (empID) => {
-      try {
-        const response = await axios.get(
-          `${API_BASE_URL}/officialtimetable/${empID}`,
-          { ...getAuthHeaders(), params: { skipAudit: '1' } },
-        );
-        const allRows = response.data || [];
-        const filtered = periodStart && periodEnd
-          ? allRows.filter((r) => {
-            const schedStart = r.startDate ? String(r.startDate).split('T')[0] : null;
-            const schedEnd = r.endDate ? String(r.endDate).split('T')[0] : null;
-            if (!schedStart || !schedEnd) return false;
-            return schedStart <= periodEnd && schedEnd >= periodStart;
-          })
-          : allRows;
-        const map = filtered.reduce((acc, r) => {
-          if (!acc[r.day] || (r.id && acc[r.day]._id && r.id > acc[r.day]._id)) {
-            acc[r.day] = {
-              _id: r.id,
-              officialTimeIN: r.officialTimeIN,
-              officialTimeOUT: r.officialTimeOUT,
-              officialBreaktimeIN: r.officialBreaktimeIN,
-              officialBreaktimeOUT: r.officialBreaktimeOUT,
-            };
-          }
-          return acc;
-        }, {});
-        timesMap[empID] = Object.fromEntries(
-          Object.entries(map).map(([day, val]) => {
-            const { _id, ...rest } = val;
-            return [day, rest];
-          }),
-        );
-      } catch {
-        timesMap[empID] = {};
-      }
-    }));
-    return timesMap;
+    return fetchOfficialTimesBatch(
+      employeeNumbers,
+      periodStart,
+      periodEnd,
+      getAuthHeaders,
+    );
   }, []);
 
   const loadEmployeesDtr = useCallback(async () => {
@@ -335,76 +302,120 @@ const DailyTimeRecordSupervisor = () => {
         };
       });
       setEmployees(skeleton);
+      // Unblock UI with names; hydrate punches by employeeNumbers (no global re-rank).
+      setLoading(false);
       setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
 
-      const totalPages = Math.ceil(empList.length / PAGE_SIZE);
-      const pageResults = await Promise.all(
-        Array.from({ length: totalPages }, (_, i) => i + 1).map(async (page) => {
-          if (signal.aborted) return { data: [] };
-          setLoadPhase(`Loading attendance page ${page} of ${totalPages}…`);
-          try {
-            const pageRes = await axios.post(
-              `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-              { startDate, endDate, page, pageSize: PAGE_SIZE },
-              cfg(),
-            );
-            return pageRes.data?.data || [];
-          } catch {
-            return [];
-          }
-        }),
-      );
+      const ATTENDANCE_CHUNK = 60;
+      const ATTENDANCE_CONCURRENCY = 6;
+      const empNums = skeleton.map((u) => u.employeeNumber);
+      const chunks = [];
+      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
+        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
+      }
+
+      let hydrated = 0;
+      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
+        if (signal.aborted) break;
+        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
+        const batchRows = await Promise.all(
+          batch.map(async (chunk) => {
+            if (signal.aborted) return [];
+            try {
+              const pageRes = await axios.post(
+                `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
+                {
+                  startDate,
+                  endDate,
+                  employeeNumbers: chunk,
+                  skipCount: true,
+                  skipAudit: true,
+                },
+                cfg(),
+              );
+              return pageRes.data?.data || [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+        if (signal.aborted) return;
+
+        const pageMap = new Map();
+        batchRows.flat().forEach((record) => {
+          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
+          if (!id) return;
+          if (!pageMap.has(id)) pageMap.set(id, []);
+          pageMap.get(id).push(record);
+        });
+
+        hydrated += batch.reduce((n, c) => n + c.length, 0);
+        setLoadPhase(
+          `Loading attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+        );
+
+        setEmployees((prev) =>
+          prev.map((user) => {
+            const key = String(user.employeeNumber);
+            if (!pageMap.has(key)) return user;
+            const rows = pageMap.get(key);
+            const filtered = filterByDtrType(rows, dtrType);
+            return { ...user, records: filtered, _loading: false };
+          }),
+        );
+      }
 
       if (signal.aborted) return;
 
-      const pageMap = new Map();
-      pageResults.flat().forEach((record) => {
-        const id = record.personID || record.agencyEmployeeNum;
-        if (!pageMap.has(id)) pageMap.set(id, []);
-        pageMap.get(id).push(record);
-      });
+      setEmployees((prev) =>
+        prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
+      );
+      if (skeleton.length) setPreviewId(skeleton[0].employeeNumber);
 
-      const merged = skeleton.map((user) => {
-        const rows = pageMap.get(user.employeeNumber) || [];
-        const filtered = filterByDtrType(rows, dtrType);
-        return { ...user, records: filtered, _loading: false };
-      });
+      if (!signal.aborted) {
+        setLoading(false);
+        setLoadPhase('');
+      }
 
-      setEmployees(merged);
-      if (merged.length) setPreviewId(merged[0].employeeNumber);
-
-      const empNums = merged.map((u) => u.employeeNumber);
-      const [timesMap, lateBatch, leaveRes] = await Promise.all([
+      Promise.all([
         fetchBatchOfficialTimes(empNums, startDate, endDate),
         dtrType === 'regular'
           ? fetchDailyLateUndertimeBatch(empNums, startDate, endDate)
           : Promise.resolve(null),
-        axios.get(`${API_BASE_URL}/leaveRoute/leave_request`, cfg()).catch(() => ({ data: [] })),
-      ]);
+        axios
+          .get(`${API_BASE_URL}/leaveRoute/leave_request`, {
+            ...cfg(),
+            params: {
+              status: '2',
+              employeeNumbers: empNums.join(','),
+            },
+          })
+          .catch(() => ({ data: [] })),
+      ])
+        .then(([timesMap, lateBatch, leaveRes]) => {
+          if (signal.aborted) return;
+          setBatchOfficialTimesMap(timesMap || {});
 
-      if (signal.aborted) return;
-      setBatchOfficialTimesMap(timesMap);
+          if (lateBatch) {
+            const halfSets = {};
+            Object.entries(lateBatch.halfDayDatesByEmployee || {}).forEach(([emp, str]) => {
+              halfSets[emp] = parseHalfDayDatesSet(str);
+            });
+            setComputedLateByEmployee(lateBatch.byEmployee || {});
+            setHalfDayDatesByEmployee(halfSets);
+            setHalfDayReviewByEmployee(lateBatch.halfDayReviewByEmployee || {});
+            setComputationModuleTypeByEmployee(lateBatch.computationModuleTypeByEmployee || {});
+          }
 
-      if (lateBatch) {
-        const halfSets = {};
-        Object.entries(lateBatch.halfDayDatesByEmployee || {}).forEach(([emp, str]) => {
-          halfSets[emp] = parseHalfDayDatesSet(str);
-        });
-        setComputedLateByEmployee(lateBatch.byEmployee || {});
-        setHalfDayDatesByEmployee(halfSets);
-        setHalfDayReviewByEmployee(lateBatch.halfDayReviewByEmployee || {});
-        setComputationModuleTypeByEmployee(lateBatch.computationModuleTypeByEmployee || {});
-      }
-
-      const leavesByEmp = {};
-      (leaveRes.data || [])
-        .filter((req) => String(req.status) === '2')
-        .forEach((req) => {
-          const key = String(req.employeeNumber);
-          if (!leavesByEmp[key]) leavesByEmp[key] = [];
-          leavesByEmp[key].push(req);
-        });
-      setApprovedLeavesByEmployee(leavesByEmp);
+          const leavesByEmp = {};
+          (leaveRes?.data || []).forEach((req) => {
+            const key = String(req.employeeNumber);
+            if (!leavesByEmp[key]) leavesByEmp[key] = [];
+            leavesByEmp[key].push(req);
+          });
+          setApprovedLeavesByEmployee(leavesByEmp);
+        })
+        .catch(() => {});
     } catch (e) {
       if (e?.code !== 'ERR_CANCELED' && !signal.aborted) {
         setSnackbar({ open: true, message: e.response?.data?.error || 'Failed to load DTR data.', severity: 'error' });
@@ -441,6 +452,34 @@ const DailyTimeRecordSupervisor = () => {
     });
   };
 
+  const selectableEmployees = useMemo(
+    () => employees.filter((u) => !u._loading),
+    [employees],
+  );
+
+  const selectAllChecked =
+    selectableEmployees.length > 0 &&
+    selectableEmployees.every((u) => selectedIds.has(u.employeeNumber));
+
+  const selectAllIndeterminate =
+    selectedIds.size > 0 && !selectAllChecked;
+
+  const handleSelectAll = (checked) => {
+    if (checked) {
+      const limited = selectableEmployees.slice(0, 50);
+      setSelectedIds(new Set(limited.map((u) => u.employeeNumber)));
+      if (selectableEmployees.length > 50) {
+        setSnackbar({
+          open: true,
+          message: 'Only first 50 selected. Bulk print limit is 50 per batch.',
+          severity: 'warning',
+        });
+      }
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
   const previewUser = useMemo(
     () => employees.find((u) => String(u.employeeNumber) === String(previewId)) || null,
     [employees, previewId],
@@ -456,9 +495,46 @@ const DailyTimeRecordSupervisor = () => {
       setSnackbar({ open: true, message: 'Maximum 50 employees per print batch.', severity: 'warning' });
       return;
     }
+    // Preview only — do not mount all DTRs yet (one-at-a-time during Print All)
     setPreviewUsers(toPrint);
     setPreviewIndex(0);
     setPreviewModalOpen(true);
+  };
+
+  /** Mount a single off-screen DTR, wait for ref, capture, then unmount. */
+  const mountAndCaptureUserDtr = async (user, scale = 2) => {
+    if (!user?.employeeNumber) throw new Error('Invalid user for DTR capture');
+    setCaptureUser(user);
+    await new Promise((r) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setTimeout(r, 40));
+      });
+    });
+
+    const empKey = String(user.employeeNumber);
+    const started = Date.now();
+    let ref = bulkDTRRefs.current[empKey];
+    while (!ref && Date.now() - started < 8000) {
+      await new Promise((r) => setTimeout(r, 30));
+      ref = bulkDTRRefs.current[empKey];
+    }
+    if (!ref) throw new Error(`DTR element not found for ${empKey}`);
+
+    try {
+      const orig = ensureCaptureStyles(ref);
+      const canvas = await html2canvas(ref, {
+        scale,
+        useCORS: true,
+        logging: false,
+        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
+      });
+      restoreCaptureStyles(ref, orig);
+      return canvas;
+    } finally {
+      setCaptureUser(null);
+      delete bulkDTRRefs.current[empKey];
+      await new Promise((r) => setTimeout(r, 0));
+    }
   };
 
   const handlePrintAll = async () => {
@@ -466,35 +542,33 @@ const DailyTimeRecordSupervisor = () => {
     try {
       setPrinting(true);
       setPrintStatus('Preparing DTRs for printing…');
+      setPreviewModalOpen(false);
       await new Promise((r) => requestAnimationFrame(r));
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
       const dtrW = 8, dtrH = 9.5;
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
-      const scale = previewUsers.length >= 40 ? 1.2 : previewUsers.length >= 20 ? 1.4 : 2;
+      const captureScale =
+        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
       let successCount = 0;
 
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
-        const ref = bulkDTRRefs.current[user.employeeNumber];
-        setPrintStatus(`Capturing DTR ${i + 1} of ${previewUsers.length}…`);
-        if (!ref) continue;
+        if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
+          setPrintStatus(`Capturing DTR ${i + 1} of ${previewUsers.length}…`);
+        }
         try {
-          const orig = ensureCaptureStyles(ref);
-          const canvas = await html2canvas(ref, {
-            scale, useCORS: true, logging: false,
-            onclone: (doc) => enhanceDtrWatermarksInClone(doc),
-          });
-          restoreCaptureStyles(ref, orig);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale);
           if (!canvas?.width) continue;
-          const imgData = canvas.toDataURL('image/png');
+          const imgData = canvas.toDataURL('image/jpeg', 0.82);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
-          pdf.addImage(imgData, 'PNG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
+          pdf.addImage(imgData, 'JPEG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
           successCount++;
         } catch (e) {
           console.error(`Capture failed for ${user.employeeNumber}:`, e);
         }
+        if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
       }
 
       if (!successCount) throw new Error('No DTRs were captured.');
@@ -515,20 +589,22 @@ const DailyTimeRecordSupervisor = () => {
         },
         getAuthHeaders(),
       );
-      setPreviewModalOpen(false);
       setSnackbar({ open: true, message: `Printed ${successCount} DTR(s).`, severity: 'success' });
     } catch (e) {
       setSnackbar({ open: true, message: e.message || 'Print failed.', severity: 'error' });
     } finally {
+      setCaptureUser(null);
       setPrinting(false);
       setPrintStatus('');
     }
   };
 
-  const renderHiddenDtr = (user) => (
+  const renderCaptureDtr = (user) => (
     <div
       key={user.employeeNumber}
-      ref={(el) => { if (el) bulkDTRRefs.current[user.employeeNumber] = el; }}
+      ref={(el) => {
+        if (el) bulkDTRRefs.current[String(user.employeeNumber)] = el;
+      }}
       style={{
         position: 'absolute', left: '-9999px', top: 0, visibility: 'hidden',
         width: DTR_WIDTH_IN, color: 'black',
@@ -771,99 +847,154 @@ const DailyTimeRecordSupervisor = () => {
           <Box
             sx={{
               flexGrow: 1,
-              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
               border: `1px solid ${T.accentBorder}`,
-              borderRadius: 8,
+              borderRadius: 2,
               bgcolor: T.surface,
               mb: 1.5,
               minHeight: 160,
-              ...scrollbarSx,
+              overflow: 'hidden',
             }}
           >
-            {loading && !employees.length ? (
-              <Box sx={{ py: 4, textAlign: 'center' }}>
-                <CircularProgress size={24} sx={{ color: T.accent }} />
-              </Box>
-            ) : employees.length === 0 ? (
-              <Typography sx={{ p: 2, fontSize: '0.78rem', color: T.muted, textAlign: 'center' }}>
-                No employees in your department(s).
-              </Typography>
+            {employees.length === 0 ? (
+              loading ? null : (
+                <Typography sx={{ p: 2, fontSize: '0.78rem', color: T.muted, textAlign: 'center' }}>
+                  No employees in your department(s).
+                </Typography>
+              )
             ) : (
-              <List dense disablePadding>
-                {employees.map((user, idx) => {
-                  const empNum = user.employeeNumber;
-                  const isPreview = String(previewId) === String(empNum);
-                  const isSelected = selectedIds.has(empNum);
-                  return (
-                    <ListItemButton
-                      key={empNum}
-                      selected={isPreview}
-                      onClick={() => setPreviewId(empNum)}
-                      sx={{
-                        py: 0.85,
-                        px: 1.25,
-                        borderBottom: `1px solid ${T.divider}`,
-                        bgcolor: isPreview
-                          ? alpha(T.accent, 0.08)
-                          : idx % 2 === 0
-                            ? T.rowEven
-                            : T.rowOdd,
-                        '&:hover': { bgcolor: T.rowHover },
-                        '&.Mui-selected': {
-                          bgcolor: alpha(T.accent, 0.1),
-                          '&:hover': { bgcolor: alpha(T.accent, 0.12) },
-                        },
-                        transition: 'background 0.1s',
-                      }}
-                    >
-                      <Checkbox
-                        size="small"
-                        checked={isSelected}
-                        disabled={user._loading}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={() => toggleSelect(empNum)}
-                        sx={{
-                          p: 0.5,
-                          mr: 0.75,
-                          '&.Mui-checked': { color: T.accent },
-                        }}
-                      />
-                      <Avatar
-                        sx={{
-                          width: 28,
-                          height: 28,
-                          bgcolor: T.accent,
-                          fontSize: '0.62rem',
-                          fontWeight: 800,
-                          borderRadius: '4px',
-                          flexShrink: 0,
-                          mr: 1,
-                        }}
-                      >
-                        {user._loading ? '…' : getEmployeeInitials(user)}
-                      </Avatar>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography
+              <>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    px: 1,
+                    py: 0.65,
+                    borderBottom: `1px solid ${T.divider}`,
+                    bgcolor: '#faf7f7',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Checkbox
+                    size="small"
+                    checked={selectAllChecked}
+                    indeterminate={selectAllIndeterminate}
+                    disabled={!selectableEmployees.length || loading}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    sx={{
+                      p: 0.35,
+                      '&.Mui-checked': { color: T.accent },
+                      '&.MuiCheckbox-indeterminate': { color: T.accent },
+                    }}
+                  />
+                  <Typography
+                    sx={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      color: T.accent,
+                      userSelect: 'none',
+                      cursor: selectableEmployees.length && !loading ? 'pointer' : 'default',
+                    }}
+                    onClick={() => {
+                      if (!selectableEmployees.length || loading) return;
+                      handleSelectAll(!selectAllChecked);
+                    }}
+                  >
+                    Select all
+                    {selectedIds.size > 0 && (
+                      <Box component="span" sx={{ fontWeight: 600, color: T.muted, ml: 0.5 }}>
+                        ({selectedIds.size})
+                      </Box>
+                    )}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    flexGrow: 1,
+                    overflowY: 'auto',
+                    minHeight: 0,
+                    ...scrollbarSx,
+                  }}
+                >
+                  <List dense disablePadding>
+                    {employees.map((user, idx) => {
+                      const empNum = user.employeeNumber;
+                      const isPreview = String(previewId) === String(empNum);
+                      const isSelected = selectedIds.has(empNum);
+                      return (
+                        <ListItemButton
+                          key={empNum}
+                          selected={isPreview}
+                          onClick={() => setPreviewId(empNum)}
                           sx={{
-                            fontSize: '0.78rem',
-                            fontWeight: isPreview ? 700 : 600,
-                            color: T.text,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            lineHeight: 1.2,
+                            py: 0.85,
+                            px: 1.25,
+                            borderBottom: `1px solid ${T.divider}`,
+                            bgcolor: isPreview
+                              ? alpha(T.accent, 0.08)
+                              : idx % 2 === 0
+                                ? T.rowEven
+                                : T.rowOdd,
+                            '&:hover': { bgcolor: T.rowHover },
+                            '&.Mui-selected': {
+                              bgcolor: alpha(T.accent, 0.1),
+                              '&:hover': { bgcolor: alpha(T.accent, 0.12) },
+                            },
+                            transition: 'background 0.1s',
                           }}
                         >
-                          {user._loading ? 'Loading…' : user.fullName}
-                        </Typography>
-                        <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 600, mt: 0.15 }}>
-                          #{empNum}{user.departmentCode ? ` · ${user.departmentCode}` : ''}
-                        </Typography>
-                      </Box>
-                    </ListItemButton>
-                  );
-                })}
-              </List>
+                          <Checkbox
+                            size="small"
+                            checked={isSelected}
+                            disabled={user._loading}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => toggleSelect(empNum)}
+                            sx={{
+                              p: 0.5,
+                              mr: 0.75,
+                              '&.Mui-checked': { color: T.accent },
+                            }}
+                          />
+                          <Avatar
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              bgcolor: T.accent,
+                              fontSize: '0.62rem',
+                              fontWeight: 800,
+                              borderRadius: '4px',
+                              flexShrink: 0,
+                              mr: 1,
+                            }}
+                          >
+                            {user._loading ? '…' : getEmployeeInitials(user)}
+                          </Avatar>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography
+                              sx={{
+                                fontSize: '0.78rem',
+                                fontWeight: isPreview ? 700 : 600,
+                                color: T.text,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {user._loading ? 'Loading…' : user.fullName}
+                            </Typography>
+                            <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 600, mt: 0.15 }}>
+                              #{empNum}{user.departmentCode ? ` · ${user.departmentCode}` : ''}
+                            </Typography>
+                          </Box>
+                        </ListItemButton>
+                      );
+                    })}
+                  </List>
+                </Box>
+              </>
             )}
           </Box>
 
@@ -1263,21 +1394,14 @@ const DailyTimeRecordSupervisor = () => {
                           </Paper>
                         </Box>
                       </Fade>
-                    ) : (
-                      <Box sx={{ py: 10, textAlign: 'center' }}>
-                        <CircularProgress sx={{ color: T.accent }} />
-                        <Typography sx={{ fontSize: '0.78rem', color: T.muted, mt: 2 }}>
-                          Loading DTR preview…
-                        </Typography>
-                      </Box>
-                    )}
+                    ) : null}
                   </Box>
                 </SectionCard>
               </Grid>
             </Grid>
 
-            {/* Hidden print targets */}
-            {previewUsers.map(renderHiddenDtr)}
+            {/* Single off-screen DTR — mounted only while capturing */}
+            {captureUser ? renderCaptureDtr(captureUser) : null}
 
             {/* Print preview modal */}
             <Dialog

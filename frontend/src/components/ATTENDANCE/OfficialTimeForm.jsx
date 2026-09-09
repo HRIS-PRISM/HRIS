@@ -481,7 +481,7 @@ const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = f
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search`, {
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/department/search`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       setResults(r.data || []);
@@ -496,7 +496,7 @@ const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = f
     setLoading(true);
     try {
       const r = await axios.get(
-        `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`,
+        `${API_BASE_URL}/Remittance/employees/department/search?q=${encodeURIComponent(q)}`,
         { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
       );
       setResults(r.data || []);
@@ -1393,19 +1393,40 @@ const TamperWarningBanner = ({ onRestore }) => (
   </Box>
 );
 
+const UploadRestrictionNotice = ({ message }) => (
+  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: 1.5, mb: 1.5, bgcolor: "#fff5f5", border: "1px solid #ffcdd2", borderRadius: "10px" }}>
+    <WarningAmber sx={{ color: "#c62828", fontSize: 18, mt: "1px", flexShrink: 0 }} />
+    <Typography sx={{ fontSize: "0.78rem", color: "#7a0000", lineHeight: 1.55 }}>{message}</Typography>
+  </Box>
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
-const OfficialTimeForm = () => {
+const OfficialTimeForm = ({
+  embedded = false,
+  initialContext = null,
+  onClose,
+} = {}) => {
   const { settings } = useSystemSettings();
   const { hasAccess, loading: accessLoading } = usePageAccess("official-time");
 
   const [viewMode, setViewMode] = useState("single");
-  const showSingleView = viewMode === "single";
-  const showAllUsers = viewMode === "allUsers";
+  const showSingleView = embedded || viewMode === "single";
+  const showAllUsers = !embedded && viewMode === "allUsers";
 
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [employeeID, setEmployeeID] = useState("");
+  const seedEmp = initialContext?.employee || null;
+  const seedEmpNum = String(initialContext?.employeeNumber || seedEmp?.employeeNumber || "").trim();
+  const [selectedEmployee, setSelectedEmployee] = useState(() =>
+    seedEmpNum
+      ? {
+          employeeNumber: seedEmpNum,
+          name: String(seedEmp?.name || seedEmp?.fullName || "").trim(),
+          department: seedEmp?.department || "",
+        }
+      : null,
+  );
+  const [employeeID, setEmployeeID] = useState(seedEmpNum);
   const [records, setRecords] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1548,6 +1569,7 @@ const OfficialTimeForm = () => {
   const [successAction, setSuccessAction] = useState("");
   const [lastSaved, setLastSaved] = useState(null);
   const [tamperDetected, setTamperDetected] = useState(false);
+  const [supervisorStatus, setSupervisorStatus] = useState(null);
 
   const serverRecordsRef = useRef([]);
   const checksumRef = useRef(null);
@@ -1635,6 +1657,16 @@ const OfficialTimeForm = () => {
     return () => clearInterval(tamperCheckIntervalRef.current);
   }, [hasSearched]);
 
+  const fetchSupervisorStatus = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/supervisor-assignment-status`, getAuthHeaders());
+      setSupervisorStatus(r.data);
+    } catch {
+      setSupervisorStatus({ hasAssignment: false, active: false });
+    }
+  }, []);
+
+  useEffect(() => { fetchSupervisorStatus(); }, [fetchSupervisorStatus]);
   useEffect(() => () => { if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current); }, []);
 
   // ── Employee select ──
@@ -1686,6 +1718,35 @@ const OfficialTimeForm = () => {
       setLoading(false);
     }
   }, [buildDefaultRecords, showToast, stampServerRecords]);
+
+  const embeddedSeedRef = useRef("");
+  useEffect(() => {
+    if (!embedded || accessLoading || hasAccess === false) return;
+    const num = String(initialContext?.employeeNumber || "").trim();
+    if (!num || embeddedSeedRef.current === num) return;
+    embeddedSeedRef.current = num;
+    const emp = initialContext?.employee
+      ? {
+          employeeNumber: num,
+          name: String(initialContext.employee.name || initialContext.employee.fullName || "").trim(),
+          department: initialContext.employee.department || "",
+        }
+      : { employeeNumber: num, name: "" };
+    handleEmployeeSelect(emp);
+  }, [embedded, initialContext, accessLoading, hasAccess, handleEmployeeSelect]);
+
+  const canUploadExcel = supervisorStatus?.active === true;
+
+  const uploadRestrictionMessage = useMemo(() => {
+    if (!supervisorStatus || supervisorStatus.active) return null;
+    if (!supervisorStatus.hasAssignment)
+      return "You don't have a supervisor assignment on record, so Excel uploads are disabled.";
+    if (supervisorStatus.expired)
+      return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" expired on ${formatDateLong(supervisorStatus.end) || supervisorStatus.end}. Uploads are disabled until it's renewed.`;
+    if (supervisorStatus.notStarted)
+      return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" hasn't started yet (starts ${formatDateLong(supervisorStatus.start) || supervisorStatus.start}). Uploads are disabled until then.`;
+    return "You are not currently authorized to upload Excel schedules.";
+  }, [supervisorStatus]);
 
   const handleEmployeeClear = useCallback(() => {
     setSelectedEmployee(null);
@@ -1859,7 +1920,7 @@ const OfficialTimeForm = () => {
 
   // ── Upload ──
   const handleAnalyzeFile = useCallback(async () => {
-    if (!file || analyzing) return;
+    if (!file || analyzing || !canUploadExcel) return;
     const formData = new FormData();
     formData.append("file", file);
     setUploadAcknowledgeChecked(false);
@@ -1902,13 +1963,14 @@ const OfficialTimeForm = () => {
     } finally {
       setAnalyzing(false);
     }
-  }, [file, analyzing]);
+  }, [file, analyzing, canUploadExcel]);
 
   const handleConfirmUpload = useCallback(async () => {
-    if (!file || confirming || !uploadAcknowledgeChecked) return;
+    if (!file || confirming || !uploadAcknowledgeChecked || !canUploadExcel) return;
     const formData = new FormData();
     formData.append("file", file);
     setConfirming(true);
+    
     try {
       const response = await axios.post(`${API_BASE_URL}/upload-excel-faculty-official-time`, formData, { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } });
       setShowAnalyzeModal(false);
@@ -1937,11 +1999,11 @@ const OfficialTimeForm = () => {
     } finally {
       setConfirming(false);
     }
-  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords]);
+  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords, canUploadExcel]);
 
   // ── Department-scoped upload handlers ──
   const handleAnalyzeDeptFile = useCallback(async () => {
-    if (!deptFile || !deptUploadDepartment || deptAnalyzing) return;
+    if (!deptFile || !deptUploadDepartment || deptAnalyzing || !canUploadExcel) return;
     const formData = new FormData();
     formData.append("file", deptFile);
     formData.append("department", deptUploadDepartment);
@@ -1997,7 +2059,7 @@ const OfficialTimeForm = () => {
     } finally {
       setDeptAnalyzing(false);
     }
-  }, [deptFile, deptUploadDepartment, deptAnalyzing]);
+  }, [deptFile, deptUploadDepartment, deptAnalyzing, canUploadExcel]);
 
   const handleConfirmDeptUpload = useCallback(async () => {
     if (!deptFile || !deptUploadDepartment || deptConfirming || !deptUploadAcknowledgeChecked) return;
@@ -2283,44 +2345,62 @@ const OfficialTimeForm = () => {
         message={checkingOverlap ? "Checking for conflicts…" : uploading ? "Uploading…" : saving ? "Saving…" : "Loading…"}
       />
 
-      <Fade in timeout={400}>
+      <Fade in timeout={embedded ? 0 : 400}>
         <Box
-          sx={{
-            py: { xs: 1, md: 2 },
-            mt: tamperDetected ? "56px" : { xs: 0, md: -2 },
-            mb: { xs: 1, md: 2 },
-            width: "100vw",
-            maxWidth: "100%",
-            position: "relative",
-            left: "55%",
-            transform: "translateX(-53%)",
-            px: { xs: 2, sm: 3, md: 6 },
-            transition: "margin-top 0.2s ease",
-          }}
+          sx={
+            embedded
+              ? {
+                  height: "100%",
+                  width: "100%",
+                  maxWidth: "100%",
+                  p: 1.75,
+                  boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  minHeight: 0,
+                  bgcolor: "#f7f8fa",
+                }
+              : {
+                  py: { xs: 1, md: 2 },
+                  mt: tamperDetected ? "56px" : { xs: 0, md: -2 },
+                  mb: { xs: 1, md: 2 },
+                  width: "100vw",
+                  maxWidth: "100%",
+                  position: "relative",
+                  left: "55%",
+                  transform: "translateX(-53%)",
+                  px: { xs: 2, sm: 3, md: 6 },
+                  transition: "margin-top 0.2s ease",
+                }
+          }
         >
           {/* ══ PAGE HEADER ══ */}
-          <SectionCard sx={{ mb: 2 }}>
+          <SectionCard sx={{ mb: embedded ? 1.5 : 2, flexShrink: 0 }}>
             <Box
               sx={{
-                px: 4, py: 3,
+                px: embedded ? 2.5 : 4,
+                py: embedded ? 2 : 3,
                 background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
                 display: "flex", alignItems: "center", justifyContent: "space-between",
-                position: "relative", overflow: "hidden",
+                position: "relative", overflow: "hidden", gap: 1.5,
               }}
             >
               <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)", pointerEvents: "none" }} />
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
-                <Schedule sx={{ fontSize: 30, color: T.accent }} />
-                <Box>
-                  <Typography sx={{ fontSize: "1.2rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: embedded ? 1.5 : 2.5, position: "relative", zIndex: 1, minWidth: 0 }}>
+                <Schedule sx={{ fontSize: embedded ? 24 : 30, color: T.accent, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: embedded ? "1.05rem" : "1.2rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
                     Official Time Schedule
                   </Typography>
-                  <Typography sx={{ fontSize: "0.78rem", color: T.accentMid, fontWeight: 600 }}>
-                    Search an employee to view and manage their official time schedules
+                  <Typography sx={{ fontSize: embedded ? "0.72rem" : "0.78rem", color: T.accentMid, fontWeight: 600 }}>
+                    {embedded
+                      ? "Manage schedules without leaving Daily Time Record"
+                      : "Search an employee to view and manage their official time schedules"}
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, position: "relative", zIndex: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1, flexShrink: 0 }}>
                 {lastSaved && (
                   <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha("#4caf50", 0.12), border: "1px solid rgba(76,175,80,0.25)" }}>
                     <Typography sx={{ fontSize: "0.72rem", color: "#2e7d32", fontWeight: 700 }}>
@@ -2328,25 +2408,46 @@ const OfficialTimeForm = () => {
                     </Typography>
                   </Box>
                 )}
-                <ViewToggle value={viewMode} onChange={setViewMode} />
+                {!embedded && <ViewToggle value={viewMode} onChange={setViewMode} />}
+                {embedded && typeof onClose === "function" && (
+                  <Tooltip title="Close panel">
+                    <IconButton
+                      onClick={onClose}
+                      aria-label="Close official time panel"
+                      sx={{
+                        color: "#fff",
+                        bgcolor: T.accent,
+                        width: 34,
+                        height: 34,
+                        border: `1px solid ${T.accentDark}`,
+                        boxShadow: `0 2px 6px ${alpha(T.accent, 0.35)}`,
+                        "&:hover": { bgcolor: T.accentDark },
+                      }}
+                    >
+                      <Close sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </Box>
             </Box>
           </SectionCard>
 
           {/* ══ SINGLE EMPLOYEE VIEW ══ */}
           {showSingleView && (
-            <Fade in timeout={400} key="single-view">
+            <Fade in timeout={embedded ? 0 : 400} key="single-view">
               <Box
                 sx={{
                   display: "grid",
                   gridTemplateColumns: { xs: "1fr", lg: "360px 1fr" },
                   gap: 2,
                   alignItems: "stretch",
-                  minHeight: { lg: "calc(100vh - 295px)" },
+                  ...(embedded
+                    ? { flex: 1, minHeight: 0, overflow: "hidden" }
+                    : { minHeight: { lg: "calc(100vh - 295px)" } }),
                 }}
               >
                 {/* ─── LEFT PANEL ─── */}
-                <SectionCard sx={{ position: { lg: "sticky" }, top: { lg: 16 }, minHeight: { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column" }}>
+                <SectionCard sx={{ position: embedded ? "relative" : { lg: "sticky" }, top: embedded ? undefined : { lg: 16 }, minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column", overflow: embedded ? "auto" : undefined }}>
                   <PanelHeader icon={Person} title="Step 1 — Search employee" />
                   <Box sx={{ p: 2.5 }}>
                     <EmployeeSearchField onSelect={handleEmployeeSelect} selectedEmployee={selectedEmployee} onClear={handleEmployeeClear} />
@@ -2404,12 +2505,15 @@ const OfficialTimeForm = () => {
 
                   <PanelHeader icon={CloudUploadIcon} title="Excel upload" rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>} />
                   <Box sx={{ p: 2.5 }}>
+                    {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                      <input type="file" accept=".xlsx,.xls" id="upload-button" style={{ display: "none" }} onChange={(e) => setFile(e.target.files[0] || null)} />
+                      <input type="file" accept=".xlsx,.xls" id="upload-button" style={{ display: "none" }}
+                        disabled={!canUploadExcel}
+                        onChange={(e) => setFile(e.target.files[0] || null)} />
                       <label htmlFor="upload-button">
                         <Button variant="outlined" component="span" size="small" startIcon={<CloudUploadIcon />}
-                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}
-                        >
+                          disabled={!canUploadExcel}
+                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}>
                           Choose file
                         </Button>
                       </label>
@@ -2418,13 +2522,10 @@ const OfficialTimeForm = () => {
                           {file.name}
                         </Typography>
                       )}
-                      <Button
-                        variant="contained" size="small"
-                        onClick={handleAnalyzeFile}
-                        disabled={!file || analyzing || confirming}
+                      <Button variant="contained" size="small" onClick={handleAnalyzeFile}
+                        disabled={!file || analyzing || confirming || !canUploadExcel}
                         startIcon={analyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
-                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
-                      >
+                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}>
                         {analyzing ? "Validating…" : "Validate"}
                       </Button>
                     </Box>
@@ -2682,6 +2783,7 @@ const OfficialTimeForm = () => {
                     title="Excel upload by department"
                     rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>}
                   />
+                  {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
                   <Box sx={{ p: 2.5 }}>
                     <Typography sx={{ fontSize: "0.71rem", color: T.faint, mb: 1.5 }}>
                       Only rows for employees in the selected department will be processed.
@@ -2690,6 +2792,7 @@ const OfficialTimeForm = () => {
                     <ModernTextField
                       select fullWidth size="small" label="Target department"
                       value={deptUploadDepartment}
+                      disabled={!canUploadExcel}
                       onChange={(e) => setDeptUploadDepartment(e.target.value)}
                       sx={{ mb: 1.5 }}
                     >
@@ -2710,7 +2813,7 @@ const OfficialTimeForm = () => {
                       <Button
                         variant="contained" size="small"
                         onClick={handleAnalyzeDeptFile}
-                        disabled={!deptFile || !deptUploadDepartment || deptAnalyzing || deptConfirming}
+                        disabled={!deptFile || !deptUploadDepartment || deptAnalyzing || deptConfirming || !canUploadExcel}
                         startIcon={deptAnalyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
                         sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
                       >
@@ -2749,6 +2852,7 @@ const OfficialTimeForm = () => {
                     title="Excel upload by employment category"
                     rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>}
                   />
+                  {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
                   <Box sx={{ p: 2.5 }}>
                     <Typography sx={{ fontSize: "0.71rem", color: T.faint, mb: 1.5 }}>
                       Only rows for employees assigned to the selected employment category will be processed.
@@ -2757,6 +2861,7 @@ const OfficialTimeForm = () => {
                     <ModernTextField
                       select fullWidth size="small" label="Target employment category"
                       value={catUploadCategory}
+                      disabled={!canUploadExcel}
                       onChange={(e) => setCatUploadCategory(e.target.value)}
                       sx={{ mb: 1.5 }}
                       SelectProps={{
@@ -2799,7 +2904,7 @@ const OfficialTimeForm = () => {
                       <Button
                         variant="contained" size="small"
                         onClick={handleAnalyzeCatFile}
-                        disabled={!catFile || !catUploadCategory || catAnalyzing || catConfirming}
+                        disabled={!catFile || !catUploadCategory || catAnalyzing || catConfirming || !canUploadExcel}
                         startIcon={catAnalyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
                         sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
                       >

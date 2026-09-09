@@ -222,6 +222,7 @@ const Sidebar = ({
   const [employeeNumber, setEmployeeNumber] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [pageAccessVersion, setPageAccessVersion] = useState(0);
+  const [isSupervisor, setIsSupervisor] = useState(false);
   const settings = useSystemSettings();
 
   const navigate = useNavigate();
@@ -330,13 +331,10 @@ const Sidebar = ({
 
   const leaveDropdownHasVisibleItems = () => {
     const isStaff = normalizedUserRole === "staff";
-    if (
+    return (
       !isStaff &&
       leaveDropdownAdminRoutes.some((route) => shouldShowMenuItem(route))
-    ) {
-      return true;
-    }
-    return shouldShowMenuItem("/leave-request-supervisor");
+    );
   };
 
   const formsItems = [
@@ -430,6 +428,31 @@ const Sidebar = ({
     };
   }, [socket, connected]);
 
+  // Determine whether the signed-in employee is tagged as a supervisor via
+  // SupervisorAssignment (regardless of their login role). Supervisor status
+  // grants access to the Supervisor DTR and Leave Request Approval modules
+  // even if the user's role would not otherwise show them.
+  useEffect(() => {
+  const checkSupervisorStatus = async () => {
+    if (!resolvedEmployeeNumber || !localStorage.getItem("token")) {
+      setIsSupervisor(false);
+      return;
+    }
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/supervisor-dtr/context/me`,
+        getAuthHeaders(),
+      );
+      setIsSupervisor(Boolean(response.data?.isSupervisor));
+    } catch (error) {
+      console.error("Error checking supervisor status:", error);
+      setIsSupervisor(false);
+    }
+  };
+
+  checkSupervisorStatus();
+}, [resolvedEmployeeNumber, pageAccessVersion]);
+
   const currentPath = location.pathname;
   useEffect(() => {
     // ... (all the path checks remain the same)
@@ -502,6 +525,8 @@ const Sidebar = ({
       setSelectedItem("daily-time-record-supervisor");
     } else if (currentPath === "/leave-request-supervisor") {
       setSelectedItem("leave-request-supervisor");
+    } else if (currentPath === "/official-time-supervisor") {
+      setSelectedItem("official-time-supervisor");
     } else if (currentPath === "/attendance_module") {
       setSelectedItem("attendance_module");
     } else if (currentPath === "/attendance_module_faculty") {
@@ -681,6 +706,30 @@ const Sidebar = ({
   };
 
   const dynamicDrawerWidth = drawerOpen ? drawerWidth : collapsedWidth;
+
+  // Supervisor Panel visibility: shown to ANY role (staff, administrator,
+  // superadmin, technical) as long as the employee either has explicit page
+  // access to these routes OR is currently tagged as a supervisor in
+  // SupervisorAssignment.
+  const showSupervisorDTR =
+    shouldShowMenuItem("/daily-time-record-supervisor") && isSupervisor;
+  const showLeaveRequestSupervisor =
+    shouldShowMenuItem("/leave-request-supervisor") && isSupervisor;
+
+  // Official Time Form is intentionally NOT duplicated across sections:
+  //  - Staff-role users who are currently tagged as a supervisor in
+  //    SupervisorAssignment see it ONLY under the Supervisor Panel
+  //    (temporary elevated access tied to their active assignment).
+  //  - Administrator / superadmin / technical users never see it in the
+  //    Supervisor Panel, regardless of supervisor status — they already
+  //    get it unconditionally from Attendance Management below, since
+  //    that whole section is gated on `userRole !== "staff"`.
+  const showSupervisorOfficialTime = shouldShowMenuItem("/official-time-supervisor") && isSupervisor;
+
+  const showSupervisorPanel =
+    showSupervisorDTR ||
+    showLeaveRequestSupervisor ||
+    showSupervisorOfficialTime;
 
   return (
     <Drawer
@@ -1105,8 +1154,7 @@ const Sidebar = ({
               shouldShowMenuItem("/daily_time_record_faculty") ||
               shouldShowMenuItem("/daily_time_record_honorarium") ||
               shouldShowMenuItem("/daily_time_record_service_credits") ||
-              shouldShowMenuItem("/daily_time_record_overtime") ||
-              shouldShowMenuItem("/daily-time-record-supervisor")) && (
+              shouldShowMenuItem("/daily_time_record_overtime")) && (
               <>
                 <ListItem
                   button
@@ -1375,65 +1423,6 @@ const Sidebar = ({
                         </ListItemIcon>
                         <ListItemText
                           primary="Overtime"
-                          sx={{ marginLeft: "-10px" }}
-                        />
-                      </ListItem>
-                    )}
-
-                    {shouldShowMenuItem("/daily-time-record-supervisor") && (
-                      <ListItem
-                        button
-                        component={Link}
-                        to="/daily-time-record-supervisor"
-                        onClick={() =>
-                          handleItemClick("daily-time-record-supervisor")
-                        }
-                        sx={{
-                          bgcolor:
-                            selectedItem === "daily-time-record-supervisor"
-                              ? settings.accentColor || "#FEF9E1"
-                              : "inherit",
-                          color:
-                            selectedItem === "daily-time-record-supervisor"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color:
-                              selectedItem === "daily-time-record-supervisor"
-                                ? settings.textPrimaryColor
-                                : settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color:
-                              selectedItem === "daily-time-record-supervisor"
-                                ? settings.textPrimaryColor
-                                : settings.textSecondaryColor,
-                          },
-                          "&:hover": {
-                            bgcolor: settings.hoverColor || "#6D2323",
-                            color: settings.textSecondaryColor,
-                            "& .MuiListItemIcon-root": {
-                              color: settings.textSecondaryColor,
-                            },
-                            "& .MuiListItemText-primary": {
-                              color: settings.textSecondaryColor,
-                            },
-                          },
-                          borderTopRightRadius:
-                            selectedItem === "daily-time-record-supervisor"
-                              ? "15px"
-                              : 0,
-                          borderBottomRightRadius:
-                            selectedItem === "daily-time-record-supervisor"
-                              ? "15px"
-                              : 0,
-                        }}
-                      >
-                        <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                          <SupervisedUserCircle />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary="Supervisor DTR"
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>
@@ -1925,6 +1914,213 @@ const Sidebar = ({
               </>
             )}
 
+            {/* SUPERVISOR PANEL — visible to any role (staff, administrator,
+                superadmin, technical) that is currently tagged as a
+                supervisor in Supervisor Assignment, or has explicit page
+                access to these routes. */}
+            {showSupervisorPanel && (
+              <>
+                {drawerOpen ? (
+                  <List
+                    subheader={
+                      <ListSubheader
+                        component="div"
+                        sx={{
+                          bgcolor: "transparent",
+                          fontWeight: "bold",
+                          fontSize: "0.7rem",
+                          color: settings.textSecondaryColor || "white",
+                          fontFamily: "Poppins, sans-serif",
+                          textTransform: "uppercase",
+                          mt: -1,
+                          mb: -1.5,
+                        }}
+                      >
+                        Supervisor Panel
+                      </ListSubheader>
+                    }
+                  ></List>
+                ) : (
+                  <Divider
+                    sx={{ borderColor: "rgba(255,255,255,0.2)", mx: 1, my: 1 }}
+                  />
+                )}
+
+                {showSupervisorDTR && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/daily-time-record-supervisor"
+                    onClick={() =>
+                      handleItemClick("daily-time-record-supervisor")
+                    }
+                    sx={{
+                      bgcolor:
+                        selectedItem === "daily-time-record-supervisor"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "daily-time-record-supervisor"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "daily-time-record-supervisor"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "daily-time-record-supervisor"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "daily-time-record-supervisor"
+                          ? "15px"
+                          : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "daily-time-record-supervisor"
+                          ? "15px"
+                          : 0,
+                    }}
+                  >
+                    <ListItemIcon>
+                      <SupervisedUserCircle />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Department Daily Time Record (DTR)"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                )}
+
+                {showLeaveRequestSupervisor && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/leave-request-supervisor"
+                    onClick={() =>
+                      handleItemClick("leave-request-supervisor")
+                    }
+                    sx={{
+                      bgcolor:
+                        selectedItem === "leave-request-supervisor"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "leave-request-supervisor"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "leave-request-supervisor"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "leave-request-supervisor"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "leave-request-supervisor"
+                          ? "15px"
+                          : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "leave-request-supervisor"
+                          ? "15px"
+                          : 0,
+                    }}
+                  >
+                    <ListItemIcon>
+                      <SupervisedUserCircle />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Department Leave Requests"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                )}
+
+                {showSupervisorOfficialTime && (
+                  <ListItem
+                    button
+                    component={Link}
+                    to="/official_time_supervisor"
+                    onClick={() =>
+                      handleItemClick("official_time_supervisor")
+                    }
+                    sx={{
+                      bgcolor:
+                        selectedItem === "official_time_supervisor"
+                          ? settings.accentColor || "#FEF9E1"
+                          : "inherit",
+                      color:
+                        selectedItem === "official_time_supervisor"
+                          ? settings.textPrimaryColor
+                          : settings.textSecondaryColor,
+                      "& .MuiListItemIcon-root": {
+                        color:
+                          selectedItem === "official_time_supervisor"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "& .MuiListItemText-primary": {
+                        color:
+                          selectedItem === "official_time_supervisor"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                      },
+                      "&:hover": {
+                        bgcolor: settings.hoverColor || "#6D2323",
+                        color: settings.textSecondaryColor,
+                        "& .MuiListItemIcon-root": {
+                          color: settings.textSecondaryColor,
+                        },
+                        "& .MuiListItemText-primary": {
+                          color: settings.textSecondaryColor,
+                        },
+                      },
+                      borderTopRightRadius:
+                        selectedItem === "official_time_supervisor" ? "15px" : 0,
+                      borderBottomRightRadius:
+                        selectedItem === "official_time_supervisor" ? "15px" : 0,
+                    }}
+                  >
+                    <ListItemIcon>
+                      <AccessAlarm />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Official Time Form"
+                      sx={{ marginLeft: "-10px" }}
+                    />
+                  </ListItem>
+                )}
+              </>
+            )}
+
             <>
               {userRole !== "staff" &&
                 (drawerOpen ? (
@@ -1990,58 +2186,6 @@ const Sidebar = ({
 
                 <Collapse in={openSystemAdmin} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
-                    {/* Reports - Hidden */}
-                    {/* <ListItem
-                      button
-                      component={Link}
-                      to="/reports"
-                      onClick={() => handleItemClick("reports")}
-                      sx={{
-                        bgcolor:
-                          selectedItem === "reports"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        color:
-                          selectedItem === "reports"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        "& .MuiListItemIcon-root": {
-                          color:
-                            selectedItem === "reports"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "& .MuiListItemText-primary": {
-                          color:
-                            selectedItem === "reports"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        },
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                          "& .MuiListItemText-primary": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "reports" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "reports" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                        <Assessment />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Reports"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem> */}
-
                     {shouldShowMenuItem("/users-list") && (
                         <ListItem
                           button
@@ -2479,63 +2623,6 @@ const Sidebar = ({
               </>
             )}
 
-            {/* Employee Reports - Commented out for staff role */}
-            {/* {userRole === "staff" && (
-              <ListItem
-                button
-                component={Link}
-                to="/employee-reports"
-                onClick={() => handleItemClick("employee-reports")}
-                sx={{
-                  bgcolor:
-                    selectedItem === "employee-reports"
-                      ? settings.accentColor || "#FEF9E1"
-                      : "inherit",
-                  color:
-                    selectedItem === "employee-reports"
-                      ? settings.textPrimaryColor
-                      : settings.textSecondaryColor,
-
-                  "& .MuiListItemIcon-root": {
-                    color:
-                      selectedItem === "employee-reports"
-                        ? settings.textPrimaryColor
-                        : settings.textSecondaryColor,
-                  },
-                  "& .MuiListItemText-primary": {
-                    color:
-                      selectedItem === "employee-reports"
-                        ? settings.textPrimaryColor
-                        : settings.textSecondaryColor,
-                  },
-
-                  "&:hover": {
-                    bgcolor: settings.hoverColor || "#6D2323",
-                    color: settings.textSecondaryColor,
-                    "& .MuiListItemIcon-root": {
-                      color: settings.textSecondaryColor,
-                    },
-                    "& .MuiListItemText-primary": {
-                      color: settings.textSecondaryColor,
-                    },
-                  },
-
-                  borderTopRightRadius:
-                    selectedItem === "employee-reports" ? "15px" : 0,
-                  borderBottomRightRadius:
-                    selectedItem === "employee-reports" ? "15px" : 0,
-                }}
-              >
-                <ListItemIcon>
-                  <PeopleAltIcon sx={{ fontSize: 29, marginLeft: "-6%" }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary="Employee Reports"
-                  sx={{ marginLeft: "-10px" }}
-                />
-              </ListItem>
-            )} */}
-
             {userRole !== "staff" &&
               attendanceManagementItems.some((item) =>
                 shouldShowMenuItem(`/${item.replace(/_/g, "-")}`),
@@ -2802,65 +2889,6 @@ const Sidebar = ({
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>
-
-                      {shouldShowMenuItem("/daily-time-record-supervisor") && (
-                        <ListItem
-                          button
-                          component={Link}
-                          to="/daily-time-record-supervisor"
-                          onClick={() =>
-                            handleItemClick("daily-time-record-supervisor")
-                          }
-                          sx={{
-                            bgcolor:
-                              selectedItem === "daily-time-record-supervisor"
-                                ? settings.accentColor || "#FEF9E1"
-                                : "inherit",
-                            color:
-                              selectedItem === "daily-time-record-supervisor"
-                                ? settings.textPrimaryColor
-                                : settings.textSecondaryColor,
-                            "& .MuiListItemIcon-root": {
-                              color:
-                                selectedItem === "daily-time-record-supervisor"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "& .MuiListItemText-primary": {
-                              color:
-                                selectedItem === "daily-time-record-supervisor"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "&:hover": {
-                              bgcolor: settings.hoverColor || "#6D2323",
-                              color: settings.textSecondaryColor,
-                              "& .MuiListItemIcon-root": {
-                                color: settings.textSecondaryColor,
-                              },
-                              "& .MuiListItemText-primary": {
-                                color: settings.textSecondaryColor,
-                              },
-                            },
-                            borderTopRightRadius:
-                              selectedItem === "daily-time-record-supervisor"
-                                ? "15px"
-                                : 0,
-                            borderBottomRightRadius:
-                              selectedItem === "daily-time-record-supervisor"
-                                ? "15px"
-                                : 0,
-                          }}
-                        >
-                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                            <SupervisedUserCircle />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary="Daily Time Record - Supervisor"
-                            sx={{ marginLeft: "-10px" }}
-                          />
-                        </ListItem>
-                      )}
 
                       {/* Attendance Module (Non-teaching) */}
                       <ListItem
@@ -3264,64 +3292,6 @@ const Sidebar = ({
                           />
                         </ListItem>
                       )}
-                    
-          
-                    
-
-                    {/* Leave Assignment - Admin only */}
-                    {/* {userRole !== "staff" &&
-                      shouldShowMenuItem("/leave-assignment") && (
-                        <ListItem
-                          button
-                          component={Link}
-                          to="/leave-assignment"
-                          onClick={() => handleItemClick("leave-assignment")}
-                          sx={{
-                            bgcolor:
-                              selectedItem === "leave-assignment"
-                                ? settings.accentColor || "#FEF9E1"
-                                : "inherit",
-                            color:
-                              selectedItem === "leave-assignment"
-                                ? settings.textPrimaryColor
-                                : settings.textSecondaryColor,
-                            "& .MuiListItemIcon-root": {
-                              color:
-                                selectedItem === "leave-assignment"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "& .MuiListItemText-primary": {
-                              color:
-                                selectedItem === "leave-assignment"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "&:hover": {
-                              bgcolor: settings.hoverColor || "#6D2323",
-                              color: settings.textSecondaryColor,
-                              "& .MuiListItemIcon-root": {
-                                color: settings.textSecondaryColor,
-                              },
-                              "& .MuiListItemText-primary": {
-                                color: settings.textSecondaryColor,
-                              },
-                            },
-                            borderTopRightRadius:
-                              selectedItem === "leave-assignment" ? "15px" : 0,
-                            borderBottomRightRadius:
-                              selectedItem === "leave-assignment" ? "15px" : 0,
-                          }}
-                        >
-                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                            <AssignmentIcon />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary="Leave Assignment"
-                            sx={{ marginLeft: "-10px" }}
-                          />
-                        </ListItem>
-                      )} */}
 
                     {/* Leave Request - Admin only */}
                     {userRole !== "staff" &&
@@ -3544,124 +3514,10 @@ const Sidebar = ({
                           />
                         </ListItem>
                       )}
-
-                      {/* Leave Request Supervisor - Supervisor only */}
-                      {shouldShowMenuItem("/leave-request-supervisor") && (
-                        <ListItem
-                          button
-                          component={Link}
-                          to="/leave-request-supervisor"
-                          onClick={() => handleItemClick("leave-request-supervisor")}
-                          sx={{
-                            bgcolor:
-                              selectedItem === "leave-request-supervisor"
-                                ? settings.accentColor || "#FEF9E1"
-                                : "inherit",
-                            color:
-                              selectedItem === "leave-request-supervisor"
-                                ? settings.textPrimaryColor
-                                : settings.textSecondaryColor,
-                            "& .MuiListItemIcon-root": {
-                              color:
-                                selectedItem === "leave-request-supervisor"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "& .MuiListItemText-primary": {
-                              color:
-                                selectedItem === "leave-request-supervisor"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "&:hover": {
-                              bgcolor: settings.hoverColor || "#6D2323",
-                              color: settings.textSecondaryColor,
-                              borderTopRightRadius: "15px",
-                              borderBottomRightRadius: "15px",
-                              "& .MuiListItemIcon-root": {
-                                color: settings.textSecondaryColor,
-                              },
-                              "& .MuiListItemText-primary": {
-                                color: settings.textSecondaryColor,
-                              },
-                            },
-                            borderTopRightRadius:
-                              selectedItem === "leave-request-supervisor" ? "15px" : 0,
-                            borderBottomRightRadius:
-                              selectedItem === "leave-request-supervisor" ? "15px" : 0,
-                          }}
-                        >
-                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                            <SupervisedUserCircle />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary="Leave Request Approval"
-                            sx={{ marginLeft: "-10px" }}
-                          />
-                        </ListItem>
-                      )}
-
-                      
-                      {/*Service Credits - Admin only */}
-                    {/* {userRole !== "staff" &&
-                      shouldShowMenuItem("/service-credits") && (
-                        <ListItem
-                          button
-                          component={Link}
-                          to="/service-credits"
-                          onClick={() => handleItemClick("service-credits")}
-                          sx={{
-                            bgcolor:
-                              selectedItem === "service-credits"
-                                ? settings.accentColor || "#FEF9E1"
-                                : "inherit",
-                            color:
-                              selectedItem === "service-credits"
-                                ? settings.textPrimaryColor
-                                : settings.textSecondaryColor,
-                            "& .MuiListItemIcon-root": {
-                              color:
-                                selectedItem === "service-credits"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "& .MuiListItemText-primary": {
-                              color:
-                                selectedItem === "service-credits"
-                                  ? settings.textPrimaryColor
-                                  : settings.textSecondaryColor,
-                            },
-                            "&:hover": {
-                              bgcolor: settings.hoverColor || "#6D2323",
-                              color: settings.textSecondaryColor,
-                              "& .MuiListItemIcon-root": {
-                                color: settings.textSecondaryColor,
-                              },
-                              "& .MuiListItemText-primary": {
-                                color: settings.textSecondaryColor,
-                              },
-                            },
-                            borderTopRightRadius:
-                              selectedItem === "service-credits" ? "15px" : 0,
-                            borderBottomRightRadius:
-                              selectedItem === "service-credits" ? "15px" : 0,
-                          }}
-                        >
-                          <ListItemIcon sx={{ marginRight: "-1rem" }}>
-                            <AssignmentIcon />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary="Service Credits"
-                            sx={{ marginLeft: "-10px" }}
-                          />
-                        </ListItem>
-                      )} */}
                   </List>
                 </Collapse>
               </>
             )}
-
-        
 
             {userRole !== "staff" &&
               payrollManagementItems.some((item) =>
@@ -4025,52 +3881,6 @@ const Sidebar = ({
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>
-
-                      {/* <ListItem
-                      button
-                      component={Link}
-                      to="/overall-payslip"
-                      selected={selectedItem === "overall-payslip"}
-                      onClick={() => handleItemClick("overall-payslip")}
-                      sx={{
-                        color:
-                          selectedItem === "overall-payslip"
-                            ? settings.textPrimaryColor
-                            : settings.textSecondaryColor,
-                        bgcolor:
-                          selectedItem === "overall-payslip"
-                            ? settings.accentColor || "#FEF9E1"
-                            : "inherit",
-                        "&:hover": {
-                          bgcolor: settings.hoverColor || "#6D2323",
-                          color: settings.textSecondaryColor,
-                          borderTopRightRadius: "15px",
-                          borderBottomRightRadius: "15px",
-                          "& .MuiListItemIcon-root": {
-                            color: settings.textSecondaryColor,
-                          },
-                        },
-                        borderTopRightRadius:
-                          selectedItem === "overall-payslip" ? "15px" : 0,
-                        borderBottomRightRadius:
-                          selectedItem === "overall-payslip" ? "15px" : 0,
-                      }}
-                    >
-                      <ListItemIcon
-                        sx={{
-                          color:
-                            selectedItem === "overall-payslip"
-                              ? settings.textPrimaryColor
-                              : settings.textSecondaryColor,
-                        }}
-                      >
-                        <Dvr />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary="Payslip Records"
-                        sx={{ marginLeft: "-10px" }}
-                      />
-                    </ListItem> */}
 
                       <ListSubheader
                         component="div"
@@ -4963,6 +4773,54 @@ const Sidebar = ({
 
                 <Collapse in={open4} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
+                     <ListItem
+                      button
+                      component={Link}
+                      to="/leave-form"
+                      onClick={() => handleItemClick("leave-form")}
+                      sx={{
+                        color:
+                          selectedItem === "leave-form"
+                            ? settings.textPrimaryColor
+                            : settings.textSecondaryColor,
+                        bgcolor:
+                          selectedItem === "leave-form"
+                            ? settings.accentColor || "#FEF9E1"
+                            : "inherit",
+                        "&:hover": {
+                          bgcolor: settings.hoverColor || "#6D2323",
+                          color: settings.textSecondaryColor,
+                          borderTopRightRadius: "15px",
+                          borderBottomRightRadius: "15px",
+                          "& .MuiListItemIcon-root": {
+                            color: settings.textSecondaryColor,
+                          },
+                        },
+                        borderTopRightRadius:
+                          selectedItem === "leave-form" ? "15px" : 0,
+                        borderBottomRightRadius:
+                          selectedItem === "leave-form" ? "15px" : 0,
+                      }}
+                    >
+                      <ListItemIcon
+                        sx={{
+                          marginRight: "-1rem",
+                          color:
+                            selectedItem === "leave-form"
+                              ? settings.textPrimaryColor
+                              : settings.textSecondaryColor,
+                          "&:hover": { color: settings.textSecondaryColor },
+                        }}
+                      >
+                        <FeedIcon />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary="Leave Form"
+                        sx={{ marginLeft: "-10px" }}
+                      />
+                    </ListItem>
+
+                    {/* ASSESSMENT CLEARANCE */}
                     <ListItem
                       button
                       component={Link}
@@ -5630,9 +5488,5 @@ const Sidebar = ({
     </Drawer>
   );
 };
-
-
-
-
 
 export default Sidebar;

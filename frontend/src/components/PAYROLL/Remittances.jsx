@@ -25,6 +25,13 @@ import {
   Avatar,
   Tooltip,
   Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TablePagination,
+  TableRow,
 } from '@mui/material';
 import { alpha, styled } from '@mui/material/styles';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -47,6 +54,7 @@ import {
   HelpOutline as HelpOutlineIcon,
   ErrorOutline as ErrorOutlineIcon,
   Warning as WarningIcon,
+  AccountBalance as GsisSectionIcon,
 } from '@mui/icons-material';
 
 import ReorderIcon from '@mui/icons-material/Reorder';
@@ -57,6 +65,7 @@ import usePageAccess from '../../hooks/usePageAccess';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 
 // ─── Theme tokens (matching LeaveRequest) ─────────────────────────────────────
 const T = {
@@ -523,10 +532,6 @@ const ConfirmModal = ({
 );
 
 // ─── Error / Info Modal ────────────────────────────────────────────────────────
-// NOTE: now supports an optional `details` array (e.g. per-row import warnings).
-// Instead of dumping every warning into one giant unstyled text blob, the
-// summary message stays short and the full list renders in its own
-// scrollable, bounded panel so the modal never breaks out of the viewport.
 const ErrorModal = ({
   open,
   onClose,
@@ -553,8 +558,8 @@ const ErrorModal = ({
       <Box
         sx={{
           width: '100%',
-          maxWidth: 640,
-          maxHeight: '85vh',
+          maxWidth: 960,
+          maxHeight: '90vh',
           borderRadius: 3,
           overflow: 'hidden',
           boxShadow: '0 24px 64px rgba(0,0,0,0.22)',
@@ -704,56 +709,38 @@ const ErrorModal = ({
                       {detailsLabel}
                     </Typography>
                   </Box>
-                  <Box
-                    sx={{
-                      maxHeight: 220,
-                      overflowY: 'auto',
-                      px: 1.75,
-                      py: 1,
-                      bgcolor: '#fff',
-                      '&::-webkit-scrollbar': { width: 4 },
-                      '&::-webkit-scrollbar-thumb': {
-                        bgcolor: T.accentBorder,
-                        borderRadius: 2,
-                      },
-                    }}
-                  >
-                    {details.map((item, i) => (
-                      <Box
-                        key={i}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 1,
-                          py: 0.65,
-                          borderBottom:
-                            i < details.length - 1
-                              ? `1px dashed ${T.divider}`
-                              : 'none',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            width: 5,
-                            height: 5,
-                            borderRadius: '50%',
-                            bgcolor: iconColor,
-                            mt: 0.85,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <Typography
-                          sx={{
-                            fontSize: '0.78rem',
-                            color: T.text,
-                            lineHeight: 1.5,
-                          }}
-                        >
-                          {item}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Box>
+                              <Box sx={{ px: 1.75, py: 1, bgcolor: '#fff' }}>
+                                <TableContainer
+                                  component={Paper}
+                                  sx={{ maxHeight: 360, boxShadow: 'none' }}
+                                >
+                                  <Table stickyHeader size="small">
+                                    <TableHead>
+                                      <TableRow>
+                                        <TableCell sx={{ fontWeight: 700, width: 80 }}>Row</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Issue</TableCell>
+                                      </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                      {details.map((item, i) => {
+                                        let rowNum = '';
+                                        let msg = item;
+                                        const m = String(item).match(/^Row\s*(\d+)\s*:\s*(.*)$/i);
+                                        if (m) {
+                                          rowNum = m[1];
+                                          msg = m[2];
+                                        }
+                                        return (
+                                          <TableRow key={i} hover>
+                                            <TableCell sx={{ fontSize: '0.85rem' }}>{rowNum || i + 1}</TableCell>
+                                            <TableCell sx={{ fontSize: '0.85rem', color: T.text }}>{msg}</TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                    </TableBody>
+                                  </Table>
+                                </TableContainer>
+                              </Box>
                 </Box>
               )}
             </Box>
@@ -822,6 +809,17 @@ const getAuthHeaders = () => {
     },
     withCredentials: true,
   };
+};
+
+const buildDisplayName = (e) => {
+  const last = (e?.lastName || '').trim();
+  const first = (e?.firstName || '').trim();
+  const mid = (e?.middleName || '').trim();
+  const ext = (e?.nameExtension || e?.suffix || '').trim();
+  if (!last && !first) return (e?.fullName || '').trim() || `#${e?.employeeNumber}`;
+  const givenParts = [first, mid].filter(Boolean).join(' ');
+  const extSuffix = ext ? ` ${ext}` : '';
+  return last ? `${last.toUpperCase()}, ${givenParts}${extSuffix}` : `${givenParts}${extSuffix}`;
 };
 
 // ─── Employee Autocomplete Component ──────────────────────────────────────────
@@ -1125,6 +1123,9 @@ const EmployeeAutocomplete = ({
 const EmployeeRemittance = () => {
   const [data, setData] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
+  const [employeeInfo, setEmployeeInfo] = useState({});
+  const [deptMap, setDeptMap] = useState({});
+  const [empCatMap, setEmpCatMap] = useState({});
   const [newRemittance, setNewRemittance] = useState({
     employeeNumber: '',
     liquidatingCash: '',
@@ -1154,6 +1155,9 @@ const EmployeeRemittance = () => {
   const [originalRemittance, setOriginalRemittance] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(24);
+  const [totalRemittanceCount, setTotalRemittanceCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
@@ -1257,49 +1261,103 @@ const EmployeeRemittance = () => {
 
   useEffect(() => {
     const init = async () => {
-      await fetchRemittances();
+      await Promise.all([fetchRemittances(), fetchDeptMap(), fetchEmpCatMap()]);
       setPageLoading(false);
     };
     init();
-  }, []); // eslint-disable-line
+  }, [page, rowsPerPage, searchTerm]); // eslint-disable-line
+
+  const getEmployeeDisplayName = (employeeNumber) => {
+    const id = employeeNumber?.toString();
+    const info = employeeInfo[id];
+    if (info) return buildDisplayName(info);
+    return employeeNames[id] || 'Loading…';
+  };
 
   const fetchRemittances = async () => {
     try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: rowsPerPage.toString(),
+      });
+      if (searchTerm.trim()) params.append('q', searchTerm.trim());
+
       const res = await axios.get(
-        `${API_BASE_URL}/Remittance/employee-remittance`,
+        `${API_BASE_URL}/Remittance/employee-remittance?${params.toString()}`,
         getAuthHeaders(),
       );
-      setData(res.data);
 
-      const uniqueEmployeeIds = [
-        ...new Set(res.data.map((r) => r.employeeNumber).filter(Boolean)),
-      ];
+      const remittanceData = res.data?.data || [];
       const namesMap = {};
+      const infoMap = {};
 
-      await Promise.all(
-        uniqueEmployeeIds.map(async (id) => {
-          try {
-            const response = await axios.get(
-              `${API_BASE_URL}/Remittance/employees/${id}`,
-              getAuthHeaders(),
-            );
-            namesMap[id] = response.data.name || 'Unknown';
-          } catch (error) {
-            if (error.response?.status !== 404) {
-              console.error(`Error fetching employee ${id}:`, error);
-            }
-            namesMap[id] = 'Unknown';
-          }
-        }),
-      );
+      remittanceData.forEach((item) => {
+        const id = item.employeeNumber?.toString();
+        if (!id) return;
+        namesMap[id] = item.name || 'Unknown';
+        infoMap[id] = item;
+      });
 
+      setData(remittanceData);
       setEmployeeNames(namesMap);
+      setEmployeeInfo(infoMap);
+      setTotalRemittanceCount(res.data?.total || 0);
     } catch (err) {
       console.error('Error fetching data:', err);
       showSnackbar(
         'Failed to fetch remittance records. Please try again.',
         'error',
       );
+    }
+  };
+
+  const handleChangePage = (_, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const fetchDeptMap = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.get(`${API_BASE_URL}/api/department-assignment`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const map = {};
+      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
+        if (item.employeeNumber && item.code) {
+          map[item.employeeNumber.toString()] = item.code;
+        }
+      });
+      setDeptMap(map);
+    } catch (error) {
+      console.error('Error fetching department map:', error);
+    }
+  };
+
+  const fetchEmpCatMap = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const map = {};
+      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
+        if (!item.employeeNumber) return;
+        const label = item.parentGroup && item.typeName ? `${item.parentGroup} | ${item.typeName}` : item.categoryLabel || '';
+        if (label) {
+          map[item.employeeNumber.toString()] = {
+            label,
+            colorHex: item.colorHex || '#757575',
+          };
+        }
+      });
+      setEmpCatMap(map);
+    } catch (error) {
+      console.error('Error fetching employment category map:', error);
     }
   };
 
@@ -1731,18 +1789,31 @@ const EmployeeRemittance = () => {
     gbk: 'GBK',
   };
 
+  // GSIS-related deductions are grouped together in the forms below so they
+  // don't get visually mixed in with the other, unrelated deduction types.
+  const GSIS_FIELDS = [
+    'gsisSalaryLoan',
+    'gsisPolicyLoan',
+    'gsisArrears',
+    'gfal',
+    'cpl',
+    'mpl',
+    'mplLite',
+    'emergencyLoan',
+    'rel',
+    'gbk',
+    'gsl',
+  ];
+  const OTHER_FIELDS = Object.keys(fieldLabels).filter(
+    (field) => !GSIS_FIELDS.includes(field),
+  );
+
   const getTotalDeductions = (remittance) =>
     Object.keys(fieldLabels)
       .reduce((sum, field) => sum + (parseFloat(remittance[field]) || 0), 0)
       .toFixed(2);
 
-  const filteredData = data.filter((remittance) => {
-    const employeeNumber = remittance.employeeNumber?.toString() || '';
-    const employeeName =
-      employeeNames[remittance.employeeNumber]?.toLowerCase() || '';
-    const search = searchTerm.toLowerCase();
-    return employeeNumber.includes(search) || employeeName.includes(search);
-  });
+  const filteredData = data;
 
   const handleUploadButtonClick = () => {
     if (uploading) return;
@@ -1985,43 +2056,6 @@ const EmployeeRemittance = () => {
                   {data.length} {data.length === 1 ? 'record' : 'records'}
                 </Typography>
               </Box>
-              <Tooltip title="Import payroll deductions (.xls, .xlsx)">
-                <span>
-                  <AccentButton
-                    onClick={handleUploadPayrollButtonClick}
-                    variant="outlined"
-                    size="small"
-                    disabled={uploading}
-                    startIcon={
-                      uploading ? (
-                        <CircularProgress size={14} sx={{ color: T.accent }} />
-                      ) : (
-                        <UploadFileIcon sx={{ fontSize: '16px !important' }} />
-                      )
-                    }
-                    sx={{
-                      fontSize: '0.8rem',
-                      borderColor: T.accentBorder,
-                      color: T.accent,
-                      bgcolor: '#fff',
-                      '&:hover': {
-                        bgcolor: T.accentFaint,
-                        borderColor: T.accent,
-                      },
-                    }}
-                  >
-                    {uploading ? 'Uploading…' : 'Import Payroll File'}
-                  </AccentButton>
-                </span>
-              </Tooltip>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xls,.xlsx"
-                onChange={handlePayrollFileSelected}
-                style={{ display: 'none' }}
-              />
               <Tooltip title="Refresh Data">
                 <IconButton
                   onClick={() => fetchRemittances()}
@@ -2051,18 +2085,22 @@ const EmployeeRemittance = () => {
                 height: 'calc(100vh - 280px)',
                 display: 'flex',
                 flexDirection: 'column',
+                border: `1px solid ${alpha(T.divider, 0.85)}`,
+                boxShadow: '0 16px 34px rgba(25, 25, 25, 0.06)',
+                borderRadius: 3,
+                bgcolor: T.surface,
               }}
             >
               {/* Panel header */}
               <Box
                 sx={{
                   px: 3.5,
-                  py: 1.25,
-                  borderBottom: `1px solid ${T.divider}`,
+                  py: 1.75,
+                  borderBottom: `1px solid ${alpha(T.divider, 0.5)}`,
                   display: 'flex',
                   alignItems: 'center',
                   gap: 1.5,
-                  bgcolor: T.accentFaint,
+                  bgcolor: alpha(T.accent, 0.03),
                 }}
               >
                 <AddIcon sx={{ fontSize: 15, color: T.accent }} />
@@ -2097,137 +2135,259 @@ const EmployeeRemittance = () => {
                   },
                 }}
               >
-                {/* ── SECTION: Employee ── */}
-                <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
-
-                <Box sx={{ mb: 2 }}>
-                  <Typography
-                    sx={{
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: T.accent,
-                      mb: 0.75,
-                    }}
-                  >
-                    Search Employee{' '}
-                    <Box component="span" sx={{ color: '#c62828' }}>
-                      *
+                <Box
+                  sx={{
+                    mb: 3,
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: alpha(T.accent, 0.04),
+                    border: `1px solid ${alpha(T.divider, 0.45)}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
+                >
+                  <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.84rem', fontWeight: 700, color: T.text }}>
+                        Import payroll deductions
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                        Upload an Excel file.
+                      </Typography>
                     </Box>
-                  </Typography>
-                  <EmployeeAutocomplete
-                    value={newRemittance.employeeNumber}
-                    onChange={handleEmployeeChange}
-                    selectedEmployee={selectedEmployee}
-                    onEmployeeSelect={handleEmployeeSelect}
-                    placeholder="Search name or employee ID…"
-                    required
-                    error={!!errors.employeeNumber}
-                    helperText={errors.employeeNumber || ''}
-                  />
-                </Box>
-
-                {/* Employee preview pill */}
-                {selectedEmployee ? (
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.25,
-                      px: 1.75,
-                      py: 1.25,
-                      mb: 2.5,
-                      borderRadius: 2,
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
-                    }}
-                  >
-                    <Avatar
+                    <AccentButton
+                      onClick={handleUploadPayrollButtonClick}
+                      variant="contained"
+                      size="medium"
+                      disabled={uploading}
+                      startIcon={
+                        uploading ? (
+                          <CircularProgress size={16} sx={{ color: '#fff' }} />
+                        ) : (
+                          <UploadFileIcon sx={{ fontSize: '18px !important' }} />
+                        )
+                      }
                       sx={{
-                        width: 30,
-                        height: 30,
-                        bgcolor: alpha(T.accent, 0.15),
-                        fontSize: '0.78rem',
-                        color: T.accent,
-                        fontWeight: 700,
-                        flexShrink: 0,
+                        height: 44,
+                        px: 3,
+                        bgcolor: T.accent,
+                        color: '#fff',
+                        boxShadow: `0 4px 16px ${alpha(T.accent, 0.18)}`,
+                        '&:hover': { bgcolor: T.accentDark },
+                        '&:disabled': {
+                          bgcolor: '#bdbdbd !important',
+                          color: '#f5f5f5 !important',
+                          boxShadow: 'none !important',
+                        },
+                        ml: { sm: 2 },
                       }}
                     >
-                      {(selectedEmployee.name?.[0] || '?').toUpperCase()}
-                    </Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography
-                        sx={{
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          color: T.text,
-                          lineHeight: 1.2,
-                        }}
-                        noWrap
-                      >
-                        {selectedEmployee.name}
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>
-                        #{selectedEmployee.employeeNumber}
-                      </Typography>
-                    </Box>
+                      {uploading ? 'Uploading…' : 'Import Remittances'}
+                    </AccentButton>
                   </Box>
-                ) : (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xls,.xlsx"
+                    onChange={handlePayrollFileSelected}
+                    style={{ display: 'none' }}
+                  />
                   <Box
                     sx={{
+                      pt: 1,
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      border: `1.5px dashed ${T.accentBorder}`,
-                      borderRadius: 2,
-                      py: 1.5,
-                      mb: 2.5,
-                      bgcolor: alpha(T.accent, 0.02),
+                      justifyContent: 'space-between',
+                      gap: 2,
+                      flexWrap: 'wrap',
                     }}
                   >
+                    
+                  </Box>
+                </Box>
+                <Box
+                  sx={{
+                    mb: 3,
+                    p: 3,
+                    borderRadius: 3,
+                    bgcolor: alpha(T.accent, 0.04),
+                    border: `1px solid ${alpha(T.divider, 0.35)}`,
+                    boxShadow: '0 12px 36px rgba(0,0,0,0.04)',
+                  }}
+                >
+                  <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+                  <Typography sx={{ fontSize: '0.75rem', color: T.muted, mb: 2 }}>
+                    Select the employee first, then enter the deduction amounts below.
+                  </Typography>
+
+                  <Box sx={{ mb: 2.5 }}>
                     <Typography
                       sx={{
                         fontSize: '0.75rem',
-                        color: T.faint,
-                        fontStyle: 'italic',
+                        fontWeight: 600,
+                        color: T.accent,
+                        mb: 0.75,
                       }}
                     >
-                      No employee selected yet
+                      Search Employee{' '}
+                      <Box component="span" sx={{ color: '#c62828' }}>
+                        *
+                      </Box>
                     </Typography>
+                    <EmployeeAutocomplete
+                      value={newRemittance.employeeNumber}
+                      onChange={handleEmployeeChange}
+                      selectedEmployee={selectedEmployee}
+                      onEmployeeSelect={handleEmployeeSelect}
+                      placeholder="Search name or employee ID…"
+                      required
+                      error={!!errors.employeeNumber}
+                      helperText={errors.employeeNumber || ''}
+                    />
                   </Box>
-                )}
 
-                <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
-
-                {/* ── SECTION: Remittance Details ── */}
-                <FormSectionLabel icon={FactCheckIcon}>
-                  Remittance Details
-                </FormSectionLabel>
-
-                <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
-                  {Object.keys(fieldLabels).map((field) => (
-                    <Grid item xs={12} sm={6} key={field}>
-                      <Typography
+                  {selectedEmployee ? (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.25,
+                        px: 2,
+                        py: 1.5,
+                        mb: 3,
+                        borderRadius: 3,
+                        bgcolor: alpha(T.accent, 0.08),
+                        border: `1px solid ${alpha(T.accentBorder, 0.5)}`,
+                      }}
+                    >
+                      <Avatar
                         sx={{
-                          fontSize: '0.72rem',
-                          fontWeight: 600,
+                          width: 36,
+                          height: 36,
+                          bgcolor: alpha(T.accent, 0.15),
+                          fontSize: '0.86rem',
                           color: T.accent,
-                          mb: 0.5,
+                          fontWeight: 700,
+                          flexShrink: 0,
                         }}
                       >
-                        {fieldLabels[field]}
+                        {(selectedEmployee.name?.[0] || '?').toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.88rem',
+                            fontWeight: 700,
+                            color: T.text,
+                            lineHeight: 1.2,
+                          }}
+                          noWrap
+                        >
+                          {selectedEmployee.name}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                          #{selectedEmployee.employeeNumber}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: `1.5px dashed ${T.accentBorder}`,
+                        borderRadius: 3,
+                        py: 1.75,
+                        mb: 3,
+                        bgcolor: alpha(T.accent, 0.02),
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontSize: '0.75rem',
+                          color: T.faint,
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        No employee selected yet
                       </Typography>
-                      <FieldInput
-                        type="number"
-                        value={newRemittance[field]}
-                        onChange={(e) => handleChange(field, e.target.value)}
-                        fullWidth
-                        size="small"
-                        inputProps={{ step: '0.01', min: '0' }}
-                        placeholder="0.00"
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
+                    </Box>
+                  )}
+
+                  <Divider sx={{ borderColor: alpha(T.divider, 0.7), mb: 2.5 }} />
+
+                  <FormSectionLabel icon={GsisSectionIcon}>
+                    GSIS Deductions
+                  </FormSectionLabel>
+
+                  <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+                    {GSIS_FIELDS.map((field) => (
+                      <Grid item xs={12} sm={6} key={field}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            color: T.accent,
+                            mb: 0.5,
+                          }}
+                        >
+                          {fieldLabels[field]}
+                        </Typography>
+                        <FieldInput
+                          type="number"
+                          value={newRemittance[field]}
+                          onChange={(e) => handleChange(field, e.target.value)}
+                          fullWidth
+                          size="small"
+                          inputProps={{ step: '0.01', min: '0' }}
+                          placeholder="0.00"
+                          sx={{
+                            bgcolor: T.surface,
+                            borderColor: alpha(T.divider, 0.6),
+                          }}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+
+                  <Divider sx={{ borderColor: alpha(T.divider, 0.7), mb: 2.5 }} />
+
+                  <FormSectionLabel icon={FactCheckIcon}>
+                    Other Deductions
+                  </FormSectionLabel>
+
+                  <Grid container spacing={1.5} sx={{ mb: 0 }}>
+                    {OTHER_FIELDS.map((field) => (
+                      <Grid item xs={12} sm={6} key={field}>
+                        <Typography
+                          sx={{
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            color: T.accent,
+                            mb: 0.5,
+                          }}
+                        >
+                          {fieldLabels[field]}
+                        </Typography>
+                        <FieldInput
+                          type="number"
+                          value={newRemittance[field]}
+                          onChange={(e) => handleChange(field, e.target.value)}
+                          fullWidth
+                          size="small"
+                          inputProps={{ step: '0.01', min: '0' }}
+                          placeholder="0.00"
+                          sx={{
+                            bgcolor: T.surface,
+                            borderColor: alpha(T.divider, 0.6),
+                          }}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
 
                 {/* Submit */}
                 <Box sx={{ mt: 'auto' }}>
@@ -2331,7 +2491,7 @@ const EmployeeRemittance = () => {
                   size="small"
                   placeholder="Search by name or employee ID…"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => { setSearchTerm(e.target.value); setPage(0); }}
                   fullWidth
                   InputProps={{
                     startAdornment: (
@@ -2425,30 +2585,34 @@ const EmployeeRemittance = () => {
                           <Box
                             sx={{
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: 0.75,
-                              mb: 0.5,
+                              flexDirection: 'column',
+                              gap: 0.5,
+                              mb: 0.75,
                             }}
                           >
-                            <PersonIcon sx={{ fontSize: 12, color: T.faint }} />
                             <Typography
                               sx={{ fontSize: '0.7rem', color: T.faint }}
                             >
                               {remittance.employeeNumber}
                             </Typography>
+                            <Typography
+                              sx={{
+                                fontSize: '0.82rem',
+                                fontWeight: 700,
+                                color: T.text,
+                              }}
+                              noWrap
+                            >
+                              {getEmployeeDisplayName(remittance.employeeNumber)}
+                            </Typography>
                           </Box>
-                          <Typography
-                            sx={{
-                              fontSize: '0.82rem',
-                              fontWeight: 700,
-                              color: T.text,
-                              mb: 0.25,
-                            }}
-                            noWrap
-                          >
-                            {employeeNames[remittance.employeeNumber] ||
-                              'Loading…'}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                            <DeptBadge code={deptMap[remittance.employeeNumber?.toString()]} />
+                            <EmpCatBadge
+                              label={empCatMap[remittance.employeeNumber?.toString()]?.label}
+                              colorHex={empCatMap[remittance.employeeNumber?.toString()]?.colorHex}
+                            />
+                          </Box>
                           <Typography
                             sx={{
                               fontSize: '0.75rem',
@@ -2546,17 +2710,25 @@ const EmployeeRemittance = () => {
                         >
                           {remittance.employeeNumber}
                         </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: '0.82rem',
-                            fontWeight: 500,
-                            color: T.text,
-                          }}
-                          noWrap
-                        >
-                          {employeeNames[remittance.employeeNumber] ||
-                            'Loading…'}
-                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.82rem',
+                              fontWeight: 500,
+                              color: T.text,
+                            }}
+                            noWrap
+                          >
+                            {getEmployeeDisplayName(remittance.employeeNumber)}
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                            <DeptBadge code={deptMap[remittance.employeeNumber?.toString()]} />
+                            <EmpCatBadge
+                              label={empCatMap[remittance.employeeNumber?.toString()]?.label}
+                              colorHex={empCatMap[remittance.employeeNumber?.toString()]?.colorHex}
+                            />
+                          </Box>
+                        </Box>
                         <Box
                           sx={{
                             display: 'flex',
@@ -2589,12 +2761,25 @@ const EmployeeRemittance = () => {
                   </>
                 )}
               </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
+                <TablePagination
+                  component="div"
+                  count={totalRemittanceCount}
+                  page={page}
+                  onPageChange={handleChangePage}
+                  rowsPerPage={rowsPerPage}
+                  onRowsPerPageChange={handleChangeRowsPerPage}
+                  rowsPerPageOptions={[12, 24, 48, 96]}
+                  labelRowsPerPage="Rows per page"
+                  showFirstButton
+                  showLastButton
+                />
+              </Box>
             </SectionCard>
           </Grid>
         </Grid>
 
         {/* ── Edit / View Modal ── */}
-        {/* CHANGED: maxWidth 700 → 920 for wider modal */}
         <Modal
           open={!!editRemittance}
           onClose={handleCloseModal}
@@ -2829,14 +3014,66 @@ const EmployeeRemittance = () => {
 
                     <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
 
-                    {/* ── Remittance details — 3 columns ── */}
-                    <FormSectionLabel icon={FactCheckIcon}>
-                      Remittance Details
+                    {/* ── GSIS Deductions — 3 columns ── */}
+                    <FormSectionLabel icon={GsisSectionIcon}>
+                      GSIS Deductions
                     </FormSectionLabel>
 
-                    {/* CHANGED: sm={6} → sm={4} for 3-column layout */}
+                    <Grid container spacing={2} sx={{ mb: 2.5 }}>
+                      {GSIS_FIELDS.map((field) => (
+                        <Grid item xs={12} sm={4} key={field}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: T.accent,
+                              mb: 0.5,
+                            }}
+                          >
+                            {fieldLabels[field]}
+                          </Typography>
+                          {isEditing ? (
+                            <FieldInput
+                              type="number"
+                              value={editRemittance[field] || ''}
+                              onChange={(e) =>
+                                handleChange(field, e.target.value, true)
+                              }
+                              fullWidth
+                              size="small"
+                              inputProps={{ step: '0.01', min: '0' }}
+                              placeholder="0.00"
+                            />
+                          ) : (
+                            <Box
+                              sx={{
+                                px: 1.5,
+                                py: 1,
+                                bgcolor: T.accentFaint,
+                                borderRadius: 2,
+                                border: `1px solid ${T.accentBorder}`,
+                              }}
+                            >
+                              <Typography
+                                sx={{ fontSize: '0.82rem', color: T.text }}
+                              >
+                                {editRemittance[field] || '0.00'}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Grid>
+                      ))}
+                    </Grid>
+
+                    <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
+
+                    {/* ── Other Deductions — 3 columns ── */}
+                    <FormSectionLabel icon={FactCheckIcon}>
+                      Other Deductions
+                    </FormSectionLabel>
+
                     <Grid container spacing={2}>
-                      {Object.keys(fieldLabels).map((field) => (
+                      {OTHER_FIELDS.map((field) => (
                         <Grid item xs={12} sm={4} key={field}>
                           <Typography
                             sx={{

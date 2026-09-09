@@ -34,6 +34,7 @@ const {
   isPeriodVoided,
   assertPeriodIsCurrentDisplay,
   latestPeriodsByKey,
+  loadLeavePeriodHistoryAsync,
 } = require("../utils/leaveAssignmentBalanceUtils");
 const { isApprovedHalfDayInReviewJson } = require("../utils/halfDayReviewUtils");
 
@@ -96,8 +97,8 @@ const semRank = (s) => {
 
 /**
  * HR modal context: employee employment type (label only) + hours/day for decimal↔hours sync.
- * Hours/day comes from leave_table.leave_hours for this leave_code (not a separate column on
- * employment types). Actual deduction is always what HR saves on leave_request
+ * Source value is leave_table.leave_hours (may be weekly/policy hours; normalized in
+ * resolveHoursPerDayFromMeta). Actual deduction is always what HR saves on leave_request
  * (deduction_applied_hours / hr_approval_rate).
  */
 const fetchLeaveDeductionMeta = (employeeNumber, leave_code) =>
@@ -127,10 +128,21 @@ const fetchLeaveDeductionMeta = (employeeNumber, leave_code) =>
     );
   });
 
+/**
+ * Hours/day for HR leave deduction.
+ * `leave_table.leave_hours` is often stored as a weekly/policy total (e.g. 40),
+ * not clock-hours per day. Values above a normal workday are treated as weekly
+ * and divided by 4 (T–F faculty week) — same as EarningsManagement half-day VL.
+ */
 const resolveHoursPerDayFromMeta = (meta) => {
   const lt = parseFloat(meta?.leave_type_hours);
-  if (Number.isFinite(lt) && lt > 0)
-    return { hoursPerDay: lt, rateSource: "leave_table" };
+  if (Number.isFinite(lt) && lt > 0) {
+    const hoursPerDay = lt > 12 ? lt / 4 : lt;
+    return {
+      hoursPerDay,
+      rateSource: lt > 12 ? "leave_table_weekly_normalized" : "leave_table",
+    };
+  }
   return { hoursPerDay: 8, rateSource: "default" };
 };
 
@@ -457,13 +469,21 @@ const buildDeductionSuggestion = async ({
   const meta = await fetchLeaveDeductionMeta(employeeNumber, suggestedLeaveCode);
   const { hoursPerDay } = resolveHoursPerDayFromMeta(meta);
 
+  // Leave balances use an 8-hour day as 1.0 decimal (1h = 0.125).
+  // A 10h schedule day → 10/8 = 1.25 decimal, not 1.0.
+  const STANDARD_DAY_HOURS = 8;
+  const fullDayDecimal = Number((hoursPerDay / STANDARD_DAY_HOURS).toFixed(3));
   const requestedRate = parseFloat(requested_rate_decimal);
-  const defaultRate = isHalfDayAbsence ? 0.5 : 1;
+  const defaultRate = isHalfDayAbsence
+    ? Number((fullDayDecimal / 2).toFixed(3))
+    : fullDayDecimal;
   const recommendedRate =
     Number.isFinite(requestedRate) && requestedRate > 0
       ? requestedRate
       : defaultRate;
-  const recommendedHours = Number((recommendedRate * hoursPerDay).toFixed(4));
+  const recommendedHours = Number.isFinite(requestedRate) && requestedRate > 0
+    ? Number((recommendedRate * STANDARD_DAY_HOURS).toFixed(4))
+    : Number(((isHalfDayAbsence ? 0.5 : 1) * hoursPerDay).toFixed(4));
 
   const availableHours = suggestedLeaveCode
     ? await getTotalRemainingHours(employeeNumber, suggestedLeaveCode)
@@ -489,7 +509,7 @@ const buildDeductionSuggestion = async ({
     recommendation_reason: hasLeaveForm
       ? "Leave form exists; prefill based on selected leave type."
       : isHalfDayAbsence
-        ? "No leave form + half-day absence; prefill VL 0.5 day."
+        ? "No leave form + half-day absence; prefill VL half of schedule day."
         : "No leave form; default prefill applied.",
   };
 };
@@ -1118,7 +1138,7 @@ router.get("/employees", requireAdmin, (req, res) => {
 // ============================================
 // LEAVE TABLE
 // ============================================
-router.get("/leave_table", requireAdmin, (req, res) => {
+router.get("/leave_table", (req, res) => {
   db.query("SELECT * FROM leave_table ORDER BY leave_code", (err, results) => {
     if (err)
       return res.status(500).json({ error: "Failed to fetch leave types" });
@@ -1233,6 +1253,24 @@ router.delete("/leave_table/:id", requireAdmin, (req, res) => {
 // LEAVE ASSIGNMENT
 // ============================================
 router.get("/leave_assignment", requireAdmin, (req, res) => {
+  const includeVoided =
+    String(req.query.include_voided || "").trim() === "1" ||
+    String(req.query.include_voided || "").toLowerCase() === "true";
+  const employeeNumber = String(req.query.employeeNumber || "").trim();
+
+  const where = [];
+  const params = [];
+  if (!includeVoided) {
+    where.push("la.voided_at IS NULL");
+  }
+  if (employeeNumber) {
+    where.push("la.employeeNumber = ?");
+    params.push(employeeNumber);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  // Commutation subquery scoped to non-cancelled rows only; active assignments
+  // (default) keep the join small. Prefer assignment indexes for filters.
   const query = `
     SELECT la.id, la.employeeNumber, la.leave_code, la.total_hours, la.remaining_hours, la.used_hours,
       la.approve_date AS approved_date, la.carried_forward_hours, la.allocated_hours, la.period_year, la.period_semester,
@@ -1253,9 +1291,10 @@ router.get("/leave_assignment", requireAdmin, (req, res) => {
     ) lc ON lc.leave_assignment_id = la.id
     LEFT JOIN leave_table lt ON la.leave_code = lt.leave_code
     LEFT JOIN person_table p ON la.employeeNumber = p.agencyEmployeeNum
+    ${whereSql}
     ORDER BY p.lastName, p.firstName, la.leave_code
   `;
-  db.query(query, (err, results) => {
+  db.query(query, params, (err, results) => {
     if (err) {
       console.error("[GET /leave_assignment] DB Error:", err.message);
       return res
@@ -1659,6 +1698,31 @@ router.delete("/leave_assignment/:id", requireAdmin, (req, res) => {
   );
 });
 
+// ─── GET /leave_assignment/period-history ─────────────────────────────────────
+router.get("/leave_assignment/period-history", requireAdmin, async (req, res) => {
+  const emp = String(req.query.employeeNumber || "").trim();
+  const leaveCode = String(req.query.leave_code || "").trim();
+  const py = req.query.period_year;
+  const semRaw = req.query.period_semester ?? req.query.period_month;
+
+  if (!emp || !leaveCode || py == null || String(py).trim() === "") {
+    return res.status(400).json({ error: "employeeNumber, leave_code, and period_year are required" });
+  }
+
+  const sem =
+    semRaw != null && String(semRaw).trim() !== ""
+      ? (/^\d+$/.test(String(semRaw).trim()) ? parseInt(String(semRaw), 10) : semRaw)
+      : null;
+
+  try {
+    const history = await loadLeavePeriodHistoryAsync(db, emp, leaveCode, py, sem);
+    res.json(history);
+  } catch (e) {
+    console.error("[leave] period-history:", e.message);
+    res.status(500).json({ error: e.message || "Failed to load period transaction record" });
+  }
+});
+
 // ─── DELETE /leave_assignment/:id/void-period ───────────────────────────────
 // Soft-void current period assignment + matching leave_earnings + credit usage.
 router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res) => {
@@ -1701,20 +1765,11 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       return res.status(400).json({ error: "Period is already voided" });
     }
 
-// Get the remaining BEFORE this new assignment was inserted so we can show before→after
-      const allRowsForBalance = await queryAsync(
-        `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?) AND id != ?`,
-        [employeeNumber, leave_code, insertedId],
-      );
-      const beforeRemaining = getLeaveTypeStatsActive(allRowsForBalance.map(normalizeAssignmentRow)).remainingHours;
-      const afterRemaining = beforeRemaining + fields.allocated_hours;
-      const deltaHrs = fields.allocated_hours;
+    const allRows = (await queryAsync(
+      `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
+      [rec.employeeNumber, rec.leave_code],
+    )).map(normalizeAssignmentRow);
 
-      await insertTransactionLog(
-        String(employeeNumber),
-        `${actorDisplay} assigned ${leaveDesc} (+${deltaHrs.toFixed(3)} hrs) to ${empDisplay}. Balance updated: ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (+${deltaHrs.toFixed(3)} hrs).`,
-        actorEmpNum,
-      );
     const currentCheck = assertPeriodIsCurrentDisplay(rec, allRows);
     if (!currentCheck.ok) {
       return res.status(400).json({ error: currentCheck.error });
@@ -1726,14 +1781,18 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
     const py = rec.period_year;
     const sem = rec.period_semester ?? rec.period_month;
     const semPad = sem != null ? String(sem).padStart(2, "0") : null;
+    const beforeRemaining = toNum(rec.remaining_hours);
 
     const conn = await getPromiseConnection();
     try {
       await conn.beginTransaction();
 
       const [voidAssignResult] = await conn.execute(
-        "UPDATE leave_assignment SET voided_at = NOW() WHERE id = ? AND voided_at IS NULL",
-        [voidId],
+        `UPDATE leave_assignment SET voided_at = NOW()
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+           AND period_year <=> ? AND period_semester <=> ?
+           AND voided_at IS NULL`,
+        [emp, leaveCode, py, sem],
       );
       if (!voidAssignResult.affectedRows) {
         await conn.rollback();
@@ -1749,11 +1808,19 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
         [emp, leaveCode, py, sem, semPad, sem],
       );
 
-      await conn.execute(
-        `UPDATE leave_credit_usage SET voided_at = NOW()
-         WHERE leave_assignment_id = ? AND voided_at IS NULL`,
-        [voidId],
-      );
+      const assignIds = allRows
+        .filter((a) => String(a.period_year) === String(py)
+          && String(a.period_semester ?? a.period_month) === String(sem ?? ""))
+        .map((a) => a.id)
+        .filter((aid) => aid != null);
+
+      if (assignIds.length) {
+        await conn.execute(
+          `UPDATE leave_credit_usage SET voided_at = NOW()
+           WHERE leave_assignment_id IN (${assignIds.map(() => "?").join(",")}) AND voided_at IS NULL`,
+          assignIds,
+        );
+      }
 
       await conn.commit();
     } catch (txErr) {
@@ -1778,6 +1845,7 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       ]);
       const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
       const empDisplay = formatUserDisplayName(emp, empName);
+      const periodLbl = `${py}${sem != null ? ` / ${sem}` : ""}`;
       logAudit(
         { employeeNumber: actorEmpNum },
         `Void Leave Assignment Period - ${leaveDesc}`,
@@ -1785,9 +1853,9 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
         voidId,
         emp,
       );
-     await insertTransactionLog(
-        String(working.employeeNumber),
-        `${actorDisplay} updated ${leaveDesc} for ${empDisplay} — ${beforeRemaining.toFixed(3)} hrs → ${afterRemaining.toFixed(3)} hrs (${deltaHrs >= 0 ? "+" : "−"}${Math.abs(deltaHrs).toFixed(3)} hrs)`,
+      await insertTransactionLog(
+        String(emp),
+        `${actorDisplay} voided ${leaveDesc} period ${periodLbl} for ${empDisplay} (prior remaining ${beforeRemaining.toFixed(3)} hrs).`,
         actorEmpNum,
       );
     } catch (e) {
@@ -1811,6 +1879,31 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
 // LEAVE REQUESTS
 // ============================================
 router.get("/leave_request", requireAdmin, (req, res) => {
+  const { status, employeeNumbers } = req.query || {};
+  const clauses = [];
+  const params = [];
+
+  if (status != null && String(status).trim() !== "") {
+    clauses.push("CAST(lr.status AS CHAR) = ?");
+    params.push(String(status).trim());
+  }
+
+  let ids = [];
+  if (Array.isArray(employeeNumbers)) {
+    ids = employeeNumbers.map((n) => String(n).trim()).filter(Boolean);
+  } else if (typeof employeeNumbers === "string" && employeeNumbers.trim()) {
+    ids = employeeNumbers
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+  }
+  if (ids.length) {
+    const ph = ids.map(() => "?").join(",");
+    clauses.push(`CAST(lr.employeeNumber AS CHAR) IN (${ph})`);
+    params.push(...ids);
+  }
+
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const query = `
     SELECT lr.*, lt.leave_description, p.firstName, p.lastName,
       CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) as fullName,
@@ -1819,9 +1912,10 @@ router.get("/leave_request", requireAdmin, (req, res) => {
     FROM leave_request lr
     LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code
     LEFT JOIN person_table p ON lr.employeeNumber = p.agencyEmployeeNum
+    ${where}
     ORDER BY lr.created_at DESC
   `;
-  db.query(query, (err, results) => {
+  db.query(query, params, (err, results) => {
     if (err)
       return res.status(500).json({ error: "Failed to fetch leave requests" });
     res.json(results);
@@ -3452,3 +3546,6 @@ router.delete("/leave_request/:id", requireAdmin, (req, res) => {
 
 
 module.exports = router;
+
+
+

@@ -1027,7 +1027,7 @@ const PayrollProcessed = () => {
     if (activePayrollView === 'DEDUCTIONS') {
       return (
         <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto', borderRadius: 0, position: 'relative' }}>
-          <Table sx={{ minWidth: 2600, tableLayout: 'auto', borderCollapse: 'separate', borderSpacing: 0 }}>
+          <Table sx={{ minWidth: 2740, tableLayout: 'auto', borderCollapse: 'separate', borderSpacing: 0 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: '#fff' }}>
                 {['Serial No.', 'Name', 'Position', 'Emp. No.', 'WTAX'].map((head) => (
@@ -1035,17 +1035,25 @@ const PayrollProcessed = () => {
                     {head}
                   </TableCell>
                 ))}
-                {[{ label: 'GSIS', cols: 10 }, { label: 'PAG-IBIG', cols: 4 }, { label: 'OTHER DEDUCTIONS', cols: 5 }].map(({ label, cols }) => (
+                {[{ label: 'GSIS', cols: 14 }, { label: 'PAG-IBIG', cols: 6 }].map(({ label, cols }) => (
                   <TableCell key={label} align="center" colSpan={cols} sx={{ border: `1px solid ${T.divider}`, py: 0.8, px: 1, fontSize: '0.72rem', fontWeight: 900, color: '#1f2937', textTransform: 'uppercase', whiteSpace: 'nowrap', bgcolor: '#e8edf3', fontFamily: T.font }}>
                     {label}
                   </TableCell>
                 ))}
                 <TableCell rowSpan={2} sx={{ border: `1px solid ${T.divider}`, py: 1.1, px: 1, fontSize: '0.72rem', fontWeight: 800, color: '#334155', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>PhilHealth</TableCell>
+                <TableCell align="center" colSpan={6} sx={{ border: `1px solid ${T.divider}`, py: 0.8, px: 1, fontSize: '0.72rem', fontWeight: 900, color: '#1f2937', textTransform: 'uppercase', whiteSpace: 'nowrap', bgcolor: '#e8edf3', fontFamily: T.font }}>
+                  OTHER DEDUCTIONS
+                </TableCell>
                 <TableCell rowSpan={2} sx={{ border: `1px solid ${T.divider}`, py: 1.1, px: 1, fontSize: '0.72rem', fontWeight: 800, color: '#334155', whiteSpace: 'nowrap', bgcolor: '#fff', fontFamily: T.font }}>Total Deductions</TableCell>
                 <TableCell rowSpan={2} align="center" sx={stickyActionsHeaderSx}>Actions</TableCell>
               </TableRow>
               <TableRow sx={{ bgcolor: '#fff' }}>
-                {['Pers. Life Ins.', 'GSIS Arrears', 'Sal. Loan', 'Policy Loan', 'CPL', 'MPL', 'MPL Lite', 'EAL', 'Emerg. Loan', 'Total GSIS', 'Pag-ibig Contri', 'Pag-ibig 2', 'MPL', 'Total Pag-ibig', 'Landbank', 'Earist COOP', 'FEU', 'Liq. Cash', 'Total Other'].map((head) => (
+                {[
+                  'Pers. Life Ins.', 'GSIS Arrears', 'Sal. Loan', 'Policy Loan', 'GFAL', 'CPL', 'MPL', 'MPL Lite',
+                  'Emerg. Loan', 'REL', 'GSL', 'GBK', 'Others', 'Total GSIS',
+                  'Pag-ibig Contri', 'Pag-ibig 2', 'MPL', 'Cal. Loan', 'Others', 'Total Pag-ibig',
+                  'Landbank', 'Earist COOP', 'FEU', 'MTSLA', 'Other Disallow.', 'Total Other',
+                ].map((head) => (
                   <TableCell key={head} sx={{ border: `1px solid ${T.divider}`, py: 1, px: 0.75, fontSize: '0.68rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', whiteSpace: 'nowrap', bgcolor: '#eef2f7', fontFamily: T.font }}>
                     {head}
                   </TableCell>
@@ -1060,26 +1068,42 @@ const PayrollProcessed = () => {
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{row.position}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontFamily: 'monospace', fontWeight: 700 }}>{row.employeeNumber}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.withholdingTax)}</ExcelTableCell>
+
+                  {/* GSIS */}
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.personalLifeRetIns)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gsisArrears)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gsisSalaryLoan)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gsisPolicyLoan)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gfal)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.cpl)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.mpl)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.mplLite)}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.eal)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.emergencyLoan)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.rel)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gsl)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gbk)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.gsisOthers)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 700 }}>{fmt(row.totalGsisDeds)}</ExcelTableCell>
+
+                  {/* PAG-IBIG */}
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.pagibigFundCont)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.pagibig2)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.multiPurpLoan)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.calLoan)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.pagibigOthers)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 700 }}>{fmt(row.totalPagibigDeds)}</ExcelTableCell>
+
+                  {/* PhilHealth */}
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.PhilHealthContribution)}</ExcelTableCell>
+
+                  {/* OTHER DEDUCTIONS */}
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.landbankSalaryLoan)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.earistCreditCoop)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.feu)}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.liquidatingCash)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.mtslaSalLoan)}</ExcelTableCell>
+                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.otherDisallowance)}</ExcelTableCell>
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 700 }}>{fmt(row.totalOtherDeds)}</ExcelTableCell>
-                  <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem' }}>{fmt(row.PhilHealthContribution)}</ExcelTableCell>
+
                   <ExcelTableCell sx={{ borderBottom: 'none', fontSize: '0.82rem', fontWeight: 800 }}>{fmt(row.totalDeductions)}</ExcelTableCell>
                   <ExcelTableCell sx={getStickyActionsBodySx(index)}>
                     <ActionButtons row={row} />

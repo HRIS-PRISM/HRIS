@@ -19,6 +19,11 @@ import {
   Snackbar,
   Checkbox,
   IconButton,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputAdornment,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import {
@@ -27,6 +32,8 @@ import {
   Payment as PaymentIcon,
   ExpandMore as ExpandMoreIcon,
   ViewStream as AbstractTabIcon,
+  Search as SearchIcon,
+  FilterAltOff as FilterAltOffIcon,
 } from "@mui/icons-material";
 import {
   payrollAuthHeaders,
@@ -40,10 +47,12 @@ import {
 } from "./SalaryShortfallRegistry";
 import { aggregateAttendanceResultsForAbstract } from "./aggregateAttendanceResultsForAbstract";
 import usePayrollRealtimeRefresh from "../../../hooks/usePayrollRealtimeRefresh";
-import { useSocket } from "../../../contexts/SocketContext";
-import { useEarningsRealtimeRefresh } from "./useEarningsRealtimeRefresh";
 
 const WH = 8;
+
+const MONTH_ABBR = [
+  "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec",
+];
 
 const T = {
   accent: "#6d2323",
@@ -70,6 +79,13 @@ const T = {
   coveredChipBg: "rgba(46,125,50,0.08)",
   coveredChipColor: "#1e4d20",
   coveredChipBorder: "rgba(46,125,50,0.28)",
+  // ── Manual "Add to Abstract" rows — distinct blue tint ──
+  manualBg: "rgba(21,101,192,0.045)",
+  manualText: "#0d47a1",
+  manualBorder: "rgba(21,101,192,0.14)",
+  manualChipBg: "rgba(21,101,192,0.09)",
+  manualChipColor: "#0d47a1",
+  manualChipBorder: "rgba(21,101,192,0.26)",
   sentChipBg: "rgba(21,101,192,0.08)",
   sentChipColor: "#1565c0",
   sentChipBorder: "rgba(21,101,192,0.22)",
@@ -83,6 +99,10 @@ const T = {
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
 }
 
 function fmtCreatedAt(v) {
@@ -151,6 +171,30 @@ function abstractRowHasPayrollForPeriod(row, filterYear, filterMonth, payrollKey
     if (payrollKeySet.has(`${ek}|${sd}|${ed}`)) return true;
   }
   return false;
+}
+
+// Best-effort extraction of a row's period year/month, tolerant of whatever
+// shape the row was staged with (explicit periodYear/periodMonth, plain
+// year/month, or only a human-readable "period" label like "Jun 2026").
+function getRowPeriodYearMonth(row) {
+  if (!row) return { y: null, m: null };
+  if (row.periodYear != null && row.periodMonth != null) {
+    return { y: Number(row.periodYear), m: Number(row.periodMonth) };
+  }
+  if (row.year != null && row.month != null) {
+    return { y: Number(row.year), m: Number(row.month) };
+  }
+  const s = String(row.period ?? "");
+  const yearMatch = s.match(/(20\d{2}|19\d{2})/);
+  const y = yearMatch ? Number(yearMatch[1]) : null;
+  let m = null;
+  for (let i = 0; i < MONTH_ABBR.length; i++) {
+    if (s.toLowerCase().includes(MONTH_ABBR[i].toLowerCase())) {
+      m = i + 1;
+      break;
+    }
+  }
+  return { y, m };
 }
 
 // ─── Shared header cell style ─────────────────────────────────────────────────
@@ -247,18 +291,27 @@ const StatPill = ({ label, value, accent = false }) => (
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function Abstract({ employee, year, month }) {
-  const { socket, connected } = useSocket();
-  const [attendanceResults, setAttendanceResults] = useState([]);
-  const [emptyHint, setEmptyHint] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+export function Abstract({ employee, year, month, manualRows = [] }) {
   const [sentToPayrollKeys, setSentToPayrollKeys] = useState(() => new Set());
   const [selectedPayrollKeys, setSelectedPayrollKeys] = useState(() => new Set());
   const [submittingPayroll, setSubmittingPayroll] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
   const [auditExpandedKeys, setAuditExpandedKeys] = useState(() => new Set());
   const [payrollExistingPeriodKeys, setPayrollExistingPeriodKeys] = useState(() => new Set());
+  const [refreshingKeys, setRefreshingKeys] = useState(false);
+
+  // ── Filter state: search by employee # / name, plus optional year & month ──
+  // These are independent of the `employee`/`year`/`month` props passed down
+  // from the parent — they let the abstract show ALL staged records (across
+  // every employee/period ever added this session) and narrow that view down
+  // on demand, rather than being locked to whatever was last selected upstream.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterYear, setFilterYear] = useState("all");
+  const [filterMonth, setFilterMonth] = useState("all");
+
+  // ── Fetch persisted attendance_result records from database ──
+  const [fetchedRows, setFetchedRows] = useState([]);
+  const [loadingFetch, setLoadingFetch] = useState(false);
 
   useEffect(() => {
     setSentToPayrollKeys(new Set());
@@ -266,7 +319,37 @@ export function Abstract({ employee, year, month }) {
     setAuditExpandedKeys(new Set());
   }, [employee?.employeeNumber, year, month]);
 
+  // Fetch attendance_result records from database for the selected period
+  useEffect(() => {
+    if (!year || !month) {
+      setFetchedRows([]);
+      return;
+    }
+
+    const fetchAttendanceResultsFromDB = async () => {
+      setLoadingFetch(true);
+      try {
+        const url = API_BASE_URL.includes('/api')
+          ? `${API_BASE_URL}/attendance-result`
+          : `${API_BASE_URL}/api/attendance-result`;
+        const { data } = await axios.get(url, {
+          params: { year: String(year), month: String(month) },
+          ...payrollAuthHeaders(),
+        });
+        setFetchedRows(data.rows || []);
+      } catch (err) {
+        console.error("Failed to fetch attendance_result rows:", err);
+        setFetchedRows([]);
+      } finally {
+        setLoadingFetch(false);
+      }
+    };
+
+    fetchAttendanceResultsFromDB();
+  }, [year, month]);
+
   const fetchPayrollExistingPeriodKeys = useCallback(async () => {
+    setRefreshingKeys(true);
     try {
       const { data } = await axios.get(
         `${API_BASE_URL}/PayrollRoute/payroll-with-remittance`,
@@ -275,10 +358,16 @@ export function Abstract({ employee, year, month }) {
       setPayrollExistingPeriodKeys(buildPayrollExistingPeriodKeySet(data));
     } catch {
       setPayrollExistingPeriodKeys(new Set());
+    } finally {
+      setRefreshingKeys(false);
     }
   }, []);
 
   usePayrollRealtimeRefresh(fetchPayrollExistingPeriodKeys);
+
+  useEffect(() => {
+    fetchPayrollExistingPeriodKeys();
+  }, [fetchPayrollExistingPeriodKeys]);
 
   const toggleAuditExpand = useCallback((summaryKey) => {
     setAuditExpandedKeys((prev) => {
@@ -290,9 +379,8 @@ export function Abstract({ employee, year, month }) {
   }, []);
 
   const filterSummary = useMemo(() => {
-    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const m = Math.min(Math.max(parseInt(month, 10) || 1, 1), 12);
-    const mo = MONTHS[m - 1] || "";
+    const mo = MONTH_ABBR[m - 1] || "";
     const y = year != null && year !== "" ? String(year) : "—";
     const empPart = employee?.employeeNumber
       ? `Employee #${employee.employeeNumber}`
@@ -300,85 +388,90 @@ export function Abstract({ employee, year, month }) {
     return `${mo} ${y} · ${empPart}`;
   }, [employee?.employeeNumber, year, month]);
 
-  const fetchRows = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    const token = localStorage.getItem("token");
-    const headers = { Authorization: `Bearer ${token}` };
-    try {
-      const params = { year, month };
-      if (employee?.employeeNumber) params.employeeNumber = employee.employeeNumber;
-      const { data } = await axios.get(`${API_BASE_URL}/api/leave-salary-shortfall`, {
-        headers,
-        params,
-      });
-      const ar = Array.isArray(data?.attendanceResults) ? data.attendanceResults : [];
-      setAttendanceResults(ar);
-
-      if (ar.length === 0 && employee?.employeeNumber) {
-        try {
-          const { data: scData } = await axios.get(
-            `${API_BASE_URL}/api/earnings/sc/${employee.employeeNumber}`,
-            { headers, params: { year, month } },
-          );
-          const earnings = Array.isArray(scData?.earnings) ? scData.earnings : [];
-          const ledger = Array.isArray(scData?.ledger_sc_deductions) ? scData.ledger_sc_deductions : [];
-          const approvedEarn = earnings.filter(
-            (e) => String(e.entry_type || "").toUpperCase() !== "DEDUCTION"
-              && String(e.earn_status || "").toLowerCase() === "approved",
-          ).length;
-          const scDeductions = earnings.filter(
-            (e) => String(e.entry_type || "").toUpperCase() === "DEDUCTION",
-          ).length + ledger.length;
-          setEmptyHint({ approvedEarn, scDeductions });
-        } catch {
-          setEmptyHint(null);
-        }
-      } else {
-        setEmptyHint(null);
+  // Combine fetched attendance_result rows with manually added rows
+  // Fetched rows are transformed/aggregated to match the structure of manualRows
+  const allAbstractRows = useMemo(() => {
+    const aggregated = aggregateAttendanceResultsForAbstract(fetchedRows, year, month);
+    
+    // Create a Set of keys from manualRows to avoid duplicates
+    const manualKeys = new Set(manualRows.map(r => r.key));
+    
+    // Add aggregated rows that aren't already in manualRows
+    const combined = [...manualRows];
+    for (const row of aggregated) {
+      if (!manualKeys.has(row.key)) {
+        combined.push(row);
       }
-    } catch (e) {
-      setAttendanceResults([]);
-      setEmptyHint(null);
-      setError(
-        e.response?.data?.error ||
-        e.response?.data?.message ||
-        e.message ||
-        "Failed to load attendance results",
-      );
-    } finally {
-      setLoading(false);
     }
-  }, [employee?.employeeNumber, year, month]);
+    
+    return combined;
+  }, [fetchedRows, manualRows, year, month]);
 
-  useEffect(() => {
-    fetchRows();
-    fetchPayrollExistingPeriodKeys();
-  }, [fetchRows, fetchPayrollExistingPeriodKeys]);
+  // which fetches real attendance_result data (or stages a zero-deduction placeholder) and
+  // passes the result down as `manualRows`. Abstract.js now also auto-fetches persisted
+  // attendance_result rows on mount/period-change and merges them with manual rows.
+  //
+  // Combined rows include both manually added (this session) and database-persisted records.
+  // The filter bar below (search / year / month) narrows that full set down;
+  // leaving all three filters at their defaults shows everything staged so far.
+  const hasActiveFilter = searchQuery.trim() !== "" || filterYear !== "all" || filterMonth !== "all";
 
-  useEarningsRealtimeRefresh({
-    socket,
-    connected,
-    onRefresh: fetchRows,
-    selectedEmployeeNumber: employee?.employeeNumber,
-  });
+  const displayRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q && filterYear === "all" && filterMonth === "all") return allAbstractRows;
+    return allAbstractRows.filter((r) => {
+      if (q) {
+        const empStr = String(r.employeeNumber ?? "").toLowerCase();
+        const nameStr = String(r.name ?? "").toLowerCase();
+        if (!empStr.includes(q) && !nameStr.includes(q)) return false;
+      }
+      if (filterYear !== "all" || filterMonth !== "all") {
+        const { y, m } = getRowPeriodYearMonth(r);
+        if (filterYear !== "all" && String(y ?? "") !== String(filterYear)) return false;
+        if (filterMonth !== "all" && String(m ?? "") !== String(filterMonth)) return false;
+      }
+      return true;
+    });
+  }, [allAbstractRows, searchQuery, filterYear, filterMonth]);
 
-  const mergedRows = useMemo(
-    () => aggregateAttendanceResultsForAbstract(attendanceResults, year, month),
-    [attendanceResults, year, month],
-  );
+  // Distinct years present across every staged row, so the year dropdown only
+  // ever offers choices that actually exist (plus whatever period the parent
+  // currently has selected, so it's always available even before rows for it exist).
+  const availableYears = useMemo(() => {
+    const set = new Set();
+    allAbstractRows.forEach((r) => {
+      const { y } = getRowPeriodYearMonth(r);
+      if (y) set.add(y);
+    });
+    if (year != null && year !== "") set.add(Number(year));
+    return [...set].sort((a, b) => b - a);
+  }, [allAbstractRows, year]);
 
-  const deductionRows = useMemo(() => mergedRows.filter((r) => r.isDeduction), [mergedRows]);
-  const coveredRows   = useMemo(() => mergedRows.filter((r) => !r.isDeduction), [mergedRows]);
-  const isEmpty = !loading && !error && mergedRows.length === 0;
+  const clearFilters = useCallback(() => {
+    setSearchQuery("");
+    setFilterYear("all");
+    setFilterMonth("all");
+  }, []);
+
+  // Effective period used for payroll-bound lookups: respects an active
+  // year/month filter, otherwise falls back to whatever the parent selected.
+  const effectiveYear = filterYear !== "all" ? filterYear : year;
+  const effectiveMonth = filterMonth !== "all" ? filterMonth : month;
+
+  const deductionRows = useMemo(() => displayRows.filter((r) => r.isDeduction), [displayRows]);
+  const coveredRows   = useMemo(() => displayRows.filter((r) => !r.isDeduction), [displayRows]);
+  const isEmpty = allAbstractRows.length === 0;
+  const isFilteredEmpty = !isEmpty && displayRows.length === 0;
 
   const isRowAlreadySent = useCallback(
     (row) => sentToPayrollKeys.has(row.key),
     [sentToPayrollKeys],
   );
+  // Works for manual rows too — they carry employeeNumber/periodYear/periodMonth
+  // in the same shape getPayrollPeriodBounds() expects, so no special-casing needed.
   const isRowAlreadyInPayrollProcessing = useCallback(
-    (row) => abstractRowHasPayrollForPeriod(row, year, month, payrollExistingPeriodKeys),
-    [payrollExistingPeriodKeys, year, month],
+    (row) => abstractRowHasPayrollForPeriod(row, effectiveYear, effectiveMonth, payrollExistingPeriodKeys),
+    [payrollExistingPeriodKeys, effectiveYear, effectiveMonth],
   );
 
   const togglePayrollSelect = useCallback((rowKey) => {
@@ -391,8 +484,8 @@ export function Abstract({ employee, year, month }) {
   }, []);
 
   const eligiblePayrollRows = useMemo(
-    () => mergedRows.filter((r) => !isRowAlreadySent(r) && !isRowAlreadyInPayrollProcessing(r)),
-    [mergedRows, isRowAlreadySent, isRowAlreadyInPayrollProcessing],
+    () => displayRows.filter((r) => !isRowAlreadySent(r) && !isRowAlreadyInPayrollProcessing(r)),
+    [displayRows, isRowAlreadySent, isRowAlreadyInPayrollProcessing],
   );
 
   useEffect(() => {
@@ -400,14 +493,14 @@ export function Abstract({ employee, year, month }) {
       const next = new Set();
       let changed = false;
       for (const k of prev) {
-        const row = mergedRows.find((r) => r.key === k);
+        const row = displayRows.find((r) => r.key === k);
         if (!row) { changed = true; continue; }
         if (isRowAlreadyInPayrollProcessing(row)) { changed = true; continue; }
         next.add(k);
       }
       return changed ? next : prev;
     });
-  }, [mergedRows, isRowAlreadyInPayrollProcessing]);
+  }, [displayRows, isRowAlreadyInPayrollProcessing]);
 
   const headerCheckboxState = useMemo(() => {
     const keys = eligiblePayrollRows.map((r) => r.key);
@@ -433,14 +526,14 @@ export function Abstract({ employee, year, month }) {
   const selectedEligibleCount = useMemo(() => {
     let n = 0;
     for (const key of selectedPayrollKeys) {
-      const row = mergedRows.find((x) => x.key === key);
+      const row = displayRows.find((x) => x.key === key);
       if (row && !isRowAlreadySent(row) && !isRowAlreadyInPayrollProcessing(row)) n += 1;
     }
     return n;
-  }, [selectedPayrollKeys, mergedRows, isRowAlreadySent, isRowAlreadyInPayrollProcessing]);
+  }, [selectedPayrollKeys, displayRows, isRowAlreadySent, isRowAlreadyInPayrollProcessing]);
 
   const handleSendToPayroll = useCallback(async () => {
-    const picked = mergedRows.filter(
+    const picked = displayRows.filter(
       (r) =>
         selectedPayrollKeys.has(r.key) &&
         !isRowAlreadySent(r) &&
@@ -452,7 +545,7 @@ export function Abstract({ employee, year, month }) {
     }
     const byPeriod = new Map();
     for (const r of picked) {
-      const b = getPayrollPeriodBounds(r, year, month);
+      const b = getPayrollPeriodBounds(r, effectiveYear, effectiveMonth);
       if (!b) continue;
       const u = `${b.startDate}|${b.endDate}`;
       const emp = String(r.employeeNumber).trim();
@@ -483,13 +576,16 @@ export function Abstract({ employee, year, month }) {
         seen.add(k);
         uniquePayload.push(p);
       }
+      // Manual rows carry isDeduction:false, so registryContributionDays() returns 0
+      // for them automatically — they simply contribute nothing to `abs` here, which
+      // is exactly the "no deduction" behavior we want.
       for (const p of uniquePayload) {
         const emp = String(p.personID).trim();
         let sumAbs = 0;
         let nameFromRegistry = null;
         for (const r of picked) {
           if (String(r.employeeNumber).trim() !== emp) continue;
-          const b = getPayrollPeriodBounds(r, year, month);
+          const b = getPayrollPeriodBounds(r, effectiveYear, effectiveMonth);
           if (!b || b.startDate !== p.startDate || b.endDate !== p.endDate) continue;
           sumAbs += registryContributionDays(r);
           if (!nameFromRegistry && r.name) nameFromRegistry = r.name;
@@ -532,10 +628,23 @@ export function Abstract({ employee, year, month }) {
     } finally {
       setSubmittingPayroll(false);
     }
-  }, [mergedRows, selectedPayrollKeys, isRowAlreadySent, isRowAlreadyInPayrollProcessing, year, month]);
+  }, [displayRows, selectedPayrollKeys, isRowAlreadySent, isRowAlreadyInPayrollProcessing, effectiveYear, effectiveMonth]);
 
   // 15 cols: checkbox + audit + 13 data cols
   const TABLE_COL_SPAN = 15;
+
+  const filterInputSx = {
+    fontFamily: T.poppins,
+    "& .MuiOutlinedInput-root": {
+      fontSize: "0.75rem",
+      fontFamily: T.poppins,
+      bgcolor: "#fff",
+      borderRadius: "8px",
+      "& fieldset": { borderColor: T.accentBorder },
+      "&:hover fieldset": { borderColor: T.accentMid },
+      "&.Mui-focused fieldset": { borderColor: T.accent },
+    },
+  };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", fontFamily: T.poppins }}>
@@ -543,15 +652,99 @@ export function Abstract({ employee, year, month }) {
       {/* ── Column header ── */}
       <ColHeader icon={AbstractTabIcon} label="Abstract · attendance_result">
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          {!loading && mergedRows.length > 0 && (
+          {(allAbstractRows.length > 0 || loadingFetch) && (
             <>
-              <StatPill value={mergedRows.length} label="records" />
-              <StatPill value={deductionRows.length} label="deductions" accent />
-              <StatPill value={coveredRows.length} label="covered" />
+              {loadingFetch && <CircularProgress size={16} sx={{ color: T.accent }} />}
+              {!loadingFetch && (
+                <>
+                  <StatPill
+                    value={hasActiveFilter ? `${displayRows.length}/${allAbstractRows.length}` : displayRows.length}
+                    label="records"
+                  />
+                  <StatPill value={deductionRows.length} label="deductions" accent />
+                  <StatPill value={coveredRows.length} label="covered" />
+                </>
+              )}
             </>
           )}
         </Box>
       </ColHeader>
+
+      {/* ── Filter bar: search employee, filter by year/month, view all ── */}
+      {allAbstractRows.length > 0 && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            borderBottom: `1px solid ${T.divider}`,
+            bgcolor: "#fff",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            flexWrap: "wrap",
+            flexShrink: 0,
+          }}
+        >
+          <TextField
+            size="small"
+            placeholder="Search employee # or name…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            sx={{ ...filterInputSx, minWidth: 220, flex: "1 1 220px" }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 16, color: T.faint }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 110 }}>
+            <Select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              displayEmpty
+              sx={{ borderRadius: "8px" }}
+            >
+              <MenuItem value="all">All years</MenuItem>
+              {availableYears.map((y) => (
+                <MenuItem key={y} value={String(y)}>{y}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 130 }}>
+            <Select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              displayEmpty
+              sx={{ borderRadius: "8px" }}
+            >
+              <MenuItem value="all">All months</MenuItem>
+              {MONTH_ABBR.map((mo, idx) => (
+                <MenuItem key={mo} value={String(idx + 1)}>{mo}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {hasActiveFilter && (
+            <Button
+              size="small"
+              onClick={clearFilters}
+              startIcon={<FilterAltOffIcon sx={{ fontSize: 14 }} />}
+              sx={{
+                fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
+                fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
+                px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
+                "&:hover": { bgcolor: "rgba(0,0,0,0.03)", borderColor: "rgba(0,0,0,0.15)" },
+              }}
+            >
+              Reset filters
+            </Button>
+          )}
+        </Box>
+      )}
 
       {/* ── Toolbar ── */}
       <Box
@@ -573,6 +766,7 @@ export function Abstract({ employee, year, month }) {
           {[
             { color: T.accent, label: "Salary deduction" },
             { color: "#2e7d32", label: "Covered by leave" },
+            { color: "#1565c0", label: "Manually added" },
           ].map(({ color, label }) => (
             <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.55 }}>
               <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
@@ -588,7 +782,7 @@ export function Abstract({ employee, year, month }) {
 
         {/* Actions */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-          {mergedRows.length > 0 && !loading && (
+          {displayRows.length > 0 && (
             <>
               <Button
                 size="small"
@@ -647,12 +841,12 @@ export function Abstract({ employee, year, month }) {
           <Button
             size="small"
             startIcon={
-              loading
+              refreshingKeys
                 ? <CircularProgress size={11} sx={{ color: T.accent }} />
                 : <RefreshIcon sx={{ fontSize: 14 }} />
             }
-            onClick={() => { fetchRows(); fetchPayrollExistingPeriodKeys(); }}
-            disabled={loading}
+            onClick={() => { fetchPayrollExistingPeriodKeys(); }}
+            disabled={refreshingKeys}
             sx={{
               fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
               fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
@@ -667,14 +861,6 @@ export function Abstract({ employee, year, month }) {
       </Box>
 
       {/* ── Alerts ── */}
-      {error && (
-        <Alert
-          severity="error"
-          sx={{ mx: 2, mt: 1.5, mb: 0, fontSize: "0.72rem", borderRadius: 1.5, py: 0.5, fontFamily: T.poppins }}
-        >
-          {error}
-        </Alert>
-      )}
 
       {isEmpty && (
         <Box sx={{ px: 2, pt: 1.5, pb: 0 }}>
@@ -687,25 +873,34 @@ export function Abstract({ employee, year, month }) {
             }}
           >
             <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", color: T.accent, fontFamily: T.poppins, mb: 0.3 }}>
-              Nothing queued for payroll yet
+              No attendance_result records for this period
             </Typography>
             <Typography sx={{ fontSize: "0.72rem", color: T.muted, lineHeight: 1.55, fontFamily: T.poppins }}>
-              <strong>ABSTRACT</strong> lists <strong>attendance_result</strong> rows only — attendance
-              deductions and salary shortfalls for <strong>{filterSummary}</strong>, not SC/CTO/leave
-              earnings (OT credit).
-              {emptyHint?.approvedEarn > 0 && (
-                <>
-                  {" "}This employee has <strong>{emptyHint.approvedEarn}</strong> approved SC earning
-                  {emptyHint.approvedEarn === 1 ? "" : "s"} in Records; those stay off Abstract by design.
-                </>
-              )}
-              {emptyHint?.scDeductions === 0 && (
-                <>
-                  {" "}To appear here, post an <strong>attendance deduction</strong> from the left panel
-                  (SC/CTO receipt or salary charge) — approving SC earn alone does not create a payroll row.
-                </>
-              )}
-              {" "}Use the <strong>Salary Shortfall</strong> tab for the full merged registry.
+              Nothing in <strong>attendance_result</strong> for <strong>{filterSummary}</strong>. 
+              Use the Salary Shortfall tab for the full merged registry. The ABSTRACT tab automatically 
+              shows all persisted <strong>attendance_result</strong> records once they are created.
+            </Typography>
+          </Alert>
+        </Box>
+      )}
+
+      {isFilteredEmpty && (
+        <Box sx={{ px: 2, pt: 1.5, pb: 0 }}>
+          <Alert
+            severity="info"
+            icon={<InfoOutlinedIcon sx={{ fontSize: 20 }} />}
+            sx={{
+              alignItems: "center", fontFamily: T.poppins,
+              borderRadius: 1.75, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint,
+            }}
+            action={
+              <Button size="small" onClick={clearFilters} sx={{ fontFamily: T.poppins, textTransform: "none", fontWeight: 700, color: T.accent }}>
+                Reset filters
+              </Button>
+            }
+          >
+            <Typography sx={{ fontSize: "0.75rem", color: T.muted, fontFamily: T.poppins }}>
+              No records match your search / year / month filter. {allAbstractRows.length} record(s) found in total.
             </Typography>
           </Alert>
         </Box>
@@ -804,30 +999,22 @@ export function Abstract({ employee, year, month }) {
             </TableHead>
 
             <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={TABLE_COL_SPAN} align="center" sx={{ py: 5, border: "none" }}>
-                    <CircularProgress size={24} sx={{ color: T.accent }} />
-                    <Typography sx={{ mt: 1, fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>
-                      Loading attendance results…
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : mergedRows.length === 0 ? null : (
-                mergedRows.map((merged) => {
+              {displayRows.length === 0 ? null : (
+                displayRows.map((merged) => {
                   const rowKey    = merged.key;
                   const isDed     = merged.isDeduction;
+                  const isManual  = !!merged.isManual;
                   const sent      = sentToPayrollKeys.has(rowKey);
                   const payrollDone = isRowAlreadyInPayrollProcessing(merged);
                   const auditOpen = auditExpandedKeys.has(rowKey);
                   const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
 
-                  const bg      = isDed ? T.salaryBg       : T.coveredBg;
-                  const fgColor = isDed ? T.salaryText      : T.coveredText;
-                  const bord    = isDed ? T.salaryBorder    : T.coveredBorder;
-                  const chipBg  = isDed ? T.salaryChipBg   : T.coveredChipBg;
-                  const chipFg  = isDed ? T.salaryChipColor : T.coveredChipColor;
-                  const chipBd  = isDed ? T.salaryChipBorder : T.coveredChipBorder;
+                  const bg      = isManual ? T.manualBg      : (isDed ? T.salaryBg       : T.coveredBg);
+                  const fgColor = isManual ? T.manualText    : (isDed ? T.salaryText      : T.coveredText);
+                  const bord    = isManual ? T.manualBorder  : (isDed ? T.salaryBorder    : T.coveredBorder);
+                  const chipBg  = isManual ? T.manualChipBg  : (isDed ? T.salaryChipBg   : T.coveredChipBg);
+                  const chipFg  = isManual ? T.manualChipColor : (isDed ? T.salaryChipColor : T.coveredChipColor);
+                  const chipBd  = isManual ? T.manualChipBorder : (isDed ? T.salaryChipBorder : T.coveredChipBorder);
 
                   const cellSx = {
                     fontFamily: T.poppins,
@@ -897,20 +1084,28 @@ export function Abstract({ employee, year, month }) {
 
                         {/* Audit expand chevron */}
                         <TableCell sx={{ ...cellSx, textAlign: "center", px: 0.5 }}>
-                          <Tooltip title={auditOpen ? "Collapse source rows" : "Expand source rows"}>
-                            <IconButton
-                              size="small"
-                              onClick={() => toggleAuditExpand(rowKey)}
-                              sx={{
-                                p: 0.25,
-                                color: T.faint,
-                                transform: auditOpen ? "rotate(180deg)" : "none",
-                                transition: "transform 0.18s ease",
-                                "&:hover": { color: T.accent, bgcolor: "transparent" },
-                              }}
-                            >
-                              <ExpandMoreIcon sx={{ fontSize: 16 }} />
-                            </IconButton>
+                          <Tooltip title={
+                            sourceRows.length === 0
+                              ? "No source rows to inspect (manually added)."
+                              : auditOpen ? "Collapse source rows" : "Expand source rows"
+                          }>
+                            <span>
+                              <IconButton
+                                size="small"
+                                onClick={() => toggleAuditExpand(rowKey)}
+                                disabled={sourceRows.length === 0}
+                                sx={{
+                                  p: 0.25,
+                                  color: T.faint,
+                                  transform: auditOpen ? "rotate(180deg)" : "none",
+                                  transition: "transform 0.18s ease",
+                                  "&:hover": { color: T.accent, bgcolor: "transparent" },
+                                  "&.Mui-disabled": { color: "rgba(0,0,0,0.15)" },
+                                }}
+                              >
+                                <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </span>
                           </Tooltip>
                         </TableCell>
 
@@ -929,7 +1124,7 @@ export function Abstract({ employee, year, month }) {
                           <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
                             <Box sx={{
                               width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                              bgcolor: isDed ? T.accent : "#2e7d32",
+                              bgcolor: isManual ? "#1565c0" : (isDed ? T.accent : "#2e7d32"),
                             }} />
                             <span style={{ color: T.muted }}>{merged.abstractSourceTypes ?? "—"}</span>
                           </Box>
@@ -963,7 +1158,7 @@ export function Abstract({ employee, year, month }) {
                           ...cellSx,
                           fontWeight: 800,
                           fontSize: "0.85rem",
-                          color: isDed ? T.accent : "#1e6b22",
+                          color: isManual ? "#0d47a1" : (isDed ? T.accent : "#1e6b22"),
                         }}>
                           {displayDaysFromMerged(merged)}
                         </TableCell>

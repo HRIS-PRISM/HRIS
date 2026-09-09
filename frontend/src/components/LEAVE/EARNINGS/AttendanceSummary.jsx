@@ -272,14 +272,14 @@ const ATTENDANCE_MODULES = [
   {
     key: "non-teaching",
     label: "Non-Teaching",
-    sublabel: "8hrs staff",
+    sublabel: "Non-teaching & JO",
     path: "/attendance_module",
     lsPrefix: "attendanceNonTeaching",
   },
   {
     key: "faculty-30",
     label: "Faculty 30hrs",
-    sublabel: "JO faculty",
+    sublabel: "30-hour faculty",
     path: "/attendance_module_faculty",
     lsPrefix: "attendanceFaculty30",
   },
@@ -1067,9 +1067,28 @@ const AttendanceSummary = ({
   const stats = attendanceData?.stats || {};
 
   const lateDays = toNum(stats.late_days);
-  const absentDays = canTrustOfficialMetrics ? absentDaysOfficial : toNum(stats.absent_days);
+
+  /** Mirrors OverallAttendance.jsx `_absentTotalDays`: trust the saved record first.
+   *  Only fall back to the live official-metrics recalculation (or stats) when the
+   *  record itself has no saved absentDays — keeps this card in sync with Attendance. */
+  const absentDays = useMemo(() => {
+    if (raw?.absentDays != null && String(raw.absentDays).trim() !== "") {
+      const stored = toNum(raw.absentDays);
+      if (Number.isFinite(stored)) return stored;
+    }
+    if (canTrustOfficialMetrics) return absentDaysOfficial;
+    return toNum(stats.absent_days);
+  }, [raw, canTrustOfficialMetrics, absentDaysOfficial, stats.absent_days]);
+
   const totalAbsentDays = absentDays;
-  const totalAbsentHrs = totalAbsentDays * 8;
+
+  const totalAbsentHrs = useMemo(() => {
+    if (raw?.absentTime != null && String(raw.absentTime).trim() !== "") {
+      return parseHHMM(raw.absentTime);
+    }
+    return totalAbsentDays * 8;
+  }, [raw, totalAbsentDays]);
+
   const presentDays = toNum(stats.present_days);
 
   /** Same source as ATTENDANCE/AttendanceSummary: saved overall_attendance_record buckets only. */
@@ -1467,6 +1486,7 @@ const AttendanceSummary = ({
                 leaveByDate={officialCalendarMaps?.leaveByDate || {}}
                 filedLeaveByDate={filedLeaveByDate}
                 metricsTardinessHrs={tardHrs}
+                metricsAbsentDays={absentDays}   
               />
 
               {summaryUpdateNote ? (

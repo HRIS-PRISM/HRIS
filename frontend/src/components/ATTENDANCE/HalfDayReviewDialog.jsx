@@ -165,7 +165,14 @@ export default function HalfDayReviewDialog({ open, mode, row, moduleType, theme
   const showMorningField = Boolean(timeIN);
   const showAfternoonField = Boolean(timeOUT);
   const dayName = row ? getDayName(row.date) : '';
-  const detectedSide = timeIN && !timeOUT ? 'AM half day' : !timeIN && timeOUT ? 'PM half day' : timeIN && timeOUT ? 'Full day' : 'No punches';
+  const detectedSide =
+    timeIN && timeOUT
+      ? 'Shortfall vs official schedule'
+      : timeIN && !timeOUT
+        ? 'Time IN only'
+        : !timeIN && timeOUT
+          ? 'Time OUT only'
+          : 'No punches';
 
   const applyRenderedSuggestion = () => {
     setRenderedTouched(true);

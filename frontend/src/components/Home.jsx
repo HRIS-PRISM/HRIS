@@ -26,10 +26,16 @@ import {
   AccessTime, Receipt, ContactPage, Event, CalendarMonth, Logout, Settings,
   Dashboard as DashboardIcon, WorkHistory, Close, Add, Note, Flag, ArrowForward,
   PlayArrow, Pause, AccountCircle, HelpOutline, PrivacyTip, MoreVert, Delete, Save, ArrowDropDown,
+  PeopleAlt as PeopleAltIcon, Work as WorkIcon, MedicalServices as MedicalServicesIcon,
+  WarningAmber as WarningAmberIcon, Favorite as FavoriteIcon, EscalatorWarning as EscalatorWarningIcon,
+  School as SchoolIcon, BeachAccess as BeachAccessIcon, Spa as SpaIcon,
+  PregnantWoman as PregnantWomanIcon, EventNote as EventNoteIcon,
 } from "@mui/icons-material";
 
 // ─── Import the new attendance calendar ──────────────────────────────────────
 import AttendanceCalendar from "./AttendanceCalendar";
+// ─── Import the DTR notice panel (absences / missing time-out / missing break) ──
+import DtrNoticePanel from "./DtrNoticePanel";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {
@@ -256,6 +262,34 @@ const NotifFilterChips = ({ activeFilter, onChange, unreadCount }) => {
   );
 };
 
+// ─── Leave type icon/color mapping ────────────────────────────────────────────
+const LEAVE_TYPE_STYLES = [
+  { match: /adopt/i,                       icon: PeopleAltIcon,        bg: "#ececec", color: "#757575" },
+  { match: /mandatory|forced/i,            icon: WorkIcon,             bg: "#d9cfc7", color: "#6d4c41" },
+  { match: /rehab/i,                       icon: MedicalServicesIcon,  bg: "#d7f4f0", color: "#00897b" },
+  { match: /special|emergency|calamity/i,  icon: WarningAmberIcon,     bg: "#ffe9c7", color: "#f57c00" },
+  { match: /sick/i,                        icon: FavoriteIcon,         bg: "#fbdfe0", color: "#e5394f" },
+  { match: /solo\s*parent/i,               icon: EscalatorWarningIcon, bg: "#d7e8fb", color: "#1976d2" },
+  { match: /study/i,                       icon: SchoolIcon,           bg: "#e6ddf9", color: "#7b3fe4" },
+  { match: /vacation/i,                    icon: BeachAccessIcon,      bg: "#d7f0e6", color: "#2e9e6c" },
+  { match: /wellness/i,                    icon: SpaIcon,              bg: "#fde3ef", color: "#d6408c" },
+  { match: /maternity|paternity/i,         icon: PregnantWomanIcon,    bg: "#fef0d0", color: "#c98a10" },
+];
+const FALLBACK_LEAVE_PALETTE = [
+  { bg: "#ececec", color: "#757575" },
+  { bg: "#d7e8fb", color: "#1976d2" },
+  { bg: "#d7f4f0", color: "#00897b" },
+  { bg: "#ffe9c7", color: "#f57c00" },
+  { bg: "#fbdfe0", color: "#e5394f" },
+  { bg: "#e6ddf9", color: "#7b3fe4" },
+];
+const getLeaveTypeStyle = (name, idx) => {
+  const found = LEAVE_TYPE_STYLES.find((entry) => entry.match.test(name || ""));
+  if (found) return found;
+  const fallback = FALLBACK_LEAVE_PALETTE[idx % FALLBACK_LEAVE_PALETTE.length];
+  return { icon: EventNoteIcon, ...fallback };
+};
+
 // ─── Home ─────────────────────────────────────────────────────────────────────
 const Home = () => {
   const settings = useSystemSettings();
@@ -301,6 +335,7 @@ const Home = () => {
   const [payslipYear, setPayslipYear] = useState(new Date().getFullYear());
   const [notifFilter, setNotifFilter] = useState("all");
   const [activePayslipTab, setActivePayslipTab] = useState(0);
+  const HIDE_LEAVE_CREDITS_DISPLAY = true; // FALSE = Show leave credits, TRUE = Hide leave credits
 
   const month = calendarDate.getMonth();
   const year = calendarDate.getFullYear();
@@ -710,7 +745,6 @@ const Home = () => {
   const quickActions = [
     { icon: <AccessTime sx={{ fontSize: 16 }} />, label: "Attendance", link: "/my-attendance" },
     { icon: <AccessTime sx={{ fontSize: 16 }} />, label: "DTR", link: "/daily_time_record" },
-    { icon: <Receipt sx={{ fontSize: 16 }} />, label: "Payslip", link: "/payslip" },
     { icon: <ContactPage sx={{ fontSize: 16 }} />, label: "PDS", link: "/pds1" },
     { icon: <WorkHistory sx={{ fontSize: 16 }} />, label: "Leave", link: "/leave-request-user" },
   ];
@@ -720,14 +754,6 @@ const Home = () => {
   const handleOpenModal = (announcement) => { setSelectedAnnouncement(announcement); setOpenModal(true); };
   const handleCloseModal = () => { setOpenModal(false); setSelectedAnnouncement(null); };
   const handleLogout = () => { localStorage.removeItem("token"); navigate("/login"); };
-
-  const getLeaveStatusColor = (remaining, total) => {
-    if (total === 0 || remaining === 0) return "#B71C1C";
-    const pct = (remaining / total) * 100;
-    if (pct > 50) return "#2E7D32";
-    if (pct > 20) return "#EF6C00";
-    return "#B71C1C";
-  };
 
   const derivedUnreadCount = notifications.filter((n) => n.read_status === 0).length;
   const totalLeave = leaveCredits.reduce((s, g) => s + g.currRemaining + g.prevRemaining, 0);
@@ -822,9 +848,6 @@ const Home = () => {
               </Box>
 
               <Box sx={{ display: "flex", gap: 1, alignItems: "center", position: "relative", zIndex: 1 }}>
-                <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${T.accentBorder}` }}>
-                  <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>Employee Dashboard</Typography>
-                </Box>
                 <Tooltip title="Refresh data">
                   <button
                     onClick={() => { fetchAnnouncements(); fetchHolidays(); fetchSuspensions(); }}
@@ -864,7 +887,7 @@ const Home = () => {
           <Grid container spacing={2} sx={{ flex: 1, minHeight: 0 }}>
 
             {/* ══ LEFT COLUMN: Carousel + Attendance Calendar ══ */}
-<Grid item xs={12} md={7} sx={{ 
+<Grid item xs={12} md={5} sx={{ 
   display: "flex", 
   flexDirection: "column", 
   gap: 2, 
@@ -937,10 +960,130 @@ const Home = () => {
             </Grid>
 
             {/* ══ RIGHT COLUMN ══ */}
-            <Grid item xs={12} md={5} sx={{ height: { xs: "auto", md: "calc(100vh - 260px)" }, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <Grid item xs={12} md={7} sx={{ height: { xs: "auto", md: "calc(100vh - 260px)" }, display: "flex", flexDirection: "column", minHeight: 0 }}>
               <Box sx={{ display: "flex", flexDirection: "row", gap: 1.5, flex: 1, minHeight: 0, height: "100%" }}>
 
-                {/* Left sub-column: Quick Access + Calendar + Notes */}
+                {/* Left sub-column: Payslip + Mini Calendar row, then DTR Notice below ══ */}
+                <Box sx={{ flex: 2, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+
+                  {/* Payslip + Mini Calendar row */}
+                  <Box sx={{ display: "flex", flexDirection: "row", gap: 1.5, flexShrink: 0 }}>
+
+                    {/* Payslip */}
+                    <SectionCard sx={{ flex: 1, minWidth: 0 }}>
+                      <TabBar>
+                        <FlatTab label="Payslip" icon={Receipt} badge={monthNames[payslipMonth]?.slice(0, 3)} active={activePayslipTab === 0} onClick={() => setActivePayslipTab(0)} />
+                      </TabBar>
+                      <Box onClick={() => navigate("/payslip", { state: { selectedMonth: payslipMonth, selectedYear: payslipYear } })}
+                        sx={{ p: 1.25, cursor: "pointer", transition: "background 0.15s", "&:hover": { background: T.accentFaint } }}>
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }} onClick={(e) => e.stopPropagation()}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <Receipt sx={{ color: T.accent, fontSize: 13 }} />
+                            <Typography sx={{ fontWeight: 700, color: T.text, fontSize: "0.75rem" }}>My Payslip</Typography>
+                          </Box>
+                          <FormControl size="small" variant="outlined" sx={{ minWidth: 100, "& .MuiOutlinedInput-root": { fontSize: "0.7rem", borderRadius: 2, height: 26, color: T.text, "& fieldset": { borderColor: T.accentBorder }, "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& .MuiSelect-icon": { color: T.accent, fontSize: 16 } }}>
+                            <Select value={payslipMonth} onChange={(e) => setPayslipMonth(Number(e.target.value))} MenuProps={{ PaperProps: { sx: { borderRadius: 2, mt: 0.5, bgcolor: "#fff", border: `1px solid ${T.accentBorder}`, maxHeight: 220 } } }}>
+                              {monthNames.map((name, i) => (<MenuItem key={i} value={i} sx={{ fontSize: "0.72rem", color: T.text, py: 0.5, fontWeight: payslipMonth === i ? 700 : 400, bgcolor: payslipMonth === i ? T.accentFaint : "transparent", "&:hover": { bgcolor: T.accentHover } }}>{name}</MenuItem>))}
+                            </Select>
+                          </FormControl>
+                        </Box>
+                        <Grid container spacing={0.75}>
+                          {[{ label: "1st Quinceña", key: "pay1st" }, { label: "2nd Quinceña", key: "pay2nd" }].map(({ label, key }) => (
+                            <Grid item xs={6} key={key}>
+                              <Box sx={{ bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: 2, p: 1.25 }}>
+                                <Typography sx={{ color: T.faint, fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", mb: 0.3 }}>{label}</Typography>
+                                <Typography sx={{ color: payrollData ? T.accent : T.muted, fontWeight: 800, fontSize: "0.95rem", lineHeight: 1 }}>
+                                  {payrollData ? fmt(payrollData[key]) : "₱-.--"}
+                                </Typography>
+                                {payrollData && <Typography sx={{ color: T.faint, fontSize: "0.55rem", mt: 0.2 }}>{monthNames[payslipMonth]} {payslipYear}</Typography>}
+                              </Box>
+                            </Grid>
+                          ))}
+                        </Grid>
+                        {!payrollData && (
+                          <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", justifyContent: "center", py: 0.5, borderRadius: "8px", bgcolor: T.accentFaint, border: `1px dashed ${T.accentBorder}` }}>
+                            <Typography sx={{ fontSize: "0.62rem", color: T.muted }}>No payslip for {monthNames[payslipMonth]}</Typography>
+                          </Box>
+                        )}
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, opacity: 0.4, mt: 0.5 }}>
+                          <ArrowForward sx={{ fontSize: 11, color: T.muted }} />
+                          <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontWeight: 600 }}>Tap to view full payslip</Typography>
+                        </Box>
+                      </Box>
+                    </SectionCard>
+
+                    {/* Mini Calendar */}
+                    <SectionCard sx={{ flex: 1, minWidth: 0 }}>
+                      <PanelHeader
+                        icon={CalendarMonth}
+                        title={new Date(year, month).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                        right={
+                          <Box sx={{ display: "flex", gap: 1 }}>
+                            <IconButton size="small" onClick={() => setCalendarDate(new Date(year, month - 1, 1))} sx={{ color: T.accent, p: 0.4, borderRadius: "6px", "&:hover": { bgcolor: T.accentFaint } }}><ArrowBackIosNewIcon sx={{ fontSize: 15 }} /></IconButton>
+                            <IconButton size="small" onClick={() => setCalendarDate(new Date(year, month + 1, 1))} sx={{ color: T.accent, p: 0.4, borderRadius: "6px", "&:hover": { bgcolor: T.accentFaint } }}><ArrowForwardIosIcon sx={{ fontSize: 15 }} /></IconButton>
+                          </Box>
+                        }
+                      />
+                      <Box sx={{ p: 1.5 }}>
+                        <Grid container spacing={0} sx={{ mb: 0.5 }}>
+                          {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map((day) => (
+                            <Grid item xs={12 / 7} key={day}>
+                              <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "0.55rem", color: T.accent, letterSpacing: "0.04em" }}>{day}</Typography>
+                            </Grid>
+                          ))}
+                        </Grid>
+                        <Grid container spacing={0.4}>
+                          {calendarDays.map((day, index) => {
+                            const currentDateStr = buildDateStr(year, month, day);
+                            const holidayData = day ? isDateInHolidayRange(currentDateStr) : null;
+                            const dayNotes = day ? getNotesForDate(currentDateStr) : [];
+                            const dayEvents = day ? getEventsForDate(currentDateStr) : [];
+                            const dayAnnouncements = day ? getAnnouncementsForDate(currentDateStr) : [];
+                            const hasNotesOrEvents = dayNotes.length > 0 || dayEvents.length > 0;
+                            const hasAnnouncements = dayAnnouncements.length > 0;
+                            const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
+                            const tooltipTitle = isToday ? `Today${holidayData ? ` · ${holidayData.name}` : hasAnnouncements ? ` · ${dayAnnouncements[0].title}` : ""}` : holidayData ? `Holiday: ${holidayData.name}` : hasAnnouncements ? `${dayAnnouncements[0].title}` : "";
+                            return (
+                              <Grid item xs={12 / 7} key={index}>
+                                <Tooltip title={tooltipTitle} arrow>
+                                  <Box onClick={() => { if (day) { setSelectedDate(currentDateStr); setViewNotesDialog(true); } }}
+                                    sx={{ textAlign: "center", fontSize: "0.65rem", borderRadius: "4px", color: holidayData ? "#fff" : isToday ? "#fff" : day ? T.text : "transparent", background: holidayData ? T.accent : isToday ? T.accentMid : hasAnnouncements ? T.accentFaint : "transparent", fontWeight: holidayData || isToday || hasAnnouncements || hasNotesOrEvents ? 700 : 400, border: isToday ? `1.5px solid ${T.accent}` : hasAnnouncements ? `1px solid ${T.accentBorder}` : "none", cursor: day ? "pointer" : "default", transition: "all 0.15s", py: "1px", position: "relative", minHeight: 18,
+                                      "&:hover": day ? { background: holidayData ? T.accentDark : T.accentFaint, transform: "scale(1.1)" } : {} }}>
+                                    {day || ""}
+                                    {hasNotesOrEvents && day && (
+                                      <Box sx={{ display: "flex", gap: 0.15, justifyContent: "center", position: "absolute", bottom: 1, left: 0, right: 0 }}>
+                                        {dayNotes.length > 0 && <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: holidayData ? "rgba(255,255,255,0.8)" : "#ff9800" }} />}
+                                        {dayEvents.length > 0 && <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: holidayData ? "rgba(255,255,255,0.8)" : "#4caf50" }} />}
+                                      </Box>
+                                    )}
+                                  </Box>
+                                </Tooltip>
+                              </Grid>
+                            );
+                          })}
+                        </Grid>
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 0.75 }}>
+                          <Typography sx={{ fontSize: "0.6rem", color: T.muted, display: "flex", alignItems: "center", gap: 0.4 }}>
+                            <CalendarMonth sx={{ fontSize: 11 }} /> Click day to view / add
+                          </Typography>
+                          <Tooltip title="Legends">
+                            <IconButton size="small" onClick={(e) => setCalendarLegendAnchorEl(e.currentTarget)} sx={{ color: T.faint, p: 0.3, borderRadius: "4px", "&:hover": { bgcolor: T.accentFaint } }}><MoreVert sx={{ fontSize: 14 }} /></IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Box>
+                    </SectionCard>
+                  </Box>
+
+                  {/* DTR Notice — fills remaining space below Payslip/Calendar row */}
+                  <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                    <DtrNoticePanel
+                      employeeNumber={employeeNumber}
+                      holidays={rawHolidays}
+                    />
+                  </Box>
+                </Box>
+
+                {/* Right sub-column: Quick Access + Leave Credits */}
                 <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
 
                   {/* Quick Access */}
@@ -963,194 +1106,95 @@ const Home = () => {
                       </Grid>
                     </Box>
                   </SectionCard>
+{/* Leave Balances */}
+<SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", border: `1px solid ${T.accentBorder}` }}>
+  <Box sx={{ px: 2, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "baseline", gap: 1, bgcolor: T.accentFaint, flexShrink: 0 }}>
+    <CalendarMonth sx={{ fontSize: 15, color: T.accent, alignSelf: "center" }} />
+    <Typography sx={{ fontSize: "0.85rem", fontWeight: 800, color: T.accent }}>Leave Balances</Typography>
+    <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>Remaining credits per type</Typography>
+  </Box>
 
-                  {/* Mini Calendar */}
-                  <SectionCard sx={{ flexShrink: 0 }}>
-                    <PanelHeader
-                      icon={CalendarMonth}
-                      title={new Date(year, month).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-                      right={
-                        <Box sx={{ display: "flex", gap: 1 }}>
-                          <IconButton size="small" onClick={() => setCalendarDate(new Date(year, month - 1, 1))} sx={{ color: T.accent, p: 0.4, borderRadius: "6px", "&:hover": { bgcolor: T.accentFaint } }}><ArrowBackIosNewIcon sx={{ fontSize: 15 }} /></IconButton>
-                          <IconButton size="small" onClick={() => setCalendarDate(new Date(year, month + 1, 1))} sx={{ color: T.accent, p: 0.4, borderRadius: "6px", "&:hover": { bgcolor: T.accentFaint } }}><ArrowForwardIosIcon sx={{ fontSize: 15 }} /></IconButton>
-                        </Box>
-                      }
-                    />
-                    <Box sx={{ p: 1.5 }}>
-                      <Grid container spacing={0} sx={{ mb: 0.5 }}>
-                        {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map((day) => (
-                          <Grid item xs={12 / 7} key={day}>
-                            <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "0.55rem", color: T.accent, letterSpacing: "0.04em" }}>{day}</Typography>
-                          </Grid>
-                        ))}
-                      </Grid>
-                      <Grid container spacing={0.4}>
-                        {calendarDays.map((day, index) => {
-                          const currentDateStr = buildDateStr(year, month, day);
-                          const holidayData = day ? isDateInHolidayRange(currentDateStr) : null;
-                          const dayNotes = day ? getNotesForDate(currentDateStr) : [];
-                          const dayEvents = day ? getEventsForDate(currentDateStr) : [];
-                          const dayAnnouncements = day ? getAnnouncementsForDate(currentDateStr) : [];
-                          const hasNotesOrEvents = dayNotes.length > 0 || dayEvents.length > 0;
-                          const hasAnnouncements = dayAnnouncements.length > 0;
-                          const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
-                          const tooltipTitle = isToday ? `Today${holidayData ? ` · ${holidayData.name}` : hasAnnouncements ? ` · ${dayAnnouncements[0].title}` : ""}` : holidayData ? `Holiday: ${holidayData.name}` : hasAnnouncements ? `${dayAnnouncements[0].title}` : "";
-                          return (
-                            <Grid item xs={12 / 7} key={index}>
-                              <Tooltip title={tooltipTitle} arrow>
-                                <Box onClick={() => { if (day) { setSelectedDate(currentDateStr); setViewNotesDialog(true); } }}
-                                  sx={{ textAlign: "center", fontSize: "0.65rem", borderRadius: "4px", color: holidayData ? "#fff" : isToday ? "#fff" : day ? T.text : "transparent", background: holidayData ? T.accent : isToday ? T.accentMid : hasAnnouncements ? T.accentFaint : "transparent", fontWeight: holidayData || isToday || hasAnnouncements || hasNotesOrEvents ? 700 : 400, border: isToday ? `1.5px solid ${T.accent}` : hasAnnouncements ? `1px solid ${T.accentBorder}` : "none", cursor: day ? "pointer" : "default", transition: "all 0.15s", py: "1px", position: "relative", minHeight: 18,
-                                    "&:hover": day ? { background: holidayData ? T.accentDark : T.accentFaint, transform: "scale(1.1)" } : {} }}>
-                                  {day || ""}
-                                  {hasNotesOrEvents && day && (
-                                    <Box sx={{ display: "flex", gap: 0.15, justifyContent: "center", position: "absolute", bottom: 1, left: 0, right: 0 }}>
-                                      {dayNotes.length > 0 && <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: holidayData ? "rgba(255,255,255,0.8)" : "#ff9800" }} />}
-                                      {dayEvents.length > 0 && <Box sx={{ width: 3, height: 3, borderRadius: "50%", bgcolor: holidayData ? "rgba(255,255,255,0.8)" : "#4caf50" }} />}
-                                    </Box>
-                                  )}
-                                </Box>
-                              </Tooltip>
-                            </Grid>
-                          );
-                        })}
-                      </Grid>
-                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 0.75 }}>
-                        <Typography sx={{ fontSize: "0.6rem", color: T.muted, display: "flex", alignItems: "center", gap: 0.4 }}>
-                          <CalendarMonth sx={{ fontSize: 11 }} /> Click day to view / add
-                        </Typography>
-                        <Tooltip title="Legends">
-                          <IconButton size="small" onClick={(e) => setCalendarLegendAnchorEl(e.currentTarget)} sx={{ color: T.faint, p: 0.3, borderRadius: "4px", "&:hover": { bgcolor: T.accentFaint } }}><MoreVert sx={{ fontSize: 14 }} /></IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  </SectionCard>
-
-                  {/* Notes & Events */}
-                  <SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-                    <TabBar right={
-                      <Box sx={{ display: "flex", gap: 0.5 }}>
-                        <Tooltip title="Add Note" arrow>
-                          <IconButton size="small" onClick={() => { setSelectedDate(normalizeDate(new Date())); handleAddNote(); }} sx={{ width: 24, height: 24, border: `1px solid ${T.accentBorder}`, color: T.accent, borderRadius: "5px", "&:hover": { bgcolor: T.accentFaint } }}><Note sx={{ fontSize: 13 }} /></IconButton>
-                        </Tooltip>
-                        <Tooltip title="Add Event" arrow>
-                          <IconButton size="small" onClick={() => { setSelectedDate(normalizeDate(new Date())); handleAddEvent(); }} sx={{ width: 24, height: 24, border: `1px solid ${T.accentBorder}`, color: T.accent, borderRadius: "5px", "&:hover": { bgcolor: T.accentFaint } }}><Event sx={{ fontSize: 13 }} /></IconButton>
-                        </Tooltip>
-                      </Box>
-                    }>
-                      <FlatTab label="Notes & Events" icon={Note} badge={notes.length + events.length} active={true} onClick={() => {}} />
-                    </TabBar>
-                    <Box sx={{ flex: 1, overflowY: "auto", p: 1.25, minHeight: 0, "&::-webkit-scrollbar": { width: "3px" }, "&::-webkit-scrollbar-track": { background: T.accentFaint }, "&::-webkit-scrollbar-thumb": { background: T.accentBorder, borderRadius: "2px" } }}>
-                      {getRecentActivity().length > 0 ? getRecentActivity().map((item, idx) => (
-                        <Box key={idx} onClick={() => { setSelectedDate(item.date); setViewNotesDialog(true); }}
-                          sx={{ mb: 0.75, pl: 1, py: 0.5, backgroundColor: item.type === "note" ? T.accentFaint : "rgba(76,175,80,0.06)", borderRadius: "6px", borderLeft: `2px solid ${item.type === "note" ? T.accent : "#4caf50"}`, cursor: "pointer", transition: "all 0.15s", "&:hover": { transform: "translateX(2px)" } }}>
-                          <Typography sx={{ color: item.type === "note" ? T.accent : "#2e7d32", fontWeight: 700, fontSize: "0.7rem" }}>{item.type === "note" ? "Note" : "Event"}: {item.title}</Typography>
-                          <Typography sx={{ color: T.muted, display: "block", fontSize: "0.62rem", mt: 0.2 }}>{item.content && item.content.length > 35 ? `${item.content.substring(0, 35)}...` : item.content}</Typography>
-                        </Box>
-                      )) : (
-                        <Typography sx={{ color: T.faint, textAlign: "center", py: 3, fontSize: "0.72rem" }}>No recent activity</Typography>
-                      )}
-                    </Box>
-                  </SectionCard>
-                </Box>
-
-                {/* Right sub-column: Payslip + Leave */}
-                <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-
-                  {/* Payslip */}
-                  <SectionCard sx={{ flexShrink: 0 }}>
-                    <TabBar>
-                      <FlatTab label="Payslip" icon={Receipt} badge={monthNames[payslipMonth]?.slice(0, 3)} active={activePayslipTab === 0} onClick={() => setActivePayslipTab(0)} />
-                    </TabBar>
-                    <Box onClick={() => navigate("/payslip", { state: { selectedMonth: payslipMonth, selectedYear: payslipYear } })}
-                      sx={{ p: 1.25, cursor: "pointer", transition: "background 0.15s", "&:hover": { background: T.accentFaint } }}>
-                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }} onClick={(e) => e.stopPropagation()}>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                          <Receipt sx={{ color: T.accent, fontSize: 13 }} />
-                          <Typography sx={{ fontWeight: 700, color: T.text, fontSize: "0.75rem" }}>My Payslip</Typography>
-                        </Box>
-                        <FormControl size="small" variant="outlined" sx={{ minWidth: 100, "& .MuiOutlinedInput-root": { fontSize: "0.7rem", borderRadius: 2, height: 26, color: T.text, "& fieldset": { borderColor: T.accentBorder }, "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& .MuiSelect-icon": { color: T.accent, fontSize: 16 } }}>
-                          <Select value={payslipMonth} onChange={(e) => setPayslipMonth(Number(e.target.value))} MenuProps={{ PaperProps: { sx: { borderRadius: 2, mt: 0.5, bgcolor: "#fff", border: `1px solid ${T.accentBorder}`, maxHeight: 220 } } }}>
-                            {monthNames.map((name, i) => (<MenuItem key={i} value={i} sx={{ fontSize: "0.72rem", color: T.text, py: 0.5, fontWeight: payslipMonth === i ? 700 : 400, bgcolor: payslipMonth === i ? T.accentFaint : "transparent", "&:hover": { bgcolor: T.accentHover } }}>{name}</MenuItem>))}
-                          </Select>
-                        </FormControl>
-                      </Box>
-                      <Grid container spacing={0.75}>
-                        {[{ label: "1st Quinceña", key: "pay1st" }, { label: "2nd Quinceña", key: "pay2nd" }].map(({ label, key }) => (
-                          <Grid item xs={6} key={key}>
-                            <Box sx={{ bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: 2, p: 1.25 }}>
-                              <Typography sx={{ color: T.faint, fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", mb: 0.3 }}>{label}</Typography>
-                              <Typography sx={{ color: payrollData ? T.accent : T.muted, fontWeight: 800, fontSize: "0.95rem", lineHeight: 1 }}>
-                                {payrollData ? fmt(payrollData[key]) : "₱-.--"}
-                              </Typography>
-                              {payrollData && <Typography sx={{ color: T.faint, fontSize: "0.55rem", mt: 0.2 }}>{monthNames[payslipMonth]} {payslipYear}</Typography>}
-                            </Box>
-                          </Grid>
-                        ))}
-                      </Grid>
-                      {!payrollData && (
-                        <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", justifyContent: "center", py: 0.5, borderRadius: "8px", bgcolor: T.accentFaint, border: `1px dashed ${T.accentBorder}` }}>
-                          <Typography sx={{ fontSize: "0.62rem", color: T.muted }}>No payslip for {monthNames[payslipMonth]}</Typography>
-                        </Box>
-                      )}
-                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, opacity: 0.4, mt: 0.5 }}>
-                        <ArrowForward sx={{ fontSize: 11, color: T.muted }} />
-                        <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontWeight: 600 }}>Tap to view full payslip</Typography>
-                      </Box>
-                    </Box>
-                  </SectionCard>
-
-                  {/* Leave Credits */}
-                  <SectionCard sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-                    <TabBar>
-                      <FlatTab label="Leave Credits" icon={CalendarMonth} badge={`${totalLeave.toFixed(1)}d`} active={true} onClick={() => {}} />
-                    </TabBar>
-                    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", p: 1.25, minHeight: 0, overflow: "hidden" }}>
-                      <Box sx={{ flex: 1, overflowY: "auto", minHeight: 0, pr: 0.25, "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { background: T.accentBorder, borderRadius: 2 } }}>
-                        {leaveLoading ? (
-                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 3 }}>
-                            <CircularProgress size={14} sx={{ color: T.accent }} />
-                            <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>Loading...</Typography>
-                          </Box>
-                        ) : leaveCredits.length === 0 ? (
-                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                            <Typography sx={{ color: T.faint, textAlign: "center", fontSize: "0.7rem" }}>No leave credits assigned</Typography>
-                          </Box>
-                        ) : (
-                          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                            {leaveCredits.map((leave, idx) => {
-                              const pct = leave.currTotal > 0 ? (leave.currRemaining / leave.currTotal) * 100 : 0;
-                              const statusColor = getLeaveStatusColor(leave.currRemaining, leave.currTotal);
-                              const usedDays = leave.currAllocated - leave.currRemaining;
-                              return (
-                                <Box key={idx} sx={{ p: 1, borderRadius: "8px", border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint }}>
-                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.4 }}>
-                                    <Typography sx={{ fontWeight: 700, color: T.text, fontSize: "0.7rem", lineHeight: 1.2 }}>{leave.name}</Typography>
-                                    <Box sx={{ px: 0.75, py: 0.1, borderRadius: "12px", bgcolor: `${statusColor}18`, border: `1px solid ${statusColor}30` }}>
-                                      <Typography sx={{ fontSize: "0.55rem", fontWeight: 700, color: statusColor }}>{leave.code}</Typography>
-                                    </Box>
-                                  </Box>
-                                  <Box sx={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", mb: 0.4 }}>
-                                    <Box>
-                                      <Typography sx={{ color: statusColor, fontWeight: 800, fontSize: "1rem", lineHeight: 1 }}>{leave.currRemaining.toFixed(1)}</Typography>
-                                      <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>days left</Typography>
-                                    </Box>
-                                    <Typography sx={{ color: T.faint, fontSize: "0.57rem" }}>{usedDays < 0 ? 0 : usedDays.toFixed(1)} used / {leave.currAllocated.toFixed(1)} total</Typography>
-                                  </Box>
-                                  <LinearProgress variant="determinate" value={Math.min(pct, 100)} sx={{ height: 3, borderRadius: 2, bgcolor: `${statusColor}20`, ".MuiLinearProgress-bar": { bgcolor: statusColor, borderRadius: 2 } }} />
-                                  {leave.prevRemaining > 0 && (
-                                    <Box sx={{ mt: 0.5, px: 0.5, py: 0.2, borderRadius: "4px", bgcolor: "#FFF3E0", border: "1px dashed #FFB74D", display: "flex", alignItems: "center", gap: 0.4 }}>
-                                      <Add sx={{ fontSize: 9, color: "#EF6C00" }} />
-                                      <Typography sx={{ color: "#E65100", fontWeight: 700, fontSize: "0.55rem" }}>+{leave.prevRemaining.toFixed(1)} days carried over</Typography>
-                                    </Box>
-                                  )}
-                                </Box>
-                              );
-                            })}
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  </SectionCard>
+  <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: 2, py: 1,
+    "&::-webkit-scrollbar": { width: 5 },
+    "&::-webkit-scrollbar-track": { bgcolor: "rgba(0,0,0,0.04)", borderRadius: 3 },
+    "&::-webkit-scrollbar-thumb": { bgcolor: alpha(T.accent, 0.35), borderRadius: 3, "&:hover": { bgcolor: alpha(T.accent, 0.5) } },
+  }}>
+    {HIDE_LEAVE_CREDITS_DISPLAY ? (
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", py: 2 }}>
+        <Box sx={{ width: 56, height: 56, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
+          <CalendarMonth sx={{ fontSize: 26, color: T.accent }} />
+        </Box>
+        <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.85rem", mb: 0.5 }}>
+          Leave Credit Summary
+        </Typography>
+        <Typography sx={{ color: T.muted, fontSize: "0.75rem", maxWidth: 220 }}>
+          Leave Credits details will be shown here.
+        </Typography>
+      </Box>
+    ) : leaveLoading ? (
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 2 }}>
+        <CircularProgress size={14} sx={{ color: T.accent }} />
+        <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>Loading...</Typography>
+      </Box>
+    ) : leaveCredits.length === 0 ? (
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", py: 2 }}>
+        <Typography sx={{ color: T.faint, textAlign: "center", fontSize: "0.7rem" }}>No leave credits assigned</Typography>
+      </Box>
+    ) : (
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+        }}
+      >
+        {leaveCredits.map((leave, idx) => {
+          const col = idx % 3;
+          const isLastCol = col === 2;
+          const rowStart = Math.floor(idx / 3);
+          const totalRows = Math.ceil(leaveCredits.length / 3);
+          const isLastRow = rowStart === totalRows - 1;
+          return (
+            <Box
+              key={idx}
+              sx={{
+                py: 1.4,
+                pr: isLastCol ? 0 : 2,
+                pl: col === 0 ? 0 : 2,
+                borderRight: isLastCol ? "none" : `1px solid ${T.divider}`,
+                borderBottom: isLastRow ? "none" : `1px solid ${T.divider}`,
+                minWidth: 0,
+                height: 68,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+              }}
+            >
+              <Tooltip title={leave.name} arrow disableInteractive>
+                <Typography
+                  noWrap
+                  sx={{
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    color: T.text,
+                    mb: 0.3,
+                  }}
+                >
+                  {leave.name}
+                </Typography>
+              </Tooltip>
+              <Typography noWrap sx={{ fontSize: "1.15rem", fontWeight: 800, color: T.accent, lineHeight: 1.15 }}>
+                {leave.currRemaining.toFixed(2)}
+              </Typography>
+              <Typography noWrap sx={{ fontSize: "0.63rem", color: T.faint }}>
+                days remaining
+              </Typography>
+            </Box>
+          );
+        })}
+      </Box>
+    )}
+  </Box>
+</SectionCard>
                 </Box>
               </Box>
             </Grid>
@@ -1451,7 +1495,7 @@ const Home = () => {
             <Box sx={{ px: 2.5, py: 1.5, borderTop: `1px solid ${T.divider}`, display: "flex", justifyContent: "flex-end", gap: 1 }}>
               <Button onClick={() => { setViewNotesDialog(false); handleAddNote(); }} size="small" startIcon={<Note sx={{ fontSize: 14 }} />} sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: "0.78rem", color: "#fff", bgcolor: T.accent, px: 2, "&:hover": { bgcolor: T.accentDark } }}>Add Note</Button>
               <Button onClick={() => { setViewNotesDialog(false); handleAddEvent(); }} size="small" startIcon={<Add sx={{ fontSize: 14 }} />} sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: "0.78rem", color: "#fff", bgcolor: T.accent, px: 2, "&:hover": { bgcolor: T.accentDark } }}>Add Event</Button>
-              <Button onClick={() => setViewNotesDialog(false)} size="small" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: "0.78rem", color: T.muted, border: `1px solid ${T.divider}`, px: 2, "&:hover": { bgcolor: T.accentFaint } }}>Close</Button>
+              <Button onClick={() => setViewNotesDialog(false)} size="small" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: "0.78rem", color: T.muted, border: `1px solid ${T.divider}`, "&:hover": { bgcolor: T.accentFaint } }}>Close</Button>
             </Box>
           </Dialog>
 

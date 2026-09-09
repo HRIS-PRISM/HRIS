@@ -36,6 +36,10 @@ function weekdayName(dateStr) {
   return DAYS[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
 }
 
+function recordKey(personID, date) {
+  return `${String(personID).trim()}|${String(date).slice(0, 10)}`;
+}
+
 async function getActiveOfficialRangesForEmployee(employeeID) {
   const rows = await queryAsync(
     `SELECT DISTINCT startDate, endDate
@@ -54,6 +58,11 @@ async function getActiveOfficialRangesForEmployee(employeeID) {
   }));
 }
 
+/**
+ * Fill attendancerecord for biometrics-exempt employees using batched queries.
+ * @param {{startDate:string, endDate:string, employeeIDs?:string[]|null}} opts
+ * @returns {Promise<{inserted:number, skipped:number, errors:string[]}>}
+ */
 async function fillExemptAttendance({
   startDate,
   endDate,
@@ -77,63 +86,104 @@ async function fillExemptAttendance({
   if (!exemptRows.length) return { inserted: 0, skipped: 0, errors: [] };
 
   const dates = expandDateRange(startDate, endDate);
-  let inserted = 0;
+  if (!dates.length) return { inserted: 0, skipped: 0, errors: [] };
+
+  const empList = exemptRows.map((r) => String(r.employeeID).trim()).filter(Boolean);
+  const placeholders = empList.map(() => '?').join(',');
+  const minDate = dates[0];
+  const maxDate = dates[dates.length - 1];
+
+  const [existingRows, officialRows] = await Promise.all([
+    queryAsync(
+      `SELECT personID, date FROM attendancerecord
+       WHERE personID IN (${placeholders})
+         AND date BETWEEN ? AND ?`,
+      [...empList, minDate, maxDate],
+    ),
+    queryAsync(
+      `SELECT employeeID, day, startDate, endDate,
+              officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT
+       FROM officialtime
+       WHERE employeeID IN (${placeholders})
+         AND status = 'active'`,
+      empList,
+    ),
+  ]);
+
+  const existingKeys = new Set(
+    existingRows.map((r) => recordKey(r.personID, r.date)),
+  );
+
+  const officialByEmp = new Map();
+  for (const row of officialRows) {
+    const emp = String(row.employeeID ?? '').trim();
+    if (!officialByEmp.has(emp)) officialByEmp.set(emp, []);
+    officialByEmp.get(emp).push(row);
+  }
+
+  const toInsert = [];
   let skipped = 0;
   const errors = [];
 
-  for (const { employeeID } of exemptRows) {
+  for (const employeeID of empList) {
+    const otRows = officialByEmp.get(employeeID) || [];
     for (const date of dates) {
+      const key = recordKey(employeeID, date);
+      if (existingKeys.has(key)) {
+        skipped++;
+        continue;
+      }
       const day = weekdayName(date);
-      try {
-        const existing = await queryAsync(
-          `SELECT id FROM attendancerecord WHERE personID = ? AND date = ? LIMIT 1`,
-          [employeeID, date],
-        );
+      const ot = otRows.find((row) => {
+        if (String(row.day || '') !== day) return false;
+        const start = row.startDate
+          ? String(row.startDate).slice(0, 10)
+          : null;
+        const end = row.endDate ? String(row.endDate).slice(0, 10) : null;
+        if (start && end && (date < start || date > end)) return false;
+        return true;
+      });
+      if (!ot) {
+        skipped++;
+        continue;
+      }
+      toInsert.push([
+        employeeID,
+        date,
+        day,
+        ot.officialTimeIN || null,
+        ot.officialBreaktimeIN || null,
+        ot.officialBreaktimeOUT || null,
+        ot.officialTimeOUT || null,
+      ]);
+    }
+  }
 
-        if (existing.length > 0) {
-          skipped++;
-          continue;
+  let inserted = 0;
+  const INSERT_CHUNK = 100;
+  for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+    const chunk = toInsert.slice(i, i + INSERT_CHUNK);
+    try {
+      await queryAsync(
+        `INSERT INTO attendancerecord
+           (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
+         VALUES ?`,
+        [chunk],
+      );
+      inserted += chunk.length;
+    } catch (err) {
+      for (const row of chunk) {
+        try {
+          await queryAsync(
+            `INSERT INTO attendancerecord
+               (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            row,
+          );
+          inserted++;
+        } catch (rowErr) {
+          errors.push(`Employee ${row[0]} on ${row[1]}: ${rowErr.message}`);
         }
-
-        const otRows = await queryAsync(
-          `SELECT
-             officialTimeIN,
-             officialBreaktimeIN,
-             officialBreaktimeOUT,
-             officialTimeOUT
-           FROM officialtime
-           WHERE employeeID = ?
-             AND day = ?
-             AND status = 'active'
-             AND ? BETWEEN startDate AND endDate
-           LIMIT 1`,
-          [employeeID, day, date],
-        );
-
-        if (!otRows.length) {
-          skipped++;
-          continue;
-        }
-
-        const ot = otRows[0];
-
-        await queryAsync(
-          `INSERT INTO attendancerecord
-             (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            employeeID,
-            date,
-            day,
-            ot.officialTimeIN || null,
-            ot.officialBreaktimeIN || null,
-            ot.officialBreaktimeOUT || null,
-            ot.officialTimeOUT || null,
-          ],
-        );
-        inserted++;
-      } catch (err) {
-        errors.push(`Employee ${employeeID} on ${date}: ${err.message}`);
       }
     }
   }

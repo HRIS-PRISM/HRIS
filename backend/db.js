@@ -12,6 +12,16 @@ const getDbHost = () => {
   }
 };
 
+/** Pool sized for concurrent HRIS use (attendance + auth + sockets). */
+const connectionLimit = Math.max(
+  10,
+  parseInt(process.env.DB_CONNECTION_LIMIT || '40', 10) || 40,
+);
+const queueLimit = Math.max(
+  0,
+  parseInt(process.env.DB_QUEUE_LIMIT || '200', 10) || 200,
+);
+
 const pool = mysql.createPool({
   host: getDbHost(),
   port: process.env.DB_PORT || 3306,
@@ -19,8 +29,11 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
+  connectionLimit,
+  queueLimit,
+  connectTimeout: 15000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
 });
 
 module.exports = pool;

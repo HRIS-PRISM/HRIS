@@ -40,6 +40,8 @@ import {
   DialogActions,
   Avatar,
   Chip,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   Search,
@@ -69,13 +71,29 @@ import {
   Lock,
   Sync,
   Restore,
+  TableChart as TableChartIcon,
+  Insights as InsightsIcon,
 } from '@mui/icons-material';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartTooltip,
+} from 'recharts';
 import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 import { Grid } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import { COMPUTATION_TYPE_TO_MODULE_ID } from '../../utils/attendanceHubFlow';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
@@ -406,6 +424,161 @@ const SectionCard = styled(Card)({
   overflow: 'hidden',
   background: '#fff',
 });
+
+const CHART_COLORS = ['#6d2323', '#2563eb', '#059669', '#c2410c', '#7c3aed', '#92400e', '#0369a1', '#8B4545'];
+
+const getRecordDayLabel = (dateStr) => {
+  if (!dateStr) return 'Unknown';
+  const parts = String(dateStr).split('-');
+  if (parts.length !== 3) return 'Unknown';
+  const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+  if (Number.isNaN(d.getTime())) return 'Unknown';
+  return d.toLocaleDateString('en-US', { weekday: 'long' });
+};
+
+const COMPLETENESS_COLORS = {
+  Complete: '#059669',
+  'Missing Time In': '#ef4444',
+  'Missing Time Out': '#f59e0b',
+  'No Punches': '#94a3b8',
+};
+
+const ChartCard = ({ title, subtitle, children }) => (
+  <Box sx={{
+    flex: '1 1 340px', minWidth: 280, p: 2, borderRadius: '10px',
+    bgcolor: '#fff', border: `1px solid ${T.accentBorder}`,
+    display: 'flex', flexDirection: 'column', gap: 0.75,
+  }}>
+    <Box>
+      <Typography sx={{ fontSize: '0.85rem', fontWeight: 800, color: T.accent }}>{title}</Typography>
+      {subtitle && (
+        <Typography sx={{ fontSize: '0.68rem', color: T.faint, mt: 0.2 }}>{subtitle}</Typography>
+      )}
+    </Box>
+    <Box sx={{ width: '100%', height: 260 }}>{children}</Box>
+  </Box>
+);
+
+const chartTooltipStyle = {
+  contentStyle: {
+    borderRadius: 8,
+    border: `1px solid ${T.accentBorder}`,
+    fontSize: '0.75rem',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  },
+};
+
+const DeviceInsightsCharts = ({ viewMode, data, emptyHint }) => {
+  if (!data?.hasData) {
+    return (
+      <Box sx={{ flexGrow: 1, py: 10, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+        <InsightsIcon sx={{ fontSize: 36, color: alpha(T.accent, 0.25) }} />
+        <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted }}>No data to visualize</Typography>
+        <Typography sx={{ fontSize: '0.78rem', color: T.faint, maxWidth: 360 }}>{emptyHint}</Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 2, ...scrollbarSx }}>
+      <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>{data.subtitle}</Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignContent: 'flex-start' }}>
+        {viewMode === 'single' ? (
+          <>
+            <ChartCard title="Punch Completeness" subtitle="Pie · time in / time out status">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={data.byCompleteness} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={48} outerRadius={78} paddingAngle={3}>
+                    {data.byCompleteness.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                  </Pie>
+                  <RechartTooltip {...chartTooltipStyle} />
+                  <Legend wrapperStyle={{ fontSize: '0.68rem' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartCard>
+            <ChartCard title="Special Types" subtitle="Pie · regular vs special attendance">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={data.bySpecialType} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={48} outerRadius={78} paddingAngle={3}>
+                    {data.bySpecialType.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                  </Pie>
+                  <RechartTooltip {...chartTooltipStyle} />
+                  <Legend wrapperStyle={{ fontSize: '0.68rem' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartCard>
+            <ChartCard title="Admin Modified vs Device" subtitle="Bar · locked rows">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.byModified} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <RechartTooltip {...chartTooltipStyle} />
+                  <Bar dataKey="value" name="Days" radius={[6, 6, 0, 0]}>
+                    {data.byModified.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+            {data.byDay?.length > 0 && (
+              <ChartCard title="By Day of Week" subtitle="Bar · punch days">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.byDay} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <RechartTooltip {...chartTooltipStyle} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || _} />
+                    <Bar dataKey="value" name="Days" fill={T.accentMid} radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            )}
+          </>
+        ) : (
+          <>
+            <ChartCard title="Record Status" subtitle="Pie · has device records vs none">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={data.byRecordStatus} dataKey="value" nameKey="name" cx="50%" cy="45%" innerRadius={48} outerRadius={78} paddingAngle={3}>
+                    {data.byRecordStatus.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                  </Pie>
+                  <RechartTooltip {...chartTooltipStyle} />
+                  <Legend wrapperStyle={{ fontSize: '0.68rem' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartCard>
+            <ChartCard title="Records per User" subtitle="Bar · volume buckets">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.byVolume} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <RechartTooltip {...chartTooltipStyle} />
+                  <Bar dataKey="value" name="Users" radius={[6, 6, 0, 0]}>
+                    {data.byVolume.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+            {data.byDepartment?.length > 0 && (
+              <ChartCard title="By Department" subtitle="Bar · top departments">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.byDepartment} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={T.divider} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 10 }} />
+                    <RechartTooltip {...chartTooltipStyle} />
+                    <Bar dataKey="value" name="Users" fill={T.accent} radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            )}
+          </>
+        )}
+      </Box>
+    </Box>
+  );
+};
 
 const AccentButton = styled(Button)({
   borderRadius: 8,
@@ -982,19 +1155,19 @@ const ViewAttendanceRecord = () => {
           mr: 0.25,
         }}
       >
-        Submit to
+        Submit to DTR
       </Typography>
       {[
-        { icon: People, label: 'Non-teaching', path: '/attendance_module', type: 'NONTEACHING' },
-        { icon: AccessTime, label: 'Faculty 30 hrs', path: '/attendance_module_faculty', type: 'FACULTY_30' },
-        { icon: Assignment, label: 'Faculty designated', path: '/attendance_module_faculty_40hrs', type: 'FACULTY_DESIGNATED' },
-      ].map(({ icon: Icon, label, path, type }) => (
+        { icon: People, label: 'Non-teaching', type: 'NONTEACHING' },
+        { icon: AccessTime, label: 'Faculty 30 hrs', type: 'FACULTY_30' },
+        { icon: Assignment, label: 'Faculty designated', type: 'FACULTY_DESIGNATED' },
+      ].map(({ icon: Icon, label, type }) => (
         <Button
           key={type}
           variant="contained"
           size="small"
           startIcon={<Icon sx={{ fontSize: 14 }} />}
-          onClick={() => goToComputationModule(path, type)}
+          onClick={() => goToComputationModule(type)}
           sx={{
             textTransform: 'none',
             fontWeight: 700,
@@ -1077,9 +1250,33 @@ const ViewAttendanceRecord = () => {
   const [recentlyRestoredKeys, setRecentlyRestoredKeys] = useState(() => new Set());
   const [selectedLockedRows, setSelectedLockedRows] = useState(() => new Set());
   const [bulkRestoring, setBulkRestoring] = useState(false);
+  const [registeredEmployeeSet, setRegisteredEmployeeSet] = useState(() => new Set());
+  // Top-level page tabs: "device" (Device Record — filter + table/insights) vs "facial" (Facial Live list only)
+  const [topTab, setTopTab] = useState('device');
+  // Sub-tab within the Device Record tab
+  const [deviceViewTab, setDeviceViewTab] = useState('table');
+  const [deviceAttendanceRows, setDeviceAttendanceRows] = useState([]);
+  const [loadingDeviceAttendance, setLoadingDeviceAttendance] = useState(false);
+  const [deviceAttendanceSearch, setDeviceAttendanceSearch] = useState('');
+  const [deviceAttendancePage, setDeviceAttendancePage] = useState(1);
+  const [deviceAttendanceRowsPerPage, setDeviceAttendanceRowsPerPage] = useState(25);
 
   const fetchRecordsRef = useRef(null);
   const fetchAllUsersDTRRef = useRef(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    const requestedTab = location.state?.activeTab || params.get('tab');
+    if (requestedTab === 'device-list') {
+      setTopTab('facial');
+    } else if (['table', 'insights'].includes(requestedTab)) {
+      setTopTab('device');
+      setDeviceViewTab(requestedTab);
+    }
+    if (['single', 'multiple'].includes(location.state?.viewMode)) {
+      setViewMode(location.state.viewMode);
+    }
+  }, [location.key, location.search, location.state]);
 
   // Returning to Device via workflow Back — clear filters; admin must search again.
   useLayoutEffect(() => {
@@ -1156,7 +1353,7 @@ const ViewAttendanceRecord = () => {
     let cancelled = false;
     (async () => {
       try {
-        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+        const [assignRes, empCatRes, personsRes, usersRes] = await Promise.allSettled([
           axios.get(
             `${API_BASE_URL}/api/department-assignment`,
             getAuthHeaders(),
@@ -1167,6 +1364,10 @@ const ViewAttendanceRecord = () => {
           ),
           axios.get(
             `${API_BASE_URL}/personalinfo/person_table`,
+            getAuthHeaders(),
+          ),
+          axios.get(
+            `${API_BASE_URL}/users`,
             getAuthHeaders(),
           ),
         ]);
@@ -1212,6 +1413,17 @@ const ViewAttendanceRecord = () => {
           });
           setSexMap(gMap);
         }
+        if (usersRes.status === 'fulfilled') {
+          const list = Array.isArray(usersRes.value.data)
+            ? usersRes.value.data
+            : usersRes.value.data?.data || [];
+          const next = new Set();
+          list.forEach((u) => {
+            const num = String(u?.employeeNumber ?? '').trim();
+            if (num) next.add(num);
+          });
+          setRegisteredEmployeeSet(next);
+        }
       } catch (err) {
         console.error('Error loading employee reference data:', err);
       }
@@ -1227,6 +1439,20 @@ const ViewAttendanceRecord = () => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (registeredEmployeeSet.size === 0) return;
+    setRecords((prev) =>
+      prev.filter((r) =>
+        registeredEmployeeSet.has(String(r?.PersonID ?? r?.personID ?? '').trim()),
+      ),
+    );
+    setAllUsersDTR((prev) =>
+      prev.filter((u) =>
+        registeredEmployeeSet.has(String(u?.employeeNumber ?? '').trim()),
+      ),
+    );
+  }, [registeredEmployeeSet]);
 
   const fetchDepartmentsAndAssignments = async () => {
     setLoadingDepartments(true);
@@ -1313,8 +1539,65 @@ const ViewAttendanceRecord = () => {
   }, [filteredUsers, currentPage, rowsPerPage]);
   const goToPage = (p) => setCurrentPage(Math.min(Math.max(1, p), totalPages));
 
+  const filteredDeviceAttendanceRows = useMemo(() => {
+    const q = deviceAttendanceSearch.trim().toLowerCase();
+    if (!q) return deviceAttendanceRows;
+    return deviceAttendanceRows.filter((row) =>
+      [
+        row.employeeNumber,
+        row.fullName,
+        row.department,
+        row.date,
+        row.day,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [deviceAttendanceRows, deviceAttendanceSearch]);
+
+  const deviceAttendanceTotalPages = useMemo(
+    () =>
+      Math.max(
+        1,
+        Math.ceil(filteredDeviceAttendanceRows.length / deviceAttendanceRowsPerPage),
+      ),
+    [filteredDeviceAttendanceRows.length, deviceAttendanceRowsPerPage],
+  );
+
+  const paginatedDeviceAttendanceRows = useMemo(() => {
+    const start = (deviceAttendancePage - 1) * deviceAttendanceRowsPerPage;
+    return filteredDeviceAttendanceRows.slice(
+      start,
+      start + deviceAttendanceRowsPerPage,
+    );
+  }, [
+    filteredDeviceAttendanceRows,
+    deviceAttendancePage,
+    deviceAttendanceRowsPerPage,
+  ]);
+
+  const goToDeviceAttendancePage = (page) =>
+    setDeviceAttendancePage(
+      Math.min(Math.max(1, page), deviceAttendanceTotalPages),
+    );
+
+  useEffect(() => {
+    if (deviceAttendancePage > deviceAttendanceTotalPages) {
+      setDeviceAttendancePage(deviceAttendanceTotalPages);
+    }
+  }, [deviceAttendancePage, deviceAttendanceTotalPages]);
+
   const fetchRecords = async (showLoading = true, auditPayload = null) => {
     if (!personID || !startDate || !endDate) return;
+    const pid = String(personID).trim();
+    if (registeredEmployeeSet.size > 0 && !registeredEmployeeSet.has(pid)) {
+      setRecords([]);
+      setError('This employee is not in the Users list. Device records are only shown for registered HRIS users.');
+      showSnackbar('Employee not found in Users list — records excluded.', 'warning');
+      return;
+    }
     if (showLoading) {
       setLoading(true);
       setLoadPhase('Loading attendance records…');
@@ -1343,9 +1626,16 @@ const ViewAttendanceRecord = () => {
           ? payload.records
           : [];
       const sync = payload?.sync;
-      setRecords(recs);
-      if (recs.length > 0) {
-        const apiName = recs[0].PersonName || '';
+      // Keep only punches that belong to a Users-list employee
+      const matchedRecs =
+        registeredEmployeeSet.size > 0
+          ? recs.filter((r) =>
+              registeredEmployeeSet.has(String(r?.PersonID ?? r?.personID ?? pid).trim()),
+            )
+          : recs;
+      setRecords(matchedRecs);
+      if (matchedRecs.length > 0) {
+        const apiName = matchedRecs[0].PersonName || '';
         setPersonName(apiName);
         setSelectedEmployee((prev) => {
           if (prev) return { ...prev, fullName: apiName || prev.fullName };
@@ -1357,17 +1647,17 @@ const ViewAttendanceRecord = () => {
         const failed = sync?.failed ?? 0;
         if (sync?.enabled && (saved > 0 || updated > 0)) {
           showSnackbar(
-            `Loaded ${recs.length} records — saved ${saved}, updated ${updated} in database`,
+            `Loaded ${matchedRecs.length} records — saved ${saved}, updated ${updated} in database`,
             'success',
           );
         } else if (sync?.enabled && failed > 0) {
           const errHint = sync?.errors?.[0]?.error || 'database write failed';
           showSnackbar(
-            `Loaded ${recs.length} device records but failed to save (${failed}): ${errHint}`,
+            `Loaded ${matchedRecs.length} device records but failed to save (${failed}): ${errHint}`,
             'error',
           );
         } else {
-          showSnackbar(`Loaded ${recs.length} records`, 'success');
+          showSnackbar(`Loaded ${matchedRecs.length} records`, 'success');
         }
       } else {
         setPersonName('');
@@ -1497,21 +1787,28 @@ const ViewAttendanceRecord = () => {
 
   const handleClearLockedSelection = () => setSelectedLockedRows(new Set());
 
-  const fetchAllUsersDTR = async () => {
+  const fetchAllUsersDTR = async (opts = {}) => {
+    const { syncDevice = true } = opts;
     if (!startDate || !endDate) {
       showSnackbar('Please select a month first', 'warning');
       return;
     }
     setLoadingAllUsers(true);
-    setLoadPhase('Syncing device records to database…');
+    if (syncDevice) {
+      setLoadPhase('Syncing device records to database…');
+    } else {
+      setLoadPhase('Refreshing employee list…');
+    }
     try {
-      const bulkRes = await axios.post(
-        `${API_BASE_URL}/attendance/api/bulk-auto-save`,
-        { startDate, endDate },
-        getAuthHeaders(),
-      );
-      const bulkMsg = bulkRes.data?.message;
-      if (bulkMsg) showSnackbar(bulkMsg, 'success');
+      if (syncDevice) {
+        const bulkRes = await axios.post(
+          `${API_BASE_URL}/attendance/api/bulk-auto-save`,
+          { startDate, endDate },
+          getAuthHeaders(),
+        );
+        const bulkMsg = bulkRes.data?.message;
+        if (bulkMsg) showSnackbar(bulkMsg, 'success');
+      }
       setLoadPhase('Loading employee list…');
       const [usersRes, summaryRes] = await Promise.all([
         axios.get(
@@ -1526,6 +1823,11 @@ const ViewAttendanceRecord = () => {
       ]);
 
       let users = usersRes.data || [];
+      if (registeredEmployeeSet.size > 0) {
+        users = users.filter((u) =>
+          registeredEmployeeSet.has(String(u?.PersonID ?? '').trim()),
+        );
+      }
       const summaryRows = Array.isArray(summaryRes.data)
         ? summaryRes.data
         : [];
@@ -1550,7 +1852,9 @@ const ViewAttendanceRecord = () => {
       for (const row of summaryRows) {
         const pid = row?.PersonID;
         if (pid == null || pid === '') continue;
-        countByPerson.set(String(pid), Number(row.recordsCount) || 0);
+        const pidStr = String(pid).trim();
+        if (registeredEmployeeSet.size > 0 && !registeredEmployeeSet.has(pidStr)) continue;
+        countByPerson.set(pidStr, Number(row.recordsCount) || 0);
       }
 
       const all = users.map((user) => {
@@ -1575,7 +1879,7 @@ const ViewAttendanceRecord = () => {
       setAllUsersDTR(all);
       const withRecs = all.filter((u) => u.hasRecords).length;
       showSnackbar(
-        `Loaded ${all.length} employees (${withRecs} with device records in this period)`,
+        `Loaded ${all.length} registered users (${withRecs} with device records in this period)`,
         'success',
       );
     } catch (err) {
@@ -1590,6 +1894,46 @@ const ViewAttendanceRecord = () => {
     }
   };
 
+  const fetchDeviceAttendanceList = async () => {
+    setLoadingDeviceAttendance(true);
+    setLoadPhase(
+      startDate && endDate
+        ? 'Loading device attendance list...'
+        : 'Loading latest device attendance list...',
+    );
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/device-attendance-list`,
+        {
+          startDate: startDate || null,
+          endDate: endDate || null,
+          limit: 1000,
+        },
+        getAuthHeaders(),
+      );
+      const rows = Array.isArray(res.data?.records) ? res.data.records : [];
+      setDeviceAttendanceRows(rows);
+      setDeviceAttendancePage(1);
+    } catch (err) {
+      console.error('Error fetching device attendance list:', err);
+      showSnackbar(
+        err.response?.data?.error || 'Failed to load device attendance list',
+        'error',
+      );
+    } finally {
+      setLoadingDeviceAttendance(false);
+      setLoadPhase('');
+    }
+  };
+
+  useEffect(() => {
+    if (topTab !== 'facial' || accessLoading || hasAccess === false) {
+      return;
+    }
+    fetchDeviceAttendanceList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topTab, startDate, endDate, accessLoading, hasAccess]);
+
   useEffect(() => {
     fetchRecordsRef.current = fetchRecords;
     fetchAllUsersDTRRef.current = fetchAllUsersDTR;
@@ -1599,6 +1943,19 @@ const ViewAttendanceRecord = () => {
     if (!socket || !connected) return;
     let debounceTimer = null;
     const handleAttendanceChanged = (payload) => {
+      // Never re-run bulk-auto-save from sockets — soft-refresh summary only
+      if (payload?.light) return;
+      const action = payload?.action;
+      if (
+        action === 'leaves-fetched' ||
+        action === 'holidays-fetched' ||
+        action === 'suspensions-fetched' ||
+        action === 'dtr-printed' ||
+        action === 'overall-daily-late-updated' ||
+        action === 'overall-daily-late-created'
+      ) {
+        return;
+      }
       const ids = Array.isArray(payload?.personIDs)
         ? payload.personIDs
         : payload?.personID
@@ -1612,7 +1969,10 @@ const ViewAttendanceRecord = () => {
       }
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => fetchAllUsersDTRRef.current?.(), 150);
+      debounceTimer = setTimeout(
+        () => fetchAllUsersDTRRef.current?.({ syncDevice: false }),
+        1200,
+      );
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
     return () => {
@@ -1724,7 +2084,7 @@ const COMPUTATION_BUTTON_LABELS = {
   FACULTY_DESIGNATED: 'Faculty designated',
 };
 
-const goToComputationModule = async (path, selectedComputationType) => {
+const goToComputationModule = async (selectedComputationType) => {
   if (!personID || !startDate || !endDate) {
     showSnackbar('Please fill in all fields first', 'warning');
     return;
@@ -1746,13 +2106,12 @@ const goToComputationModule = async (path, selectedComputationType) => {
         existingType: COMPUTATION_TYPE_LABELS[existingType] || existingType,
         newType: COMPUTATION_TYPE_LABELS[selectedComputationType] || selectedComputationType,
         rawNewType: selectedComputationType,
-        path,
         auditButtonLabel,
         employeeName: personName || 'this employee',
       });
       return;
     }
-    await proceedToComputationModule(path, selectedComputationType, auditButtonLabel);
+    await proceedToComputationModule(selectedComputationType, auditButtonLabel);
   } catch (err) {
     console.error('Error checking computation view state:', err);
     showSnackbar('Failed to check saved computation type', 'error');
@@ -1760,7 +2119,6 @@ const goToComputationModule = async (path, selectedComputationType) => {
 };
 
   const proceedToComputationModule = async (
-    path,
     selectedComputationType,
     auditButtonLabel,
   ) => {
@@ -1772,32 +2130,24 @@ const goToComputationModule = async (path, selectedComputationType) => {
         selectedComputationType,
         ...buildDeviceAuditPayload(auditButtonLabel),
       }, getAuthHeaders());
-      const moduleByPath = {
-        '/attendance_module': 'non_teaching',
-        '/attendance_module_faculty': 'faculty_30',
-        '/attendance_module_faculty_40hrs': 'faculty_designated',
-      };
-      const targetModuleId = moduleByPath[path];
-      if (targetModuleId) {
-        navigateAttendanceWorkflow(navigate, targetModuleId, {
+      const targetModuleId =
+        COMPUTATION_TYPE_TO_MODULE_ID[selectedComputationType] || 'non_teaching';
+      navigateAttendanceWorkflow(
+        navigate,
+        'dtr',
+        {
           employeeNumber: personID,
           fullName: personName,
           startDate,
           endDate,
-        });
-      } else {
-        navigate(path, {
-          state: {
-            fromDevice: true,
-            employeeNumber: personID,
-            fullName: personName,
-            startDate,
-            endDate,
-          },
-        });
-      }
+        },
+        {
+          openComputationModule: targetModuleId,
+          fromDevice: true,
+        },
+      );
     } catch (err) {
-      console.error('Error saving computation view state:', err);
+      console.error('Error saving computation selection:', err);
       showSnackbar('Failed to save computation selection', 'error');
     }
   };
@@ -1908,6 +2258,101 @@ const goToComputationModule = async (path, selectedComputationType) => {
     () => records.filter((r) => isManuallyLocked(r)).length,
     [records],
   );
+
+  const deviceInsightsData = useMemo(() => {
+    if (viewMode === 'single') {
+      if (!records.length) return { hasData: false };
+
+      const completenessMap = {
+        Complete: 0,
+        'Missing Time In': 0,
+        'Missing Time Out': 0,
+        'No Punches': 0,
+      };
+      const specialMap = {};
+      const dayMap = {};
+      const modMap = { 'Admin Modified': 0, 'Device Only': 0 };
+
+      records.forEach((r) => {
+        const hasIn = !!r.Time1;
+        const hasOut = !!r.Time4;
+        const hasAny = !!(r.Time1 || r.Time2 || r.Time3 || r.Time4);
+        if (!hasAny) completenessMap['No Punches'] += 1;
+        else if (hasIn && hasOut) completenessMap.Complete += 1;
+        else if (!hasIn) completenessMap['Missing Time In'] += 1;
+        else if (!hasOut) completenessMap['Missing Time Out'] += 1;
+
+        const st = (r.specialType && String(r.specialType).trim()) || 'Regular';
+        specialMap[st] = (specialMap[st] || 0) + 1;
+
+        const day = getRecordDayLabel(r.Date);
+        dayMap[day] = (dayMap[day] || 0) + 1;
+
+        if (isManuallyLocked(r)) modMap['Admin Modified'] += 1;
+        else modMap['Device Only'] += 1;
+      });
+
+      const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      return {
+        hasData: true,
+        subtitle: `Based on ${records.length} device record${records.length === 1 ? '' : 's'} for registered users only`,
+        byCompleteness: Object.entries(completenessMap)
+          .filter(([, v]) => v > 0)
+          .map(([name, value]) => ({ name, value, fill: COMPLETENESS_COLORS[name] || T.accent })),
+        bySpecialType: Object.entries(specialMap)
+          .map(([name, value], i) => ({ name, value, fill: CHART_COLORS[i % CHART_COLORS.length] })),
+        byModified: Object.entries(modMap)
+          .filter(([, v]) => v > 0)
+          .map(([name, value]) => ({
+            name,
+            value,
+            fill: name === 'Admin Modified' ? '#1976d2' : T.accentMid,
+          })),
+        byDay: dayOrder
+          .filter((d) => dayMap[d])
+          .map((name) => ({ name: name.slice(0, 3), fullName: name, value: dayMap[name] })),
+      };
+    }
+
+    if (!filteredUsers.length) return { hasData: false };
+
+    const statusMap = { 'Has Records': 0, 'No Records': 0 };
+    const deptMap = {};
+    const volumeMap = { '0': 0, '1–5': 0, '6–15': 0, '16+': 0 };
+
+    filteredUsers.forEach((u) => {
+      const n = u.recordsCount || 0;
+      if (n > 0) statusMap['Has Records'] += 1;
+      else statusMap['No Records'] += 1;
+
+      const dept = departmentAssignmentsMap?.[String(u.employeeNumber)] || 'Unassigned';
+      deptMap[dept] = (deptMap[dept] || 0) + 1;
+
+      if (n === 0) volumeMap['0'] += 1;
+      else if (n <= 5) volumeMap['1–5'] += 1;
+      else if (n <= 15) volumeMap['6–15'] += 1;
+      else volumeMap['16+'] += 1;
+    });
+
+    return {
+      hasData: true,
+      subtitle: `Based on ${filteredUsers.length} registered user${filteredUsers.length === 1 ? '' : 's'} from Users list · ${startDate || '—'} to ${endDate || '—'}`,
+      byRecordStatus: Object.entries(statusMap)
+        .filter(([, v]) => v > 0)
+        .map(([name, value]) => ({
+          name,
+          value,
+          fill: name === 'Has Records' ? '#059669' : '#94a3b8',
+        })),
+      byDepartment: Object.entries(deptMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10),
+      byVolume: Object.entries(volumeMap)
+        .filter(([, v]) => v > 0)
+        .map(([name, value], i) => ({ name, value, fill: CHART_COLORS[i % CHART_COLORS.length] })),
+    };
+  }, [viewMode, records, filteredUsers, departmentAssignmentsMap, startDate, endDate]);
 
   const recordsTotalPages = useMemo(
     () => Math.max(1, Math.ceil(records.length / recordsRowsPerPage)),
@@ -2039,6 +2484,7 @@ const goToComputationModule = async (path, selectedComputationType) => {
               key={val}
               onClick={() => {
                 setViewMode(val);
+                setDeviceViewTab('table');
                 setRecords([]);
                 clearSingleEmployee();
                 setAllUsersDTR([]);
@@ -2327,7 +2773,13 @@ const goToComputationModule = async (path, selectedComputationType) => {
                 )}
                 <Tooltip title="Refresh">
                   <IconButton
-                    onClick={() => viewMode === 'single' ? fetchRecords(true) : fetchAllUsersDTR()}
+                    onClick={() => {
+                      if (topTab === 'facial') {
+                        fetchDeviceAttendanceList();
+                        return;
+                      }
+                      viewMode === 'single' ? fetchRecords(true) : fetchAllUsersDTR();
+                    }}
                     sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
                   >
                     <Refresh sx={{ fontSize: 18 }} />
@@ -2346,39 +2798,41 @@ const goToComputationModule = async (path, selectedComputationType) => {
 
           {/* ── Two-column layout ── */}
           <Grid container spacing={2}>
-            {/* LEFT: Sidebar */}
-            <Grid item xs={12} lg={3}>
-              <SectionCard
-                sx={{
-                  ...attendanceMainPanelHeightSx,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
+            {/* LEFT: Sidebar — hidden on the Facial (Live) tab since it auto-fetches live device data */}
+            {topTab !== 'facial' && (
+              <Grid item xs={12} lg={3}>
+                <SectionCard
                   sx={{
-                    px: 2,
-                    py: 1,
-                    borderBottom: `1px solid ${T.divider}`,
+                    ...attendanceMainPanelHeightSx,
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    bgcolor: T.accentFaint,
-                    flexShrink: 0,
+                    flexDirection: 'column',
+                    overflow: 'hidden',
                   }}
                 >
-                  <FilterList sx={{ fontSize: 13, color: T.accent }} />
-                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
-                    Attendance Filter
-                  </Typography>
-                </Box>
-                {renderLeftPanel()}
-              </SectionCard>
-            </Grid>
+                  <Box
+                    sx={{
+                      px: 2,
+                      py: 1,
+                      borderBottom: `1px solid ${T.divider}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      bgcolor: T.accentFaint,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <FilterList sx={{ fontSize: 13, color: T.accent }} />
+                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.accent }}>
+                      Attendance Filter
+                    </Typography>
+                  </Box>
+                  {renderLeftPanel()}
+                </SectionCard>
+              </Grid>
+            )}
 
-            {/* RIGHT: Content */}
-            <Grid item xs={12} lg={9}>
+            {/* RIGHT: Content — expands to full width when the sidebar is hidden */}
+            <Grid item xs={12} lg={topTab === 'facial' ? 12 : 9}>
               <SectionCard
                 sx={{
                   ...attendanceMainPanelHeightSx,
@@ -2387,8 +2841,185 @@ const goToComputationModule = async (path, selectedComputationType) => {
                   position: 'relative',
                 }}
               >
-                {/* ── SINGLE USER VIEW ── */}
-                {viewMode === 'single' && (
+                {/* ── Top-level page tabs: Device Record | Facial (Live) ── */}
+                <Box sx={{ borderBottom: `1px solid ${T.divider}`, flexShrink: 0, bgcolor: '#fff' }}>
+                  <Tabs
+                    value={topTab}
+                    onChange={(_, v) => setTopTab(v)}
+                    sx={{
+                      minHeight: 42,
+                      px: 1,
+                      '& .MuiTabs-indicator': { bgcolor: T.accent, height: 3, borderRadius: '3px 3px 0 0' },
+                      '& .MuiTab-root': {
+                        minHeight: 42,
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        fontSize: '0.82rem',
+                        color: T.faint,
+                        '&.Mui-selected': { color: T.accent, fontWeight: 800 },
+                      },
+                    }}
+                  >
+                    <Tab value="device" icon={<TableChartIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="Device Record" />
+                    <Tab value="facial" icon={<AccessTime sx={{ fontSize: 16 }} />} iconPosition="start" label="Facial (Live)" />
+                  </Tabs>
+
+                  {/* Sub-tabs (Table | Insights) — only within the Device Record tab */}
+                  {topTab === 'device' && (
+                    <Tabs
+                      value={deviceViewTab}
+                      onChange={(_, v) => setDeviceViewTab(v)}
+                      sx={{
+                        minHeight: 36,
+                        px: 2,
+                        borderTop: `1px solid ${T.divider}`,
+                        bgcolor: T.accentFaint,
+                        '& .MuiTabs-indicator': { bgcolor: T.accent, height: 2, borderRadius: '2px 2px 0 0' },
+                        '& .MuiTab-root': {
+                          minHeight: 36,
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          fontSize: '0.76rem',
+                          color: T.muted,
+                          '&.Mui-selected': { color: T.accent, fontWeight: 800 },
+                        },
+                      }}
+                    >
+                      <Tab value="table" icon={<TableChartIcon sx={{ fontSize: 14 }} />} iconPosition="start" label="Table" />
+                      <Tab value="insights" icon={<InsightsIcon sx={{ fontSize: 14 }} />} iconPosition="start" label="Insights" />
+                    </Tabs>
+                  )}
+                </Box>
+
+                {/* ── FACIAL (LIVE) TAB — no attendance filter, no table/insights sub-tabs ── */}
+                {topTab === 'facial' && (
+                  <>
+                    <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                          <AccessTime sx={{ fontSize: 15, color: T.accent }} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>Device Attendance List</Typography>
+                            <Typography sx={{ fontSize: '0.68rem', color: T.faint }}>
+                              {startDate && endDate ? `${startDate} to ${endDate}` : 'Latest device attendance days'}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ px: 1.5, py: 0.3, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, flexShrink: 0 }}>
+                            <Typography sx={{ fontSize: '0.7rem', color: T.accent, fontWeight: 700 }}>{filteredDeviceAttendanceRows.length} records</Typography>
+                          </Box>
+                        </Box>
+                        <Tooltip title="Reload device attendance list" placement="top">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={fetchDeviceAttendanceList}
+                              disabled={loadingDeviceAttendance}
+                              sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 32, height: 32, '&:hover': { bgcolor: alpha(T.accent, 0.15) }, '&:disabled': { opacity: 0.4 } }}
+                            >
+                              {loadingDeviceAttendance ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <Refresh sx={{ fontSize: 16 }} />}
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ px: 3, py: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: alpha(T.accent, 0.02), flexShrink: 0 }}>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <FieldInput
+                          size="small"
+                          placeholder="Search employee number, name, department, date..."
+                          value={deviceAttendanceSearch}
+                          onChange={(e) => {
+                            setDeviceAttendanceSearch(e.target.value);
+                            setDeviceAttendancePage(1);
+                          }}
+                          sx={{ flex: 1, minWidth: 240 }}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <SearchOutlined sx={{ fontSize: 16, color: T.muted }} />
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                        <FormControl size="small" sx={{ minWidth: 94 }}>
+                          <Select
+                            value={deviceAttendanceRowsPerPage}
+                            onChange={(e) => {
+                              setDeviceAttendanceRowsPerPage(Number(e.target.value));
+                              setDeviceAttendancePage(1);
+                            }}
+                            sx={selectSx}
+                          >
+                            {[10, 25, 50, 100].map((n) => (
+                              <MenuItem key={n} value={n} sx={{ fontSize: '0.82rem' }}>{n} rows</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, ml: 'auto' }}>
+                          {[{ label: '<<', fn: () => goToDeviceAttendancePage(1), dis: deviceAttendancePage === 1 }, { label: '<', fn: () => goToDeviceAttendancePage(deviceAttendancePage - 1), dis: deviceAttendancePage === 1 }].map(({ label, fn, dis }) => (
+                            <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                              <Typography sx={{ fontSize: '0.72rem', lineHeight: 1 }}>{label}</Typography>
+                            </IconButton>
+                          ))}
+                          <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.muted, minWidth: 60, textAlign: 'center' }}>
+                            {deviceAttendancePage} / {deviceAttendanceTotalPages}
+                          </Typography>
+                          {[{ label: '>', fn: () => goToDeviceAttendancePage(deviceAttendancePage + 1), dis: deviceAttendancePage === deviceAttendanceTotalPages }, { label: '>>', fn: () => goToDeviceAttendancePage(deviceAttendanceTotalPages), dis: deviceAttendancePage === deviceAttendanceTotalPages }].map(({ label, fn, dis }) => (
+                            <IconButton key={label} size="small" onClick={fn} disabled={dis} sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: '6px', '&:disabled': { opacity: 0.35 } }}>
+                              <Typography sx={{ fontSize: '0.72rem', lineHeight: 1 }}>{label}</Typography>
+                            </IconButton>
+                          ))}
+                        </Box>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', ...scrollbarSx }}>
+                      <Table stickyHeader sx={{ tableLayout: 'fixed', width: '100%', minWidth: 1180 }}>
+                        <TableHead>
+                          <TableRow sx={{ '& .MuiTableCell-head': { bgcolor: T.accent, color: '#fff', fontWeight: 700, fontSize: '0.7rem', py: 1.15 } }}>
+                            {['Employee No.', 'Full Name', 'Department', 'Date', 'Day', 'Time In', 'Brk In', 'Brk Out', 'Time Out', 'Special Time In', 'Special Time Out'].map((h) => (
+                              <TableCell key={h} sx={{ width: h === 'Full Name' ? 210 : h === 'Department' ? 115 : 104 }}>{h}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {paginatedDeviceAttendanceRows.map((row, idx) => (
+                            <TableRow key={`${row.employeeNumber}-${row.date}-${idx}`} sx={{ bgcolor: idx % 2 === 0 ? '#fff' : T.rowOdd, '&:hover': { bgcolor: T.rowHover }, transition: 'background 0.1s' }}>
+                              <TableCell sx={{ fontSize: '0.76rem', color: T.muted, fontWeight: 700 }}>#{row.employeeNumber}</TableCell>
+                              <TableCell sx={{ fontSize: '0.8rem', color: T.text, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.fullName || 'Unknown'}</TableCell>
+                              <TableCell>{row.department ? <DeptBadge code={row.department} /> : <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Unassigned</Typography>}</TableCell>
+                              <TableCell sx={{ fontSize: '0.76rem', color: T.text }}>{row.date || '-'}</TableCell>
+                              <TableCell sx={{ fontSize: '0.76rem', color: T.muted }}>{row.day || '-'}</TableCell>
+                              {[row.timeIn, row.breakIn, row.breakOut, row.timeOut, row.specialTimeIn, row.specialTimeOut].map((value, cellIdx) => (
+                                <TableCell key={cellIdx} sx={{ fontSize: '0.76rem', color: value ? T.text : T.faint, fontWeight: value ? 600 : 400 }}>{value || '-'}</TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {!loadingDeviceAttendance && paginatedDeviceAttendanceRows.length === 0 && (
+                        <Box sx={{ py: 10, textAlign: 'center' }}>
+                          <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                            <AccessTime sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                          </Box>
+                          <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>No device attendance found</Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Select another period or clear the search field.</Typography>
+                        </Box>
+                      )}
+                    </Box>
+
+                    <Box sx={{ px: 3, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
+                        {filteredDeviceAttendanceRows.length > 0
+                          ? `Showing ${Math.min(filteredDeviceAttendanceRows.length, (deviceAttendancePage - 1) * deviceAttendanceRowsPerPage + 1)}-${Math.min(filteredDeviceAttendanceRows.length, deviceAttendancePage * deviceAttendanceRowsPerPage)} of ${filteredDeviceAttendanceRows.length}`
+                          : '0 records'}
+                      </Typography>
+                    </Box>
+                  </>
+                )}
+
+                {topTab === 'device' && viewMode === 'single' && deviceViewTab === 'table' && (
                   <>
                     {/* Toolbar */}
                     <Box
@@ -2894,8 +3525,20 @@ const goToComputationModule = async (path, selectedComputationType) => {
                   </>
                 )}
 
-                {/* ── ALL USERS VIEW ── */}
-                {viewMode === 'multiple' && (
+                {topTab === 'device' && viewMode === 'single' && deviceViewTab === 'insights' && (
+                  <DeviceInsightsCharts
+                    viewMode="single"
+                    data={deviceInsightsData}
+                    emptyHint={
+                      !hasSearchedSingle || !personID
+                        ? 'Select a registered employee and fetch records to see insights.'
+                        : 'No device records for this registered user in the selected period.'
+                    }
+                  />
+                )}
+
+                {/* ── ALL USERS VIEW — TABLE ── */}
+                {topTab === 'device' && viewMode === 'multiple' && deviceViewTab === 'table' && (
                   <>
                     {/* Toolbar */}
                     <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
@@ -3149,6 +3792,20 @@ const goToComputationModule = async (path, selectedComputationType) => {
                       </Box>
                     )}
                   </>
+                )}
+
+                {topTab === 'device' && viewMode === 'multiple' && deviceViewTab === 'insights' && (
+                  <DeviceInsightsCharts
+                    viewMode="multiple"
+                    data={deviceInsightsData}
+                    emptyHint={
+                      !startDate || !endDate
+                        ? 'Select a month and load all users to see insights.'
+                        : allUsersDTR.length === 0
+                          ? 'Click Load All Users — only employees in the Users list are included.'
+                          : 'No registered users match your current filters.'
+                    }
+                  />
                 )}
               </SectionCard>
             </Grid>
@@ -3421,7 +4078,6 @@ const goToComputationModule = async (path, selectedComputationType) => {
                 const next = { ...computationChangeDialog };
                 setComputationChangeDialog((p) => ({ ...p, open: false }));
                 await proceedToComputationModule(
-                  next.path,
                   next.rawNewType,
                   next.auditButtonLabel ||
                     COMPUTATION_BUTTON_LABELS[next.rawNewType] ||
@@ -3463,4 +4119,4 @@ const goToComputationModule = async (path, selectedComputationType) => {
   );
 };
 
-export default ViewAttendanceRecord
+export default ViewAttendanceRecord;
