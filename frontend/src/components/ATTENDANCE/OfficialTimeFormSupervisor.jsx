@@ -104,6 +104,7 @@ import usePageAccess from "../../hooks/usePageAccess";
 import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
 import AccessDenied from "../AccessDenied";
 import CircularProgress from "@mui/material/CircularProgress";
+import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -2546,7 +2547,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
       list = list.filter((u) => u.endDate && normalizeDateStr(u.endDate) <= filterEndDate);
     }
 
-    return list;
+    return sortEmployeesByLastName(list, (u) => u.fullName || u);
   }, [
     allUsers,
     searchQuery,

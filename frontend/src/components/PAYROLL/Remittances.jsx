@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import {
   Typography,
@@ -65,6 +65,7 @@ import usePageAccess from '../../hooks/usePageAccess';
 import { useNavigate } from 'react-router-dom';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 
 // ─── Theme tokens (matching LeaveRequest) ─────────────────────────────────────
@@ -1813,7 +1814,10 @@ const EmployeeRemittance = () => {
       .reduce((sum, field) => sum + (parseFloat(remittance[field]) || 0), 0)
       .toFixed(2);
 
-  const filteredData = data;
+  const filteredData = useMemo(
+    () => sortEmployeesByLastName(data, (r) => r.name || r.employeeName || r),
+    [data],
+  );
 
   const handleUploadButtonClick = () => {
     if (uploading) return;

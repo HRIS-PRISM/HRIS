@@ -59,6 +59,7 @@ import {
 } from "./leaveAssignmentBalanceUtils";
 import usePayrollPeriodLock from "../../hooks/usePayrollPeriodLock";
 import { PAYROLL_LOCK_TOOLTIP } from "../../utils/payrollPeriodLock";
+import { compareEmployeesByLastName, sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -2858,11 +2859,13 @@ const LeaveAssignment = () => {
 
   const employeeOptions = useMemo(() => {
     const list = Array.isArray(employees) ? employees : [];
-    return list.map((e) => {
-      const displayName = buildDisplayName(e);
-      const empNo = (e?.employeeNumber || "").toString().trim();
-      return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase(), _sortLast: (e?.lastName || "").trim().toLowerCase() };
-    }).sort((a, b) => a._sortLast.localeCompare(b._sortLast));
+    return sortEmployeesByLastName(
+      list.map((e) => {
+        const displayName = buildDisplayName(e);
+        const empNo = (e?.employeeNumber || "").toString().trim();
+        return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase() };
+      }),
+    );
   }, [employees, buildDisplayName]);
 
   const selectedEmployeeGender = useMemo(() => selectedEmployee?.sex || selectedEmployee?.gender || null, [selectedEmployee]);
@@ -3511,7 +3514,7 @@ assignments.forEach((a) => {
     });
     return Object.values(grouped)
       .map((e) => ({ ...e, leaveTypes: Object.values(e.leaveTypes) }))
-      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+      .sort((a, b) => compareEmployeesByLastName(a, b));
   }, [filteredAssignments, employeeByNumber, buildDisplayName]);
 
   const paginatedGroups = useMemo(() => {

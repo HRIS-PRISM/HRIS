@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuthHeaders } from "../utils/auth";
+import { sortEmployeesByLastName } from "../utils/sortEmployeesByLastName";
 import {
   isPageAccessActive,
   isPageAuthorizedForRole,
@@ -880,7 +881,12 @@ const UsersList = () => {
             (u.email || "").toLowerCase().includes(term) ||
             String(u.employeeNumber || "").includes(term),
         );
-    setPwFilteredUsers(result);
+    setPwFilteredUsers(
+      sortEmployeesByLastName(result, (u) => {
+        if (u?.lastName) return u;
+        return u?.fullName || u;
+      }),
+    );
     setPwPage(0);
   }, [pwSearchTerm, pwSourceUsers]);
 
@@ -1431,7 +1437,13 @@ const UsersList = () => {
         matchesDepartment
       );
     });
-    setFilteredUsers(filtered);
+    setFilteredUsers(
+      sortEmployeesByLastName(filtered, (user) => {
+        // Prefer real surname fields when present; else parse fullName
+        if (user?.lastName) return user;
+        return user?.fullName || user;
+      }),
+    );
     setPage(0);
   }, [
     searchTerm,

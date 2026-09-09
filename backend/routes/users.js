@@ -1362,10 +1362,11 @@ router.get('/users/search', authenticateToken, requireAdmin, (req, res) => {
 
   try {
     let query = `
-      SELECT 
+      SELECT
         u.employeeNumber,
         u.email,
         u.role,
+        u.branch,
         p.firstName,
         p.middleName,
         p.lastName,
@@ -1479,10 +1480,14 @@ router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('empl
         p.nameExtension,
         u.created_at,
         pa.page_id,
-        pa.page_privilege
+        pa.page_privilege,
+        da.code AS departmentCode,
+        dt.description AS departmentDescription
       FROM users u
       LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
       LEFT JOIN page_access pa ON u.employeeNumber = pa.employeeNumber
+      LEFT JOIN department_assignment da ON u.employeeNumber = da.employeeNumber
+      LEFT JOIN department_table dt ON da.code = dt.code
       WHERE u.employeeNumber = ?
     `;
 
@@ -1511,7 +1516,9 @@ router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('empl
         email: base.email,
         role: base.role,
         employmentCategory: base.employmentCategory,
-        branch: row.branch !== null && row.branch !== undefined ? Number(row.branch) : null,
+        departmentCode: base.departmentCode || null,
+        departmentDescription: base.departmentDescription || null,
+        branch: base.branch !== null && base.branch !== undefined ? Number(base.branch) : null,
         accessLevel: base.access_level,
         createdAt: base.created_at,
         pageAccess: results

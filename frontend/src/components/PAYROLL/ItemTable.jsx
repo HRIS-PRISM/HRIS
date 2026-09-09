@@ -60,6 +60,7 @@ import AccessDenied from '../AccessDenied';
 import usePageAccess from '../../hooks/usePageAccess';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 
 // ─── Theme tokens (unified with Remittance) ────────────────────────────────────
 const T = {
@@ -614,15 +615,18 @@ const ItemTable = () => {
 
   const filteredData = useMemo(() => {
     const s = searchTerm.toLowerCase().trim();
-    return data.filter((item) => {
-      const matchSearch = !s
-        || (item.employeeID?.toString() || '').includes(s)
-        || (item.name?.toLowerCase() || '').includes(s)
-        || (item.item_description?.toLowerCase() || '').includes(s)
-        || (employeeNames[item.employeeID]?.toLowerCase() || '').includes(s);
-      const matchPosition = !filterPosition || item.item_description === filterPosition;
-      return matchSearch && matchPosition;
-    });
+    return sortEmployeesByLastName(
+      data.filter((item) => {
+        const matchSearch = !s
+          || (item.employeeID?.toString() || '').includes(s)
+          || (item.name?.toLowerCase() || '').includes(s)
+          || (item.item_description?.toLowerCase() || '').includes(s)
+          || (employeeNames[item.employeeID]?.toLowerCase() || '').includes(s);
+        const matchPosition = !filterPosition || item.item_description === filterPosition;
+        return matchSearch && matchPosition;
+      }),
+      (item) => employeeNames[item.employeeID] || item.name || item,
+    );
   }, [data, employeeNames, searchTerm, filterPosition]);
 
   // ─── Validate ──────────────────────────────────────────────────────────────

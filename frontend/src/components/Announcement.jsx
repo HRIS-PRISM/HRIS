@@ -58,6 +58,7 @@ import usePageAccess from "../hooks/usePageAccess";
 import AccessDenied from "./AccessDenied";
 import SuccessfulOverlay from "./SuccessfulOverlay";
 import LoadingOverlay from "./LoadingOverlay";
+import { BRANCHES, branchLabel } from "../constants/branches";
 
 // ─── Theme tokens ───────────────────────────────────────────────────────────
 const T = {
@@ -599,6 +600,63 @@ if (isFlexi) {
   );
 }
 
+if (item.isSuspension) {
+  const scopeLabel =
+    item.personnel_scope === "academic"
+      ? "Academic"
+      : item.personnel_scope === "non_teaching"
+        ? "Non-Teaching"
+        : "All";
+  const typeLabel =
+    item.suspension_type === "partial_day" ? "Partial" : "Whole day";
+  const campLabel = branchLabel(item.branch);
+  chips.push(
+    <Box
+      key="scope"
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.4,
+        px: 1,
+        py: 0.25,
+        borderRadius: "10px",
+        bgcolor: alpha("#b71c1c", 0.08),
+        border: "1px solid #d32f2f",
+      }}
+    >
+      <Typography
+        sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#b71c1c" }}
+      >
+        {scopeLabel} · {typeLabel} · {campLabel}
+      </Typography>
+    </Box>,
+  );
+}
+
+if (item.isHoliday) {
+  chips.push(
+    <Box
+      key="branch"
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.4,
+        px: 1,
+        py: 0.25,
+        borderRadius: "10px",
+        bgcolor: alpha("#ed6c02", 0.1),
+        border: "1px solid #ed6c02",
+      }}
+    >
+      <Typography
+        sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#e65100" }}
+      >
+        {branchLabel(item.branch)}
+      </Typography>
+    </Box>,
+  );
+}
+
 if (chips.length === 0) {
   return (
     <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>—</Typography>
@@ -676,6 +734,7 @@ const emptySuspExtra = {
   personnel_scope: "all",
   suspension_type: "whole_day",
   effective_time: "",
+  branch: "all",
 };
 const emptyHol = {
   title: "",
@@ -684,6 +743,7 @@ const emptyHol = {
   date_end: "",
   status: "Active",
   image: null,
+  branch: "all",
 };
 
 const [newAnnouncement, setNewAnnouncement] = useState(emptyAnn);
@@ -819,6 +879,14 @@ const handleAddSuspension = async () => {
         ? newSuspension.effective_time || ""
         : "",
     );
+    fd.append(
+      "branch",
+      newSuspension.branch === "all" ||
+        newSuspension.branch === "" ||
+        newSuspension.branch == null
+        ? "all"
+        : String(newSuspension.branch),
+    );
     await axios.post(`${API_BASE_URL}/api/suspensions`, fd, {
       headers: {
         "Content-Type": "multipart/form-data",
@@ -849,6 +917,14 @@ const handleAddHoliday = async () => {
     fd.append("date_start", date_start);
     fd.append("date_end", date_end);
     fd.append("status", status);
+    fd.append(
+      "branch",
+      newHoliday.branch === "all" ||
+        newHoliday.branch === "" ||
+        newHoliday.branch == null
+        ? "all"
+        : String(newHoliday.branch),
+    );
     if (newHoliday.image) fd.append("image", newHoliday.image);
     await axios.post(`${API_BASE_URL}/holiday`, fd, {
       headers: {
@@ -924,6 +1000,7 @@ const allHolidaysMapped = holidays.map((h) => ({
   date: h.date_start || h.date_end || h.date,
   image: h.image || null,
   status: h.status || "Active",
+  branch: h.branch ?? null,
   isHoliday: true,
 }));
 
@@ -938,6 +1015,10 @@ const suspensionsMapped = (suspensions || []).map((s) => ({
   image: s.image || null,
   isHoliday: false,
   isSuspension: true,
+  personnel_scope: s.personnel_scope || "all",
+  suspension_type: s.suspension_type || "whole_day",
+  effective_time: s.effective_time || null,
+  branch: s.branch ?? null,
   hr_only: s.hr_only,
   is_flexi: s.is_flexi,
   flexi_hours: s.flexi_hours,
@@ -1096,6 +1177,29 @@ const renderLeftPanel = () => {
               <MenuItem value="all" sx={{ fontSize: '0.82rem' }}>All Personnel</MenuItem>
               <MenuItem value="academic" sx={{ fontSize: '0.82rem' }}>Academic</MenuItem>
               <MenuItem value="non_teaching" sx={{ fontSize: '0.82rem' }}>Non-Teaching</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+      )}
+
+      {(isSusp || isHol) && (
+        <Box>
+          <FormSectionLabel icon={Info}>Branch / Campus</FormSectionLabel>
+          <FormControl fullWidth size="small">
+            <Select
+              value={src.branch ?? 'all'}
+              onChange={(e) => setSrc((p) => ({ ...p, branch: e.target.value }))}
+              sx={compactSelectSx}
+            >
+              {BRANCHES.map((b) => (
+                <MenuItem
+                  key={b.code === null ? 'all' : String(b.code)}
+                  value={b.code === null ? 'all' : String(b.code)}
+                  sx={{ fontSize: '0.82rem' }}
+                >
+                  {b.label}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Box>

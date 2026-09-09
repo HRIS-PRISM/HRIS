@@ -97,6 +97,7 @@ import { COMPUTATION_TYPE_TO_MODULE_ID } from '../../utils/attendanceHubFlow';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import {
   AttendanceFilterDateControls,
   MONTHS_SHORT,
@@ -1871,12 +1872,7 @@ const ViewAttendanceRecord = () => {
         };
       });
 
-      all.sort((a, b) =>
-        (a.lastName || '')
-          .toUpperCase()
-          .localeCompare((b.lastName || '').toUpperCase()),
-      );
-      setAllUsersDTR(all);
+      setAllUsersDTR(sortEmployeesByLastName(all));
       const withRecs = all.filter((u) => u.hasRecords).length;
       showSnackbar(
         `Loaded ${all.length} registered users (${withRecs} with device records in this period)`,

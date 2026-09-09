@@ -68,7 +68,7 @@ import API_BASE_URL from '../../apiConfig';
   import AttendanceWorkflowNav from './AttendanceWorkflowNav';
   import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
   import {
-    seedEmbeddedModuleContext,
+    useEmbeddedModuleAutoSearch,
     ATTENDANCE_EMBEDDED_ROOT_SX,
     notifyModuleSaveSuccess,
   } from '../../utils/attendanceModuleEmbedded';
@@ -142,6 +142,10 @@ import API_BASE_URL from '../../apiConfig';
     postAttendanceDevicePreflightNoSync,
     fetchAttendanceCalendarMaps,
     getLeaveStatusLabelForDate,
+    isSuspendedStatusLabel,
+    pickApplicableSuspension,
+    pickApplicableHoliday,
+    fetchEmployeeBranch,
   } from './attendanceLeaveIntegration';
   import { getAuthHeaders } from '../../utils/auth';
   import OverallAttendanceCompareModal from './OverallAttendanceCompareModal';
@@ -325,6 +329,7 @@ import API_BASE_URL from '../../apiConfig';
     displayName = '',
     onSelectEmployeeNumber,
     onSelectEmployeeName,
+    onSelectEmployee,
     onSearchQueryChange,
     disabled = false,
   }) => {
@@ -405,6 +410,7 @@ import API_BASE_URL from '../../apiConfig';
       const name = buildDisplayName(emp);
       onSelectEmployeeNumber(num);
       onSelectEmployeeName?.(name);
+      onSelectEmployee?.(emp);
       setQuery(formatEmployeeFieldValue(num, name));
       setDebouncedQuery(num);
       setOpen(false);
@@ -422,6 +428,7 @@ import API_BASE_URL from '../../apiConfig';
       const next = e.target.value;
       onSelectEmployeeNumber(next);
       onSelectEmployeeName?.('');
+      onSelectEmployee?.(null);
       setQuery(next);
       onSearchQueryChange?.(next.trim());
       queueSearch(next);
@@ -603,11 +610,16 @@ const pickEarlierOfficialEnd = (officialStartStr, originalEndStr, candidateEndSt
  * end time. Reads maps.suspensionByDate (raw, full metadata) — that map is
  * never mutated or discarded; this only returns adjusted row copies.
  */
-const clampFacultyRowsForPartialSuspension = (rows, suspensionByDate) =>
+const clampFacultyRowsForPartialSuspension = (rows, suspensionByDate, employeeBranch) =>
   (rows || []).map((row) => {
     const d = String(row?.date ?? '').trim().slice(0, 10);
-    const susp = d ? suspensionByDate?.[d] : null;
-    if (!susp || !suspensionAppliesToFaculty(susp)) return row;
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToFaculty,
+      employeeBranch,
+    );
+    if (!susp) return row;
     if ((susp.suspension_type || 'whole_day') !== 'partial_day') return row;
     if (!susp.effective_time) return row;
     const effectiveOfficialTimeOUT = pickEarlierOfficialEnd(
@@ -624,7 +636,7 @@ const clampFacultyRowsForPartialSuspension = (rows, suspensionByDate) =>
  * day regardless of punches, matching the existing full-day exclusion
  * behavior. Does not touch officialTimeOUT or actual punches.
  */
-const applyFacultyWholeDayOverrides = (rows, holidayByDate, suspensionByDate) =>
+const applyFacultyWholeDayOverrides = (rows, holidayByDate, suspensionByDate, employeeBranch) =>
   (rows || []).map((row) => {
     const d = String(row?.date ?? '').trim().slice(0, 10);
     if (!d) return row;
@@ -633,35 +645,38 @@ const applyFacultyWholeDayOverrides = (rows, holidayByDate, suspensionByDate) =>
       undertimeTotal: ZERO_HM,
       formattedfinalcalcFaculty: ZERO_HM,
     };
-    if (holidayByDate?.[d]) return { ...row, ...zeroed };
-    const susp = suspensionByDate?.[d];
-    if (
-      susp &&
-      suspensionAppliesToFaculty(susp) &&
-      (susp.suspension_type || 'whole_day') === 'whole_day'
-    ) {
+    if (pickApplicableHoliday(holidayByDate, d, employeeBranch)) {
+      return { ...row, ...zeroed };
+    }
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToFaculty,
+      employeeBranch,
+    );
+    if (susp && (susp.suspension_type || 'whole_day') === 'whole_day') {
       return { ...row, ...zeroed };
     }
     return row;
   });
 
 /**
- * Whole-day + applicable-scope suspensions only — used for exclusion/status
- * logic (badge, isFurlough, absent/half-day totals, Save-to-Summary calendar
- * checks). Partial-day and out-of-scope (e.g. non_teaching-only) suspensions
- * must not exclude a Faculty 30hrs day. maps.suspensionByDate (full
- * metadata) is only read here, never mutated.
+ * Applicable-scope suspensions (whole-day + partial) for Faculty 30hrs.
+ * Used for status badges and calendar maps. Partial days still show a badge
+ * but are not treated as furlough (see isExcludedAttendanceCalendarDate).
+ * Out-of-scope (e.g. non_teaching-only) suspensions are omitted.
+ * maps.suspensionByDate (full metadata) is only read here, never mutated.
  */
-const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
+const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch) => {
   const out = {};
-  Object.entries(suspensionByDate || {}).forEach(([d, susp]) => {
-    if (
-      susp &&
-      suspensionAppliesToFaculty(susp) &&
-      (susp.suspension_type || 'whole_day') === 'whole_day'
-    ) {
-      out[d] = susp;
-    }
+  Object.keys(suspensionByDate || {}).forEach((d) => {
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToFaculty,
+      employeeBranch,
+    );
+    if (susp) out[d] = susp;
   });
   return out;
 };
@@ -1450,6 +1465,8 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
     onClose,
     onSavedToSummary,
     saveSignal = 0,
+    refreshEpoch = 0,
+    onOpenHubTool,
   } = {}) => {
     const seedEmp = String(initialContext?.employeeNumber || '').trim();
     const seedStart = initialContext?.startDate || '';
@@ -1463,6 +1480,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
       initialContext?.fullName || initialContext?.employee?.fullName || '',
     );
     const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+    const [employeeBranch, setEmployeeBranch] = useState(null);
     const [startDate, setStartDate] = useState(seedStart);
     const [endDate, setEndDate] = useState(seedEnd);
     const [attendanceData, setAttendanceData] = useState([]);
@@ -1532,6 +1550,25 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
     }, [embedded]);
 
     useEffect(() => {
+      const key = String(employeeNumber ?? '').trim();
+      if (!key) {
+        setEmployeeBranch(null);
+        return;
+      }
+      let cancelled = false;
+      fetchEmployeeBranch({
+        apiBaseUrl: API_BASE_URL,
+        getAuthHeaders,
+        employeeNumber: key,
+      }).then((branch) => {
+        if (!cancelled) setEmployeeBranch(branch);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [employeeNumber]);
+
+    useEffect(() => {
       if (attendanceData.length === 0) return;
       const timer = setTimeout(() => {
         document.body.style.removeProperty('overflow');
@@ -1577,6 +1614,15 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
       setError('');
       setSuccess('');
       try {
+        let branch = employeeBranch;
+        if (branch == null && employeeNumber) {
+          branch = await fetchEmployeeBranch({
+            apiBaseUrl: API_BASE_URL,
+            getAuthHeaders,
+            employeeNumber,
+          });
+          setEmployeeBranch(branch);
+        }
         const [deviceRows, maps, attendanceRes] = await Promise.all([
           postAttendanceDevicePreflightNoSync({
             apiBaseUrl: API_BASE_URL,
@@ -1614,9 +1660,13 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
           setHolidayByDate({});
           showModal(
             'No Device Records Found',
-            'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Device.',
+            'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Modification.',
             'warning',
-            () => { closeModal(); navigate('/view_attendance'); },
+            () => {
+              closeModal();
+              if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('modification');
+              else navigate('/view_attendance');
+            },
           );
           return;
         }
@@ -1628,9 +1678,13 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
           setHolidayByDate({});
           showModal(
             'No Official Time Schedule',
-            `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching attendance/official schedule rows exist for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`,
+            `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching attendance/official schedule rows exist for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time.`,
             'warning',
-            () => { closeModal(); navigate('/official_time'); },
+            () => {
+              closeModal();
+              if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('officialTime');
+              else navigate('/official_time');
+            },
           );
           return;
         }
@@ -1645,6 +1699,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
         const suspensionAdjustedRawRows = clampFacultyRowsForPartialSuspension(
           rawRows,
           maps.suspensionByDate,
+          branch,
         );
 
         const processedDataPreOverrides = suspensionAdjustedRawRows.map((row) => {
@@ -1836,18 +1891,21 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
           processedDataPreOverrides,
           maps.holidayByDate,
           maps.suspensionByDate,
+          branch,
         );
 
-        // Derived, scope-and-type-filtered map for exclusion/status logic
-        // only. maps.suspensionByDate (full metadata) is not discarded.
-        const scopedWholeDaySuspensionByDate = filterWholeDaySuspensionsForFaculty(
+        // Scope-filtered map (whole + partial) for badges / calendar.
+        // Exclusion still ignores partial via isExcludedAttendanceCalendarDate.
+        const scopedSuspensionByDate = filterApplicableSuspensionsForFaculty(
           maps.suspensionByDate,
+          branch,
         );
 
         const calendarMaps = {
-          suspensionByDate: scopedWholeDaySuspensionByDate,
+          suspensionByDate: scopedSuspensionByDate,
           holidayByDate: maps.holidayByDate,
           leaveByDate: maps.leaveByDate,
+          employeeBranch: branch,
         };
 
         const buildReviewMapFromStored = (stored) =>
@@ -1866,7 +1924,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
 
         const normalizedProcessed = processedData.map(normalizeFacultyRowDurations);
 
-        setSuspensionByDate(scopedWholeDaySuspensionByDate);
+        setSuspensionByDate(scopedSuspensionByDate);
         setLeaveByDate(maps.leaveByDate);
         setHolidayByDate(maps.holidayByDate);
         setTardinessOverrides({});
@@ -1932,15 +1990,33 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
 
     // ── Status helpers ────────────────────────────────────────────────────────
     const getStatusLabelForDate = useCallback(
-      (date) => getLeaveStatusLabelForDate(date, { suspensionByDate, holidayByDate, leaveByDate }),
-      [suspensionByDate, holidayByDate, leaveByDate],
+      (date) =>
+        getLeaveStatusLabelForDate(date, {
+          suspensionByDate,
+          holidayByDate,
+          leaveByDate,
+          employeeBranch,
+        }),
+      [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
+    );
+
+    /** Whole-day suspension / holiday / leave only — not partial suspension. */
+    const isFurloughForDate = useCallback(
+      (date) =>
+        isExcludedAttendanceCalendarDate(date, {
+          suspensionByDate,
+          holidayByDate,
+          leaveByDate,
+          employeeBranch,
+        }),
+      [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
     );
 
     const commitTardinessOverride = useCallback((date, normalizedOrNull) => {
       setTardinessOverrides((prev) => {
         const row = attendanceData.find((r) => r.date === date);
         if (!row) return prev;
-        const f = Boolean(getStatusLabelForDate(date));
+        const f = isFurloughForDate(date);
         const sys = canonicalTardDisplay(getCellValue(row, '_tardiness', f, null, halfDayReviewByDate));
         const next = { ...prev };
         if (normalizedOrNull == null || normalizedOrNull === sys) {
@@ -1950,10 +2026,10 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
         }
         return next;
       });
-    }, [attendanceData, getStatusLabelForDate, halfDayReviewByDate]);
+    }, [attendanceData, isFurloughForDate, halfDayReviewByDate]);
 
     const getStatusStyle = (label) => {
-      if (label === 'WORK SUSPENDED') return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
+      if (isSuspendedStatusLabel(label)) return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
       if (label === 'HOLIDAY')        return { bgcolor: alpha('#f57c00', 0.12), color: '#f57c00', border: `1px solid ${alpha('#f57c00', 0.4)}` };
       if (label === 'ON LEAVE')       return { bgcolor: alpha('#2e7d32', 0.12), color: '#2e7d32', border: `1px solid ${alpha('#2e7d32', 0.4)}` };
       return {};
@@ -1966,7 +2042,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
 
     const totals = React.useMemo(() => {
       if (!attendanceData.length) return {};
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       const buckets = computeFaculty30MinuteBuckets(
         attendanceData,
         halfDayReviewByDate,
@@ -1976,48 +2052,48 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
         },
       );
       const regularRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTime);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTime);
       });
       const rowTardinessSum = sumTimeRows(attendanceData, (row) => {
-        const f = Boolean(getStatusLabelForDate(row.date));
+        const f = isFurloughForDate(row.date);
         if (f) return null;
         return getCellValue(row, '_tardiness', f, tardinessOverrides, halfDayReviewByDate);
       });
       const regularTardiness = rowTardinessSum;
       const hnRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeHN);
       });
       const hnTardiness = sumTimeRows(attendanceData, (row) => {
-        if (Boolean(getStatusLabelForDate(row.date))) return null;
+        if (isFurloughForDate(row.date)) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN) : displayDurationHhMm(row.formattedfinalcalcFacultyHN);
       });
       const scRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC);
         return !row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeSC);
       });
       const scTardiness = sumTimeRows(attendanceData, (row) => {
-        if (Boolean(getStatusLabelForDate(row.date))) return null;
+        if (isFurloughForDate(row.date)) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC) : displayDurationHhMm(row.formattedfinalcalcFacultySC);
       });
       const otRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeOT);
       });
       const otTardiness = sumTimeRows(attendanceData, (row) => {
-        if (Boolean(getStatusLabelForDate(row.date))) return null;
+        if (isFurloughForDate(row.date)) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT) : displayDurationHhMm(row.formattedfinalcalcFacultyOT);
       });
       const lateTotalSec = attendanceData.reduce((sum, row) => {
         const d = String(row?.date ?? '').trim().slice(0, 10);
         if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return sum;
         if (!isScheduledByOfficialTime(row)) return sum;
-        if (Boolean(getStatusLabelForDate(row.date))) return sum;
+        if (isFurloughForDate(row.date)) return sum;
         if (hasNoPunchesTimeInOutOnly(row)) return sum;
         const entry = halfDayReviewByDate?.[d];
         if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
@@ -2070,19 +2146,19 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
         otRendered,
         otTardiness,
       };
-    }, [attendanceData, sumTimeRows, getStatusLabelForDate, leaveByDate, holidayByDate, suspensionByDate, tardinessOverrides, halfDayReviewByDate]);
+    }, [attendanceData, sumTimeRows, isFurloughForDate, leaveByDate, holidayByDate, suspensionByDate, employeeBranch, tardinessOverrides, halfDayReviewByDate]);
 
     const isAbsentAttendanceRow = useCallback((row) => {
       const d = String(row?.date ?? '').slice(0, 10);
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
       if (!isScheduledByOfficialTime(row)) return false;
       return hasNoPunchesTimeInOutOnly(row);
-    }, [suspensionByDate, holidayByDate, leaveByDate]);
+    }, [suspensionByDate, holidayByDate, leaveByDate, employeeBranch]);
 
     const getHalfDayUiStatus = useCallback(
       (row) => {
-        const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+        const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
         return getRowHalfDayUiStatus(
           row,
           halfDayReviewByDate,
@@ -2090,18 +2166,18 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
           calendarMaps,
         );
       },
-      [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
+      [suspensionByDate, holidayByDate, leaveByDate, employeeBranch, halfDayReviewByDate],
     );
 
     const collectUnresolvedHalfDayDates = useCallback(() => (
       attendanceData
         .filter((row) => {
           if (isAbsentAttendanceRow(row)) return false;
-          if (getStatusLabelForDate(row.date)) return false;
+          if (isFurloughForDate(row.date)) return false;
           return getHalfDayUiStatus(row) === 'suggested';
         })
         .map((row) => row.date)
-    ), [attendanceData, isAbsentAttendanceRow, getStatusLabelForDate, getHalfDayUiStatus]);
+    ), [attendanceData, isAbsentAttendanceRow, isFurloughForDate, getHalfDayUiStatus]);
 
     const warnUnresolvedHalfDays = useCallback(() => {
       const dates = collectUnresolvedHalfDayDates();
@@ -2198,7 +2274,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
     }, [embedded, onSavedToSummary, employeeNumber, startDate, endDate, navigate]);
 
     const buildOverallRecordPayload = () => {
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
       const dailyRows = buildDailyLateUndertimeRows(
         attendanceData,
@@ -2377,23 +2453,20 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
     const handleSubmitRef = useRef(handleSubmit);
     useEffect(() => { handleSubmitRef.current = handleSubmit; });
 
-    const embeddedSeededRef = useRef(false);
-    useEffect(() => {
-      if (!embedded || !initialContext || embeddedSeededRef.current) return;
-      embeddedSeededRef.current = true;
-      seedEmbeddedModuleContext({
-        initialContext,
-        setEmployeeNumber,
-        setEmployeeDisplayName,
-        setStartDate,
-        setEndDate,
-        setSelectedYear,
-        setSelectedMonth,
-      });
-      setTimeout(() => {
-        handleSubmitRef.current?.();
-      }, 350);
-    }, [embedded, initialContext]);
+    useEmbeddedModuleAutoSearch({
+      embedded,
+      initialContext,
+      accessLoading,
+      hasAccess,
+      refreshEpoch,
+      setEmployeeNumber,
+      setEmployeeDisplayName,
+      setStartDate,
+      setEndDate,
+      setSelectedYear,
+      setSelectedMonth,
+      runSearchRef: handleSubmitRef,
+    });
 
     const handleWorkflowHydrate = useCallback((payload) => {
       setEmployeeNumber(payload.employeeNumber || '');
@@ -2478,6 +2551,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
       setEmployeeNumber('');
       setEmployeeDisplayName('');
       setEmployeeSearchQuery('');
+      setEmployeeBranch(null);
       setStartDate('');
       setEndDate('');
       setAttendanceData([]);
@@ -2697,6 +2771,13 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
                     onSearchQueryChange={setEmployeeSearchQuery}
                     onSelectEmployeeNumber={setEmployeeNumber}
                     onSelectEmployeeName={setEmployeeDisplayName}
+                    onSelectEmployee={(emp) =>
+                      setEmployeeBranch(
+                        emp?.branch != null && emp?.branch !== ''
+                          ? Number(emp.branch)
+                          : null,
+                      )
+                    }
                   />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 160 }}>
@@ -2813,7 +2894,7 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
                         <TableBody>
                           {attendanceData.map((row, index) => {
                             const statusLabel = getStatusLabelForDate(row.date);
-                            const isFurlough  = Boolean(statusLabel);
+                            const isFurlough  = isFurloughForDate(row.date);
                             const isEven      = index % 2 === 0;
 
                             const rowIsAbsent = isAbsentAttendanceRow(row);
@@ -3097,7 +3178,11 @@ const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
             <Box sx={{ px: 3, py: 2, display: 'flex', gap: 1, justifyContent: 'flex-end', borderTop: `1px solid ${T.divider}` }}>
               <RowBtn icon={null} label="Close" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={() => setShowNoOfficialTimeModal(false)} />
               <button
-                onClick={() => { setShowNoOfficialTimeModal(false); navigate('/official_time'); }}
+                onClick={() => {
+                  setShowNoOfficialTimeModal(false);
+                  if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('officialTime');
+                  else navigate('/official_time');
+                }}
                 style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 20px', fontWeight: 700, fontSize: '0.82rem', fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDark; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = T.accent; }}>

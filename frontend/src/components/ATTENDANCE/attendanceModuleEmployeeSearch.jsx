@@ -77,6 +77,7 @@ export const EmployeeSearchField = ({
   displayName = '',
   onSelectEmployeeNumber,
   onSelectEmployeeName,
+  onSelectEmployee,
   onSearchQueryChange,
   disabled = false,
   themeT = DEFAULT_T,
@@ -174,6 +175,7 @@ export const EmployeeSearchField = ({
     const name = buildDisplayName(emp);
     onSelectEmployeeNumber(num);
     onSelectEmployeeName?.(name);
+    onSelectEmployee?.(emp);
     setQuery(formatEmployeeFieldValue(num, name));
     setDebouncedQuery(num);
     setOpen(false);
@@ -191,6 +193,7 @@ export const EmployeeSearchField = ({
     const next = e.target.value;
     onSelectEmployeeNumber(next);
     onSelectEmployeeName?.('');
+    onSelectEmployee?.(null);
     setQuery(next);
     onSearchQueryChange?.(next.trim());
     queueSearch(next);

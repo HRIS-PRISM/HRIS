@@ -69,6 +69,8 @@ import {
   findApprovedLeaveForDate,
   isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
+import { calendarAppliesToBranch } from '../../constants/branches';
+import { fetchEmployeeBranch } from './attendanceLeaveIntegration';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -111,17 +113,27 @@ const toPhCalendarYmd = (value) => {
   return s.split('T')[0];
 };
 
-const recordMatchesDay = (record, dayPadded) => {
+const recordMatchesDay = (record, expectedYmd) => {
+  if (!expectedYmd) return false;
   const ymd = toPhCalendarYmd(record?.date);
-  if (!ymd || dayPadded.length !== 2) return false;
-  return ymd.endsWith(`-${dayPadded}`);
+  return Boolean(ymd) && ymd === expectedYmd;
+};
+
+const expectedYmdForDay = (dayPadded, startDate, selectedYear, selectedMonth) => {
+  if (startDate && /^\d{4}-\d{2}/.test(String(startDate))) {
+    const [y, m] = String(startDate).split('-');
+    if (y && m) return `${y}-${m}-${dayPadded}`;
+  }
+  if (selectedMonth != null && Number.isFinite(selectedYear)) {
+    return `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${dayPadded}`;
+  }
+  return null;
 };
 
 /**
  * Map an employee's computed attendance module type to the same coarse
  * "personnel scope" bucket used on suspension records (personnel_scope).
- * DTR-DISPLAY ONLY — does not touch late/undertime calculation, which
- * already has its own identical helper in computeModuleLateUndertimeForDtr.js.
+ * DTR-DISPLAY ONLY — does not touch late/undertime calculation.
  */
 const scopeForModuleType = (mod) => {
   if (mod === MODULE_TYPES.NON_TEACHING) return 'non_teaching';
@@ -134,10 +146,18 @@ const scopeForModuleType = (mod) => {
   return null;
 };
 
+const scopeForEmploymentCategory = (cat) => {
+  if (cat == null || cat === '') return null;
+  const n = Number(cat);
+  if (n === 3 || n === 4) return 'academic';
+  if (n === 0 || n === 1 || n === 2) return 'non_teaching';
+  return null;
+};
+
 /**
  * A suspension applies to this employee's DTR only if its personnel_scope
  * is "all", or matches the employee's resolved scope exactly.
- * DTR-DISPLAY ONLY.
+ * Unknown scope → only "all" (do not show Non-Teaching-only on Academic DTRs).
  */
 const suspensionAppliesToScope = (susp, employeeScope) => {
   if (!susp) return false;
@@ -329,9 +349,8 @@ const DailyTimeRecord = () => {
   const [halfDayDatesSet, setHalfDayDatesSet] = useState(() => new Set());
   const [suggestedHalfDayDatesSet, setSuggestedHalfDayDatesSet] = useState(() => new Set());
   const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
-  const [computationModuleType, setComputationModuleType] = useState(
-    MODULE_TYPES.NON_TEACHING,
-  );
+  const [computationModuleType, setComputationModuleType] = useState(null);
+  const [employeeBranch, setEmployeeBranch] = useState(null);
 
   // ── Anti-tamper state ──────────────────────────────────────────────────────
   const [originalRecords, setOriginalRecords] = useState([]);
@@ -476,7 +495,13 @@ const formatSuspensionEffectiveTime = (t) => {
         if (!dayCell) return;
         const dayText = dayCell.textContent.trim();
         if (!/^\d{2}$/.test(dayText)) return;
-        const record = original.find((r) => recordMatchesDay(r, dayText));
+        const expectedYmd = expectedYmdForDay(
+          dayText,
+          startDate,
+          selectedYear,
+          selectedMonth,
+        );
+        const record = original.find((r) => recordMatchesDay(r, expectedYmd));
         if (!record) return;
         const cells = row.querySelectorAll('td');
         if (cells.length < 5) return;
@@ -730,13 +755,32 @@ const formatSuspensionEffectiveTime = (t) => {
     init();
   }, [personID]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const key = String(personID ?? '').trim();
+    if (!key) {
+      setEmployeeBranch(null);
+      return;
+    }
+    let cancelled = false;
+    fetchEmployeeBranch({
+      apiBaseUrl: API_BASE_URL,
+      getAuthHeaders,
+      employeeNumber: key,
+    }).then((branch) => {
+      if (!cancelled) setEmployeeBranch(branch);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [personID]);
+
   const loadComputedLateForDTR = useCallback(async () => {
     if (!personID || !startDate || !endDate) {
       setComputedLateByDate({});
       setHalfDayDatesSet(new Set());
       setSuggestedHalfDayDatesSet(new Set());
       setHalfDayReviewByDate({});
-      setComputationModuleType(MODULE_TYPES.NON_TEACHING);
+      setComputationModuleType(null);
       return;
     }
     const {
@@ -749,9 +793,7 @@ const formatSuspensionEffectiveTime = (t) => {
     setHalfDayDatesSet(parseHalfDayDatesSet(halfDayDates));
     setSuggestedHalfDayDatesSet(parseSuggestedHalfDayDatesFromReview(half_day_review));
     setHalfDayReviewByDate(buildReviewByDate(parseHalfDayReviewJson(half_day_review)));
-    setComputationModuleType(
-      computation_module_type || MODULE_TYPES.NON_TEACHING,
-    );
+    setComputationModuleType(computation_module_type || null);
   }, [personID, startDate, endDate]);
 
   useEffect(() => {
@@ -1056,6 +1098,28 @@ const formatSuspensionEffectiveTime = (t) => {
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
+    const employeeScope = scopeForModuleType(computationModuleType);
+    const susp = suspensions.find(
+      (s) =>
+        isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
+        calendarAppliesToBranch(s, employeeBranch) &&
+        suspensionAppliesToScope(s, employeeScope),
+    );
+    if (susp) {
+      const suspensionType = susp.suspension_type || 'whole_day';
+      const isPartial = suspensionType === 'partial_day' && susp.effective_time;
+      return {
+        type: 'suspension',
+        suspensionType,
+        effectiveTime: susp.effective_time || null,
+        label: isPartial
+          ? `SUSPENSION FROM ${formatSuspensionEffectiveTime(susp.effective_time)}`
+          : 'SUSPENSION',
+        bgColor: 'rgba(211,47,47,0.2)',
+        textColor: '#000',
+        borderColor: '#d32f2f',
+      };
+    }
     const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
     if (leaveReq)
       return {
@@ -1065,32 +1129,10 @@ const formatSuspensionEffectiveTime = (t) => {
         textColor: '#000',
         borderColor: '#2e7d32',
       };
-    // DTR-DISPLAY scope filter: this employee's suspension indicator must only
-    // reflect suspensions whose personnel_scope applies to them (or "all").
-    // Late/undertime computation already applies the equivalent filter
-    // elsewhere — this only changes what is shown on the DTR itself.
-    const employeeScope = scopeForModuleType(computationModuleType);
-    const susp = suspensions.find((s) =>
-  isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
-  suspensionAppliesToScope(s, employeeScope),
-);
-if (susp) {
-  const suspensionType = susp.suspension_type || 'whole_day';
-  const isPartial = suspensionType === 'partial_day' && susp.effective_time;
-  return {
-    type: 'suspension',
-    suspensionType,
-    effectiveTime: susp.effective_time || null,
-    label: isPartial
-      ? `SUSPENSION FROM ${formatSuspensionEffectiveTime(susp.effective_time)}`
-      : 'SUSPENSION',
-    bgColor: 'rgba(211,47,47,0.2)',
-    textColor: '#000',
-    borderColor: '#d32f2f',
-  };
-}
-    const hol = holidays.find((h) =>
-      isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
+    const hol = holidays.find(
+      (h) =>
+        isDateInRange(date, h.date_start || h.date, h.date_end || h.date) &&
+        calendarAppliesToBranch(h, employeeBranch),
     );
     if (hol)
       return {
@@ -1636,15 +1678,18 @@ if (susp) {
   const renderTableRows = () =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day = (i + 1).toString().padStart(2, '0');
-      const record = records.find((r) => r.date && recordMatchesDay(r, day));
-      let fullDate = null;
-      if (record?.date) fullDate = toPhCalendarYmd(record.date);
-      if (!fullDate && startDate) {
-        const [y, m] = startDate.split('-');
-        fullDate = `${y}-${m}-${day}`;
-      } else if (!fullDate && selectedMonth !== null) {
-        fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
-      }
+      const expectedYmd = expectedYmdForDay(
+        day,
+        startDate,
+        selectedYear,
+        selectedMonth,
+      );
+      const record = records.find(
+        (r) => r.date && recordMatchesDay(r, expectedYmd),
+      );
+      const fullDate = record?.date
+        ? toPhCalendarYmd(record.date) || expectedYmd
+        : expectedYmd;
       const indicator = getDateIndicator(fullDate);
             const dateIndicator = getDateIndicator(fullDate);
 
@@ -1687,7 +1732,7 @@ if (susp) {
         record,
         fullDate,
         reviewByDate: halfDayReviewByDate,
-        moduleType: computationModuleType,
+        moduleType: computationModuleType || MODULE_TYPES.NON_TEACHING,
       });
       const { lateDisplay, undertimeDisplay } = resolveDtrLateUndertimeDisplay({
         computed,

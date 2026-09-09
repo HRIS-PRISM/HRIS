@@ -602,7 +602,9 @@ export const fetchDailyLateUndertime = async (employeeNumber, periodStart, perio
         byDate: {},
         halfDayDates: '',
         half_day_review: null,
-        computation_module_type: MODULE_TYPES.NON_TEACHING,
+        // null = unknown; callers must not treat this as Non-Teaching for
+        // suspension personnel_scope filtering.
+        computation_module_type: null,
       };
     }
     let byDate = {};
@@ -617,12 +619,12 @@ export const fetchDailyLateUndertime = async (employeeNumber, periodStart, perio
         byDate = rowsToByDateMap(row.daily_late_undertime);
       }
     }
-    const moduleType =
-      row.computation_module_type || MODULE_TYPES.NON_TEACHING;
+    const moduleType = row.computation_module_type || null;
+    const enrichModule = moduleType || MODULE_TYPES.NON_TEACHING;
     const enriched = enrichDailyLateByDateFromReview(
       byDate,
       row.half_day_review,
-      moduleType,
+      enrichModule,
     );
     return {
       byDate: enriched,
@@ -654,6 +656,8 @@ export const fetchOverallAttendanceForPeriod = async (
 };
 
 const BATCH_CHUNK = 150;
+/** Parallel late/undertime batch chunk requests. */
+const BATCH_CONCURRENCY = 4;
 
 export const fetchDailyLateUndertimeBatch = async (
   employeeNumbers,
@@ -674,38 +678,52 @@ export const fetchDailyLateUndertimeBatch = async (
   const halfDayDatesByEmployee = {};
   const halfDayReviewByEmployee = {};
   const computationModuleTypeByEmployee = {};
+
+  const chunks = [];
   for (let i = 0; i < ids.length; i += BATCH_CHUNK) {
-    const chunk = ids.slice(i, i + BATCH_CHUNK);
-    try {
-      const res = await axios.post(
-        `${API_BASE_URL}/attendance/api/overall_attendance_record/daily-late-undertime/batch`,
-        { startDate: periodStart, endDate: periodEnd, employeeNumbers: chunk },
-        getAuthHeaders(),
-      );
-      const chunkByEmp = res.data?.byEmployee || {};
-      const metaByEmp = res.data?.metaByEmployee || {};
-      Object.entries(chunkByEmp).forEach(([emp, byDate]) => {
-        const meta = metaByEmp[emp];
-        const mod = meta?.computation_module_type || MODULE_TYPES.NON_TEACHING;
-        byEmployee[emp] = meta
-          ? enrichDailyLateByDateFromReview(
-              byDate,
-              meta.half_day_review,
-              mod,
-            )
-          : byDate;
-        if (meta) {
-          halfDayReviewByEmployee[emp] = buildReviewByDate(
-            parseHalfDayReviewJson(meta.half_day_review),
-          );
-          computationModuleTypeByEmployee[emp] = mod;
-        }
-      });
-      Object.assign(halfDayDatesByEmployee, res.data?.halfDayDatesByEmployee || {});
-    } catch (err) {
-      console.warn('fetchDailyLateUndertimeBatch chunk failed:', err?.message || err);
-    }
+    chunks.push(ids.slice(i, i + BATCH_CHUNK));
   }
+
+  for (let i = 0; i < chunks.length; i += BATCH_CONCURRENCY) {
+    const group = chunks.slice(i, i + BATCH_CONCURRENCY);
+    await Promise.all(
+      group.map(async (chunk) => {
+        try {
+          const res = await axios.post(
+            `${API_BASE_URL}/attendance/api/overall_attendance_record/daily-late-undertime/batch`,
+            { startDate: periodStart, endDate: periodEnd, employeeNumbers: chunk },
+            getAuthHeaders(),
+          );
+          const chunkByEmp = res.data?.byEmployee || {};
+          const metaByEmp = res.data?.metaByEmployee || {};
+          Object.entries(chunkByEmp).forEach(([emp, byDate]) => {
+            const meta = metaByEmp[emp];
+            const savedMod = meta?.computation_module_type || null;
+            const enrichMod = savedMod || MODULE_TYPES.NON_TEACHING;
+            byEmployee[emp] = meta
+              ? enrichDailyLateByDateFromReview(
+                  byDate,
+                  meta.half_day_review,
+                  enrichMod,
+                )
+              : byDate;
+            if (meta) {
+              halfDayReviewByEmployee[emp] = buildReviewByDate(
+                parseHalfDayReviewJson(meta.half_day_review),
+              );
+              if (savedMod) {
+                computationModuleTypeByEmployee[emp] = savedMod;
+              }
+            }
+          });
+          Object.assign(halfDayDatesByEmployee, res.data?.halfDayDatesByEmployee || {});
+        } catch (err) {
+          console.warn('fetchDailyLateUndertimeBatch chunk failed:', err?.message || err);
+        }
+      }),
+    );
+  }
+
   return {
     byEmployee,
     halfDayDatesByEmployee,

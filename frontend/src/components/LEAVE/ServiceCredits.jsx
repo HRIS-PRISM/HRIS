@@ -20,6 +20,7 @@ import axios from "axios";
 import useLeaveRealtimeRefresh from "../../hooks/useLeaveRealtimeRefresh";
 import usePayrollPeriodLock from "../../hooks/usePayrollPeriodLock";
 import { PAYROLL_LOCK_TOOLTIP } from "../../utils/payrollPeriodLock";
+import { compareEmployeesByLastName, sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 import {
   Typography, TextField, Button, Box, Grid, Chip, Modal, IconButton,
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
@@ -2306,20 +2307,18 @@ const ServiceCredit = () => {
     return labels;
   }, [empCatLabelMap]);
 
-  // ── Employee options — sorted A→Z by lastName, formatted as LASTNAME, Firstname ──
+  // ── Employee options — sorted A→Z by lastName (letters first; specials last) ──
   const employeeOptions = useMemo(() => {
     const withMeta = (Array.isArray(employees) ? employees : []).map((e) => {
       const displayName = buildDisplayName(e);
       const empNo       = (e?.employeeNumber || "").toString().trim();
-      const sortLast    = (e?.lastName || "").trim().toLowerCase();
       return {
         ...e,
         _displayName: displayName,
         _searchKey:   `${displayName} ${empNo}`.toLowerCase(),
-        _sortLast:    sortLast,
       };
     });
-    return withMeta.sort((a, b) => a._sortLast.localeCompare(b._sortLast));
+    return sortEmployeesByLastName(withMeta);
   }, [employees, buildDisplayName]);
 
   const selectedEmpCatData = useMemo(
@@ -2387,7 +2386,7 @@ const ServiceCredit = () => {
         ...grp,
         displayRecords: scRecordsForDisplay(grp.records),
       }))
-      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+      .sort((a, b) => compareEmployeesByLastName(a, b));
   }, [filteredRecords, getEmployeeInfo, buildDisplayName]);
 
   const paginatedGroups = useMemo(() => {

@@ -15,10 +15,12 @@ import {
   Tooltip,
   Avatar,
   Box,
+  Chip,
   Divider,
   Dialog,
   DialogContent,
   CircularProgress,
+  alpha,
 } from "@mui/material";
 import {
   Badge,
@@ -220,6 +222,9 @@ const Sidebar = ({
   const [userRole, setUserRole] = useState("");
   const [profilePicture, setProfilePicture] = useState("");
   const [employeeNumber, setEmployeeNumber] = useState("");
+  const [employmentCategoryLabel, setEmploymentCategoryLabel] = useState("");
+  const [employmentCategoryColor, setEmploymentCategoryColor] = useState("");
+  const [departmentLabel, setDepartmentLabel] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [pageAccessVersion, setPageAccessVersion] = useState(0);
   const [isSupervisor, setIsSupervisor] = useState(false);
@@ -375,30 +380,71 @@ const Sidebar = ({
     setUserRole(normalizeRole(decodedRole) || "");
 
     const fetchProfileData = async () => {
-      if (!localStorage.getItem("token")) {
+      if (!localStorage.getItem("token") || !employeeNumber) {
         return;
       }
+      const headers = getAuthHeaders();
+      const enc = encodeURIComponent(employeeNumber);
+
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/personalinfo/person_table/${encodeURIComponent(employeeNumber)}`,
-          getAuthHeaders(),
-        );
-        const person = response.data;
-        if (person && person.agencyEmployeeNum) {
-          if (person.profile_picture) {
-            setProfilePicture(`${API_BASE_URL}${person.profile_picture}`);
+        const [personRes, empCatRes, userRes] = await Promise.allSettled([
+          axios.get(
+            `${API_BASE_URL}/personalinfo/person_table/${enc}`,
+            headers,
+          ),
+          axios.get(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${enc}`,
+            headers,
+          ),
+          axios.get(`${API_BASE_URL}/users/${enc}`, headers),
+        ]);
+
+        if (personRes.status === "fulfilled") {
+          const person = personRes.value.data;
+          if (person && person.agencyEmployeeNum) {
+            if (person.profile_picture) {
+              setProfilePicture(`${API_BASE_URL}${person.profile_picture}`);
+            }
+            const fullNameFromPerson = `${person.firstName || ""} ${
+              person.middleName || ""
+            } ${person.lastName || ""} ${person.nameExtension || ""}`.trim();
+            if (fullNameFromPerson) {
+              setFullName(fullNameFromPerson);
+            }
           }
-          const fullNameFromPerson = `${person.firstName || ""} ${
-            person.middleName || ""
-          } ${person.lastName || ""} ${person.nameExtension || ""}`.trim();
-          if (fullNameFromPerson) {
-            setFullName(fullNameFromPerson);
+        } else if (personRes.reason?.response?.status !== 404) {
+          console.error("Error fetching profile data:", personRes.reason);
+        }
+
+        if (empCatRes.status === "fulfilled") {
+          const cat = empCatRes.value.data;
+          let label = "";
+          if (cat?.parentGroup && cat?.typeName) {
+            label = `${cat.parentGroup} | ${cat.typeName}`;
+          } else if (cat?.customCategory?.trim()) {
+            label = `Other (${cat.customCategory.trim()})`;
+          } else if (cat?.categoryLabel && cat.categoryLabel !== "Unassigned") {
+            label = cat.categoryLabel;
           }
+          setEmploymentCategoryLabel(label);
+          setEmploymentCategoryColor(cat?.colorHex || "");
+        } else {
+          setEmploymentCategoryLabel("");
+          setEmploymentCategoryColor("");
+        }
+
+        if (userRes.status === "fulfilled") {
+          const user = userRes.value.data?.user || userRes.value.data;
+          const dept =
+            user?.departmentDescription ||
+            user?.departmentCode ||
+            "";
+          setDepartmentLabel(dept);
+        } else {
+          setDepartmentLabel("");
         }
       } catch (error) {
-        if (error.response?.status !== 404) {
-          console.error("Error fetching profile data:", error);
-        }
+        console.error("Error fetching sidebar profile data:", error);
       }
     };
 
@@ -796,16 +842,27 @@ const Sidebar = ({
           <List>
             {userRole !== "" && (
               <>
-                <List component="div" disablePadding sx={{ pl: 2.5 }}>
+                <List component="div" disablePadding sx={{ pl: 1.75, pr: 1 }}>
                   <Box
                     sx={{
                       display: "flex",
-                      alignItems: "center",
+                      alignItems: "flex-start",
                       justifyContent: "space-between",
-                      marginRight: 2.5,
+                      gap: 0.75,
                     }}
                   >
-                    <Tooltip title="Go to Profile">
+                    <Tooltip
+                      title={
+                        [
+                          fullName || username,
+                          employeeNumber ? `EMP NO.: ${employeeNumber}` : "",
+                          departmentLabel ? `DEPT: ${departmentLabel}` : "",
+                          employmentCategoryLabel || "",
+                        ]
+                          .filter(Boolean)
+                          .join("\n")
+                      }
+                    >
                       <Box
                         onClick={() => {
                           setSelectedItem(null);
@@ -813,9 +870,11 @@ const Sidebar = ({
                         }}
                         sx={{
                           display: "flex",
-                          alignItems: "center",
+                          alignItems: "flex-start",
                           gap: 1,
                           cursor: "pointer",
+                          minWidth: 0,
+                          flex: 1,
                         }}
                       >
                         <Avatar
@@ -824,34 +883,109 @@ const Sidebar = ({
                           sx={{
                             width: 35,
                             height: 35,
-                            marginLeft: -1,
+                            flexShrink: 0,
+                            marginTop: 0.25,
                             color: settings.textSecondaryColor,
                             bgcolor: "inherit",
                           }}
                         />
-                        <Box>
+                        <Box sx={{ minWidth: 0, flex: 1, pr: 0.25 }}>
                           <Typography
                             variant="body2"
                             fontWeight="bold"
                             sx={{
                               fontFamily: "Poppins, sans-serif",
-                              marginLeft: "9px",
                               color: settings.textSecondaryColor,
+                              lineHeight: 1.3,
+                              whiteSpace: "normal",
+                              wordBreak: "break-word",
+                              overflowWrap: "anywhere",
                             }}
                           >
                             {fullName || username}
                           </Typography>
                           <Typography
                             variant="caption"
-                            color="text.secondary"
                             sx={{
                               fontFamily: "Poppins, sans-serif",
-                              marginLeft: "9px",
                               color: settings.textSecondaryColor,
+                              display: "block",
+                              opacity: 0.92,
+                              lineHeight: 1.4,
+                              mt: 0.15,
                             }}
                           >
                             EMP NO.: <b>{employeeNumber}</b>
                           </Typography>
+                          {(departmentLabel || employmentCategoryLabel) && (
+                            <Box
+                              sx={{
+                                mt: 0.45,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "flex-start",
+                                gap: 0.45,
+                                minWidth: 0,
+                                width: "100%",
+                              }}
+                            >
+                              {departmentLabel && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    fontFamily: "Poppins, sans-serif",
+                                    color: settings.textSecondaryColor,
+                                    opacity: 0.9,
+                                    lineHeight: 1.35,
+                                    fontSize: "0.68rem",
+                                    width: "100%",
+                                    whiteSpace: "normal",
+                                    wordBreak: "break-word",
+                                    overflowWrap: "anywhere",
+                                  }}
+                                >
+                                  DEPT: <b>{departmentLabel}</b>
+                                </Typography>
+                              )}
+                              {employmentCategoryLabel && (
+                                <Chip
+                                  size="small"
+                                  label={employmentCategoryLabel}
+                                  sx={{
+                                    height: "auto",
+                                    maxWidth: "100%",
+                                    fontFamily: "Poppins, sans-serif",
+                                    fontSize: "0.62rem",
+                                    fontWeight: 600,
+                                    letterSpacing: "0.01em",
+                                    color:
+                                      employmentCategoryColor ||
+                                      settings.secondaryColor ||
+                                      "#6d2323",
+                                    bgcolor: alpha(
+                                      settings.accentColor || "#FEF9E1",
+                                      0.92,
+                                    ),
+                                    border: `1px solid ${alpha(
+                                      employmentCategoryColor ||
+                                        settings.accentColor ||
+                                        "#FEF9E1",
+                                      employmentCategoryColor ? 0.55 : 0.35,
+                                    )}`,
+                                    "& .MuiChip-label": {
+                                      px: 0.85,
+                                      py: 0.35,
+                                      whiteSpace: "normal",
+                                      wordBreak: "break-word",
+                                      overflowWrap: "anywhere",
+                                      lineHeight: 1.3,
+                                      textAlign: "left",
+                                    },
+                                  }}
+                                />
+                              )}
+                            </Box>
+                          )}
                         </Box>
                       </Box>
                     </Tooltip>
@@ -867,6 +1001,8 @@ const Sidebar = ({
                         onClick={handleToggleLock}
                         size="small"
                         sx={{
+                          flexShrink: 0,
+                          mt: 0.15,
                           color: isLocked
                             ? settings.accentColor || "#FEF9E1"
                             : settings.textSecondaryColor || "#FFFFFF",

@@ -108,6 +108,7 @@ import {
   parseOfficialTimeToSeconds,
 } from "../../utils/officialAttendanceFromDailyRows";
 import { sumHmsDurationStrings } from "../../utils/attendanceLateTotals";
+import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 import { fetchOverallAttendanceRow } from "./EARNINGS/SalaryShortfallRegistry";
 import { aggregateAttendanceResultsForAbstract } from "./EARNINGS/aggregateAttendanceResultsForAbstract";
 
@@ -4529,15 +4530,14 @@ const EarningsManagement = () => {
   }, [typeConfigs]);
 
   const employeeOptions = useMemo(() => {
-    let list = employees
-      .map((e) => ({
+    let list = sortEmployeesByLastName(
+      employees.map((e) => ({
         ...e,
         _displayName: buildDisplayName(e),
         _searchKey:
           `${buildDisplayName(e)} ${e.employeeNumber || ""}`.toLowerCase(),
-        _sortLast: (e.lastName || "").toLowerCase(),
-      }))
-      .sort((a, b) => a._sortLast.localeCompare(b._sortLast));
+      })),
+    );
     if (catFilter) {
       const [filterType, filterValue] = catFilter.split("||");
       list = list.filter((emp) => {
