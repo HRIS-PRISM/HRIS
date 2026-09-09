@@ -2008,12 +2008,22 @@ const ViewAttendanceRecord = () => {
       );
       if (res.data.success) {
         showSnackbar(res.data.message, 'success');
-        navigateAttendanceWorkflow(navigate, 'dtr', {
-          employeeNumber: personID,
-          fullName: personName,
-          startDate,
-          endDate,
-        });
+        // Plain DTR view — must not reopen a computation drawer left over
+        // from an earlier "Submit to DTR" click in this session. The
+        // workflow context's `computationModule` is sticky by design (so
+        // hub Next/Previous can reopen it while mid-flow), so it has to be
+        // explicitly cleared here rather than just omitted.
+        navigateAttendanceWorkflow(
+          navigate,
+          'dtr',
+          {
+            employeeNumber: personID,
+            fullName: personName,
+            startDate,
+            endDate,
+          },
+          { openComputationModule: null },
+        );
       }
     } catch (err) {
       showSnackbar(

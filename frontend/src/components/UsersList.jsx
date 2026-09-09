@@ -680,6 +680,7 @@ const UsersList = () => {
   const [pageAccessLoading, setPageAccessLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
   const [accessChangeInProgress, setAccessChangeInProgress] = useState({});
   const [activeAccessCategory, setActiveAccessCategory] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
@@ -735,6 +736,8 @@ const UsersList = () => {
   const [branchChangeDialog, setBranchChangeDialog] = useState(false);
   const [pendingBranchChange, setPendingBranchChange] = useState(null);
   const [branchChangeLoading, setBranchChangeLoading] = useState(false);
+
+  
 
   const [empCatMap, setEmpCatMap] = useState({});
   const [typeConfigs, setTypeConfigs] = useState([]);
@@ -815,7 +818,8 @@ const UsersList = () => {
     () =>
       styled(TableContainer)(() => ({
         borderRadius: 0,
-        overflow: "hidden",
+        overflowX: "auto",
+        overflowY: "visible",
         border: "none",
       })),
     [p],
@@ -1134,9 +1138,9 @@ const UsersList = () => {
     } catch {}
   }, []);
 
-  const doFetchUsers = useCallback(async () => {
+   const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
-    const [usersResp, personsResp, empCatsResp, deptAssignResp] =
+    const [usersResp, personsResp, empCatsResp, deptAssignResp, deptTableResp] =
       await Promise.all([
         fetch(`${API_BASE_URL}/users`, { method: "GET", ...authHeaders }),
         fetch(`${API_BASE_URL}/personalinfo/person_table`, {
@@ -1148,6 +1152,10 @@ const UsersList = () => {
           ...authHeaders,
         }),
         fetch(`${API_BASE_URL}/api/department-assignment`, {
+          method: "GET",
+          ...authHeaders,
+        }),
+        fetch(`${API_BASE_URL}/api/department-table`, {
           method: "GET",
           ...authHeaders,
         }),
@@ -1163,10 +1171,13 @@ const UsersList = () => {
     const empCatsDataRaw = empCatsResp?.ok
       ? await empCatsResp.json().catch(() => [])
       : [];
+    
     const deptAssignDataRaw = deptAssignResp?.ok
       ? await deptAssignResp.json().catch(() => [])
       : [];
-
+    const deptTableDataRaw = deptTableResp?.ok
+      ? await deptTableResp.json().catch(() => [])
+      : [];
     const usersArray = Array.isArray(usersDataRaw)
       ? usersDataRaw
       : usersDataRaw.users || usersDataRaw.data || [];
@@ -1179,6 +1190,9 @@ const UsersList = () => {
     const deptAssignArray = Array.isArray(deptAssignDataRaw)
       ? deptAssignDataRaw
       : deptAssignDataRaw.data || [];
+    const deptTableArray = Array.isArray(deptTableDataRaw)
+      ? deptTableDataRaw
+      : deptTableDataRaw.data || [];
 
     const newEmpCatMap = {};
     (empCatsArray || []).forEach((item) => {
@@ -1205,15 +1219,23 @@ const UsersList = () => {
       return acc;
     }, {});
 
+       const deptTableMap = {};
+    (deptTableArray || []).forEach((d) => {
+      if (d.code === undefined || d.code === null) return;
+      deptTableMap[String(d.code)] = d.description;
+    });
+
     const deptAssignMap = {};
     (deptAssignArray || []).forEach((a) => {
       if (!a.employeeNumber) return;
       deptAssignMap[String(a.employeeNumber)] = {
         code: a.code || null,
-        description: a.name || a.description || null,
+        description: deptTableMap[String(a.code)] || null,
+        assignedName: a.name || null,
       };
     });
 
+    
     return (usersArray || []).map((user) => {
       const person = (personsArray || []).find(
         (p) => String(p.agencyEmployeeNum) === String(user.employeeNumber),
@@ -1353,6 +1375,15 @@ const UsersList = () => {
         ? (user.status || "").toLowerCase() === statusFilter.toLowerCase()
         : true;
 
+       const matchesBranch =
+      branchFilter !== ""
+        ? String(
+            user.branch === null || user.branch === undefined
+              ? ""
+              : Number(user.branch),
+          ) === String(branchFilter)
+        : true;
+
       const matchesCategory =
         categoryFilter !== ""
           ? (() => {
@@ -1395,6 +1426,7 @@ const UsersList = () => {
         matchesSearch &&
         matchesRole &&
         matchesStatus &&
+        matchesBranch &&
         matchesCategory &&
         matchesDepartment
       );
@@ -1405,6 +1437,7 @@ const UsersList = () => {
     searchTerm,
     roleFilter,
     statusFilter,
+    branchFilter,
     categoryFilter,
     departmentFilter,
     users,
@@ -2567,7 +2600,7 @@ const UsersList = () => {
         py: { xs: 1, md: 2 },
         mt: { xs: 0, md: -2 },
         mb: { xs: 1, md: 2 },
-        width: "100vw",
+        width: "100%",
         maxWidth: "100%",
         position: "relative",
         left: "63%",
@@ -2797,353 +2830,402 @@ const UsersList = () => {
       </Box>
 
       {/* ── Search & Filter ── */}
-      <SectionCard sx={{ mb: 2 }}>
-        <Box
-          sx={{
-            px: 3.5,
-            py: 1.5,
-            borderBottom: `1px solid ${T.divider}`,
-            bgcolor: T.accentFaint,
-            display: "flex",
-            alignItems: "center",
-            gap: 1.25,
-          }}
-        >
-          <FilterList sx={{ fontSize: 14, color: T.accent }} />
-          <Typography
-            sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}
+{/* ── Search & Filter ── */}
+<SectionCard sx={{ mb: 2 }}>
+  <Box
+    sx={{
+      px: 3.5,
+      py: 1.5,
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: T.accentFaint,
+      display: "flex",
+      alignItems: "center",
+      gap: 1.25,
+    }}
+  >
+    <FilterList sx={{ fontSize: 14, color: T.accent }} />
+    <Typography
+      sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}
+    >
+      Search & Filter
+    </Typography>
+    {categoryFilter &&
+      (() => {
+        const [filterType, filterValue] = categoryFilter.split("||");
+        let label = "";
+        if (filterType === "group") {
+          label = `All: ${filterValue}`;
+        } else {
+          const cfg = typeConfigs.find(
+            (t) => String(t.id) === filterValue,
+          );
+          label = cfg
+            ? `${cfg.parentGroup} | ${cfg.typeName}`
+            : filterValue;
+        }
+        return (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.5,
+              px: 1.25,
+              py: 0.3,
+              bgcolor: alpha(T.accent, 0.1),
+              border: `1px solid ${T.accentBorder}`,
+              borderRadius: "20px",
+            }}
           >
-            Search & Filter
-          </Typography>
-          {categoryFilter &&
-            (() => {
-              const [filterType, filterValue] = categoryFilter.split("||");
-              let label = "";
-              if (filterType === "group") {
-                label = `All: ${filterValue}`;
-              } else {
-                const cfg = typeConfigs.find(
-                  (t) => String(t.id) === filterValue,
+            <Circle sx={{ fontSize: 7, color: T.accent }} />
+            <Typography
+              sx={{
+                fontSize: "0.68rem",
+                fontWeight: 700,
+                color: T.accent,
+              }}
+            >
+              {label}
+            </Typography>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setCategoryFilter("");
+                setPage(0);
+              }}
+              sx={{
+                p: 0,
+                ml: 0.25,
+                color: T.accent,
+                "&:hover": { bgcolor: "transparent" },
+              }}
+            >
+              <Close sx={{ fontSize: 11 }} />
+            </IconButton>
+          </Box>
+        );
+      })()}
+  </Box>
+  <Box sx={{ px: 3.5, py: 3 }}>
+    <Grid container spacing={2} alignItems="flex-end">
+      <Grid item xs={12} md={2.5}>
+        <FieldInput
+          fullWidth
+          label="Search Users"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Name or employee number"
+          size="small"
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ color: T.faint, fontSize: 16 }} />
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Grid>
+
+      <Grid item xs={6} md={2.5}>
+        <FormControl fullWidth size="small">
+          <InputLabel shrink sx={{ fontSize: "0.82rem" }}>
+            Employment Category
+          </InputLabel>
+          <Select
+            value={categoryFilter}
+            label="Employment Category"
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setPage(0);
+            }}
+            displayEmpty
+           MenuProps={{
+  PaperProps: { sx: { maxHeight: 360, overflowY: "auto" } },
+  MenuListProps: {
+    sx: {
+      "& .MuiListSubheader-root": { position: "static" },
+    },
+  },
+}}  
+            sx={{
+              borderRadius: 2,
+              bgcolor: "#fafafa",
+              fontSize: "0.875rem",
+              "& .MuiOutlinedInput-notchedOutline": {
+                borderColor: "#e5e7eb",
+              },
+              "&:hover .MuiOutlinedInput-notchedOutline": {
+                borderColor: T.accentBorder,
+              },
+              "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                borderColor: T.accent,
+              },
+              "& .MuiSelect-select": {
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+              },
+            }}
+            renderValue={(val) => {
+              if (!val)
+                return (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.75,
+                    }}
+                  >
+                    <Circle sx={{ fontSize: 9, color: T.faint }} />
+                    <Typography
+                      sx={{ fontSize: "0.8rem", color: T.faint }}
+                    >
+                      All Categories
+                    </Typography>
+                  </Box>
                 );
-                label = cfg
-                  ? `${cfg.parentGroup} | ${cfg.typeName}`
-                  : filterValue;
-              }
-              return (
+              const [filterType, filterValue] = val.split("||");
+              if (filterType === "group")
+                return (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.75,
+                    }}
+                  >
+                    <Circle sx={{ fontSize: 9, color: T.accent }} />
+                    <Typography
+                      sx={{
+                        fontSize: "0.8rem",
+                        color: T.accent,
+                        fontWeight: 700,
+                      }}
+                    >
+                      All: {filterValue}
+                    </Typography>
+                  </Box>
+                );
+              const cfg = typeConfigs.find(
+                (t) => String(t.id) === filterValue,
+              );
+              return cfg ? (
                 <Box
                   sx={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 0.5,
-                    px: 1.25,
-                    py: 0.3,
-                    bgcolor: alpha(T.accent, 0.1),
-                    border: `1px solid ${T.accentBorder}`,
-                    borderRadius: "20px",
+                    gap: 0.75,
                   }}
                 >
-                  <Circle sx={{ fontSize: 7, color: T.accent }} />
+                  <Circle sx={{ fontSize: 9, color: cfg.colorHex }} />
                   <Typography
                     sx={{
-                      fontSize: "0.68rem",
-                      fontWeight: 700,
-                      color: T.accent,
+                      fontSize: "0.8rem",
+                      color: T.text,
+                      fontWeight: 600,
                     }}
+                    noWrap
                   >
-                    {label}
+                    {cfg.parentGroup} | {cfg.typeName}
                   </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setCategoryFilter("");
-                      setPage(0);
-                    }}
-                    sx={{
-                      p: 0,
-                      ml: 0.25,
-                      color: T.accent,
-                      "&:hover": { bgcolor: "transparent" },
-                    }}
-                  >
-                    <Close sx={{ fontSize: 11 }} />
-                  </IconButton>
                 </Box>
+              ) : (
+                <Typography sx={{ fontSize: "0.8rem" }}>
+                  {filterValue}
+                </Typography>
               );
-            })()}
-        </Box>
-        <Box sx={{ px: 3.5, py: 2.5 }}>
-          <Grid container spacing={2} alignItems="flex-end">
-            <Grid item xs={12} md={3}>
-              <FieldInput
-                fullWidth
-                label="Search Users"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Name, email, employee number or role"
-                size="small"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon sx={{ color: T.faint, fontSize: 16 }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-            <Grid item xs={6} md={2}>
-              <CleanTextField
-                select
-                fullWidth
-                label="Filter by Role"
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-                size="small"
-              >
-                <MenuItem value="">All Roles</MenuItem>
-                <MenuItem value="Superadmin">Superadmin</MenuItem>
-                <MenuItem value="Administrator">Administrator</MenuItem>
-                <MenuItem value="Technical">Technical</MenuItem>
-                <MenuItem value="Staff">Staff</MenuItem>
-              </CleanTextField>
-            </Grid>
+            }}
+          >
+            <MenuItem value="">
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Circle sx={{ fontSize: 8, color: T.faint }} />
+                <Typography sx={{ fontSize: "0.83rem", color: T.muted }}>
+                  All Categories
+                </Typography>
+              </Box>
+            </MenuItem>
 
-            <Grid item xs={6} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel shrink sx={{ fontSize: "0.82rem" }}>
-                  Employment Category
-                </InputLabel>
-                <Select
-                  value={categoryFilter}
-                  label="Employment Category"
-                  onChange={(e) => {
-                    setCategoryFilter(e.target.value);
-                    setPage(0);
-                  }}
-                  displayEmpty
+            {Object.entries(groupedTypeConfigs).flatMap(
+              ([group, items]) => [
+                <ListSubheader
+                  key={`hdr-${group}`}
                   sx={{
-                    borderRadius: 2,
-                    bgcolor: "#fafafa",
-                    fontSize: "0.875rem",
-                    "& .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "#e5e7eb",
-                    },
-                    "&:hover .MuiOutlinedInput-notchedOutline": {
-                      borderColor: T.accentBorder,
-                    },
-                    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                      borderColor: T.accent,
-                    },
-                    "& .MuiSelect-select": {
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 0.75,
-                    },
-                  }}
-                  renderValue={(val) => {
-                    if (!val)
-                      return (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 0.75,
-                          }}
-                        >
-                          <Circle sx={{ fontSize: 9, color: T.faint }} />
-                          <Typography
-                            sx={{ fontSize: "0.8rem", color: T.faint }}
-                          >
-                            All Categories
-                          </Typography>
-                        </Box>
-                      );
-                    const [filterType, filterValue] = val.split("||");
-                    if (filterType === "group")
-                      return (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 0.75,
-                          }}
-                        >
-                          <Circle sx={{ fontSize: 9, color: T.accent }} />
-                          <Typography
-                            sx={{
-                              fontSize: "0.8rem",
-                              color: T.accent,
-                              fontWeight: 700,
-                            }}
-                          >
-                            All: {filterValue}
-                          </Typography>
-                        </Box>
-                      );
-                    const cfg = typeConfigs.find(
-                      (t) => String(t.id) === filterValue,
-                    );
-                    return cfg ? (
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.75,
-                        }}
-                      >
-                        <Circle sx={{ fontSize: 9, color: cfg.colorHex }} />
-                        <Typography
-                          sx={{
-                            fontSize: "0.8rem",
-                            color: T.text,
-                            fontWeight: 600,
-                          }}
-                          noWrap
-                        >
-                          {cfg.parentGroup} | {cfg.typeName}
-                        </Typography>
-                      </Box>
-                    ) : (
-                      <Typography sx={{ fontSize: "0.8rem" }}>
-                        {filterValue}
-                      </Typography>
-                    );
+                    fontSize: "0.65rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    color: alpha(T.accent, 0.55),
+                    lineHeight: "2em",
+                    bgcolor: T.accentFaint,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.75,
                   }}
                 >
-                  <MenuItem value="">
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Circle sx={{ fontSize: 8, color: T.faint }} />
-                      <Typography sx={{ fontSize: "0.83rem", color: T.muted }}>
-                        All Categories
-                      </Typography>
-                    </Box>
+                  <Circle sx={{ fontSize: 7 }} /> {group}
+                </ListSubheader>,
+
+                <MenuItem
+                  key={`group-all-${group}`}
+                  value={`group||${group}`}
+                  sx={{ py: 0.75, pl: 2.5 }}
+                >
+                  <Box
+                    sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  >
+                    <Box
+                      sx={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        bgcolor: alpha(T.accent, 0.35),
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Typography
+                      sx={{
+                        fontSize: "0.78rem",
+                        color: T.accent,
+                        fontStyle: "italic",
+                        fontWeight: 600,
+                      }}
+                    >
+                      All in {group}
+                    </Typography>
+                  </Box>
+                </MenuItem>,
+
+                ...items.map((item) => (
+                  <MenuItem
+                    key={item.id}
+                    value={`type||${String(item.id)}`}
+                    sx={{ py: 0.75, pl: 3.5 }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 26 }}>
+                      <Circle
+                        sx={{ fontSize: 8, color: item.colorHex }}
+                      />
+                    </ListItemIcon>
+                    <Typography sx={{ fontSize: "0.875rem" }}>
+                      {item.typeName}
+                    </Typography>
                   </MenuItem>
+                )),
+              ],
+            )}
+          </Select>
+        </FormControl>
+      </Grid>
 
-                  {Object.entries(groupedTypeConfigs).flatMap(
-                    ([group, items]) => [
-                      <ListSubheader
-                        key={`hdr-${group}`}
-                        sx={{
-                          fontSize: "0.65rem",
-                          fontWeight: 700,
-                          letterSpacing: "0.07em",
-                          textTransform: "uppercase",
-                          color: alpha(T.accent, 0.55),
-                          lineHeight: "2em",
-                          bgcolor: T.accentFaint,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.75,
-                        }}
-                      >
-                        <Circle sx={{ fontSize: 7 }} /> {group}
-                      </ListSubheader>,
+       {/* Department filter — value=code, label=description */}
+      <Grid item xs={12} md={2.5}>
+        <FormControl fullWidth size="small">
+          <InputLabel sx={{ fontSize: "0.82rem" }}>Department</InputLabel>
+          <Select
+            value={departmentFilter}
+            label="Department"
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+            MenuProps={{
+              PaperProps: { sx: { maxHeight: 360, overflowY: "auto" } },
+            }}
+            sx={{
+              borderRadius: 2,
+              bgcolor: "#fafafa",
+              fontSize: "0.875rem",
+              "& .MuiOutlinedInput-notchedOutline": {
+                borderColor: "#e5e7eb",
+              },
+              "&:hover .MuiOutlinedInput-notchedOutline": {
+                borderColor: T.accentBorder,
+              },
+              "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                borderColor: T.accent,
+              },
+            }}
+          >
+            <MenuItem value="">All Departments</MenuItem>
+            {uniqueDepartments.map(({ code, description }) => (
+              <MenuItem key={code} value={code}>
+                {description}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
 
-                      <MenuItem
-                        key={`group-all-${group}`}
-                        value={`group||${group}`}
-                        sx={{ py: 0.75, pl: 2.5 }}
-                      >
-                        <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                        >
-                          <Box
-                            sx={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: "50%",
-                              bgcolor: alpha(T.accent, 0.35),
-                              flexShrink: 0,
-                            }}
-                          />
-                          <Typography
-                            sx={{
-                              fontSize: "0.78rem",
-                              color: T.accent,
-                              fontStyle: "italic",
-                              fontWeight: 600,
-                            }}
-                          >
-                            All in {group}
-                          </Typography>
-                        </Box>
-                      </MenuItem>,
+      {/* Branch filter — inserted between Employment Category and Department */}
+      <Grid item xs={6} md={1.5}>
+        <FormControl fullWidth size="small">
+          <InputLabel sx={{ fontSize: "0.82rem" }}>Branch</InputLabel>
+          <Select
+            value={branchFilter}
+            label="Branch"
+            onChange={(e) => {
+              setBranchFilter(e.target.value);
+              setPage(0);
+            }}
+            sx={{
+              borderRadius: 2,
+              bgcolor: "#fafafa",
+              fontSize: "0.875rem",
+              "& .MuiOutlinedInput-notchedOutline": {
+                borderColor: "#e5e7eb",
+              },
+              "&:hover .MuiOutlinedInput-notchedOutline": {
+                borderColor: T.accentBorder,
+              },
+              "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                borderColor: T.accent,
+              },
+            }}
+          >
+            <MenuItem value="">All Branches</MenuItem>
+            {BRANCHES.map(({ code, label }) => (
+              <MenuItem key={code} value={code}>
+                {label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
 
-                      ...items.map((item) => (
-                        <MenuItem
-                          key={item.id}
-                          value={`type||${String(item.id)}`}
-                          sx={{ py: 0.75, pl: 3.5 }}
-                        >
-                          <ListItemIcon sx={{ minWidth: 26 }}>
-                            <Circle
-                              sx={{ fontSize: 8, color: item.colorHex }}
-                            />
-                          </ListItemIcon>
-                          <Typography sx={{ fontSize: "0.875rem" }}>
-                            {item.typeName}
-                          </Typography>
-                        </MenuItem>
-                      )),
-                    ],
-                  )}
-                </Select>
-              </FormControl>
-            </Grid>
+      <Grid item xs={6} md={1.5}>
+        <CleanTextField
+          select
+          fullWidth
+          label="Filter by Status"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          size="small"
+        >
+          <MenuItem value="">All Statuses</MenuItem>
+          <MenuItem value="Default">Default</MenuItem>
+          <MenuItem value="Active">Active</MenuItem>
+          <MenuItem value="Inactive">Inactive</MenuItem>
+          <MenuItem value="Resigned">Resigned</MenuItem>
+          <MenuItem value="Terminated">Terminated</MenuItem>
+          <MenuItem value="Retired">Retired</MenuItem>
+        </CleanTextField>
+      </Grid>
 
-            {/* ── UPDATED: Department filter — value=code, label=description ── */}
-            <Grid item xs={12} md={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel sx={{ fontSize: "0.82rem" }}>Department</InputLabel>
-                <Select
-                  value={departmentFilter}
-                  label="Department"
-                  onChange={(e) => setDepartmentFilter(e.target.value)}
-                  sx={{
-                    borderRadius: 2,
-                    bgcolor: "#fafafa",
-                    fontSize: "0.875rem",
-                    "& .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "#e5e7eb",
-                    },
-                    "&:hover .MuiOutlinedInput-notchedOutline": {
-                      borderColor: T.accentBorder,
-                    },
-                    "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                      borderColor: T.accent,
-                    },
-                  }}
-                >
-                  <MenuItem value="">All Departments</MenuItem>
-                  {uniqueDepartments.map(({ code, description }) => (
-                    <MenuItem key={code} value={code}>
-                      {description}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={6} md={2}>
-              <CleanTextField
-                select
-                fullWidth
-                label="Filter by Status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                size="small"
-              >
-                <MenuItem value="">All Statuses</MenuItem>
-                <MenuItem value="Default">Default</MenuItem>
-                <MenuItem value="Active">Active</MenuItem>
-                <MenuItem value="Inactive">Inactive</MenuItem>
-                <MenuItem value="Resigned">Resigned</MenuItem>
-                <MenuItem value="Terminated">Terminated</MenuItem>
-                <MenuItem value="Retired">Retired</MenuItem>
-              </CleanTextField>
-            </Grid>
-          </Grid>
-        </Box>
-      </SectionCard>
+       <Grid item xs={6} md={1.5}>
+        <CleanTextField
+          select
+          fullWidth
+          label="Filter by Role"
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          size="small"
+        >
+          <MenuItem value="">All Roles</MenuItem>
+          <MenuItem value="Superadmin">Superadmin</MenuItem>
+          <MenuItem value="Administrator">Administrator</MenuItem>
+          {/* <MenuItem value="Technical">Technical</MenuItem> */}
+          <MenuItem value="Staff">Staff</MenuItem>
+        </CleanTextField>
+      </Grid>
+    </Grid>
+  </Box>
+</SectionCard>
 
       {/* ── Users Table ── */}
       <SectionCard sx={{ overflow: "hidden" }}>
@@ -3455,7 +3537,7 @@ const UsersList = () => {
                         borderBottom: `1px solid ${T.divider}`,
                       }}
                     >
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         <Checkbox
                           checked={isEmployeeSelected(user.employeeNumber)}
                           onChange={() =>
@@ -3469,7 +3551,7 @@ const UsersList = () => {
                           size="small"
                         />
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         <Typography
                           sx={{
                             fontSize: "0.78rem",
@@ -3481,7 +3563,7 @@ const UsersList = () => {
                           {user.employeeNumber}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         {isIncomplete ? (
                           <Box>
                             <Typography
@@ -3550,7 +3632,7 @@ const UsersList = () => {
                           </Box>
                         )}
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         <Box
                           sx={{
                             px: 1.25,
@@ -3576,7 +3658,7 @@ const UsersList = () => {
                           </Typography>
                         </Box>
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         {user.role === "technical" ? (
                           <Box
                             sx={{
@@ -3607,7 +3689,7 @@ const UsersList = () => {
                             }
                             size="small"
                             sx={{
-                              minWidth: 140,
+                              minWidth: 100,
                               borderRadius: 1.5,
                               bgcolor: "#fafafa",
                               fontSize: "0.82rem",
@@ -3642,7 +3724,7 @@ const UsersList = () => {
                           </Select>
                         )}
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         <Box
                           sx={{
                             display: "inline-flex",
@@ -3670,7 +3752,7 @@ const UsersList = () => {
                           </Typography>
                         </Box>
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         <Select
                           value={
                             user.branch === null || user.branch === undefined
@@ -3724,7 +3806,7 @@ const UsersList = () => {
                           ))}
                         </Select>
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         <Box
                           sx={{
                             display: "flex",
@@ -3742,7 +3824,7 @@ const UsersList = () => {
                           </Typography>
                         </Box>
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, px: 2, borderBottom: "none" }}>
+                      <TableCell sx={{ py: 1, px: 1.25, borderBottom: "none" }}>
                         {user.role === "technical" ? (
                           <Box
                             sx={{
@@ -3765,7 +3847,7 @@ const UsersList = () => {
                             }
                             size="small"
                             sx={{
-                              minWidth: 140,
+                              minWidth: 100,
                               borderRadius: 1.5,
                               bgcolor: "#fafafa",
                               fontSize: "0.82rem",
@@ -7044,6 +7126,14 @@ const UsersList = () => {
                         setEditedEmploymentCategory(e.target.value)
                       }
                       displayEmpty
+                     MenuProps={{
+  PaperProps: { sx: { maxHeight: 360, overflowY: "auto" } },
+  MenuListProps: {
+    sx: {
+      "& .MuiListSubheader-root": { position: "static" },
+    },
+  },
+}}
                       sx={{
                         borderRadius: 2,
                         bgcolor: "#fff",
@@ -7335,6 +7425,14 @@ const UsersList = () => {
                 label="Employment Category"
                 onChange={(e) => setBulkEmploymentCategory(e.target.value)}
                 displayEmpty
+               MenuProps={{
+  PaperProps: { sx: { maxHeight: 360, overflowY: "auto" } },
+  MenuListProps: {
+    sx: {
+      "& .MuiListSubheader-root": { position: "static" },
+    },
+  },
+}}
                 sx={{
                   borderRadius: 2,
                   bgcolor: "#fafafa",

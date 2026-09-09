@@ -90,7 +90,6 @@ import {
   persistDailyLateUndertimeFromModule,
   persistHalfDayReviewDailyLate,
   fetchDailyLateUndertime,
-  applyStoredLateUndertimeToAttendanceRows,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import {
   MODULE_TYPES,
@@ -305,6 +304,110 @@ const computeApprovedHalfDayShortfallMinuteSec = (row, entry) => {
   if (schedWorkSec == null) return 0;
   const rendSec = parseDurationToMinuteSec(resolveEntryRenderedTotal(entry, MODULE_TYPES.NON_TEACHING));
   return Math.max(0, schedWorkSec - rendSec);
+};
+
+// ─── Suspension scope/type helpers (Non-Teaching) ─────────────────────────
+const NON_TEACHING_SCOPE = 'non_teaching';
+
+const suspensionAppliesToNonTeaching = (susp) => {
+  if (!susp) return false;
+  const scope = susp.personnel_scope || 'all';
+  return scope === 'all' || scope === NON_TEACHING_SCOPE;
+};
+
+/** Same start-anchored wraparound handling calcSegment() already uses. */
+const normalizeOfficialEndSec = (startSec, endSec) => {
+  if (startSec == null || endSec == null) return endSec;
+  let fixedEnd = endSec;
+  while (fixedEnd <= startSec) fixedEnd += 12 * 3600;
+  return fixedEnd;
+};
+
+/**
+ * Choose the earlier of the employee's existing official end and a
+ * suspension cutoff, anchored to official start (mirrors calcSegment's own
+ * comparison). Never extends the day: if the cutoff is later than the
+ * original end, the original is returned unchanged. Falls back to the
+ * original string whenever either side can't be parsed.
+ */
+const pickEarlierOfficialEnd = (officialStartStr, originalEndStr, candidateEndStr) => {
+  const offStartSec = parseClockToMinuteSec(officialStartStr);
+  const originalEndSec = normalizeOfficialEndSec(offStartSec, parseClockToMinuteSec(originalEndStr));
+  const candidateEndSec = normalizeOfficialEndSec(offStartSec, parseClockToMinuteSec(candidateEndStr));
+  if (offStartSec == null || originalEndSec == null || candidateEndSec == null) {
+    return originalEndStr;
+  }
+  return candidateEndSec < originalEndSec ? candidateEndStr : originalEndStr;
+};
+
+/**
+ * Partial-day suspension: shorten officialTimeOUT to the suspension cutoff
+ * for applicable dates, never extending the employee's existing official
+ * end time. Reads maps.suspensionByDate (raw, full metadata) — that map is
+ * never mutated or discarded; this only returns adjusted row copies.
+ */
+const clampNonTeachingRowsForPartialSuspension = (rows, suspensionByDate) =>
+  (rows || []).map((row) => {
+    const d = normalizeReviewDate(row?.date);
+    const susp = d ? suspensionByDate?.[d] : null;
+    if (!susp || !suspensionAppliesToNonTeaching(susp)) return row;
+    if ((susp.suspension_type || 'whole_day') !== 'partial_day') return row;
+    if (!susp.effective_time) return row;
+    const effectiveOfficialTimeOUT = pickEarlierOfficialEnd(
+      row?.officialTimeIN,
+      row?.officialTimeOUT,
+      susp.effective_time,
+    );
+    if (effectiveOfficialTimeOUT === row?.officialTimeOUT) return row;
+    return { ...row, officialTimeOUT: effectiveOfficialTimeOUT };
+  });
+
+/**
+ * Holiday or applicable whole-day suspension: zero late/undertime for the
+ * day regardless of punches, matching the existing full-day exclusion
+ * behavior. Does not touch officialTimeOUT or actual punches.
+ */
+const applyNonTeachingWholeDayOverrides = (rows, holidayByDate, suspensionByDate) =>
+  (rows || []).map((row) => {
+    const d = normalizeReviewDate(row?.date);
+    if (!d) return row;
+    const zeroed = {
+      lateTotal: ZERO_HM,
+      undertimeTotal: ZERO_HM,
+      formattedfinalcalcFacultyAM: ZERO_HM,
+      formattedfinalcalcFacultyPM: ZERO_HM,
+    };
+    if (holidayByDate?.[d]) return { ...row, ...zeroed };
+    const susp = suspensionByDate?.[d];
+    if (
+      susp &&
+      suspensionAppliesToNonTeaching(susp) &&
+      (susp.suspension_type || 'whole_day') === 'whole_day'
+    ) {
+      return { ...row, ...zeroed };
+    }
+    return row;
+  });
+
+/**
+ * Whole-day + applicable-scope suspensions only — used for exclusion/status
+ * logic (badge, isFurlough, absent/half-day totals, Save-to-Summary calendar
+ * checks). Partial-day and out-of-scope (e.g. academic-only) suspensions
+ * must not exclude a Non-Teaching day. maps.suspensionByDate (full metadata)
+ * is only read here, never mutated.
+ */
+const filterWholeDaySuspensionsForNonTeaching = (suspensionByDate) => {
+  const out = {};
+  Object.entries(suspensionByDate || {}).forEach(([d, susp]) => {
+    if (
+      susp &&
+      suspensionAppliesToNonTeaching(susp) &&
+      (susp.suspension_type || 'whole_day') === 'whole_day'
+    ) {
+      out[d] = susp;
+    }
+  });
+  return out;
 };
 
 /** Minute-only absence / half-day / late buckets for Non-Teaching totals. */
@@ -1340,34 +1443,56 @@ if (rawRows.length === 0) {
   showModal('No Official Time Schedule', `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching Official Time Schedule exists for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`, 'warning', () => { closeModal(); navigate('/official_time'); });
   return;
 }
-      const processedData = rawRows.map((row) => {
-        const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
-        const am = calcSegment(timeIN, breaktimeIN, officialTimeIN, officialBreaktimeIN);
-        const pm = calcSegment(breaktimeOUT, timeOUT, officialBreaktimeOUT, officialTimeOUT);
-        const hn = calcSegment(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
-        const sc = calcSegment(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
-        const ot = calcSegment(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
-        // Late = arrival − official Time IN; Undertime = official Time OUT − departure (minute precision).
-        const arrivalLateSec = computeArrivalLateMinuteSec(row) ?? 0;
-        const earlyLeaveSec = computeEarlyLeaveUndertimeMinuteSec(row) ?? 0;
-        const amTardiness = formatDurationHhMm(arrivalLateSec);
-        const pmTardiness = formatDurationHhMm(earlyLeaveSec);
-        return normalizeNonTeachingRowDurations({
-          ...row,
-          lateTotal: amTardiness,
-          undertimeTotal: pmTardiness,
-          formattedFacultyRenderedTimeAM: am.rendered,  formattedFacultyMaxRenderedTimeAM: am.maxRendered, formattedfinalcalcFacultyAM: amTardiness,
-          formattedFacultyRenderedTimePM: pm.rendered,  formattedFacultyMaxRenderedTimePM: pm.maxRendered, formattedfinalcalcFacultyPM: pmTardiness,
-          formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
-          formattedFacultyRenderedTimeSC: sc.rendered,  formattedFacultyMaxRenderedTimeSC: sc.maxRendered, formattedfinalcalcFacultySC: sc.tardiness,
-          formattedFacultyRenderedTimeOT: ot.rendered,  formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
-        });
-      });
-      const calendarMaps = {
-        suspensionByDate: maps.suspensionByDate,
-        holidayByDate: maps.holidayByDate,
-        leaveByDate: maps.leaveByDate,
-      };
+   // Shorten officialTimeOUT to the applicable partial-suspension cutoff
+// (never extending the original end) before the module's own formulas run.
+// maps.suspensionByDate (full metadata) itself is untouched.
+const suspensionAdjustedRawRows = clampNonTeachingRowsForPartialSuspension(
+  rawRows,
+  maps.suspensionByDate,
+);
+
+const processedDataPreOverrides = suspensionAdjustedRawRows.map((row) => {
+  const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
+  const am = calcSegment(timeIN, breaktimeIN, officialTimeIN, officialBreaktimeIN);
+  const pm = calcSegment(breaktimeOUT, timeOUT, officialBreaktimeOUT, officialTimeOUT);
+  const hn = calcSegment(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
+  const sc = calcSegment(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
+  const ot = calcSegment(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
+  const arrivalLateSec = computeArrivalLateMinuteSec(row) ?? 0;
+  const earlyLeaveSec = computeEarlyLeaveUndertimeMinuteSec(row) ?? 0;
+  const amTardiness = formatDurationHhMm(arrivalLateSec);
+  const pmTardiness = formatDurationHhMm(earlyLeaveSec);
+  return normalizeNonTeachingRowDurations({
+    ...row,
+    lateTotal: amTardiness,
+    undertimeTotal: pmTardiness,
+    formattedFacultyRenderedTimeAM: am.rendered,  formattedFacultyMaxRenderedTimeAM: am.maxRendered, formattedfinalcalcFacultyAM: amTardiness,
+    formattedFacultyRenderedTimePM: pm.rendered,  formattedFacultyMaxRenderedTimePM: pm.maxRendered, formattedfinalcalcFacultyPM: pmTardiness,
+    formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
+    formattedFacultyRenderedTimeSC: sc.rendered,  formattedFacultyMaxRenderedTimeSC: sc.maxRendered, formattedfinalcalcFacultySC: sc.tardiness,
+    formattedFacultyRenderedTimeOT: ot.rendered,  formattedFacultyMaxRenderedTimeOT: ot.maxRendered, formattedfinalcalcFacultyOT: ot.tardiness,
+  });
+});
+
+// Whole-day suspension / holiday: zero late/undertime, matching the
+// existing full-day exclusion behavior.
+const processedData = applyNonTeachingWholeDayOverrides(
+  processedDataPreOverrides,
+  maps.holidayByDate,
+  maps.suspensionByDate,
+);
+
+// Derived, scope-and-type-filtered map for exclusion/status logic only.
+// maps.suspensionByDate (full metadata) is not discarded.
+const scopedWholeDaySuspensionByDate = filterWholeDaySuspensionsForNonTeaching(
+  maps.suspensionByDate,
+);
+
+const calendarMaps = {
+  suspensionByDate: scopedWholeDaySuspensionByDate,
+  holidayByDate: maps.holidayByDate,
+  leaveByDate: maps.leaveByDate,
+};
 
       const buildReviewMapFromStored = (stored) =>
         migrateLegacyHalfDayReview(
@@ -1383,7 +1508,7 @@ if (rawRows.length === 0) {
         halfDayDates: '',
       });
 
-      setSuspensionByDate(maps.suspensionByDate);
+setSuspensionByDate(scopedWholeDaySuspensionByDate);
       setLeaveByDate(maps.leaveByDate);
       setHolidayByDate(maps.holidayByDate);
       setTardinessOverrides({});
@@ -1419,26 +1544,24 @@ if (rawRows.length === 0) {
       });
 
       void (async () => {
-        try {
-          const stored = await fetchDailyLateUndertime(
-            employeeNumber,
-            startDate,
-            endDate,
-          );
-          setHalfDayReviewByDate(buildReviewMapFromStored(stored));
-          setAttendanceData(
-            applyStoredLateUndertimeToAttendanceRows(
-              processedData,
-              stored?.byDate || {},
-            ).map(normalizeNonTeachingRowDurations),
-          );
-        } catch (err) {
-          console.warn(
-            'Half-day review fetch failed; using local cache:',
-            err?.message || err,
-          );
-        }
-      })();
+  try {
+    const stored = await fetchDailyLateUndertime(
+      employeeNumber,
+      startDate,
+      endDate,
+    );
+    // Hydrate HR half-day review decisions only. The module's own
+    // suspension-aware computation in `processedData` is authoritative for
+    // lateTotal/undertimeTotal and is no longer overwritten by whatever was
+    // previously persisted — the module is the source of truth, not storage.
+    setHalfDayReviewByDate(buildReviewMapFromStored(stored));
+  } catch (err) {
+    console.warn(
+      'Half-day review fetch failed; using local cache:',
+      err?.message || err,
+    );
+  }
+})();
     } catch (err) {
       console.error('Error fetching attendance data:', err);
       const msg = 'Failed to fetch attendance data. Please try again.';

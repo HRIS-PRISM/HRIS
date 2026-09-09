@@ -437,6 +437,30 @@ export async function computeAndApplyModuleLateUndertime({
     typeof moduleType === 'string' && MODULE_PROCESSORS[moduleType]
       ? moduleType
       : MODULE_TYPES.NON_TEACHING;
+
+  // Non-Teaching is authoritative in its own Attendance Module, which already
+  // computes daily Late/Undertime and auto-persists it to
+  // overall_attendance_record.daily_late_undertime independent of Save to
+  // Summary (PUT /overall_attendance_record/daily-late-undertime upserts a
+  // stub row). This branch must only read and display that stored value —
+  // never recompute or force-overwrite it — so there is a single calculation,
+  // not two competing ones.
+  if (mod === MODULE_TYPES.NON_TEACHING) {
+    const stored = await fetchDailyLateUndertime(personID, startDate, endDate);
+    if (!stored || Object.keys(stored.byDate || {}).length === 0) {
+      throw new Error(
+        'No Non-Teaching daily Late/Undertime found yet. Open the Non-Teaching Attendance Module and search this employee for this period once to compute it.',
+      );
+    }
+    return {
+      byDate: stored.byDate || {},
+      halfDayDates: stored.halfDayDates || '',
+      half_day_review: stored.half_day_review ?? null,
+      computation_module_type:
+        stored.computation_module_type || MODULE_TYPES.NON_TEACHING,
+    };
+  }
+
   const processRows = MODULE_PROCESSORS[mod];
 
   const [attendanceRes, maps, stored] = await Promise.all([

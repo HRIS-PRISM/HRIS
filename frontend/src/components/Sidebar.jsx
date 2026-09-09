@@ -2933,7 +2933,7 @@ const Sidebar = ({
                           <WorkHistory />
                         </ListItemIcon>
                         <ListItemText
-                          primary="Attendance Records (Non-teaching | JO)"
+                          primary="Attendance Records (Non-Academic | JO)"
                           sx={{ marginLeft: "-10px" }}
                         />
                       </ListItem>

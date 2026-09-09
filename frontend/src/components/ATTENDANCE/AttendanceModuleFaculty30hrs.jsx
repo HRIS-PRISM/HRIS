@@ -90,7 +90,6 @@ import API_BASE_URL from '../../apiConfig';
     persistDailyLateUndertimeFromModule,
     persistHalfDayReviewDailyLate,
     fetchDailyLateUndertime,
-    applyStoredLateUndertimeToAttendanceRows,
   } from '../../utils/dtrLateUndertimeFromOverall';
   import {
     MODULE_TYPES,
@@ -563,6 +562,111 @@ import API_BASE_URL from '../../apiConfig';
   function hasNoPunchesTimeInOutOnly(row) {
     return attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT);
   }
+
+// ─── Suspension scope/type helpers (Faculty 30hrs) ─────────────────────────
+const FACULTY_SCOPE = 'academic';
+
+const suspensionAppliesToFaculty = (susp) => {
+  if (!susp) return false;
+  const scope = susp.personnel_scope || 'all';
+  return scope === 'all' || scope === FACULTY_SCOPE;
+};
+
+/** Same start-anchored wraparound handling this module's calcSeg() already uses. */
+const normalizeOfficialEndSec = (startSec, endSec) => {
+  if (startSec == null || endSec == null) return endSec;
+  let fixedEnd = endSec;
+  while (fixedEnd <= startSec) fixedEnd += 12 * 3600;
+  return fixedEnd;
+};
+
+/**
+ * Choose the earlier of the employee's existing official end and a
+ * suspension cutoff, anchored to official start. Never extends the day: if
+ * the cutoff is later than the original end, the original is returned
+ * unchanged. Falls back to the original string whenever either side can't
+ * be parsed.
+ */
+const pickEarlierOfficialEnd = (officialStartStr, originalEndStr, candidateEndStr) => {
+  const offStartSec = parseClockToMinuteSec(officialStartStr);
+  const originalEndSec = normalizeOfficialEndSec(offStartSec, parseClockToMinuteSec(originalEndStr));
+  const candidateEndSec = normalizeOfficialEndSec(offStartSec, parseClockToMinuteSec(candidateEndStr));
+  if (offStartSec == null || originalEndSec == null || candidateEndSec == null) {
+    return originalEndStr;
+  }
+  return candidateEndSec < originalEndSec ? candidateEndStr : originalEndStr;
+};
+
+/**
+ * Partial-day suspension: shorten officialTimeOUT to the suspension cutoff
+ * for applicable dates, never extending the employee's existing official
+ * end time. Reads maps.suspensionByDate (raw, full metadata) — that map is
+ * never mutated or discarded; this only returns adjusted row copies.
+ */
+const clampFacultyRowsForPartialSuspension = (rows, suspensionByDate) =>
+  (rows || []).map((row) => {
+    const d = String(row?.date ?? '').trim().slice(0, 10);
+    const susp = d ? suspensionByDate?.[d] : null;
+    if (!susp || !suspensionAppliesToFaculty(susp)) return row;
+    if ((susp.suspension_type || 'whole_day') !== 'partial_day') return row;
+    if (!susp.effective_time) return row;
+    const effectiveOfficialTimeOUT = pickEarlierOfficialEnd(
+      row?.officialTimeIN,
+      row?.officialTimeOUT,
+      susp.effective_time,
+    );
+    if (effectiveOfficialTimeOUT === row?.officialTimeOUT) return row;
+    return { ...row, officialTimeOUT: effectiveOfficialTimeOUT };
+  });
+
+/**
+ * Holiday or applicable whole-day suspension: zero late/undertime for the
+ * day regardless of punches, matching the existing full-day exclusion
+ * behavior. Does not touch officialTimeOUT or actual punches.
+ */
+const applyFacultyWholeDayOverrides = (rows, holidayByDate, suspensionByDate) =>
+  (rows || []).map((row) => {
+    const d = String(row?.date ?? '').trim().slice(0, 10);
+    if (!d) return row;
+    const zeroed = {
+      lateTotal: ZERO_HM,
+      undertimeTotal: ZERO_HM,
+      formattedfinalcalcFaculty: ZERO_HM,
+    };
+    if (holidayByDate?.[d]) return { ...row, ...zeroed };
+    const susp = suspensionByDate?.[d];
+    if (
+      susp &&
+      suspensionAppliesToFaculty(susp) &&
+      (susp.suspension_type || 'whole_day') === 'whole_day'
+    ) {
+      return { ...row, ...zeroed };
+    }
+    return row;
+  });
+
+/**
+ * Whole-day + applicable-scope suspensions only — used for exclusion/status
+ * logic (badge, isFurlough, absent/half-day totals, Save-to-Summary calendar
+ * checks). Partial-day and out-of-scope (e.g. non_teaching-only) suspensions
+ * must not exclude a Faculty 30hrs day. maps.suspensionByDate (full
+ * metadata) is only read here, never mutated.
+ */
+const filterWholeDaySuspensionsForFaculty = (suspensionByDate) => {
+  const out = {};
+  Object.entries(suspensionByDate || {}).forEach(([d, susp]) => {
+    if (
+      susp &&
+      suspensionAppliesToFaculty(susp) &&
+      (susp.suspension_type || 'whole_day') === 'whole_day'
+    ) {
+      out[d] = susp;
+    }
+  });
+  return out;
+};
+
+
 
   function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     let absentDays = 0;
@@ -1535,7 +1639,15 @@ import API_BASE_URL from '../../apiConfig';
         );
         if (!hasOfficialTime) { setShowNoOfficialTimeModal(true); return; }
 
-        const processedData = rawRows.map((row) => {
+         // Shorten officialTimeOUT to the applicable partial-suspension cutoff
+        // (never extending the original end) before this module's own
+        // formulas run. maps.suspensionByDate itself is untouched.
+        const suspensionAdjustedRawRows = clampFacultyRowsForPartialSuspension(
+          rawRows,
+          maps.suspensionByDate,
+        );
+
+        const processedDataPreOverrides = suspensionAdjustedRawRows.map((row) => {
           const {
             timeIN,
             timeOUT,
@@ -1716,8 +1828,24 @@ import API_BASE_URL from '../../apiConfig';
           };
         });
 
+        
+
+        // Whole-day suspension / holiday: zero late/undertime, matching the
+        // existing full-day exclusion behavior.
+        const processedData = applyFacultyWholeDayOverrides(
+          processedDataPreOverrides,
+          maps.holidayByDate,
+          maps.suspensionByDate,
+        );
+
+        // Derived, scope-and-type-filtered map for exclusion/status logic
+        // only. maps.suspensionByDate (full metadata) is not discarded.
+        const scopedWholeDaySuspensionByDate = filterWholeDaySuspensionsForFaculty(
+          maps.suspensionByDate,
+        );
+
         const calendarMaps = {
-          suspensionByDate: maps.suspensionByDate,
+          suspensionByDate: scopedWholeDaySuspensionByDate,
           holidayByDate: maps.holidayByDate,
           leaveByDate: maps.leaveByDate,
         };
@@ -1738,7 +1866,7 @@ import API_BASE_URL from '../../apiConfig';
 
         const normalizedProcessed = processedData.map(normalizeFacultyRowDurations);
 
-        setSuspensionByDate(maps.suspensionByDate);
+        setSuspensionByDate(scopedWholeDaySuspensionByDate);
         setLeaveByDate(maps.leaveByDate);
         setHolidayByDate(maps.holidayByDate);
         setTardinessOverrides({});
@@ -1770,20 +1898,19 @@ import API_BASE_URL from '../../apiConfig';
           totalLate: totalLateLabel,
         });
 
-        void (async () => {
+            void (async () => {
           try {
             const stored = await fetchDailyLateUndertime(
               employeeNumber,
               startDate,
               endDate,
             );
+            // Hydrate HR half-day review decisions only. This module's own
+            // suspension-aware computation (normalizedProcessed) is
+            // authoritative for lateTotal/undertimeTotal and is no longer
+            // overwritten by whatever was previously persisted — the module
+            // is the source of truth, not storage.
             setHalfDayReviewByDate(buildReviewMapFromStored(stored));
-            setAttendanceData(
-              applyStoredLateUndertimeToAttendanceRows(
-                normalizedProcessed,
-                stored?.byDate || {},
-              ).map(normalizeFacultyRowDurations),
-            );
           } catch (err) {
             console.warn(
               'Half-day review fetch failed; using local cache:',
@@ -1791,6 +1918,7 @@ import API_BASE_URL from '../../apiConfig';
             );
           }
         })();
+        
       } catch (err) {
         console.error('Error fetching attendance data:', err);
         const msg = 'Failed to fetch attendance data. Please try again.';
