@@ -24,6 +24,51 @@
     });
   }
 
+  /**
+   * Calendar YYYY-MM-DD for MySQL DATE / ISO strings without local-TZ drift.
+   * mysql2 returns DATE as JS Date at UTC midnight of that calendar day.
+   */
+  function calendarYmd(value) {
+    if (value == null || value === '') return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const y = value.getUTCFullYear();
+      const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(value.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const s = String(value).trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+
+  /** Inclusive UTC calendar-day walk — avoids toISOString/local getDate mismatches. */
+  function forEachYmdInRange(startYmd, endYmd, fn) {
+    if (!startYmd || !endYmd) return;
+    const startT = Date.parse(`${startYmd}T00:00:00.000Z`);
+    const endT = Date.parse(`${endYmd}T00:00:00.000Z`);
+    if (Number.isNaN(startT) || Number.isNaN(endT) || startT > endT) return;
+    for (let t = startT; t <= endT; t += 86400000) {
+      const dt = new Date(t);
+      fn(
+        `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`,
+      );
+    }
+  }
+
+  /** Keep one object when alone; promote to array when multiple hit the same day. */
+  function pushByDateEntry(byDate, key, entry) {
+    if (!key || !entry) return;
+    if (!byDate[key]) {
+      byDate[key] = entry;
+      return;
+    }
+    if (Array.isArray(byDate[key])) {
+      byDate[key].push(entry);
+      return;
+    }
+    byDate[key] = [byDate[key], entry];
+  }
+
   /** One audit per explicit module button (search, DTR, device fetch, etc.). */
   function logAttendanceModuleButton(req, opts = {}) {
     const {
@@ -944,6 +989,7 @@
         p.firstName,
         p.lastName,
         p.middleName,
+        u.branch,
         CASE
           WHEN p.agencyEmployeeNum IS NOT NULL THEN 'Registered'
           ELSE 'Not Registered'
@@ -951,6 +997,8 @@
       FROM attendancerecord ar
       LEFT JOIN person_table p
         ON ar.personID = p.agencyEmployeeNum
+      LEFT JOIN users u
+        ON ar.personID = u.employeeNumber
       WHERE ar.date BETWEEN ? AND ?
       ORDER BY
         CASE WHEN p.lastName IS NULL THEN 1 ELSE 0 END,
@@ -3027,7 +3075,8 @@
       SELECT id, title, reason, date, date_start, date_end, image,
       COALESCE(personnel_scope, 'all') AS personnel_scope,
       COALESCE(suspension_type, 'whole_day') AS suspension_type,
-      effective_time
+      effective_time,
+      branch
       FROM suspensions
       WHERE
         (date IS NOT NULL AND date BETWEEN ? AND ?)
@@ -3045,15 +3094,6 @@
 
       const byDate = {};
 
-      const toISO = (d) => {
-        if (!d) return null;
-        const dt = new Date(d);
-        const yyyy = dt.getFullYear();
-        const mm = String(dt.getMonth() + 1).padStart(2, '0');
-        const dd = String(dt.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      };
-
       const classify = (title = '', reason = '') => {
         const t = `${title} ${reason}`.toLowerCase();
         if (t.includes('work') && t.includes('susp')) return 'WORK SUSPENDED';
@@ -3062,27 +3102,26 @@
       };
 
       (rows || []).forEach((r) => {
-        const single = toISO(r.date);
-        const start = toISO(r.date_start);
-        const end = toISO(r.date_end);
+        const single = calendarYmd(r.date);
+        const start = calendarYmd(r.date_start);
+        const end = calendarYmd(r.date_end);
         const label = classify(r.title, r.reason);
 
-        const suspMeta = {
-        personnel_scope: r.personnel_scope || 'all',
-        suspension_type: r.suspension_type || 'whole_day',
-        effective_time: r.effective_time || null,
-      };
+        const entry = {
+          label,
+          title: r.title,
+          reason: r.reason,
+          id: r.id,
+          personnel_scope: r.personnel_scope || 'all',
+          suspension_type: r.suspension_type || 'whole_day',
+          effective_time: r.effective_time || null,
+          branch: r.branch !== null && r.branch !== undefined ? Number(r.branch) : null,
+        };
 
         if (start && end) {
-          let cur = new Date(start);
-          const last = new Date(end);
-          while (cur <= last) {
-            const key = cur.toISOString().slice(0, 10);
-          if (!byDate[key]) byDate[key] = { label, title: r.title, reason: r.reason, id: r.id, ...suspMeta };
-            cur.setDate(cur.getDate() + 1);
-          }
+          forEachYmdInRange(start, end, (key) => pushByDateEntry(byDate, key, entry));
         } else if (single) {
-        if (!byDate[single]) byDate[single] = { label, title: r.title, reason: r.reason, id: r.id, ...suspMeta };
+          pushByDateEntry(byDate, single, entry);
         }
       });
 
@@ -3121,11 +3160,7 @@
         return res.status(500).json({ error: err.message });
       }
 
-      const toISO = (d) => {
-        if (!d) return null;
-        const dt = new Date(d);
-        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-      };
+      const toISO = (d) => calendarYmd(d);
 
       const byDate = {};
       (rows || []).forEach((leave) => {
@@ -3160,7 +3195,7 @@
     }
 
     const query = `
-    SELECT id, title, about, description, date, date_start, date_end, image, status
+    SELECT id, title, about, description, date, date_start, date_end, image, status, branch
       FROM holiday
       WHERE
          (
@@ -3181,29 +3216,24 @@
 
       const byDate = {};
 
-      const toISO = (d) => {
-        if (!d) return null;
-        const dt = new Date(d);
-        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-      };
-
       (rows || []).forEach((r) => {
-        const single = toISO(r.date);
-        const start = toISO(r.date_start);
-        const end = toISO(r.date_end);
+        const single = calendarYmd(r.date);
+        const start = calendarYmd(r.date_start);
+        const end = calendarYmd(r.date_end);
         const label = 'HOLIDAY';
         const reason = r.about || r.description || 'Holiday';
+        const entry = {
+          label,
+          title: r.title,
+          reason,
+          id: r.id,
+          branch: r.branch !== null && r.branch !== undefined ? Number(r.branch) : null,
+        };
 
         if (start && end) {
-          let cur = new Date(start);
-          const last = new Date(end);
-          while (cur <= last) {
-            const key = cur.toISOString().slice(0, 10);
-            if (!byDate[key]) byDate[key] = { label, title: r.title, reason, id: r.id };
-            cur.setDate(cur.getDate() + 1);
-          }
+          forEachYmdInRange(start, end, (key) => pushByDateEntry(byDate, key, entry));
         } else if (single) {
-          if (!byDate[single]) byDate[single] = { label, title: r.title, reason, id: r.id };
+          pushByDateEntry(byDate, single, entry);
         }
       });
 

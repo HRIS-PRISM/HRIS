@@ -279,6 +279,10 @@ db.query(ensureHolidayTableSQL, (err) => {
       if (e && e.code !== 'ER_DUP_FIELDNAME')
         console.error('Holiday migration image:', e.message);
     });
+    db.query('ALTER TABLE holiday ADD COLUMN branch TINYINT NULL DEFAULT NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration branch:', e.message);
+    });
   }
 });
 
@@ -314,6 +318,19 @@ db.query(ensureSuspensionsTableSQL, (err) => {
   if (err)
     console.error('Failed to ensure suspensions table exists:', err.message);
   else console.log('Suspensions table ready');
+});
+
+// Suspension scope / type columns (Announcement → DTR / attendance modules)
+[
+  "ALTER TABLE suspensions ADD COLUMN personnel_scope VARCHAR(32) NOT NULL DEFAULT 'all'",
+  "ALTER TABLE suspensions ADD COLUMN suspension_type VARCHAR(32) NOT NULL DEFAULT 'whole_day'",
+  'ALTER TABLE suspensions ADD COLUMN effective_time TIME NULL',
+  'ALTER TABLE suspensions ADD COLUMN branch TINYINT NULL DEFAULT NULL',
+].forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME')
+      console.error('Suspensions migration:', err.message);
+  });
 });
 
 // Ensure contact messages table exists (threaded replies)

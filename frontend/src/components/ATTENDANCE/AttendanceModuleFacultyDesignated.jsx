@@ -66,7 +66,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
-import { seedEmbeddedModuleContext, ATTENDANCE_EMBEDDED_ROOT_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
+import { useEmbeddedModuleAutoSearch, ATTENDANCE_EMBEDDED_ROOT_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
 import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
@@ -85,7 +85,6 @@ import {
   persistDailyLateUndertimeFromModule,
   persistHalfDayReviewDailyLate,
   fetchDailyLateUndertime,
-  applyStoredLateUndertimeToAttendanceRows,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import {
   MODULE_TYPES,
@@ -143,6 +142,10 @@ import {
   postAttendanceDevicePreflightNoSync,
   fetchAttendanceCalendarMaps,
   getLeaveStatusLabelForDate,
+  isSuspendedStatusLabel,
+  pickApplicableSuspension,
+  pickApplicableHoliday,
+  fetchEmployeeBranch,
 } from './attendanceLeaveIntegration';
 import { getAuthHeaders } from '../../utils/auth';
 import OverallAttendanceCompareModal from './OverallAttendanceCompareModal';
@@ -156,7 +159,7 @@ import {
   isEmptyAttendancePunch,
 } from '../../utils/facultyBreaktimeFromPunches';
 
-/** Parse "01/01/2000 …" style times for duration math; seconds/ms stripped. */
+
 function parseAttendanceTimeOn2000(timeStr) {
   if (!timeStr || typeof timeStr !== 'string') return new Date(NaN);
   const d = new Date(`01/01/2000 ${timeStr}`);
@@ -165,7 +168,7 @@ function parseAttendanceTimeOn2000(timeStr) {
   return d;
 }
 
-/** e.g. `2026-02-02` → `02-02-26` for Day column subtitle layout. */
+
 function formatDateMmDdYy(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') return '';
   const trimmed = dateStr.trim();
@@ -182,7 +185,7 @@ function formatDateMmDdYy(dateStr) {
   return `${mm}-${dd}-${yy}`;
 }
 
-/** Millisecond delta → `HH:MM`; non-finite → `00:00`. */
+
 const formatDurationMsToHhMmSs = formatDurationMsToHhMm;
 
 function normalizeBadHhMmSsDisplay(v) {
@@ -233,7 +236,7 @@ function minutesFromOfficialScheduleRow(row) {
   const offOut = pickValidTime(row.officialTimeOUT);
   if (!offIn || !offOut) return null;
 
-  // Prefer official breaktimes; fall back to effective breaktime fields (already normalized in processing).
+  
   const brIn =
     pickValidTime(row.officialBreaktimeIN) ?? pickValidTime(row.breaktimeIN);
   const brOut =
@@ -253,7 +256,7 @@ function minutesFromOfficialScheduleRow(row) {
   return totalMinutes > 0 ? totalMinutes : null;
 }
 
-// ─── Theme tokens ──────────────────────────────────────────────────────────
+
 const T = {
   accent: '#6d2323',
   accentDark: '#5a1d1d',
@@ -307,7 +310,7 @@ const T = {
   },
 };
 
-// ─── Shimmer keyframes ────────────────────────────────────────────────────
+
 const shimmerKf = `
 @keyframes shimmer {
   0%   { background-position: -800px 0; }
@@ -524,7 +527,7 @@ const AttendanceDesignatedWireframe = () => (
   </>
 );
 
-// ─── Styled primitives ────────────────────────────────────────────────────
+
 const SectionCard = styled(Card)({
   borderRadius: 12,
   boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
@@ -650,7 +653,7 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   </button>
 );
 
-// ─── Half-day helpers ─────────────────────────────────────────────────────
+
 const attendanceEmptyPunch = (v) =>
   v == null ||
   String(v).trim() === '' ||
@@ -662,12 +665,113 @@ const isHalfDayAttendanceRow = (row, fn) => {
   return isHalfDayByPunchPattern(row);
 };
 
-// Designated (40hrs) module rule: ignore breaktime punches for absent.
+
 function hasNoPunchesTimeInOutOnly(row) {
   return (
     attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT)
   );
 }
+
+
+
+const DESIGNATED_SCOPE = 'academic';
+
+const suspensionAppliesToDesignated = (susp) => {
+  if (!susp) return false;
+  const scope = susp.personnel_scope || 'all';
+  return scope === 'all' || scope === DESIGNATED_SCOPE;
+};
+
+
+const normalizeOfficialEndSec = (startSec, endSec) => {
+  if (startSec == null || endSec == null) return endSec;
+  let fixedEnd = endSec;
+  while (fixedEnd <= startSec) fixedEnd += 12 * 3600;
+  return fixedEnd;
+};
+
+
+const parseClockToSecForClamp = (timeStr) => {
+  const d = parseAttendanceTimeOn2000(timeStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+};
+
+
+const pickEarlierOfficialEnd = (officialStartStr, originalEndStr, candidateEndStr) => {
+  const offStartSec = parseClockToSecForClamp(officialStartStr);
+  const originalEndSec = normalizeOfficialEndSec(offStartSec, parseClockToSecForClamp(originalEndStr));
+  const candidateEndSec = normalizeOfficialEndSec(offStartSec, parseClockToSecForClamp(candidateEndStr));
+  if (offStartSec == null || originalEndSec == null || candidateEndSec == null) {
+    return originalEndStr;
+  }
+  return candidateEndSec < originalEndSec ? candidateEndStr : originalEndStr;
+};
+
+
+const clampDesignatedRowsForPartialSuspension = (rows, suspensionByDate, employeeBranch) =>
+  (rows || []).map((row) => {
+    const d = String(row?.date ?? '').trim().slice(0, 10);
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToDesignated,
+      employeeBranch,
+    );
+    if (!susp) return row;
+    if ((susp.suspension_type || 'whole_day') !== 'partial_day') return row;
+    if (!susp.effective_time) return row;
+    const effectiveOfficialTimeOUT = pickEarlierOfficialEnd(
+      row?.officialTimeIN,
+      row?.officialTimeOUT,
+      susp.effective_time,
+    );
+    if (effectiveOfficialTimeOUT === row?.officialTimeOUT) return row;
+    return { ...row, officialTimeOUT: effectiveOfficialTimeOUT };
+  });
+
+
+const applyDesignatedWholeDayOverrides = (rows, holidayByDate, suspensionByDate, employeeBranch) =>
+  (rows || []).map((row) => {
+    const d = String(row?.date ?? '').trim().slice(0, 10);
+    if (!d) return row;
+    const zeroed = {
+      lateTotal: ZERO_HM,
+      undertimeTotal: ZERO_HM,
+      formattedfinalcalcFacultyAM: ZERO_HM,
+      formattedfinalcalcFacultyPM: ZERO_HM,
+    };
+    if (pickApplicableHoliday(holidayByDate, d, employeeBranch)) {
+      return { ...row, ...zeroed };
+    }
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToDesignated,
+      employeeBranch,
+    );
+    if (susp && (susp.suspension_type || 'whole_day') === 'whole_day') {
+      return { ...row, ...zeroed };
+    }
+    return row;
+  });
+
+
+/** Applicable-scope suspensions (whole + partial) for Designated faculty. */
+const filterApplicableSuspensionsForDesignated = (suspensionByDate, employeeBranch) => {
+  const out = {};
+  Object.keys(suspensionByDate || {}).forEach((d) => {
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToDesignated,
+      employeeBranch,
+    );
+    if (susp) out[d] = susp;
+  });
+  return out;
+};
+
 
 function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
   let absentDays = 0;
@@ -749,14 +853,14 @@ function listAbsentDatesFromDailyRows_TimeInOutOnly(rows, calendarMaps) {
   return [...new Set(dates)].sort();
 }
 
-// ─── Status chip ──────────────────────────────────────────────────────────
+
 const StatusChip = ({ label }) => {
   const styles = {
     'WORK SUSPENDED': T.suspended,
     HOLIDAY: T.holiday,
     'ON LEAVE': T.leave,
   };
-  const s = styles[label] || {};
+  const s = isSuspendedStatusLabel(label) ? T.suspended : (styles[label] || {});
   return (
     <Chip
       size="small"
@@ -774,7 +878,7 @@ const StatusChip = ({ label }) => {
   );
 };
 
-// CompactTableCell kept for compatibility
+
 const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
   fontWeight: isHeader ? 700 : 500,
   padding: '10px 14px',
@@ -785,7 +889,7 @@ const CompactTableCell = styled(TableCell)(({ isHeader }) => ({
   whiteSpace: 'nowrap',
 }));
 
-// ─── Tab definitions ──────────────────────────────────────────────────────
+
 const VIEW_TABS = [
   {
     key: 'regular',
@@ -809,9 +913,9 @@ const VIEW_TABS = [
   },
 ];
 
-// ─── Column definitions ───────────────────────────────────────────────────
-// colGroup: columns sharing a group key collapse together (leader = isGroupLeader).
-// Regular tab column order matches NonTeaching: all punches, then AM/PM rendered & tardiness + total tardiness.
+
+
+
 const TAB_COLUMNS = {
   regular: [
     {
@@ -1132,8 +1236,8 @@ const COL_GROUP_META = {
   otTard: { label: 'OT tardiness' },
 };
 
-// ─── Tardiness duration helpers (HR overrides on AM/PM tardiness) ───────
-/** Return displayed value for a column, considering rendered & tardiness overrides. */
+
+
 const getDisplayedCellValue = (
   row,
   colKey,
@@ -1176,7 +1280,7 @@ const getDisplayedCellValue = (
     );
   }
 
-  // Rendered overrides (editable)
+  
   if (colKey === '_morningRendered' || colKey === '_afternoonRendered') {
     const part = colKey === '_morningRendered' ? 'morning' : 'afternoon';
     if (
@@ -1195,7 +1299,7 @@ const getDisplayedCellValue = (
     return getCellValue(row, colKey, isFurlough, null, reviewByDate);
   }
 
-  // Tardiness: prefer explicit tardiness override, else compute from rendered override if present
+  
   if (colKey === '_morningTardiness' || colKey === '_afternoonTardiness') {
     const part = colKey === '_morningTardiness' ? 'morning' : 'afternoon';
     const explicit = tardOverridesUsed?.[dateKey]?.[part];
@@ -1203,7 +1307,7 @@ const getDisplayedCellValue = (
 
     const renderedStored = rendOverrides?.[dateKey]?.[part];
     if (renderedStored != null && String(renderedStored).trim() !== '') {
-      // derive tardiness = maxRendered - renderedStored
+      
       const maxKey =
         part === 'morning'
           ? 'formattedFacultyMaxRenderedTimeAM'
@@ -1246,7 +1350,7 @@ const getDisplayedCellValue = (
     );
   }
 
-  // Gated break display (official autofill) — raw punches stay on the row for half-day.
+  
   if (colKey === 'breaktimeIN' && row?.displayBreaktimeIN != null) {
     return row.displayBreaktimeIN;
   }
@@ -1254,11 +1358,11 @@ const getDisplayedCellValue = (
     return row.displayBreaktimeOUT;
   }
 
-  // default: use original getter (honor tardinessOverrides where applicable)
+  
   return getCellValue(row, colKey, isFurlough, tardOverridesUsed, reviewByDate);
 };
 
-// Editable rendered cell (AM/PM) — allows HR to override rendered time.
+
 const EditableRenderedCell = ({
   row,
   part,
@@ -1365,8 +1469,8 @@ const EditableRenderedCell = ({
   );
 };
 
-// ─── getCellValue ─────────────────────────────────────────────────────────
-/** @param {Record<string, { morning?: string, afternoon?: string }> | null} [tardOverrides] HR edits for Regular Time AM/PM tardiness. */
+
+
 const getCellValue = (
   row,
   colKey,
@@ -1563,7 +1667,7 @@ const getCellValue = (
   }
 };
 
-/** Regular Time only: editable AM/PM tardiness (system default + HR override). */
+
 const EditableTardinessCell = ({
   row,
   part,
@@ -1703,7 +1807,7 @@ const EditableTardinessCell = ({
   );
 };
 
-// ─── Floating Totals / Save Bar (unified NonTeaching style) ──────────────
+
 const FloatingTotalsBar = ({
   totals,
   visible,
@@ -1994,7 +2098,7 @@ const FloatingTotalsBar = ({
   );
 };
 
-// ─── Sticky Scrollbar (kept from original) ────────────────────────────────
+
 const StickyScrollbar = ({ innerRef }) => {
   const proxyRef = useRef(null);
   const ghostRef = useRef(null);
@@ -2061,7 +2165,7 @@ const StickyScrollbar = ({ innerRef }) => {
   );
 };
 
-// ─── Styled Modal ─────────────────────────────────────────────────────────
+
 const StyledModal = ({
   open,
   onClose,
@@ -2393,7 +2497,7 @@ const StyledModal = ({
   );
 };
 
-// ─── Main Component ────────────────────────────────────────────────────────
+
 const AttendanceModuleFacultyDesignated = ({
   embedded = false,
   initialContext = null,
@@ -2401,6 +2505,7 @@ const AttendanceModuleFacultyDesignated = ({
   onSavedToSummary,
   saveSignal = 0,
   refreshEpoch = 0,
+  onOpenHubTool,
 } = {}) => {
   const seedEmp = String(initialContext?.employeeNumber || '').trim();
   const seedStart = initialContext?.startDate || '';
@@ -2411,6 +2516,7 @@ const AttendanceModuleFacultyDesignated = ({
     initialContext?.fullName || initialContext?.employee?.fullName || '',
   );
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [employeeBranch, setEmployeeBranch] = useState(null);
   const [startDate, setStartDate] = useState(seedStart);
   const [endDate, setEndDate] = useState(seedEnd);
   const [attendanceData, setAttendanceData] = useState([]);
@@ -2421,7 +2527,7 @@ const AttendanceModuleFacultyDesignated = ({
   const [activeTab, setActiveTab] = useState('regular');
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // ── Collapsed column groups per tab ───────────────────────────────────
+  
   const [collapsedGroups, setCollapsedGroups] = useState({
     regular: {
       morningDevice: false,
@@ -2571,6 +2677,25 @@ const AttendanceModuleFacultyDesignated = ({
   }, [embedded]);
 
   useEffect(() => {
+    const key = String(employeeNumber ?? '').trim();
+    if (!key) {
+      setEmployeeBranch(null);
+      return;
+    }
+    let cancelled = false;
+    fetchEmployeeBranch({
+      apiBaseUrl: API_BASE_URL,
+      getAuthHeaders,
+      employeeNumber: key,
+    }).then((branch) => {
+      if (!cancelled) setEmployeeBranch(branch);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeNumber]);
+
+  useEffect(() => {
     if (attendanceData.length === 0) return;
     const timer = setTimeout(() => {
       document.body.style.removeProperty('overflow');
@@ -2589,7 +2714,7 @@ const AttendanceModuleFacultyDesignated = ({
   }, []);
 
   useEffect(() => {
-    // Hub drawer uses initialContext + remount; skip router hydration when embedded.
+    
     if (embedded) return;
     const s = location.state;
     if (!s?.fromAttendanceWorkflow && !s?.fromDevice) return;
@@ -2620,8 +2745,21 @@ const AttendanceModuleFacultyDesignated = ({
         suspensionByDate,
         holidayByDate,
         leaveByDate,
+        employeeBranch,
       }),
-    [suspensionByDate, holidayByDate, leaveByDate],
+    [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
+  );
+
+  /** Whole-day suspension / holiday / leave only — not partial suspension. */
+  const isFurloughForDate = useCallback(
+    (date) =>
+      isExcludedAttendanceCalendarDate(date, {
+        suspensionByDate,
+        holidayByDate,
+        leaveByDate,
+        employeeBranch,
+      }),
+    [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
   );
 
   const commitTardinessOverride = useCallback(
@@ -2631,7 +2769,7 @@ const AttendanceModuleFacultyDesignated = ({
         if (!row) return prev;
         const colKey =
           part === 'morning' ? '_morningTardiness' : '_afternoonTardiness';
-        const f = Boolean(getStatusLabelForDate(date));
+        const f = isFurloughForDate(date);
         const sys = canonicalTardDisplay(getCellValue(row, colKey, f, null));
         const next = { ...prev };
         const cur = { ...(next[date] || {}) };
@@ -2645,7 +2783,7 @@ const AttendanceModuleFacultyDesignated = ({
         return next;
       });
     },
-    [attendanceData, getStatusLabelForDate],
+    [attendanceData, isFurloughForDate],
   );
 
   const commitRenderedOverride = useCallback((date, part, normalizedOrNull) => {
@@ -2663,14 +2801,14 @@ const AttendanceModuleFacultyDesignated = ({
     });
   }, []);
 
-  // ── handleSubmit — with pre-flight device check ──
-  // FIX: Non-Teaching-style behavior — fetch BOTH the raw device punches
-  // (deviceRows, biometric preflight) AND the persisted attendancerecord rows
-  // (rawRows, which include anything saved via Attendance Modification, e.g.
-  // manually_modified = 1 rows, leave-gap rows, schedule-gap rows). We only
-  // show the "No Device Records Found" dialog when BOTH sources are empty —
-  // previously this module bailed out the instant deviceRows was empty,
-  // even if the employee already had manually-entered records for the period.
+  
+  
+  
+  
+  
+  
+  
+  
   const handleSubmit = async () => {
     if (submitInFlightRef.current) return;
     submitInFlightRef.current = true;
@@ -2680,6 +2818,15 @@ const AttendanceModuleFacultyDesignated = ({
     setLoading(true);
     setError('');
     try {
+      let branch = employeeBranch;
+      if (branch == null && employeeNumber) {
+        branch = await fetchEmployeeBranch({
+          apiBaseUrl: API_BASE_URL,
+          getAuthHeaders,
+          employeeNumber,
+        });
+        setEmployeeBranch(branch);
+      }
       const [deviceRows, maps, attendanceRes] = await Promise.all([
         postAttendanceDevicePreflightNoSync({
           apiBaseUrl: API_BASE_URL,
@@ -2701,12 +2848,12 @@ const AttendanceModuleFacultyDesignated = ({
         }),
       ]);
 
-      // Compute rawRows BEFORE any early return, so manually-modified /
-      // Attendance-Modification-saved records are visible to the emptiness check.
+      
+      
       const rawRows = Array.isArray(attendanceRes.data) ? attendanceRes.data : [];
 
-      // Only treat this as "nothing found" when BOTH the device AND the
-      // persisted attendancerecord table are empty for this period.
+      
+      
       if (deviceRows.length === 0 && rawRows.length === 0) {
         setAttendanceData([]);
         setTardinessOverrides({});
@@ -2715,21 +2862,22 @@ const AttendanceModuleFacultyDesignated = ({
         setHolidayByDate({});
         showModal(
           'No Device Records Found',
-          'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Device.',
+          'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Modification.',
           'warning',
           () => {
             closeModal();
-            navigate('/view_attendance');
+            if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('modification');
+            else navigate('/view_attendance');
           },
         );
         return;
       }
 
-      // At this point either the device has punches, or manually-modified
-      // records already exist. If rawRows is still empty here, it means the
-      // device has punches but there is no matching Official Time Schedule
-      // (the join in /api/attendance requires officialtime), so we guide the
-      // user to set that up instead of silently rendering nothing.
+      
+      
+      
+      
+      
       if (rawRows.length === 0) {
         setAttendanceData([]);
         setTardinessOverrides({});
@@ -2738,17 +2886,27 @@ const AttendanceModuleFacultyDesignated = ({
         setHolidayByDate({});
         showModal(
           'No Official Time Schedule',
-          `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching Official Time Schedule exists for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`,
+          `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching Official Time Schedule exists for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time.`,
           'warning',
           () => {
             closeModal();
-            navigate('/official_time');
+            if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('officialTime');
+            else navigate('/official_time');
           },
         );
         return;
       }
 
-      const processedData = rawRows.map((row) => {
+             
+      
+      
+      const suspensionAdjustedRawRows = clampDesignatedRowsForPartialSuspension(
+        rawRows,
+        maps.suspensionByDate,
+        branch,
+      );
+
+      const processedDataPreOverrides = suspensionAdjustedRawRows.map((row) => {
         const {
           timeIN,
           timeOUT,
@@ -2786,18 +2944,18 @@ const AttendanceModuleFacultyDesignated = ({
           officialBreaktimeOUT,
         });
 
-        // ── HALF-DAY DETECTION ──────────────────────────────────────────────────
-        // Half day: Time IN only or Time OUT only (no break punches).
-        // Time IN + Break IN / Break OUT + Time OUT = late, not half day.
+        
+        
+        
         const hasOnlyMorningPunch = isHalfDayMorningByPunches(row);
         const hasOnlyAfternoonPunch = isHalfDayAfternoonByPunches(row);
 
-        // ── AM SEGMENT ──────────────────────────────────────────────────────────
+        
         let formattedFacultyRenderedTimeAM = ZERO_HM;
         let formattedFacultyMaxRenderedTimeAM = ZERO_HM;
         let formattedfinalcalcFacultyAM = ZERO_HM;
 
-        // Skip AM when afternoon-only half day.
+        
         if (!hasOnlyAfternoonPunch) {
           const startOfficialTimeFacultyAM =
             parseAttendanceTimeOn2000(officialTimeIN);
@@ -2812,7 +2970,7 @@ const AttendanceModuleFacultyDesignated = ({
           const midnightFacultyAM = new Date('01/01/2000 00:00:00 AM');
           let timeinfacultyAM, timeoutfacultyAM;
           if (noAmPunch) {
-            // Both punches absent → full absent row, not half-day; AM gets full tardiness.
+            
             timeinfacultyAM = midnightFacultyAM;
             timeoutfacultyAM = midnightFacultyAM;
           } else {
@@ -2839,12 +2997,12 @@ const AttendanceModuleFacultyDesignated = ({
           formattedfinalcalcFacultyAM = formatDurationMsToHhMmSs(tardAM);
         }
 
-        // ── PM SEGMENT ──────────────────────────────────────────────────────────
+        
         let formattedFacultyRenderedTimePM = ZERO_HM;
         let formattedFacultyMaxRenderedTimePM = ZERO_HM;
         let formattedfinalcalcFacultyPM = ZERO_HM;
 
-        // Skip PM computation entirely when the employee only punched IN (AM half-day).
+        
         if (!hasOnlyMorningPunch) {
           const startOfficialTimeFacultyPM = parseAttendanceTimeOn2000(
             effectiveBreaktimeOUT ??
@@ -2861,7 +3019,7 @@ const AttendanceModuleFacultyDesignated = ({
           const midnightFacultyPM = new Date('01/01/2000 00:00:00 PM');
           let timeinfacultyPM, timeoutfacultyPM;
           if (noPmPunch) {
-            // Missing Time OUT; PM gets full tardiness unless morning-only half day (skipped above).
+            
             timeoutfacultyPM = midnightFacultyPM;
             timeinfacultyPM = midnightFacultyPM;
           } else {
@@ -2890,7 +3048,7 @@ const AttendanceModuleFacultyDesignated = ({
           formattedfinalcalcFacultyPM = formatDurationMsToHhMmSs(tardPM);
         }
 
-        // ── HONORARIUM / SERVICE CREDIT / OVERTIME SEGMENTS ─────────────────────
+        
         const calcSeg = (tIn, tOut, offIn, offOut) => {
           const emptyIn = isEmptyPunch(tIn),
             emptyOut = isEmptyPunch(tOut);
@@ -2952,7 +3110,7 @@ const AttendanceModuleFacultyDesignated = ({
           officialOverTimeOUT,
         );
 
-        // Late = arrival − official Time IN; Undertime = official Time OUT − departure.
+        
         const arrivalLateSec = computeArrivalLateMinuteSec({
           timeIN,
           timeOUT,
@@ -2974,7 +3132,7 @@ const AttendanceModuleFacultyDesignated = ({
 
         return {
           ...row,
-          // Raw punches for half-day / late (match DTR Apply Designated).
+          
           breaktimeIN: breaktimeIN || '',
           breaktimeOUT: breaktimeOUT || '',
           displayBreaktimeIN,
@@ -2999,10 +3157,27 @@ const AttendanceModuleFacultyDesignated = ({
         };
       });
 
+           
+      
+      const processedData = applyDesignatedWholeDayOverrides(
+        processedDataPreOverrides,
+        maps.holidayByDate,
+        maps.suspensionByDate,
+        branch,
+      );
+
+      
+      
+      const scopedSuspensionByDate = filterApplicableSuspensionsForDesignated(
+        maps.suspensionByDate,
+        branch,
+      );
+
       const calendarMaps = {
-        suspensionByDate: maps.suspensionByDate,
+        suspensionByDate: scopedSuspensionByDate,
         holidayByDate: maps.holidayByDate,
         leaveByDate: maps.leaveByDate,
+        employeeBranch: branch,
       };
 
       const buildReviewMapFromStored = (stored) =>
@@ -3021,7 +3196,7 @@ const AttendanceModuleFacultyDesignated = ({
 
       const normalizedProcessed = processedData.map(normalizeFacultyRowDurations);
 
-      setSuspensionByDate(maps.suspensionByDate);
+          setSuspensionByDate(scopedSuspensionByDate);
       setLeaveByDate(maps.leaveByDate);
       setHolidayByDate(maps.holidayByDate);
       setTardinessOverrides({});
@@ -3053,21 +3228,19 @@ const AttendanceModuleFacultyDesignated = ({
         totalLate: totalLateLabel,
       });
 
-      void (async () => {
+            void (async () => {
         try {
           const stored = await fetchDailyLateUndertime(
             employeeNumber,
             startDate,
             endDate,
           );
-          const serverReviewMap = buildReviewMapFromStored(stored);
-          setHalfDayReviewByDate(serverReviewMap);
-          setAttendanceData(
-            applyStoredLateUndertimeToAttendanceRows(
-              normalizedProcessed,
-              stored?.byDate || {},
-            ).map(normalizeFacultyRowDurations),
-          );
+          
+          
+          
+          
+          
+          setHalfDayReviewByDate(buildReviewMapFromStored(stored));
         } catch (err) {
           console.warn(
             'Half-day review fetch failed; using local cache:',
@@ -3086,14 +3259,14 @@ const AttendanceModuleFacultyDesignated = ({
     }
   };
 
-  // ── Totals ─────────────────────────────────────────────────────────────────
+  
   const sumTime = useCallback((values) => sumDurationHhMm(values), []);
 
   const addTimes = useCallback((a, b) => addTimeHhMmOnly(a, b), []);
 
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
-    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
     const buckets = computeAmPmMinuteBuckets(
       attendanceData,
       halfDayReviewByDate,
@@ -3106,7 +3279,7 @@ const AttendanceModuleFacultyDesignated = ({
         getDisplayedCellValue(
           r,
           '_morningRendered',
-          Boolean(getStatusLabelForDate(r.date)),
+          isFurloughForDate(r.date),
           tardinessOverrides,
           renderedOverrides,
           halfDayReviewByDate,
@@ -3118,7 +3291,7 @@ const AttendanceModuleFacultyDesignated = ({
         getDisplayedCellValue(
           r,
           '_morningTardiness',
-          Boolean(getStatusLabelForDate(r.date)),
+          isFurloughForDate(r.date),
           tardinessOverrides,
           renderedOverrides,
           halfDayReviewByDate,
@@ -3130,7 +3303,7 @@ const AttendanceModuleFacultyDesignated = ({
         getDisplayedCellValue(
           r,
           '_afternoonRendered',
-          Boolean(getStatusLabelForDate(r.date)),
+          isFurloughForDate(r.date),
           tardinessOverrides,
           renderedOverrides,
           halfDayReviewByDate,
@@ -3142,7 +3315,7 @@ const AttendanceModuleFacultyDesignated = ({
         getDisplayedCellValue(
           r,
           '_afternoonTardiness',
-          Boolean(getStatusLabelForDate(r.date)),
+          isFurloughForDate(r.date),
           tardinessOverrides,
           renderedOverrides,
           halfDayReviewByDate,
@@ -3154,7 +3327,7 @@ const AttendanceModuleFacultyDesignated = ({
         getDisplayedCellValue(
           r,
           '_totalRendered',
-          Boolean(getStatusLabelForDate(r.date)),
+          isFurloughForDate(r.date),
           tardinessOverrides,
           renderedOverrides,
           halfDayReviewByDate,
@@ -3167,7 +3340,7 @@ const AttendanceModuleFacultyDesignated = ({
         getDisplayedCellValue(
           r,
           '_totalTardiness',
-          Boolean(getStatusLabelForDate(r.date)),
+          isFurloughForDate(r.date),
           tardinessOverrides,
           renderedOverrides,
           halfDayReviewByDate,
@@ -3178,32 +3351,32 @@ const AttendanceModuleFacultyDesignated = ({
     const overallTardiness = buckets.overallShortfallTime;
     const hnRendered = sumTime(
       attendanceData.map((r) =>
-        getCellValue(r, '_hnRendered', Boolean(getStatusLabelForDate(r.date))),
+        getCellValue(r, '_hnRendered', isFurloughForDate(r.date)),
       ),
     );
     const hnTardiness = sumTime(
       attendanceData.map((r) =>
-        getCellValue(r, '_hnTardiness', Boolean(getStatusLabelForDate(r.date))),
+        getCellValue(r, '_hnTardiness', isFurloughForDate(r.date)),
       ),
     );
     const scRendered = sumTime(
       attendanceData.map((r) =>
-        getCellValue(r, '_scRendered', Boolean(getStatusLabelForDate(r.date))),
+        getCellValue(r, '_scRendered', isFurloughForDate(r.date)),
       ),
     );
     const scTardiness = sumTime(
       attendanceData.map((r) =>
-        getCellValue(r, '_scTardiness', Boolean(getStatusLabelForDate(r.date))),
+        getCellValue(r, '_scTardiness', isFurloughForDate(r.date)),
       ),
     );
     const otRendered = sumTime(
       attendanceData.map((r) =>
-        getCellValue(r, '_otRendered', Boolean(getStatusLabelForDate(r.date))),
+        getCellValue(r, '_otRendered', isFurloughForDate(r.date)),
       ),
     );
     const otTardiness = sumTime(
       attendanceData.map((r) =>
-        getCellValue(r, '_otTardiness', Boolean(getStatusLabelForDate(r.date))),
+        getCellValue(r, '_otTardiness', isFurloughForDate(r.date)),
       ),
     );
     return {
@@ -3238,17 +3411,18 @@ const AttendanceModuleFacultyDesignated = ({
     attendanceData,
     sumTime,
     addTimes,
-    getStatusLabelForDate,
+    isFurloughForDate,
     leaveByDate,
     holidayByDate,
     suspensionByDate,
+    employeeBranch,
     tardinessOverrides,
     renderedOverrides,
     halfDayReviewByDate,
   ]);
 
   const officialHoursPerDay = React.useMemo(() => {
-    // For this 40hrs designated module: expected 10 hours/day, but prefer deriving from official schedule times.
+    
     const defaultMinutes = 10 * 60;
     const scheduledRows = attendanceData.filter((r) =>
       isScheduledByOfficialTime(r),
@@ -3264,17 +3438,17 @@ const AttendanceModuleFacultyDesignated = ({
   const isAbsentAttendanceRow = useCallback(
     (row) => {
       const d = String(row?.date ?? '').slice(0, 10);
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
       if (!isScheduledByOfficialTime(row)) return false;
       return hasNoPunchesTimeInOutOnly(row);
     },
-    [suspensionByDate, holidayByDate, leaveByDate],
+    [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
   );
 
   const getHalfDayUiStatus = useCallback(
     (row) => {
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       return getRowHalfDayUiStatus(
         row,
         halfDayReviewByDate,
@@ -3282,18 +3456,18 @@ const AttendanceModuleFacultyDesignated = ({
         calendarMaps,
       );
     },
-    [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
+    [suspensionByDate, holidayByDate, leaveByDate, employeeBranch, halfDayReviewByDate],
   );
 
   const collectUnresolvedHalfDayDates = useCallback(() => (
     attendanceData
       .filter((row) => {
         if (isAbsentAttendanceRow(row)) return false;
-        if (getStatusLabelForDate(row.date)) return false;
+        if (isFurloughForDate(row.date)) return false;
         return getHalfDayUiStatus(row) === 'suggested';
       })
       .map((row) => row.date)
-  ), [attendanceData, isAbsentAttendanceRow, getStatusLabelForDate, getHalfDayUiStatus]);
+  ), [attendanceData, isAbsentAttendanceRow, isFurloughForDate, getHalfDayUiStatus]);
 
   const warnUnresolvedHalfDays = useCallback(() => {
     const dates = collectUnresolvedHalfDayDates();
@@ -3376,7 +3550,7 @@ const AttendanceModuleFacultyDesignated = ({
     };
   }, [halfDayReviewByDate, attendanceData, employeeNumber, startDate, endDate]);
 
-  // Kept for compatibility
+  
   const getTabTotalsValues = (tab) => {
     switch (tab) {
       case 'regular':
@@ -3397,7 +3571,7 @@ const AttendanceModuleFacultyDesignated = ({
     }
   };
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  
   const navigateToOverallAttendanceSummary = useCallback(() => {
     if (embedded && typeof onSavedToSummary === 'function') {
       onSavedToSummary();
@@ -3411,7 +3585,7 @@ const AttendanceModuleFacultyDesignated = ({
   }, [embedded, onSavedToSummary, employeeNumber, startDate, endDate, navigate]);
 
   const buildOverallRecordPayload = () => {
-    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+    const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
     const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
     const dailyRows = buildDailyLateUndertimeRows(
       attendanceData,
@@ -3603,35 +3777,20 @@ const AttendanceModuleFacultyDesignated = ({
     handleSubmitRef.current = handleSubmit;
   });
 
-  const embeddedSeededRef = useRef(false);
-  useEffect(() => {
-    if (!embedded || !initialContext || embeddedSeededRef.current) return;
-    embeddedSeededRef.current = true;
-    seedEmbeddedModuleContext({
-      initialContext,
-      setEmployeeNumber,
-      setEmployeeDisplayName,
-      setStartDate,
-      setEndDate,
-      setSelectedYear,
-      setSelectedMonth,
-    });
-    setTimeout(() => {
-      handleSubmitRef.current?.();
-    }, 350);
-  }, [embedded, initialContext]);
-
-  // Hub Modification save bumps refreshEpoch → remount + reload latest punches.
-  const lastRefreshEpochRef = useRef(refreshEpoch);
-  useEffect(() => {
-    if (!embedded) return;
-    if (refreshEpoch === lastRefreshEpochRef.current) return;
-    lastRefreshEpochRef.current = refreshEpoch;
-    if (!employeeNumber || !startDate || !endDate) return;
-    setTimeout(() => {
-      handleSubmitRef.current?.();
-    }, 50);
-  }, [embedded, refreshEpoch, employeeNumber, startDate, endDate]);
+  useEmbeddedModuleAutoSearch({
+    embedded,
+    initialContext,
+    accessLoading,
+    hasAccess,
+    refreshEpoch,
+    setEmployeeNumber,
+    setEmployeeDisplayName,
+    setStartDate,
+    setEndDate,
+    setSelectedYear,
+    setSelectedMonth,
+    runSearchRef: handleSubmitRef,
+  });
 
   const handleWorkflowHydrate = useCallback((payload) => {
     setEmployeeNumber(payload.employeeNumber || '');
@@ -3735,6 +3894,7 @@ const AttendanceModuleFacultyDesignated = ({
     setEmployeeNumber('');
     setEmployeeDisplayName('');
     setEmployeeSearchQuery('');
+    setEmployeeBranch(null);
     setStartDate('');
     setEndDate('');
     setAttendanceData([]);
@@ -3760,11 +3920,11 @@ const AttendanceModuleFacultyDesignated = ({
       />
     );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // COLUMN VISIBILITY
-  // Single flat header row. Collapsed groups render ONE narrow placeholder
-  // cell (the leader cell). Expanded groups render all member columns.
-  // ─────────────────────────────────────────────────────────────────────────
+  
+  
+  
+  
+  
   const allColumns = TAB_COLUMNS[activeTab];
   const curCollapsed = collapsedGroups[activeTab] || {};
 
@@ -3783,7 +3943,7 @@ const AttendanceModuleFacultyDesignated = ({
     return acc;
   }, []);
 
-  // ── Single-row table head ─────────────────────────────────────────────
+  
   const buildTableHead = () => (
     <TableHead>
       <TableRow>
@@ -3915,7 +4075,7 @@ const AttendanceModuleFacultyDesignated = ({
     </TableHead>
   );
 
-  // ── Cell builder ──────────────────────────────────────────────────────
+  
   const buildCell = (content, group, isEven) => (
     <TableCell
       sx={{
@@ -3934,15 +4094,14 @@ const AttendanceModuleFacultyDesignated = ({
         'tr:hover &': { bgcolor: `${T.rowHover} !important` },
       }}
     >
-      {/* Duration cols only — punch/official clocks keep AM/PM (e.g. 07:30:00 AM).
-          displayDurationHhMm treats "00 AM" as NaN and wrongly shows 00:00. */}
+      {}
       {typeof content === 'string' && (group === 'calc' || group === 'tard')
         ? normalizeBadHhMmSsDisplay(content)
         : content}
     </TableCell>
   );
 
-  // ── Collapsed placeholder body cell ───────────────────────────────────
+  
   const buildCollapsedCell = (isEven) => (
     <TableCell
       sx={{
@@ -3957,8 +4116,8 @@ const AttendanceModuleFacultyDesignated = ({
     />
   );
 
-  // ── Totals row ────────────────────────────────────────────────────────
-  /** @param {{ renderedColKey?: string, tardColKey?: string }} [opts] — pin totals to visible columns when groups are expanded. */
+  
+  
   const renderTotalsRow = (label, renderedVal, tardinessVal, opts = {}) => {
     const { renderedColKey, tardColKey } = opts;
     const renderedKeys = columnSlots
@@ -4077,7 +4236,7 @@ const AttendanceModuleFacultyDesignated = ({
     );
   };
 
-  // Legacy helpers kept for compatibility (not directly used in render below)
+  
   const buildGroupSpans = (cols) => {
     const groups = [];
     cols.forEach((col) => {
@@ -4204,9 +4363,9 @@ const AttendanceModuleFacultyDesignated = ({
     );
   };
 
-  // ─────────────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────────────
+  
+  
+  
   return (
     <Fade in timeout={400}>
       <Box
@@ -4285,7 +4444,7 @@ const AttendanceModuleFacultyDesignated = ({
             )}
           </Box>
         ) : (
-        /* Page Header */
+        
         <SectionCard sx={{ mb: 2 }}>
           <Box
             sx={{
@@ -4441,7 +4600,7 @@ const AttendanceModuleFacultyDesignated = ({
           </Alert>
         </Collapse>
 
-        {/* Controls — hidden in DTR sliding drawer */}
+        {}
         {!embedded && (
         <SectionCard sx={{ mb: 2 }}>
           <PanelHeader icon={FilterList} title="Filter Attendance Records" />
@@ -4467,6 +4626,13 @@ const AttendanceModuleFacultyDesignated = ({
                   onSearchQueryChange={setEmployeeSearchQuery}
                   onSelectEmployeeNumber={setEmployeeNumber}
                   onSelectEmployeeName={setEmployeeDisplayName}
+                  onSelectEmployee={(emp) =>
+                    setEmployeeBranch(
+                      emp?.branch != null && emp?.branch !== ''
+                        ? Number(emp.branch)
+                        : null,
+                    )
+                  }
                 />
               </Box>
               {[
@@ -4666,7 +4832,7 @@ const AttendanceModuleFacultyDesignated = ({
         </SectionCard>
         )}
 
-        {/* Results */}
+        {}
         {attendanceData.length > 0 && (
           <Fade in timeout={250}>
             <SectionCard ref={resultsRef} sx={{ mb: 2 }}>
@@ -4706,7 +4872,7 @@ const AttendanceModuleFacultyDesignated = ({
                 }
               />
 
-              {/* Tab switcher */}
+              {}
               <Box sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
                 <Box
                   sx={{
@@ -4758,7 +4924,7 @@ const AttendanceModuleFacultyDesignated = ({
                 </Box>
               </Box>
 
-              {/* Table */}
+              {}
               <Box sx={{ px: 2.5, pb: 2.5 }}>
                 <Box
                   sx={{
@@ -4799,7 +4965,7 @@ const AttendanceModuleFacultyDesignated = ({
                       <TableBody>
                         {attendanceData.map((row, index) => {
                           const statusLabel = getStatusLabelForDate(row.date);
-                          const isFurlough = Boolean(statusLabel);
+                          const isFurlough = isFurloughForDate(row.date);
                           const isEven = index % 2 === 0;
                           const rowIsAbsent = isAbsentAttendanceRow(row);
                           const halfUi =
@@ -4811,19 +4977,21 @@ const AttendanceModuleFacultyDesignated = ({
                             : null;
                           const statusRowBorder =
                             !rowIsAbsent && !halfDayChrome && statusLabel
-                              ? {
-                                  'WORK SUSPENDED': `3px solid ${T.suspended.border}`,
-                                  HOLIDAY: `3px solid ${T.holiday.border}`,
-                                  'ON LEAVE': `3px solid ${T.leave.border}`,
-                                }[statusLabel] || null
+                              ? isSuspendedStatusLabel(statusLabel)
+                                ? `3px solid ${T.suspended.border}`
+                                : {
+                                    HOLIDAY: `3px solid ${T.holiday.border}`,
+                                    'ON LEAVE': `3px solid ${T.leave.border}`,
+                                  }[statusLabel] || null
                               : null;
                           const statusRowBg =
                             !rowIsAbsent && !halfDayChrome && statusLabel
-                              ? {
-                                  'WORK SUSPENDED': T.suspended.bg,
-                                  HOLIDAY: T.holiday.bg,
-                                  'ON LEAVE': T.leave.bg,
-                                }[statusLabel] || null
+                              ? isSuspendedStatusLabel(statusLabel)
+                                ? T.suspended.bg
+                                : {
+                                    HOLIDAY: T.holiday.bg,
+                                    'ON LEAVE': T.leave.bg,
+                                  }[statusLabel] || null
                               : null;
                           const rowBg = rowIsAbsent
                             ? alpha('#b71c1c', 0.08)
@@ -5115,7 +5283,7 @@ const AttendanceModuleFacultyDesignated = ({
                           );
                         })}
 
-                        {/* Totals rows */}
+                        {}
                         {activeTab === 'regular' && (
                           <>
                             {renderTotalsRow(
@@ -5136,7 +5304,7 @@ const AttendanceModuleFacultyDesignated = ({
                                 tardColKey: '_afternoonTardiness',
                               },
                             )}
-                            {/* Overall row */}
+                            {}
                             {(() => {
                               const calcSlots = columnSlots.filter(
                                 (s) =>
@@ -5407,7 +5575,7 @@ const AttendanceModuleFacultyDesignated = ({
                   </Box>
                 </Box>
 
-                {/* Legend */}
+                {}
                 <Box
                   sx={{
                     pt: 1.5,

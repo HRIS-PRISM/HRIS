@@ -97,6 +97,7 @@ import { COMPUTATION_TYPE_TO_MODULE_ID } from '../../utils/attendanceHubFlow';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import {
   AttendanceFilterDateControls,
   MONTHS_SHORT,
@@ -1871,12 +1872,7 @@ const ViewAttendanceRecord = () => {
         };
       });
 
-      all.sort((a, b) =>
-        (a.lastName || '')
-          .toUpperCase()
-          .localeCompare((b.lastName || '').toUpperCase()),
-      );
-      setAllUsersDTR(all);
+      setAllUsersDTR(sortEmployeesByLastName(all));
       const withRecs = all.filter((u) => u.hasRecords).length;
       showSnackbar(
         `Loaded ${all.length} registered users (${withRecs} with device records in this period)`,
@@ -2008,12 +2004,22 @@ const ViewAttendanceRecord = () => {
       );
       if (res.data.success) {
         showSnackbar(res.data.message, 'success');
-        navigateAttendanceWorkflow(navigate, 'dtr', {
-          employeeNumber: personID,
-          fullName: personName,
-          startDate,
-          endDate,
-        });
+        // Plain DTR view — must not reopen a computation drawer left over
+        // from an earlier "Submit to DTR" click in this session. The
+        // workflow context's `computationModule` is sticky by design (so
+        // hub Next/Previous can reopen it while mid-flow), so it has to be
+        // explicitly cleared here rather than just omitted.
+        navigateAttendanceWorkflow(
+          navigate,
+          'dtr',
+          {
+            employeeNumber: personID,
+            fullName: personName,
+            startDate,
+            endDate,
+          },
+          { openComputationModule: null },
+        );
       }
     } catch (err) {
       showSnackbar(

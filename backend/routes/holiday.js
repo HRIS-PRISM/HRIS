@@ -7,6 +7,66 @@ const { upload } = require('../middleware/upload');
 const { broadcastToRoles, notifyMultipleUsers } = require('../socket/socketService');
 const { notifyPayrollChanged } = require('../socket/socketService');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { parseBranchField } = require('../utils/branchScope');
+
+function notifyEmployeesForHoliday(holidayId, branch, notificationDescription, res) {
+  const finishOk = () => {
+    if (!res.headersSent) {
+      res.status(201).json({ message: 'Holiday record added successfully', id: holidayId });
+    }
+  };
+
+  let userSql;
+  let userParams = [];
+  if (branch === null) {
+    userSql = `SELECT DISTINCT employeeNumber FROM users WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
+       UNION
+       SELECT DISTINCT agencyEmployeeNum AS employeeNumber FROM person_table WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""`;
+  } else {
+    userSql = `SELECT DISTINCT employeeNumber FROM users
+      WHERE employeeNumber IS NOT NULL AND employeeNumber != "" AND branch = ?`;
+    userParams = [branch];
+  }
+
+  db.query(userSql, userParams, (userErr, users) => {
+    if (userErr) {
+      console.error('Error fetching users for holiday notifications:', userErr.message);
+      return finishOk();
+    }
+    const employeeNumbers = Array.from(
+      new Set(
+        (users || [])
+          .map((u) => String(u.employeeNumber || '').trim())
+          .filter(Boolean),
+      ),
+    );
+    if (employeeNumbers.length === 0) return finishOk();
+    let completed = 0;
+    employeeNumbers.forEach((empNum) => {
+      db.query(
+        'INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)',
+        [empNum, notificationDescription, 'holiday'],
+        (notifErr) => {
+          if (notifErr) {
+            db.query(
+              'INSERT INTO notifications (employeeNumber, description, read_status) VALUES (?, ?, 0)',
+              [empNum, notificationDescription],
+              () => {},
+            );
+          }
+          completed++;
+          if (completed === employeeNumbers.length) {
+            notifyMultipleUsers(employeeNumbers, 'notificationCreated', {
+              notification_type: 'holiday',
+              description: notificationDescription,
+            });
+          }
+        },
+      );
+    });
+    finishOk();
+  });
+}
 
 // GET all holiday records — always 200 + array (DB errors or missing table → [])
 router.get('/holiday', (req, res) => {
@@ -32,6 +92,7 @@ router.get('/holiday', (req, res) => {
           date: row.date,
           status: row.status,
           image: row.image,
+          branch: row.branch !== null && row.branch !== undefined ? Number(row.branch) : null,
         }));
         send(normalized);
       } catch (e) {
@@ -53,90 +114,46 @@ router.get('/holiday', (req, res) => {
   }
 });
 
-// POST: Create holiday record (Title, About, Date Range, same as announcement)
+// POST: Create holiday record (Title, About, Date Range, branch scope)
 router.post('/holiday', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { title, about, date_start, date_end, status } = req.body;
   const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const branch = parseBranchField(req.body.branch);
 
   if (!title) {
     return res.status(400).json({ error: 'Title is required' });
   }
 
-  const sql = `INSERT INTO holiday (title, about, date_start, date_end, description, date, status, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-  db.query(sql, [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', image], (err, result) => {
-    if (err) {
-      console.error('Database Insert Error:', err.message);
-      return res.status(500).json({ error: 'Internal Server Error' });
-    }
+  const sql = `INSERT INTO holiday (title, about, date_start, date_end, description, date, status, image, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  db.query(
+    sql,
+    [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', image, branch],
+    (err, result) => {
+      if (err) {
+        console.error('Database Insert Error:', err.message);
+        return res.status(500).json({ error: 'Internal Server Error' });
+      }
 
-    const holidayId = result.insertId;
-    const notificationDescription = 'New holiday has been scheduled. Click to see details.';
+      const holidayId = result.insertId;
+      const notificationDescription = 'New holiday has been scheduled. Click to see details.';
 
-    notifyPayrollChanged('created', {
-      module: 'holiday',
-      holidayId,
-    });
+      notifyPayrollChanged('created', {
+        module: 'holiday',
+        holidayId,
+      });
 
-    broadcastToRoles(
-      ['administrator', 'superadmin', 'technical'],
-      'adminDashboardUpdated',
-      { source: 'holiday', action: 'created', holidayId },
-    );
+      broadcastToRoles(
+        ['administrator', 'superadmin', 'technical'],
+        'adminDashboardUpdated',
+        { source: 'holiday', action: 'created', holidayId },
+      );
 
-    // Create notifications for all employees (same as announcements)
-    db.query(
-      `SELECT DISTINCT employeeNumber FROM users WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
-       UNION
-       SELECT DISTINCT agencyEmployeeNum AS employeeNumber FROM person_table WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""`,
-      (userErr, users) => {
-        if (userErr) {
-          console.error('Error fetching users for holiday notifications:', userErr.message);
-          return res.status(201).json({ message: 'Holiday record added successfully', id: holidayId });
-        }
-        const employeeNumbers = Array.from(
-          new Set(
-            (users || [])
-              .map((u) => String(u.employeeNumber || '').trim())
-              .filter(Boolean),
-          ),
-        );
-        if (employeeNumbers.length === 0) {
-          return res.status(201).json({ message: 'Holiday record added successfully', id: holidayId });
-        }
-        let completed = 0;
-        employeeNumbers.forEach((empNum) => {
-          db.query(
-            'INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)',
-            [empNum, notificationDescription, 'holiday'],
-            (notifErr) => {
-              if (notifErr) {
-                db.query(
-                  'INSERT INTO notifications (employeeNumber, description, read_status) VALUES (?, ?, 0)',
-                  [empNum, notificationDescription],
-                  () => {},
-                );
-              }
-              completed++;
-              if (completed === employeeNumbers.length) {
-                notifyMultipleUsers(employeeNumbers, 'notificationCreated', {
-                  notification_type: 'holiday',
-                  description: notificationDescription,
-                });
-              }
-            },
-          );
-        });
-      },
-    );
-
-    res.status(201).json({
-      message: 'Holiday record added successfully',
-      id: holidayId,
-    });
-  });
+      notifyEmployeesForHoliday(holidayId, branch, notificationDescription, res);
+    },
+  );
 });
 
-// PUT: Update holiday record (Title, About, Date Range, optional image)
+// PUT: Update holiday record (Title, About, Date Range, optional image, branch)
 router.put('/holiday/:id', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
   const { id } = req.params;
   if (isNaN(id)) {
@@ -149,14 +166,15 @@ router.put('/holiday/:id', authenticateToken, requireAdmin, upload.single('image
   }
 
   const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const branch = parseBranchField(req.body.branch);
 
   let sql, params;
   if (image) {
-    sql = `UPDATE holiday SET title = ?, about = ?, date_start = ?, date_end = ?, description = ?, date = ?, status = ?, image = ? WHERE id = ?`;
-    params = [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', image, id];
+    sql = `UPDATE holiday SET title = ?, about = ?, date_start = ?, date_end = ?, description = ?, date = ?, status = ?, image = ?, branch = ? WHERE id = ?`;
+    params = [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', image, branch, id];
   } else {
-    sql = `UPDATE holiday SET title = ?, about = ?, date_start = ?, date_end = ?, description = ?, date = ?, status = ? WHERE id = ?`;
-    params = [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', id];
+    sql = `UPDATE holiday SET title = ?, about = ?, date_start = ?, date_end = ?, description = ?, date = ?, status = ?, branch = ? WHERE id = ?`;
+    params = [title, about || null, date_start || null, date_end || null, title, date_start || date_end, status || 'Active', branch, id];
   }
 
   db.query(sql, params, (err, result) => {

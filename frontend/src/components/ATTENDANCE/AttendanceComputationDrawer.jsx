@@ -26,6 +26,7 @@ const AttendanceComputationDrawer = ({
   refreshEpoch = 0,
   onClose,
   onSavedToSummary,
+  onOpenHubTool,
 }) => {
   const cfg = DRAWER_MODULES[drawerKey];
   if (!cfg) return null;
@@ -65,6 +66,7 @@ const AttendanceComputationDrawer = ({
           refreshEpoch={refreshEpoch}
           onClose={onClose}
           onSavedToSummary={onSavedToSummary}
+          onOpenHubTool={onOpenHubTool}
         />
       </Box>
     </Box>

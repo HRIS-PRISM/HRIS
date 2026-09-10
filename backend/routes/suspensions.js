@@ -9,22 +9,31 @@ const {
   notifyMultipleUsers,
 } = require("../socket/socketService");
 const { authenticateToken, requireAdmin } = require("../middleware/auth");
+const { parseBranchField } = require("../utils/branchScope");
 
 // GET all suspensions (normalize date_start/date_end for backward compat)
 router.get("/api/suspensions", (req, res) => {
   const query = `SELECT id, title, about, COALESCE(date_start, date) AS date_start, COALESCE(date_end, date) AS date_end, date, reason, image,
-    COALESCE(personnel_scope, 'all') AS personnel_scope, COALESCE(suspension_type, 'whole_day') AS suspension_type, effective_time
+    COALESCE(personnel_scope, 'all') AS personnel_scope, COALESCE(suspension_type, 'whole_day') AS suspension_type, effective_time,
+    branch
     FROM suspensions ORDER BY COALESCE(date_start, date) DESC`;
   db.query(query, (err, results) => {
     if (err) {
       console.error("Error fetching suspensions:", err);
       return res.status(500).json({ error: "Internal server error" });
     }
-    res.json(results);
+    const normalized = (results || []).map((row) => ({
+      ...row,
+      branch:
+        row.branch !== null && row.branch !== undefined
+          ? Number(row.branch)
+          : null,
+    }));
+    res.json(normalized);
   });
 });
 
-// POST: Create suspension (Title, About, Date Range, Reason)
+// POST: Create suspension (Title, About, Date Range, Reason, branch)
 router.post(
   "/api/suspensions",
   authenticateToken,
@@ -34,6 +43,7 @@ router.post(
     const { title, about, date_start, date_end, reason } = req.body;
     const image = req.file ? `/uploads/${req.file.filename}` : null;
     const date = date_start || date_end || null;
+    const branch = parseBranchField(req.body.branch);
 
     const ALLOWED_SCOPES = new Set(["all", "academic", "non_teaching"]);
     const personnel_scope = ALLOWED_SCOPES.has(req.body.personnel_scope)
@@ -57,14 +67,22 @@ router.post(
     }
 
     const query =
-    'INSERT INTO suspensions (title, about, date, date_start, date_end, reason, image, personnel_scope, suspension_type, effective_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      "INSERT INTO suspensions (title, about, date, date_start, date_end, reason, image, personnel_scope, suspension_type, effective_time, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     db.query(
       query,
       [
-      title || '', about || '', date, date_start || null, date_end || null,
-      reason || '', image, personnel_scope, suspension_type, effective_time,
+        title || "",
+        about || "",
+        date,
+        date_start || null,
+        date_end || null,
+        reason || "",
+        image,
+        personnel_scope,
+        suspension_type,
+        effective_time,
+        branch,
       ],
-      
       (err, result) => {
         if (err) {
           console.error("Error creating suspension:", err);
@@ -81,68 +99,70 @@ router.post(
           { source: "suspensions", action: "created", suspensionId },
         );
 
-        // Create notifications for all employees (same as announcements)
-        db.query(
-          `SELECT DISTINCT employeeNumber FROM users WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
+        let userSql;
+        let userParams = [];
+        if (branch === null) {
+          userSql = `SELECT DISTINCT employeeNumber FROM users WHERE employeeNumber IS NOT NULL AND employeeNumber != ""
          UNION
-         SELECT DISTINCT agencyEmployeeNum AS employeeNumber FROM person_table WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""`,
-          (userErr, users) => {
-            if (userErr) {
-              console.error(
-                "Error fetching users for suspension notifications:",
-                userErr.message,
-              );
-              return res
-                .status(201)
-                .json({
-                  message: "Suspension created successfully",
-                  id: suspensionId,
-                });
-            }
-            const employeeNumbers = Array.from(
-              new Set(
-                (users || [])
-                  .map((u) => String(u.employeeNumber || "").trim())
-                  .filter(Boolean),
-              ),
+         SELECT DISTINCT agencyEmployeeNum AS employeeNumber FROM person_table WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ""`;
+        } else {
+          userSql = `SELECT DISTINCT employeeNumber FROM users
+            WHERE employeeNumber IS NOT NULL AND employeeNumber != "" AND branch = ?`;
+          userParams = [branch];
+        }
+
+        db.query(userSql, userParams, (userErr, users) => {
+          if (userErr) {
+            console.error(
+              "Error fetching users for suspension notifications:",
+              userErr.message,
             );
-            if (employeeNumbers.length === 0) {
-              return res
-                .status(201)
-                .json({
-                  message: "Suspension created successfully",
-                  id: suspensionId,
-                });
-            }
-            let completed = 0;
-            employeeNumbers.forEach((empNum) => {
-              db.query(
-                "INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)",
-                [empNum, notificationDescription, "suspension"],
-                (notifErr) => {
-                  if (notifErr) {
-                    db.query(
-                      "INSERT INTO notifications (employeeNumber, description, read_status) VALUES (?, ?, 0)",
-                      [empNum, notificationDescription],
-                      () => {},
-                    );
-                  }
-                  completed++;
-                  if (completed === employeeNumbers.length) {
-                    notifyMultipleUsers(
-                      employeeNumbers,
-                      "notificationCreated",
-                      {
-                        notification_type: "suspension",
-                        description: notificationDescription,
-                      },
-                    );
-                  }
-                },
-              );
+            return res.status(201).json({
+              message: "Suspension created successfully",
+              id: suspensionId,
             });
-          },
-        );
+          }
+          const employeeNumbers = Array.from(
+            new Set(
+              (users || [])
+                .map((u) => String(u.employeeNumber || "").trim())
+                .filter(Boolean),
+            ),
+          );
+          if (employeeNumbers.length === 0) {
+            return res.status(201).json({
+              message: "Suspension created successfully",
+              id: suspensionId,
+            });
+          }
+          let completed = 0;
+          employeeNumbers.forEach((empNum) => {
+            db.query(
+              "INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)",
+              [empNum, notificationDescription, "suspension"],
+              (notifErr) => {
+                if (notifErr) {
+                  db.query(
+                    "INSERT INTO notifications (employeeNumber, description, read_status) VALUES (?, ?, 0)",
+                    [empNum, notificationDescription],
+                    () => {},
+                  );
+                }
+                completed++;
+                if (completed === employeeNumbers.length) {
+                  notifyMultipleUsers(
+                    employeeNumbers,
+                    "notificationCreated",
+                    {
+                      notification_type: "suspension",
+                      description: notificationDescription,
+                    },
+                  );
+                }
+              },
+            );
+          });
+        });
 
         res.status(201).json({
           message: "Suspension created successfully",

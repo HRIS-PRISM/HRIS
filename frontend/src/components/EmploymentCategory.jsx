@@ -7,6 +7,7 @@ import React, {
   useDeferredValue,
 } from "react";
 import axios from "axios";
+import { sortEmployeesByLastName } from "../utils/sortEmployeesByLastName";
 import {
   Typography,
   TextField,
@@ -41,8 +42,6 @@ import {
   TablePagination,
   Tab,
   Tabs,
-  Badge,
-  Collapse,
   InputAdornment,
   Checkbox,
   FormControlLabel,
@@ -67,15 +66,11 @@ import {
   Circle,
   Settings as SettingsIcon,
   Assignment as AssignIcon,
-  Palette as PaletteIcon,
   FolderOpen as FolderOpenIcon,
   Label as LabelIcon,
   WarningAmber as WarningIcon,
-  CheckCircle as CheckCircleIcon,
-  DragIndicator as DragIcon,
   FactCheck as DeductionPolicyIcon,
 } from "@mui/icons-material";
-import ReorderIcon from "@mui/icons-material/Reorder";
 import LoadingOverlay from "./LoadingOverlay";
 import SuccessfulOverlay from "./SuccessfulOverlay";
 
@@ -87,7 +82,7 @@ const T = {
   accentFaint: "rgba(109,35,35,0.06)",
   accentBorder: "rgba(109,35,35,0.14)",
   accentHover: "rgba(109,35,35,0.10)",
-  headerGrad: "linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)",
+  headerGrad: "linear-gradient(135deg,#6d2323 0%,#7e2c2c 100%)",
   rowEven: "#ffffff",
   rowOdd: "rgba(109,35,35,0.025)",
   rowHover: "rgba(109,35,35,0.055)",
@@ -267,8 +262,21 @@ const getAuthHeaders = () => {
 };
 
 // ─── Color swatch input ───────────────────────────────────────────────────────
-const ColorSwatch = ({ value, onChange, disabled }) => (
-  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+const ColorSwatch = ({ value, onChange, disabled, fullWidth = false }) => (
+  <Box
+    sx={{
+      display: "flex",
+      alignItems: "center",
+      gap: 1,
+      height: 40,
+      px: 1,
+      borderRadius: 2,
+      border: `1px solid ${T.accentBorder}`,
+      bgcolor: "#fff",
+      width: fullWidth ? "100%" : "auto",
+      opacity: disabled ? 0.55 : 1,
+    }}
+  >
     <Box
       component="input"
       type="color"
@@ -276,17 +284,20 @@ const ColorSwatch = ({ value, onChange, disabled }) => (
       onChange={(e) => onChange(e.target.value)}
       disabled={disabled}
       sx={{
-        width: 36,
-        height: 36,
-        borderRadius: 1.5,
-        border: `1px solid ${T.accentBorder}`,
+        width: 28,
+        height: 28,
+        borderRadius: 1,
+        border: "none",
         cursor: disabled ? "not-allowed" : "pointer",
-        p: 0.25,
-        bgcolor: "#fff",
+        p: 0,
+        bgcolor: "transparent",
+        flexShrink: 0,
+        "&::-webkit-color-swatch-wrapper": { p: 0 },
+        "&::-webkit-color-swatch": { border: "none", borderRadius: "4px" },
       }}
     />
-    <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontFamily: "monospace" }}>
-      {value || "#757575"}
+    <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontFamily: "monospace", letterSpacing: "0.02em" }}>
+      {(value || "#757575").toUpperCase()}
     </Typography>
   </Box>
 );
@@ -630,21 +641,35 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState({});
+  const [typeSearch, setTypeSearch] = useState("");
+  const deferredTypeSearch = useDeferredValue(typeSearch);
 
   const grouped = useMemo(() => {
+    const q = deferredTypeSearch.trim().toLowerCase();
+    const filtered = !q
+      ? typeConfigs
+      : typeConfigs.filter(
+          (t) =>
+            String(t.parentGroup || "").toLowerCase().includes(q) ||
+            String(t.typeName || "").toLowerCase().includes(q),
+        );
     const g = {};
-    typeConfigs.forEach((t) => {
+    filtered.forEach((t) => {
       if (!g[t.parentGroup]) g[t.parentGroup] = [];
       g[t.parentGroup].push(t);
     });
     return g;
-  }, [typeConfigs]);
+  }, [typeConfigs, deferredTypeSearch]);
 
-  const toggleGroup = (group) => setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+  const visibleCount = Object.values(grouped).reduce((n, arr) => n + arr.length, 0);
 
   const resetNewType = () =>
     setNewType({ classification: "", category: "", jobOrderSubcategory: "", othersText: "", colorHex: "#6d2323" });
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditData({});
+  };
 
   const handleCreate = async () => {
     const { classification, category, jobOrderSubcategory, othersText, colorHex } = newType;
@@ -676,6 +701,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
   };
 
   const startEdit = (type) => {
+    setDeleteConfirm(null);
     const classified = classifyExistingType(type);
     setEditingId(type.id);
     if (classified.mode === "structured") {
@@ -733,7 +759,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
         },
         getAuthHeaders()
       );
-      setEditingId(null);
+      cancelEdit();
       onRefresh();
       showSnackbar("Employment type updated successfully", "success");
     } catch (err) {
@@ -748,6 +774,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
     try {
       await axios.delete(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config/${id}`, getAuthHeaders());
       setDeleteConfirm(null);
+      if (editingId === id) cancelEdit();
       onRefresh();
       showSnackbar("Employment type deleted successfully", "success");
     } catch (err) {
@@ -757,292 +784,584 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
     }
   };
 
+  const isEditing = !!editingId;
+  const form = isEditing ? editData : newType;
+  const setForm = isEditing
+    ? (updater) => setEditData((p) => (typeof updater === "function" ? updater(p) : updater))
+    : (updater) => setNewType((p) => (typeof updater === "function" ? updater(p) : updater));
+
+  const previewLabel = (() => {
+    if (isEditing && form.isLegacy) {
+      if (!form.parentGroup?.trim() || !form.typeName?.trim()) return null;
+      return `${form.parentGroup.trim()} | ${form.typeName.trim()}`;
+    }
+    const classification = form.classification;
+    const category = form.category;
+    if (!classification || !category) return null;
+    if (category === "Others" && !String(form.othersText || "").trim()) return null;
+    if (category === "Job Order" && !form.jobOrderSubcategory) return null;
+    return `${classification} | ${computeTypeName(category, form.jobOrderSubcategory, form.othersText)}`;
+  })();
+
+  const canSubmit = (() => {
+    if (isEditing && form.isLegacy) return !!(form.parentGroup?.trim() && form.typeName?.trim());
+    if (!form.classification || !form.category) return false;
+    if (form.category === "Job Order" && !form.jobOrderSubcategory) return false;
+    if (form.category === "Others" && !String(form.othersText || "").trim()) return false;
+    return true;
+  })();
+
+  const fieldLabel = (text, required = false) => (
+    <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: T.accent, mb: 0.65 }}>
+      {text}
+      {required && (
+        <Box component="span" sx={{ color: "#c62828", ml: 0.35 }}>
+          *
+        </Box>
+      )}
+    </Typography>
+  );
+
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* Add new type form */}
-      <Box sx={{ px: 3, py: 2.5, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
-        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1.5, display: "flex", alignItems: "center", gap: 0.75 }}>
-          <AddIcon sx={{ fontSize: 14 }} /> Add New Employment Type
-        </Typography>
-
-        <Grid container spacing={1.5} alignItems="flex-start">
-          <Grid item xs={12} sm={3}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
-              Employment Classification <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+    <Grid container spacing={2} sx={{ height: "calc(100vh - 320px)" }}>
+      {/* LEFT — Add / Edit form */}
+      <Grid item xs={12} lg={4} sx={{ height: { xs: "auto", lg: "100%" } }}>
+        <SectionCard sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.25,
+              borderBottom: `1px solid ${T.divider}`,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              bgcolor: T.accentFaint,
+              flexShrink: 0,
+            }}
+          >
+            {isEditing ? <EditIcon sx={{ fontSize: 15, color: T.accent }} /> : <AddIcon sx={{ fontSize: 15, color: T.accent }} />}
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>
+              {isEditing ? "Edit Category Type" : "Add Category Type"}
             </Typography>
-            <FormControl fullWidth size="small">
-              <Select
-                value={newType.classification}
-                onChange={(e) =>
-                  setNewType((p) => ({ ...p, classification: e.target.value, category: "", jobOrderSubcategory: "", othersText: "" }))
-                }
-                displayEmpty
-                sx={selectSx}
-              >
-                <MenuItem value="" disabled>
-                  <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select classification…</Typography>
-                </MenuItem>
-                {EMPLOYMENT_CLASSIFICATIONS.map((c) => (
-                  <MenuItem key={c} value={c}><Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography></MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+          </Box>
 
-          <Grid item xs={12} sm={3}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
-              Employment Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
-            </Typography>
-            <FormControl fullWidth size="small" disabled={!newType.classification}>
-              <Select
-                value={newType.category}
-                onChange={(e) => setNewType((p) => ({ ...p, category: e.target.value, jobOrderSubcategory: "", othersText: "" }))}
-                displayEmpty
-                sx={selectSx}
+          <Box
+            sx={{
+              px: 2.5,
+              py: 2.5,
+              flexGrow: 1,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+              "&::-webkit-scrollbar": { width: 4 },
+              "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 },
+            }}
+          >
+            {isEditing && form.isLegacy && (
+              <Box
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  borderLeft: `3px solid ${T.accent}`,
+                }}
               >
-                <MenuItem value="" disabled>
-                  <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>
-                    {newType.classification ? "Select category…" : "Select classification first"}
-                  </Typography>
-                </MenuItem>
-                {EMPLOYMENT_CATEGORIES.map((c) => (
-                  <MenuItem key={c} value={c}><Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography></MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} sm={3}>
-            {newType.category === "Job Order" ? (
-              <>
-                <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
-                  Job Order Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted, mb: 1.25, lineHeight: 1.5 }}>
+                  This entry doesn't match the standard options — editing as free text.
                 </Typography>
-                <FormControl fullWidth size="small">
-                  <Select
-                    value={newType.jobOrderSubcategory}
-                    onChange={(e) => setNewType((p) => ({ ...p, jobOrderSubcategory: e.target.value }))}
-                    displayEmpty
-                    sx={selectSx}
-                  >
-                    <MenuItem value="" disabled>
-                      <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography>
-                    </MenuItem>
-                    {JOB_ORDER_SUBCATEGORIES.map((s) => (
-                      <MenuItem key={s} value={s}><Typography sx={{ fontSize: "0.85rem" }}>{s}</Typography></MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </>
-            ) : newType.category === "Others" ? (
-              <>
-                <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>
-                  Specify Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
-                </Typography>
-                <FieldInput
-                  value={newType.othersText}
-                  onChange={(e) => setNewType((p) => ({ ...p, othersText: e.target.value }))}
-                  placeholder="e.g. Batch 4"
+                <AccentButton
                   size="small"
+                  variant="contained"
                   fullWidth
-                  inputProps={{ maxLength: 100 }}
-                />
-              </>
-            ) : (
-              <Box sx={{ pt: 3 }}>
-                <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontStyle: "italic" }}>
-                  No extra field needed for this category.
-                </Typography>
+                  onClick={() =>
+                    setEditData((p) => ({
+                      ...p,
+                      isLegacy: false,
+                      classification: "",
+                      category: "",
+                      jobOrderSubcategory: "",
+                      othersText: "",
+                    }))
+                  }
+                  sx={{
+                    height: 34,
+                    fontSize: "0.75rem",
+                    bgcolor: T.accent,
+                    color: "#fff",
+                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+                    "&:hover": { bgcolor: T.accentDark },
+                  }}
+                >
+                  Convert to standard options
+                </AccentButton>
               </Box>
             )}
-          </Grid>
 
-          <Grid item xs={6} sm={1.5}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent, mb: 0.5 }}>Color</Typography>
-            <ColorSwatch value={newType.colorHex} onChange={(v) => setNewType((p) => ({ ...p, colorHex: v }))} />
-          </Grid>
-
-          <Grid item xs={6} sm={1.5} sx={{ display: "flex", alignItems: "flex-end" }}>
-            <AccentButton
-              onClick={handleCreate}
-              disabled={submitting}
-              variant="contained"
-              fullWidth
-              startIcon={submitting ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "15px !important" }} />}
-              sx={{
-                height: 36, bgcolor: T.accent, color: "#fff",
-                "&:hover": { bgcolor: T.accentDark },
-                "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important" },
-              }}
-            >
-              Add
-            </AccentButton>
-          </Grid>
-        </Grid>
-
-        {newType.classification && newType.category && (newType.category !== "Others" || newType.othersText.trim()) && (newType.category !== "Job Order" || newType.jobOrderSubcategory) && (
-          <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: 1.5, bgcolor: "#fff", border: `1px dashed ${T.accentBorder}` }}>
-            <PaletteIcon sx={{ fontSize: 13, color: T.accent }} />
-            <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>
-              Will be saved as:{" "}
-              <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>
-                {newType.classification} | {computeTypeName(newType.category, newType.jobOrderSubcategory, newType.othersText)}
-              </Box>
-            </Typography>
-          </Box>
-        )}
-      </Box>
-
-      {/* Existing types list grouped */}
-      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
-        {Object.keys(grouped).length === 0 ? (
-          <Box sx={{ py: 8, textAlign: "center" }}>
-            <FolderOpenIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.2), mb: 1 }} />
-            <Typography sx={{ fontSize: "0.85rem", color: T.muted }}>No employment types configured yet</Typography>
-            <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>Use the form above to add your first type.</Typography>
-          </Box>
-        ) : (
-          Object.entries(grouped).map(([group, items]) => {
-            const isExpanded = expandedGroups[group] !== false;
-            return (
-              <Box key={group} sx={{ mb: 1.5, borderRadius: 2, border: `1px solid ${T.accentBorder}`, overflow: "hidden" }}>
-                <Box
-                  onClick={() => toggleGroup(group)}
-                  sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2, py: 1.25, bgcolor: alpha(T.accent, 0.05), cursor: "pointer", "&:hover": { bgcolor: alpha(T.accent, 0.08) } }}
-                >
-                  <FolderOpenIcon sx={{ fontSize: 15, color: T.accent }} />
-                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent, flex: 1 }}>{group}</Typography>
-                  <Chip label={`${items.length} type${items.length !== 1 ? "s" : ""}`} size="small" sx={{ height: 18, fontSize: "0.65rem", bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 600 }} />
-                  {isExpanded ? <ExpandLessIcon sx={{ fontSize: 16, color: T.muted }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: T.muted }} />}
+            {isEditing && form.isLegacy ? (
+              <>
+                <Box>
+                  {fieldLabel("Employment Classification", true)}
+                  <FieldInput
+                    value={form.parentGroup || ""}
+                    onChange={(e) => setForm((p) => ({ ...p, parentGroup: e.target.value }))}
+                    size="small"
+                    fullWidth
+                  />
+                </Box>
+                <Box>
+                  {fieldLabel("Employment Category", true)}
+                  <FieldInput
+                    value={form.typeName || ""}
+                    onChange={(e) => setForm((p) => ({ ...p, typeName: e.target.value }))}
+                    size="small"
+                    fullWidth
+                  />
+                </Box>
+              </>
+            ) : (
+              <>
+                <Box>
+                  {fieldLabel("Employment Classification", true)}
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={form.classification || ""}
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          classification: e.target.value,
+                          category: "",
+                          jobOrderSubcategory: "",
+                          othersText: "",
+                        }))
+                      }
+                      displayEmpty
+                      sx={selectSx}
+                    >
+                      <MenuItem value="" disabled>
+                        <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select classification…</Typography>
+                      </MenuItem>
+                      {EMPLOYMENT_CLASSIFICATIONS.map((c) => (
+                        <MenuItem key={c} value={c}>
+                          <Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Box>
 
-                <Collapse in={isExpanded}>
-                  {items.map((type, idx) => (
-                    <Box key={type.id}>
-                      {idx > 0 && <Divider sx={{ borderColor: T.divider }} />}
-                      {editingId === type.id ? (
-                        <Box sx={{ px: 2, py: 1.75, bgcolor: alpha(T.accent, 0.02) }}>
-                          {editData.isLegacy && (
-                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5, p: 1, borderRadius: 1.5, bgcolor: "#FFF8E1", border: "1px solid rgba(245,124,0,0.25)" }}>
-                              <Typography sx={{ fontSize: "0.7rem", color: "#7c4300" }}>
-                                This entry doesn't match the standard categories — editing as free text.
-                              </Typography>
-                              <Button
-                                size="small"
-                                onClick={() => setEditData((p) => ({ ...p, isLegacy: false, classification: "", category: "", jobOrderSubcategory: "", othersText: "" }))}
-                                sx={{ fontSize: "0.68rem", textTransform: "none", fontWeight: 700, color: T.accent, whiteSpace: "nowrap" }}
-                              >
-                                Convert to standard options →
-                              </Button>
-                            </Box>
-                          )}
+                <Box>
+                  {fieldLabel("Employment Category", true)}
+                  <FormControl fullWidth size="small" disabled={!form.classification}>
+                    <Select
+                      value={form.category || ""}
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          category: e.target.value,
+                          jobOrderSubcategory: "",
+                          othersText: "",
+                        }))
+                      }
+                      displayEmpty
+                      sx={selectSx}
+                    >
+                      <MenuItem value="" disabled>
+                        <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>
+                          {form.classification ? "Select category…" : "Select classification first"}
+                        </Typography>
+                      </MenuItem>
+                      {EMPLOYMENT_CATEGORIES.map((c) => (
+                        <MenuItem key={c} value={c}>
+                          <Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
 
-                          {editData.isLegacy ? (
-                            <Grid container spacing={1.5} alignItems="center">
-                              <Grid item xs={12} sm={3.5}>
-                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Classification</Typography>
-                                <FieldInput value={editData.parentGroup} onChange={(e) => setEditData((p) => ({ ...p, parentGroup: e.target.value }))} size="small" fullWidth />
-                              </Grid>
-                              <Grid item xs={12} sm={3.5}>
-                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Category</Typography>
-                                <FieldInput value={editData.typeName} onChange={(e) => setEditData((p) => ({ ...p, typeName: e.target.value }))} size="small" fullWidth />
-                              </Grid>
-                              <Grid item xs={12} sm={2}>
-                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Color</Typography>
-                                <ColorSwatch value={editData.colorHex} onChange={(v) => setEditData((p) => ({ ...p, colorHex: v }))} />
-                              </Grid>
-                              <Grid item xs={12} sm={3} sx={{ display: "flex", gap: 0.75, alignItems: "flex-end" }}>
-                                <AccentButton onClick={() => handleUpdate(type.id)} disabled={submitting} variant="contained" size="small" startIcon={<SaveIcon sx={{ fontSize: "13px !important" }} />} sx={{ fontSize: "0.75rem", height: 32, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}>Save</AccentButton>
-                                <AccentButton onClick={() => setEditingId(null)} variant="outlined" size="small" sx={{ fontSize: "0.75rem", height: 32, borderColor: T.accentBorder, color: T.muted }}>Cancel</AccentButton>
-                              </Grid>
-                            </Grid>
-                          ) : (
-                            <>
-                              <Grid container spacing={1.5} alignItems="flex-start">
-                                <Grid item xs={12} sm={3}>
-                                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Classification</Typography>
-                                  <FormControl fullWidth size="small">
-                                    <Select value={editData.classification} onChange={(e) => setEditData((p) => ({ ...p, classification: e.target.value, category: "", jobOrderSubcategory: "", othersText: "" }))} sx={selectSx} displayEmpty>
-                                      <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography></MenuItem>
-                                      {EMPLOYMENT_CLASSIFICATIONS.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                                    </Select>
-                                  </FormControl>
-                                </Grid>
-                                <Grid item xs={12} sm={3}>
-                                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Employment Category</Typography>
-                                  <FormControl fullWidth size="small" disabled={!editData.classification}>
-                                    <Select value={editData.category} onChange={(e) => setEditData((p) => ({ ...p, category: e.target.value, jobOrderSubcategory: "", othersText: "" }))} sx={selectSx} displayEmpty>
-                                      <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography></MenuItem>
-                                      {EMPLOYMENT_CATEGORIES.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-                                    </Select>
-                                  </FormControl>
-                                </Grid>
-                                <Grid item xs={12} sm={3}>
-                                  {editData.category === "Job Order" ? (
-                                    <>
-                                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Job Order Category</Typography>
-                                      <FormControl fullWidth size="small">
-                                        <Select value={editData.jobOrderSubcategory} onChange={(e) => setEditData((p) => ({ ...p, jobOrderSubcategory: e.target.value }))} sx={selectSx} displayEmpty>
-                                          <MenuItem value="" disabled><Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography></MenuItem>
-                                          {JOB_ORDER_SUBCATEGORIES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                                        </Select>
-                                      </FormControl>
-                                    </>
-                                  ) : editData.category === "Others" ? (
-                                    <>
-                                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Specify Category</Typography>
-                                      <FieldInput value={editData.othersText} onChange={(e) => setEditData((p) => ({ ...p, othersText: e.target.value }))} size="small" fullWidth placeholder="e.g. Batch 4" />
-                                    </>
-                                  ) : null}
-                                </Grid>
-                                <Grid item xs={12} sm={1.5}>
-                                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.muted, mb: 0.4 }}>Color</Typography>
-                                  <ColorSwatch value={editData.colorHex} onChange={(v) => setEditData((p) => ({ ...p, colorHex: v }))} />
-                                </Grid>
-                                <Grid item xs={12} sm={1.5} sx={{ display: "flex", gap: 0.75, alignItems: "flex-end" }}>
-                                  <AccentButton onClick={() => handleUpdate(type.id)} disabled={submitting} variant="contained" size="small" sx={{ fontSize: "0.75rem", height: 32, minWidth: 0, px: 1, bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}><SaveIcon sx={{ fontSize: 15 }} /></AccentButton>
-                                  <AccentButton onClick={() => setEditingId(null)} variant="outlined" size="small" sx={{ fontSize: "0.75rem", height: 32, minWidth: 0, px: 1, borderColor: T.accentBorder, color: T.muted }}><CancelIcon sx={{ fontSize: 15 }} /></AccentButton>
-                                </Grid>
-                              </Grid>
-                              {editData.classification && editData.category && (
-                                <Typography sx={{ fontSize: "0.7rem", color: T.muted, mt: 1 }}>
-                                  Will be saved as: <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>{editData.classification} | {computeTypeName(editData.category, editData.jobOrderSubcategory, editData.othersText)}</Box>
-                                </Typography>
-                              )}
-                            </>
-                          )}
-                        </Box>
-                      ) : deleteConfirm === type.id ? (
-                        <Box sx={{ px: 2, py: 1.25, bgcolor: "rgba(198,40,40,0.04)", display: "flex", alignItems: "center", gap: 1.5 }}>
-                          <WarningIcon sx={{ fontSize: 16, color: "#c62828" }} />
-                          <Typography sx={{ fontSize: "0.78rem", color: "#c62828", flex: 1 }}>Delete <strong>{type.typeName}</strong>? This cannot be undone.</Typography>
-                          <AccentButton onClick={() => handleDelete(type.id)} disabled={submitting} variant="contained" size="small" sx={{ fontSize: "0.72rem", height: 28, bgcolor: "#c62828", color: "#fff", "&:hover": { bgcolor: "#b71c1c" } }}>{submitting ? "Deleting…" : "Confirm Delete"}</AccentButton>
-                          <AccentButton onClick={() => setDeleteConfirm(null)} variant="outlined" size="small" sx={{ fontSize: "0.72rem", height: 28, borderColor: T.accentBorder, color: T.muted }}>Cancel</AccentButton>
-                        </Box>
-                      ) : (
-                        <Box sx={{ px: 2, py: 1.25, display: "flex", alignItems: "center", gap: 2, bgcolor: idx % 2 === 0 ? "#fff" : T.rowOdd, "&:hover": { bgcolor: T.rowHover } }}>
-                          <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: type.colorHex, flexShrink: 0, border: "1.5px solid rgba(0,0,0,0.08)" }} />
-                          <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text, flex: 1 }}>{type.typeName}</Typography>
-                          {!type.isActive && <Chip label="Inactive" size="small" sx={{ height: 18, fontSize: "0.62rem", bgcolor: "#eee", color: T.muted }} />}
-                          <Box sx={{ display: "flex", gap: 0.5 }}>
-                            <Tooltip title="Edit type">
-                              <IconButton size="small" onClick={() => startEdit(type)} sx={{ color: T.accent, p: 0.5, "&:hover": { bgcolor: T.accentFaint } }}><EditIcon sx={{ fontSize: 14 }} /></IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete type">
-                              <IconButton size="small" onClick={() => setDeleteConfirm(type.id)} sx={{ color: "#c62828", p: 0.5, "&:hover": { bgcolor: "rgba(198,40,40,0.07)" } }}><DeleteIcon sx={{ fontSize: 14 }} /></IconButton>
-                            </Tooltip>
+                {form.category === "Job Order" && (
+                  <Box>
+                    {fieldLabel("Job Order Category", true)}
+                    <FormControl fullWidth size="small">
+                      <Select
+                        value={form.jobOrderSubcategory || ""}
+                        onChange={(e) => setForm((p) => ({ ...p, jobOrderSubcategory: e.target.value }))}
+                        displayEmpty
+                        sx={selectSx}
+                      >
+                        <MenuItem value="" disabled>
+                          <Typography sx={{ color: T.faint, fontSize: "0.8rem" }}>Select…</Typography>
+                        </MenuItem>
+                        {JOB_ORDER_SUBCATEGORIES.map((s) => (
+                          <MenuItem key={s} value={s}>
+                            <Typography sx={{ fontSize: "0.85rem" }}>{s}</Typography>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                )}
+
+                {form.category === "Others" && (
+                  <Box>
+                    {fieldLabel("Specify Category", true)}
+                    <FieldInput
+                      value={form.othersText || ""}
+                      onChange={(e) => setForm((p) => ({ ...p, othersText: e.target.value }))}
+                      placeholder="e.g. Batch 4"
+                      size="small"
+                      fullWidth
+                      inputProps={{ maxLength: 100 }}
+                    />
+                  </Box>
+                )}
+              </>
+            )}
+
+            <Box>
+              {fieldLabel("Display color")}
+              <ColorSwatch
+                fullWidth
+                value={form.colorHex}
+                onChange={(v) => setForm((p) => ({ ...p, colorHex: v }))}
+              />
+            </Box>
+
+            {previewLabel && (
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 1.15,
+                  borderRadius: 2,
+                  bgcolor: T.accentFaint,
+                  border: `1px solid ${T.accentBorder}`,
+                  borderLeft: `3px solid ${form.colorHex || T.accent}`,
+                }}
+              >
+                <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: alpha(T.accent, 0.55), mb: 0.35 }}>
+                  Preview label
+                </Typography>
+                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.text }}>{previewLabel}</Typography>
+              </Box>
+            )}
+
+            <Box sx={{ mt: "auto", pt: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+              {isEditing ? (
+                <>
+                  <AccentButton
+                    onClick={() => handleUpdate(editingId)}
+                    disabled={!canSubmit || submitting}
+                    variant="contained"
+                    fullWidth
+                    startIcon={submitting ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "16px !important" }} />}
+                    sx={{
+                      height: 42,
+                      bgcolor: canSubmit ? T.accent : "#d0d0d0",
+                      color: canSubmit ? "#fff" : "#888",
+                      boxShadow: canSubmit ? `0 2px 10px ${alpha(T.accent, 0.32)}` : "none",
+                      "&:hover": { bgcolor: canSubmit ? T.accentDark : "#d0d0d0" },
+                      "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none !important", transform: "none !important" },
+                    }}
+                  >
+                    {submitting ? "Saving…" : "Save Changes"}
+                  </AccentButton>
+                  <AccentButton
+                    onClick={cancelEdit}
+                    variant="outlined"
+                    fullWidth
+                    sx={{
+                      height: 36,
+                      fontSize: "0.8rem",
+                      borderColor: T.accentBorder,
+                      color: T.muted,
+                      "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent },
+                    }}
+                  >
+                    Cancel
+                  </AccentButton>
+                </>
+              ) : (
+                <>
+                  {(form.classification || form.category) && (
+                    <AccentButton
+                      onClick={resetNewType}
+                      variant="outlined"
+                      fullWidth
+                      sx={{
+                        height: 36,
+                        fontSize: "0.8rem",
+                        borderColor: T.accentBorder,
+                        color: T.muted,
+                        "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent },
+                      }}
+                    >
+                      Clear Form
+                    </AccentButton>
+                  )}
+                  <AccentButton
+                    onClick={handleCreate}
+                    disabled={!canSubmit || submitting}
+                    variant="contained"
+                    fullWidth
+                    startIcon={submitting ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
+                    sx={{
+                      height: 42,
+                      bgcolor: canSubmit ? T.accent : "#d0d0d0",
+                      color: canSubmit ? "#fff" : "#888",
+                      boxShadow: canSubmit ? `0 2px 10px ${alpha(T.accent, 0.32)}` : "none",
+                      "&:hover": { bgcolor: canSubmit ? T.accentDark : "#d0d0d0" },
+                      "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none !important", transform: "none !important" },
+                    }}
+                  >
+                    {submitting ? "Adding…" : "Add Type"}
+                  </AccentButton>
+                </>
+              )}
+            </Box>
+          </Box>
+        </SectionCard>
+      </Grid>
+
+      {/* RIGHT — Types list */}
+      <Grid item xs={12} lg={8} sx={{ height: { xs: "auto", lg: "100%" } }}>
+        <SectionCard sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.5,
+              borderBottom: `1px solid ${T.divider}`,
+              bgcolor: T.accentFaint,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+              flexWrap: "wrap",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+              <SettingsIcon sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Category Types</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>
+                {visibleCount}
+              </Typography>
+            </Box>
+            <FieldInput
+              size="small"
+              placeholder="Search…"
+              value={typeSearch}
+              onChange={(e) => setTypeSearch(e.target.value)}
+              sx={{ flex: 1, minWidth: 160, maxWidth: 280, ml: "auto" }}
+              InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }}
+            />
+          </Box>
+
+          <Box
+            sx={{
+              flexGrow: 1,
+              overflowY: "auto",
+              p: 2,
+              bgcolor: "#fafafa",
+              "&::-webkit-scrollbar": { width: 4 },
+              "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 },
+            }}
+          >
+            {typeConfigs.length === 0 ? (
+              <Box sx={{ py: 10, textAlign: "center", px: 3 }}>
+                <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
+                  <FolderOpenIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                </Box>
+                <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: T.muted, mb: 0.5 }}>No types configured yet</Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>Use the form on the left to add your first employment type.</Typography>
+              </Box>
+            ) : visibleCount === 0 ? (
+              <Box sx={{ py: 10, textAlign: "center", px: 3 }}>
+                <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: T.muted, mb: 0.5 }}>No matches</Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: T.faint }}>Try a different search term.</Typography>
+              </Box>
+            ) : (
+              Object.entries(grouped).map(([group, items]) => (
+                <Box
+                  key={group}
+                  sx={{
+                    mb: 2,
+                    borderRadius: 2,
+                    border: `1px solid ${T.accentBorder}`,
+                    bgcolor: "#fff",
+                    overflow: "hidden",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      px: 2,
+                      py: 1.1,
+                      bgcolor: alpha(T.accent, 0.04),
+                      borderBottom: `1px solid ${T.divider}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        color: T.accent,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {group}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.faint, fontWeight: 600 }}>
+                      {items.length} {items.length === 1 ? "type" : "types"}
+                    </Typography>
+                  </Box>
+
+                  {items.map((type, idx) => {
+                    const isRowEditing = editingId === type.id;
+                    const isDeleting = deleteConfirm === type.id;
+
+                    if (isDeleting) {
+                      return (
+                        <Box
+                          key={type.id}
+                          sx={{
+                            px: 2,
+                            py: 1.5,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1.5,
+                            flexWrap: "wrap",
+                            bgcolor: "rgba(198,40,40,0.04)",
+                            borderTop: idx > 0 ? `1px solid ${T.divider}` : "none",
+                          }}
+                        >
+                          <WarningIcon sx={{ fontSize: 16, color: "#c62828", flexShrink: 0 }} />
+                          <Typography sx={{ fontSize: "0.78rem", color: "#c62828", flex: 1, minWidth: 140 }}>
+                            Delete <strong>{type.typeName}</strong>?
+                          </Typography>
+                          <Box sx={{ display: "flex", gap: 0.75 }}>
+                            <AccentButton
+                              onClick={() => handleDelete(type.id)}
+                              disabled={submitting}
+                              variant="contained"
+                              size="small"
+                              sx={{ fontSize: "0.72rem", height: 30, px: 1.5, bgcolor: "#c62828", color: "#fff", "&:hover": { bgcolor: "#b71c1c" } }}
+                            >
+                              {submitting ? "Deleting…" : "Delete"}
+                            </AccentButton>
+                            <AccentButton
+                              onClick={() => setDeleteConfirm(null)}
+                              variant="outlined"
+                              size="small"
+                              sx={{ fontSize: "0.72rem", height: 30, px: 1.5, borderColor: T.accentBorder, color: T.muted }}
+                            >
+                              Cancel
+                            </AccentButton>
                           </Box>
                         </Box>
-                      )}
-                    </Box>
-                  ))}
-                </Collapse>
-              </Box>
-            );
-          })
-        )}
-      </Box>
-    </Box>
+                      );
+                    }
+
+                    return (
+                      <Box
+                        key={type.id}
+                        sx={{
+                          px: 2,
+                          py: 1.35,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          borderTop: idx > 0 ? `1px solid ${T.divider}` : "none",
+                          bgcolor: isRowEditing ? T.accentFaint : "#fff",
+                          borderLeft: isRowEditing ? `3px solid ${T.accent}` : "3px solid transparent",
+                          transition: "background 0.13s ease",
+                          "&:hover": {
+                            bgcolor: isRowEditing ? T.accentFaint : alpha(T.accent, 0.03),
+                          },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: "50%",
+                            bgcolor: type.colorHex || T.accent,
+                            flexShrink: 0,
+                            border: "1px solid rgba(0,0,0,0.1)",
+                          }}
+                        />
+
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: T.text }} noWrap>
+                            {type.typeName}
+                          </Typography>
+                          {(isRowEditing || !type.isActive) && (
+                            <Typography sx={{ fontSize: "0.68rem", color: isRowEditing ? T.accent : T.faint, fontWeight: 600, mt: 0.15 }}>
+                              {isRowEditing ? "Editing in form" : "Inactive"}
+                            </Typography>
+                          )}
+                        </Box>
+
+                        <Box sx={{ display: "flex", gap: 0.75, flexShrink: 0 }}>
+                          <AccentButton
+                            size="small"
+                            variant={isRowEditing ? "contained" : "outlined"}
+                            onClick={() => startEdit(type)}
+                            startIcon={<EditIcon sx={{ fontSize: "13px !important" }} />}
+                            sx={{
+                              height: 30,
+                              fontSize: "0.72rem",
+                              px: 1.25,
+                              ...(isRowEditing
+                                ? {
+                                    bgcolor: T.accent,
+                                    color: "#fff",
+                                    "&:hover": { bgcolor: T.accentDark },
+                                  }
+                                : {
+                                    borderColor: T.accentBorder,
+                                    color: T.accent,
+                                    "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                                  }),
+                            }}
+                          >
+                            Edit
+                          </AccentButton>
+                          <AccentButton
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              cancelEdit();
+                              setDeleteConfirm(type.id);
+                            }}
+                            startIcon={<DeleteIcon sx={{ fontSize: "13px !important" }} />}
+                            sx={{
+                              height: 30,
+                              fontSize: "0.72rem",
+                              px: 1.25,
+                              borderColor: "rgba(198,40,40,0.35)",
+                              color: "#c62828",
+                              "&:hover": { bgcolor: "rgba(198,40,40,0.06)", borderColor: "#c62828" },
+                            }}
+                          >
+                            Delete
+                          </AccentButton>
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ))
+            )}
+          </Box>
+        </SectionCard>
+      </Grid>
+    </Grid>
   );
 };
 
@@ -1219,9 +1538,9 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
-        <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1 }}>
-          1. Select employment category (type)
+      <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: "#fff", flexShrink: 0 }}>
+        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: alpha(T.accent, 0.5), mb: 1 }}>
+          Employment type
         </Typography>
         <DynamicCategorySelect
           value={selectedTypeId}
@@ -1231,19 +1550,21 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
         />
         {selectedCfg && (
           <Typography sx={{ fontSize: "0.72rem", color: T.muted, mt: 1 }}>
-            Editing policy for <strong>{selectedCfg.parentGroup}</strong> · <strong>{selectedCfg.typeName}</strong>{" "}
-            <Box component="span" sx={{ fontFamily: "monospace", color: T.faint }}>
-              (id {selectedCfg.id})
-            </Box>
+            Policy for <Box component="span" sx={{ fontWeight: 700, color: T.text }}>{selectedCfg.parentGroup}</Box>
+            {" · "}
+            <Box component="span" sx={{ fontWeight: 700, color: T.text }}>{selectedCfg.typeName}</Box>
           </Typography>
         )}
       </Box>
 
-      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+      <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, bgcolor: alpha(T.accent, 0.015), "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
         {!selectedTypeId ? (
-          <Box sx={{ py: 6, textAlign: "center" }}>
-            <DeductionPolicyIcon sx={{ fontSize: 40, color: alpha(T.accent, 0.25), mb: 1 }} />
-            <Typography sx={{ fontSize: "0.85rem", color: T.muted }}>Choose an employment type above to configure allowed deduction leave types.</Typography>
+          <Box sx={{ py: 8, textAlign: "center" }}>
+            <Box sx={{ width: 64, height: 64, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 1.5 }}>
+              <DeductionPolicyIcon sx={{ fontSize: 28, color: alpha(T.accent, 0.35) }} />
+            </Box>
+            <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: T.muted, mb: 0.5 }}>No type selected</Typography>
+            <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>Choose an employment type above to configure deduction leave types.</Typography>
           </Box>
         ) : loadingPolicy || loadingTypes ? (
           <Box sx={{ py: 8, display: "flex", justifyContent: "center" }}>
@@ -1253,18 +1574,19 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
           <Typography sx={{ fontSize: "0.82rem", color: T.muted }}>No leave types found. Configure the Leave Types module first.</Typography>
         ) : (
           <>
-            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.accent, mb: 1.5 }}>
-              2. Allowed deduction sources (from Leave Types)
+            <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: alpha(T.accent, 0.5), mb: 1.5 }}>
+              Allowed deduction sources
             </Typography>
             {DEDUCTION_CONTEXT_BLOCKS.map((block) => (
               <Box
                 key={block.key}
                 sx={{
-                  mb: 2,
-                  p: 2,
+                  mb: 1.5,
                   borderRadius: 2,
                   border: `1px solid ${T.accentBorder}`,
                   bgcolor: "#fff",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                  overflow: "hidden",
                 }}
               >
                 <Box
@@ -1274,10 +1596,12 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
                     justifyContent: "space-between",
                     gap: 1,
                     flexWrap: "wrap",
-                    mb: 0.5,
+                    px: 2,
+                    pt: 1.5,
+                    pb: 0.5,
                   }}
                 >
-                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.text }}>
+                  <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text }}>
                     {block.title}
                   </Typography>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, flexShrink: 0 }}>
@@ -1320,10 +1644,10 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
                     </Button>
                   </Box>
                 </Box>
-                <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 1.25, lineHeight: 1.5 }}>
+                <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 1, lineHeight: 1.5, px: 2 }}>
                   {block.hint}
                 </Typography>
-                <FormGroup row sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                <FormGroup row sx={{ flexWrap: "wrap", gap: 0.5, px: 2, pb: 1.5 }}>
                   {leaveTypes.map((lt) => {
                     const id = Number(lt.id);
                     const isOn = checked[block.key].has(id);
@@ -1341,8 +1665,17 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
                             sx={{ py: 0.25, color: T.accent, "&.Mui-checked": { color: T.accent } }}
                           />
                         }
-                        label={<Typography sx={{ fontSize: "0.78rem" }}>{label}</Typography>}
-                        sx={{ mr: 1.5, ml: 0 }}
+                        label={<Typography sx={{ fontSize: "0.78rem", color: T.text }}>{label}</Typography>}
+                        sx={{
+                          mr: 1,
+                          ml: 0,
+                          px: 0.75,
+                          py: 0.25,
+                          borderRadius: 1.5,
+                          border: `1px solid ${isOn ? T.accentBorder : "transparent"}`,
+                          bgcolor: isOn ? T.accentFaint : "transparent",
+                          "&:hover": { bgcolor: T.accentHover },
+                        }}
                       />
                     );
                   })}
@@ -1353,13 +1686,19 @@ const DeductionPolicyTab = ({ typeConfigs, showSnackbar }) => {
         )}
       </Box>
 
-      <Box sx={{ px: 2, py: 1.5, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 1 }}>
+      <Box sx={{ px: 2.5, py: 1.5, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 1 }}>
         <AccentButton
           variant="contained"
           disabled={!selectedTypeId || saving || loadingPolicy}
           onClick={handleSave}
           startIcon={saving ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SaveIcon sx={{ fontSize: "15px !important" }} />}
-          sx={{ bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#ccc" } }}
+          sx={{
+            bgcolor: T.accent,
+            color: "#fff",
+            boxShadow: `0 2px 10px ${alpha(T.accent, 0.28)}`,
+            "&:hover": { bgcolor: T.accentDark },
+            "&:disabled": { bgcolor: "#d0d0d0", boxShadow: "none" },
+          }}
         >
           {saving ? "Saving…" : "Save deduction policy"}
         </AccentButton>
@@ -1384,7 +1723,7 @@ const EmploymentCategoryManagement = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState("");
-  const [viewMode, setViewMode] = useState("grid");
+  const [viewMode, setViewMode] = useState("list");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(24);
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
@@ -1535,14 +1874,18 @@ const EmploymentCategoryManagement = () => {
     }
 
     // 2. Apply text search on top
-    if (!q) return data;
-    return data.filter(r =>
-      r.employeeNumber?.toString().includes(q) ||
-      r.employeeName?.toLowerCase().includes(q) ||
-      r.categoryLabel?.toLowerCase().includes(q) ||
-      r.parentGroup?.toLowerCase().includes(q) ||
-      r.typeName?.toLowerCase().includes(q)
-    );
+    if (q) {
+      data = data.filter(r =>
+        r.employeeNumber?.toString().includes(q) ||
+        r.employeeName?.toLowerCase().includes(q) ||
+        r.categoryLabel?.toLowerCase().includes(q) ||
+        r.parentGroup?.toLowerCase().includes(q) ||
+        r.typeName?.toLowerCase().includes(q)
+      );
+    }
+
+    // 3. Alphabetical by last name (A–Z first; specials / empty last)
+    return sortEmployeesByLastName(data, (r) => r.employeeName || r);
   }, [employmentCategories, deferredSearch, filterCategory]);
 
   const pagedData = useMemo(
@@ -1600,24 +1943,49 @@ const EmploymentCategoryManagement = () => {
             >
               <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.1) 0%, transparent 70%)" }} />
               <Box sx={{ position: "absolute", bottom: -30, left: "30%", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle, rgba(109,35,35,0.07) 0%, transparent 70%)" }} />
-              <Box sx={{ display: "flex", alignItems: "center", gap: 3, position: "relative", zIndex: 1 }}>
-                <CategoryIcon sx={{ fontSize: 32, color: T.accent }} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2.5, position: "relative", zIndex: 1 }}>
+                <Box
+                  sx={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "12px",
+                    bgcolor: alpha(T.accent, 0.12),
+                    border: `1px solid ${T.accentBorder}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <WorkIcon sx={{ fontSize: 26, color: T.accent }} />
+                </Box>
                 <Box>
                   <Typography sx={{ fontSize: "1.25rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
-                    Employment Category Management
+                    Employment Classification
                   </Typography>
                   <Typography sx={{ fontSize: "0.82rem", color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
-                    Administrative Panel • Assign and manage employee employment categories
+                    HR Records • Assign employment categories and manage payroll deduction types
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
-                <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
-                  <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }}>
-                    {employmentCategories.length} {employmentCategories.length === 1 ? "record" : "records"}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, position: "relative", zIndex: 1, flexWrap: "wrap" }}>
+                <Box sx={{ px: 1.5, py: 0.65, borderRadius: 1.5, bgcolor: "#fff", border: `1px solid ${T.accentBorder}`, textAlign: "center", minWidth: 72 }}>
+                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: T.accent, lineHeight: 1.1 }}>
+                    {employmentCategories.length.toLocaleString()}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    Employees
                   </Typography>
                 </Box>
-                <Tooltip title="Refresh Data">
+                <Box sx={{ px: 1.5, py: 0.65, borderRadius: 1.5, bgcolor: "#fff", border: `1px solid ${T.accentBorder}`, textAlign: "center", minWidth: 72 }}>
+                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: T.accent, lineHeight: 1.1 }}>
+                    {typeConfigs.length}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    Types
+                  </Typography>
+                </Box>
+                <Tooltip title="Refresh HR data">
                   <IconButton onClick={handleRefreshAll} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, "&:hover": { bgcolor: alpha(T.accent, 0.15) } }}>
                     <Refresh sx={{ fontSize: 18 }} />
                   </IconButton>
@@ -1640,8 +2008,8 @@ const EmploymentCategoryManagement = () => {
                 <Tab
                   label={
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                      <AssignIcon sx={{ fontSize: 15 }} />
-                      Assign Categories
+                      <PersonIcon sx={{ fontSize: 15 }} />
+                      Employee Assignments
                     </Box>
                   }
                 />
@@ -1649,7 +2017,7 @@ const EmploymentCategoryManagement = () => {
                   label={
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                       <SettingsIcon sx={{ fontSize: 15 }} />
-                      Manage Types
+                      Category Setup
                       <Chip
                         label={typeConfigs.length}
                         size="small"
@@ -1662,7 +2030,7 @@ const EmploymentCategoryManagement = () => {
                   label={
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                       <DeductionPolicyIcon sx={{ fontSize: 15 }} />
-                      Deduction policy
+                      Deduction Policy
                     </Box>
                   }
                 />
@@ -1677,27 +2045,23 @@ const EmploymentCategoryManagement = () => {
               <Grid item xs={12} lg={4}>
                 <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
                   <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint }}>
-                    <AddIcon sx={{ fontSize: 15, color: T.accent }} />
-                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Add New Category</Typography>
-                    <Box sx={{ flex: 1 }} />
-                    <Typography sx={{ fontSize: "0.72rem", color: T.faint }}>
-                      <Box component="span" sx={{ color: "#c62828" }}>*</Box> required
-                    </Typography>
+                    <AssignIcon sx={{ fontSize: 15, color: T.accent }} />
+                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Assign Employment Category</Typography>
                   </Box>
 
                   <Box sx={{ px: 3.5, py: 3, flexGrow: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
-                    <FormSectionLabel icon={PersonIcon}>Employee</FormSectionLabel>
+                    <FormSectionLabel icon={PersonIcon}>Employee Information</FormSectionLabel>
 
                     <Box sx={{ mb: 2 }}>
                       <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>
-                        Search Employee <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                        Employee <Box component="span" sx={{ color: "#c62828" }}>*</Box>
                       </Typography>
                       <EmployeeAutocomplete
                         value={newRecord.employeeNumber}
                         onChange={(val) => { setNewRecord(r => ({ ...r, employeeNumber: val })); setErrors(e => { const n = { ...e }; delete n.employeeNumber; return n; }); }}
                         selectedEmployee={selectedEmployee}
                         onEmployeeSelect={setSelectedEmployee}
-                        placeholder="Search name or employee ID…"
+                        placeholder="Search by name or employee number…"
                         required
                         error={!!errors.employeeNumber}
                         helperText={errors.employeeNumber || ""}
@@ -1705,35 +2069,35 @@ const EmploymentCategoryManagement = () => {
                     </Box>
 
                     {selectedEmployee ? (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.75, py: 1.25, mb: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                        <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: "0.78rem", color: T.accent, fontWeight: 700, flexShrink: 0 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.75, py: 1.35, mb: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                        <Avatar sx={{ width: 36, height: 36, bgcolor: T.accent, color: "#fff", fontSize: "0.78rem", fontWeight: 800, borderRadius: "8px", flexShrink: 0 }}>
                           {selectedEmployee.name?.charAt(0)?.toUpperCase() || "?"}
                         </Avatar>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{selectedEmployee.name}</Typography>
-                          <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>#{selectedEmployee.employeeNumber}</Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: T.muted }}>Employee No. {selectedEmployee.employeeNumber}</Typography>
                         </Box>
                       </Box>
                     ) : (
-                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02) }}>
-                        <Typography sx={{ fontSize: "0.75rem", color: T.faint, fontStyle: "italic" }}>No employee selected yet</Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${T.accentBorder}`, borderRadius: 2, py: 2, mb: 2.5, bgcolor: alpha(T.accent, 0.02) }}>
+                        <Typography sx={{ fontSize: "0.75rem", color: T.faint }}>Select an employee to continue</Typography>
                       </Box>
                     )}
 
                     <Divider sx={{ borderColor: T.divider, mb: 2.5 }} />
 
-                    <FormSectionLabel icon={WorkIcon}>Employment Category</FormSectionLabel>
+                    <FormSectionLabel icon={WorkIcon}>Classification Details</FormSectionLabel>
 
                     <Box sx={{ mb: 2 }}>
                       <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>
-                        Category Type <Box component="span" sx={{ color: "#c62828" }}>*</Box>
+                        Employment Category <Box component="span" sx={{ color: "#c62828" }}>*</Box>
                       </Typography>
                       {typeConfigs.length === 0 ? (
-                        <Box sx={{ p: 2, textAlign: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: alpha(T.accent, 0.02) }}>
+                        <Box sx={{ p: 2, textAlign: "center", border: `1px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: alpha(T.accent, 0.02) }}>
                           <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>
-                            No types configured.{" "}
+                            No categories configured.{" "}
                             <Box component="span" onClick={() => setActiveTab(1)} sx={{ color: T.accent, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
-                              Manage Types
+                              Category Setup
                             </Box>
                             {" "}to add some.
                           </Typography>
@@ -1753,11 +2117,16 @@ const EmploymentCategoryManagement = () => {
                     {newRecord.employmentCategory && (() => {
                       const cfg = getTypeConfig(newRecord.employmentCategory);
                       return cfg ? (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 1, mb: 2, borderRadius: 2, bgcolor: alpha(cfg.colorHex, 0.06), border: `1px solid ${alpha(cfg.colorHex, 0.2)}` }}>
-                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: cfg.colorHex, flexShrink: 0 }} />
-                          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: cfg.colorHex }}>
-                            {cfg.parentGroup} | {cfg.typeName}
-                          </Typography>
+                        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, px: 1.5, py: 1.15, mb: 2, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: cfg.colorHex || T.accent, mt: 0.55, flexShrink: 0 }} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.05em", mb: 0.2 }}>
+                              Assignment preview
+                            </Typography>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text }}>
+                              {cfg.parentGroup} · {cfg.typeName}
+                            </Typography>
+                          </Box>
                         </Box>
                       ) : null;
                     })()}
@@ -1770,7 +2139,7 @@ const EmploymentCategoryManagement = () => {
                           fullWidth
                           sx={{ mb: 1, height: 36, fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
                         >
-                          Clear Form
+                          Clear
                         </AccentButton>
                       )}
                       <AccentButton
@@ -1778,7 +2147,7 @@ const EmploymentCategoryManagement = () => {
                         variant="contained"
                         fullWidth
                         disabled={!canAdd}
-                        startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AddIcon sx={{ fontSize: "16px !important" }} />}
+                        startIcon={loading ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <AssignIcon sx={{ fontSize: "16px !important" }} />}
                         sx={{
                           height: 42,
                           bgcolor: canAdd ? T.accent : "#d0d0d0",
@@ -1788,7 +2157,7 @@ const EmploymentCategoryManagement = () => {
                           "&:disabled": { bgcolor: "#d0d0d0 !important", color: "#888 !important", boxShadow: "none !important", transform: "none !important" },
                         }}
                       >
-                        {loading ? "Adding…" : "Add Category"}
+                        {loading ? "Saving…" : "Save Assignment"}
                       </AccentButton>
                     </Box>
                   </Box>
@@ -1799,85 +2168,97 @@ const EmploymentCategoryManagement = () => {
               <Grid item xs={12} lg={8}>
                 <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
                   {/* Toolbar */}
-                  <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
-                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                        <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
-                        <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>Employment Category Records</Typography>
+                  <Box
+                    sx={{
+                      px: 2.5,
+                      py: 1.75,
+                      borderBottom: `1px solid ${T.divider}`,
+                      bgcolor: T.accentFaint,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.35, gap: 1, flexWrap: "wrap" }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+                        <PersonIcon sx={{ fontSize: 17, color: T.accent }} />
+                        <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>
+                          Employee Category Records
+                        </Typography>
                       </Box>
-                      <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                        <Box sx={{ px: 1.5, py: 0.4, borderRadius: 6, bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
-                          <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>{filteredData.length} records</Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box
+                          sx={{
+                            px: 1.35,
+                            py: 0.35,
+                            borderRadius: 1.5,
+                            bgcolor: alpha(T.accent, 0.08),
+                            border: `1px solid ${alpha(T.accent, 0.15)}`,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.72rem", color: T.accent, fontWeight: 700 }}>
+                            {filteredData.length.toLocaleString()} employees
+                          </Typography>
                         </Box>
                         <ToggleButtonGroup
                           value={viewMode}
                           exclusive
                           onChange={(_, v) => v && setViewMode(v)}
                           size="small"
-                          sx={{ "& .MuiToggleButton-root": { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, "&.Mui-selected": { bgcolor: T.accentFaint, color: T.accent } } }}
+                          sx={{
+                            "& .MuiToggleButton-root": {
+                              px: 1,
+                              py: 0.45,
+                              border: `1px solid ${T.accentBorder}`,
+                              color: T.muted,
+                              "&.Mui-selected": { bgcolor: alpha(T.accent, 0.12), color: T.accent },
+                            },
+                          }}
                         >
-                          <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
-                          <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                          <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 15 }} /></ToggleButton>
+                          <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 15 }} /></ToggleButton>
                         </ToggleButtonGroup>
                       </Box>
                     </Box>
 
-                    {/* ── Search + Filter row ── */}
-                    <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                      {/* Search */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
                       <FieldInput
                         size="small"
-                        placeholder="Search by employee ID, name, category, or group…"
+                        placeholder="Search by employee number, name, or category…"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        fullWidth
+                        sx={{ flex: 1, minWidth: 180 }}
                         InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }}
                       />
 
-                      {/* Category Filter */}
-                      <FormControl size="small" sx={{ minWidth: 190, flexShrink: 0 }}>
+                      <FormControl size="small" sx={{ minWidth: 160, flexShrink: 0 }}>
                         <Select
                           value={filterCategory}
                           onChange={(e) => { setFilterCategory(e.target.value); setPage(0); }}
                           displayEmpty
                           sx={{
                             ...selectSx,
-                            "& .MuiSelect-select": { display: "flex", alignItems: "center", gap: 0.75 },
+                            "& .MuiSelect-select": { display: "flex", alignItems: "center", gap: 0.75, py: 0.85 },
                           }}
                           renderValue={(val) => {
                             if (!val) return (
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                                <LabelIcon sx={{ fontSize: 13, color: T.muted }} />
-                                <Typography sx={{ fontSize: "0.8rem", color: T.faint }}>All Types</Typography>
-                              </Box>
+                              <Typography sx={{ fontSize: "0.8rem", color: T.faint }}>All classifications</Typography>
                             );
                             const [filterType, filterValue] = val.split("||");
                             if (filterType === "group") return (
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                                <FolderOpenIcon sx={{ fontSize: 13, color: T.accent }} />
-                                <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }}>{filterValue}</Typography>
-                              </Box>
+                              <Typography sx={{ fontSize: "0.8rem", color: T.accent, fontWeight: 700 }} noWrap>{filterValue}</Typography>
                             );
                             const cfg = typeConfigs.find(t => String(t.id) === filterValue);
                             return cfg ? (
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                                <Circle sx={{ fontSize: 8, color: cfg.colorHex }} />
-                                <Typography sx={{ fontSize: "0.8rem", color: T.text, fontWeight: 600 }}>{cfg.typeName}</Typography>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                                <Circle sx={{ fontSize: 8, color: cfg.colorHex, flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: "0.8rem", color: T.text, fontWeight: 600 }} noWrap>{cfg.typeName}</Typography>
                               </Box>
                             ) : <Typography sx={{ fontSize: "0.8rem" }}>{filterValue}</Typography>;
                           }}
                         >
-                          {/* All Types option */}
                           <MenuItem value="">
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                              <LabelIcon sx={{ fontSize: 13, color: T.muted }} />
-                              <Typography sx={{ fontSize: "0.83rem", color: T.muted }}>All Types</Typography>
-                            </Box>
+                            <Typography sx={{ fontSize: "0.83rem", color: T.muted }}>All classifications</Typography>
                           </MenuItem>
-
-                          {/* Grouped options */}
                           {Object.entries(groupedTypeConfigs).flatMap(([group, items]) => [
-                            // Group subheader
                             <ListSubheader
                               key={`gh-${group}`}
                               sx={{
@@ -1888,28 +2269,17 @@ const EmploymentCategoryManagement = () => {
                                 color: alpha(T.accent, 0.55),
                                 lineHeight: "2em",
                                 bgcolor: T.accentFaint,
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 0.75,
                               }}
                             >
-                              <FolderOpenIcon sx={{ fontSize: 11 }} />
                               {group}
                             </ListSubheader>,
-
-                            // "All in group" shortcut
-                            <MenuItem key={`group-all-${group}`} value={`group||${group}`} sx={{ py: 0.75, pl: 2.5 }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: alpha(T.accent, 0.3), flexShrink: 0 }} />
-                                <Typography sx={{ fontSize: "0.78rem", color: T.accent, fontStyle: "italic" }}>
-                                  All in {group}
-                                </Typography>
-                              </Box>
+                            <MenuItem key={`group-all-${group}`} value={`group||${group}`} sx={{ py: 0.75, pl: 2 }}>
+                              <Typography sx={{ fontSize: "0.78rem", color: T.accent, fontStyle: "italic" }}>
+                                All in {group}
+                              </Typography>
                             </MenuItem>,
-
-                            // Individual types
                             ...items.map(item => (
-                              <MenuItem key={`type-${item.id}`} value={`type||${item.id}`} sx={{ py: 0.75, pl: 3.5 }}>
+                              <MenuItem key={`type-${item.id}`} value={`type||${item.id}`} sx={{ py: 0.75, pl: 3 }}>
                                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                                   <Circle sx={{ fontSize: 8, color: item.colorHex }} />
                                   <Typography sx={{ fontSize: "0.82rem" }}>{item.typeName}</Typography>
@@ -1920,20 +2290,18 @@ const EmploymentCategoryManagement = () => {
                         </Select>
                       </FormControl>
 
-                      {/* Clear filter button — only shown when a filter is active */}
                       {filterCategory && (
                         <Tooltip title="Clear filter">
                           <IconButton
                             size="small"
                             onClick={() => { setFilterCategory(""); setPage(0); }}
                             sx={{
-                              flexShrink: 0,
                               color: T.accent,
                               border: `1px solid ${T.accentBorder}`,
-                              borderRadius: 2,
+                              borderRadius: 1.5,
                               width: 34,
                               height: 34,
-                              "&:hover": { bgcolor: T.accentFaint },
+                              "&:hover": { bgcolor: T.accentHover },
                             }}
                           >
                             <Close sx={{ fontSize: 14 }} />
@@ -1944,9 +2312,18 @@ const EmploymentCategoryManagement = () => {
                   </Box>
 
                   {/* Records */}
-                  <Box sx={{ flexGrow: 1, overflowY: "auto", p: 2, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                  <Box
+                    sx={{
+                      flexGrow: 1,
+                      overflowY: "auto",
+                      p: viewMode === "grid" ? 2 : 0,
+                      bgcolor: viewMode === "grid" ? "#fafafa" : "#fff",
+                      "&::-webkit-scrollbar": { width: 4 },
+                      "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 },
+                    }}
+                  >
                     {pagedData.length === 0 ? (
-                      <Box sx={{ py: 10, textAlign: "center" }}>
+                      <Box sx={{ py: 10, textAlign: "center", px: 2 }}>
                         <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mx: "auto", mb: 2 }}>
                           <CategoryIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                         </Box>
@@ -1965,52 +2342,53 @@ const EmploymentCategoryManagement = () => {
                       <Grid container spacing={1.5} alignItems="stretch">
                         {pagedData.map((record) => {
                           const cfg = getTypeConfig(record.employmentCategory);
-                          const catColor = cfg?.colorHex || record.colorHex || "#757575";
+                          const catColor = cfg?.colorHex || record.colorHex || T.accent;
+                          const groupLabel = record.parentGroup || "";
+                          const typeLabel = record.typeName || record.categoryLabel || "Unassigned";
+                          const name = record.employeeName || "Loading…";
                           return (
-                            <Grid item xs={12} sm={3} key={record.id} sx={{ display: "flex" }}>
+                            <Grid item xs={12} sm={6} md={4} key={record.id} sx={{ display: "flex" }}>
                               <Box
                                 onClick={() => handleOpenModal(record)}
                                 sx={{
                                   width: "100%",
                                   display: "flex",
                                   flexDirection: "column",
-                                  p: 2,
+                                  p: 1.75,
                                   borderRadius: 2,
                                   cursor: "pointer",
                                   bgcolor: "#fff",
                                   border: `1px solid ${T.accentBorder}`,
-                                  position: "relative",
                                   transition: "all 0.13s",
-                                  "&:hover": { bgcolor: T.rowHover, borderColor: T.accent, transform: "translateY(-2px)", boxShadow: `0 4px 14px ${alpha(catColor, 0.12)}` },
+                                  "&:hover": {
+                                    bgcolor: T.rowHover,
+                                    borderColor: T.accent,
+                                    transform: "translateY(-2px)",
+                                    boxShadow: `0 4px 14px ${alpha(T.accent, 0.1)}`,
+                                  },
                                 }}
                               >
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
-                                  <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: catColor, flexShrink: 0 }} />
-                                  <Typography sx={{ fontSize: "0.7rem", color: T.faint }}>#{record.employeeNumber}</Typography>
-                                </Box>
-                                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, mb: 1, flexGrow: 1 }} noWrap>
-                                  {record.employeeName || "Loading…"}
+                                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, lineHeight: 1.25 }} noWrap title={name}>
+                                  {name}
                                 </Typography>
-                                {record.parentGroup && record.typeName ? (
-                                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.4 }}>
-                                    <Chip
-                                      label={record.parentGroup}
-                                      size="small"
-                                      sx={{ height: 18, fontSize: "0.65rem", fontWeight: 600, color: alpha(catColor, 0.85), bgcolor: alpha(catColor, 0.06), border: `1px solid ${alpha(catColor, 0.18)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
-                                    />
-                                    <Chip
-                                      label={record.typeName}
-                                      size="small"
-                                      sx={{ height: 20, fontSize: "0.7rem", fontWeight: 700, color: catColor, bgcolor: alpha(catColor, 0.1), border: `1px solid ${alpha(catColor, 0.28)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
-                                    />
-                                  </Box>
-                                ) : (
-                                  <Chip
-                                    label={record.categoryLabel || "Unassigned"}
-                                    size="small"
-                                    sx={{ height: 20, fontSize: "0.7rem", fontWeight: 600, color: catColor, bgcolor: alpha(catColor, 0.08), border: `1px solid ${alpha(catColor, 0.25)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
+                                <Typography sx={{ fontSize: "0.68rem", color: T.faint, mb: 0.85 }}>
+                                  Emp. No. {record.employeeNumber}
+                                </Typography>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                                  <Box
+                                    sx={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: "50%",
+                                      bgcolor: catColor,
+                                      flexShrink: 0,
+                                      border: "1px solid rgba(0,0,0,0.08)",
+                                    }}
                                   />
-                                )}
+                                  <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }} noWrap>
+                                    {groupLabel ? `${groupLabel} · ${typeLabel}` : typeLabel}
+                                  </Typography>
+                                </Box>
                               </Box>
                             </Grid>
                           );
@@ -2018,43 +2396,83 @@ const EmploymentCategoryManagement = () => {
                       </Grid>
                     ) : (
                       <>
-                        <Box sx={{ px: 1.5, py: 1, display: "grid", gridTemplateColumns: "110px 1fr 80px 120px", gap: 1, alignItems: "center", bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1 }}>
-                          {["Emp. No", "Employee", "Group", "Type"].map((col) => (
-                            <Typography key={col} sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.07em" }}>{col}</Typography>
+                        <Box
+                          sx={{
+                            px: 2.5,
+                            py: 1.1,
+                            display: "grid",
+                            gridTemplateColumns: "minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1.2fr)",
+                            gap: 1.5,
+                            alignItems: "center",
+                            bgcolor: T.accent,
+                            position: "sticky",
+                            top: 0,
+                            zIndex: 2,
+                          }}
+                        >
+                          {["Employee", "Employment Classification", "Category Type"].map((col) => (
+                            <Typography
+                              key={col}
+                              sx={{
+                                fontSize: "0.6rem",
+                                fontWeight: 700,
+                                color: "#fff",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.07em",
+                              }}
+                            >
+                              {col}
+                            </Typography>
                           ))}
                         </Box>
                         {pagedData.map((record, idx) => {
                           const cfg = getTypeConfig(record.employmentCategory);
-                          const catColor = cfg?.colorHex || record.colorHex || "#757575";
+                          const catColor = cfg?.colorHex || record.colorHex || T.accent;
+                          const name = record.employeeName || "Loading…";
                           return (
                             <Box
                               key={record.id}
                               onClick={() => handleOpenModal(record)}
                               sx={{
-                                px: 1.5, py: 1.25,
+                                px: 2.5,
+                                py: 1.25,
                                 display: "grid",
-                                gridTemplateColumns: "110px 1fr 80px 120px",
-                                gap: 1,
+                                gridTemplateColumns: "minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1.2fr)",
+                                gap: 1.5,
                                 alignItems: "center",
-                                borderRadius: 1.5,
                                 cursor: "pointer",
-                                bgcolor: idx % 2 === 0 ? T.rowEven : T.rowOdd,
-                                border: "1px solid transparent",
-                                transition: "background 0.13s ease",
+                                bgcolor: idx % 2 === 0 ? "#fff" : T.rowOdd,
+                                borderBottom: `1px solid ${T.divider}`,
+                                transition: "background 0.12s",
                                 "&:hover": { bgcolor: T.rowHover },
                               }}
                             >
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                                <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: catColor, flexShrink: 0 }} />
-                                <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>{record.employeeNumber}</Typography>
+                              <Box sx={{ minWidth: 0 }}>
+                                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.text }} noWrap>
+                                  {name}
+                                </Typography>
+                                <Typography sx={{ fontSize: "0.65rem", color: T.faint }}>
+                                  Emp. No. {record.employeeNumber}
+                                </Typography>
                               </Box>
-                              <Typography sx={{ fontSize: "0.82rem", fontWeight: 500, color: T.text }} noWrap>{record.employeeName || "Loading…"}</Typography>
-                              <Typography sx={{ fontSize: "0.72rem", color: T.muted }} noWrap>{record.parentGroup || "—"}</Typography>
-                              <Chip
-                                label={record.typeName || record.categoryLabel || "—"}
-                                size="small"
-                                sx={{ height: 20, fontSize: "0.68rem", fontWeight: 600, color: catColor, bgcolor: alpha(catColor, 0.08), border: `1px solid ${alpha(catColor, 0.25)}`, borderRadius: "4px", "& .MuiChip-label": { px: 0.75 } }}
-                              />
+                              <Typography sx={{ fontSize: "0.75rem", color: T.muted }} noWrap>
+                                {record.parentGroup || "—"}
+                              </Typography>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.85, minWidth: 0 }}>
+                                <Box
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: "50%",
+                                    bgcolor: catColor,
+                                    flexShrink: 0,
+                                    border: "1px solid rgba(0,0,0,0.08)",
+                                  }}
+                                />
+                                <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: T.text }} noWrap>
+                                  {record.typeName || record.categoryLabel || "—"}
+                                </Typography>
+                              </Box>
                             </Box>
                           );
                         })}
@@ -2084,21 +2502,11 @@ const EmploymentCategoryManagement = () => {
 
           {/* ── Tab 1: Manage Types ── */}
           {activeTab === 1 && (
-            <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
-              <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
-                <SettingsIcon sx={{ fontSize: 15, color: T.accent }} />
-                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Employment Type Configuration</Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>
-                  {typeConfigs.length} type{typeConfigs.length !== 1 ? "s" : ""} configured across {[...new Set(typeConfigs.map(t => t.parentGroup))].length} group{[...new Set(typeConfigs.map(t => t.parentGroup))].length !== 1 ? "s" : ""}
-                </Typography>
-              </Box>
-              <ManageTypesTab
-                typeConfigs={typeConfigs}
-                onRefresh={handleRefreshAll}
-                showSnackbar={showSnackbar}
-              />
-            </SectionCard>
+            <ManageTypesTab
+              typeConfigs={typeConfigs}
+              onRefresh={handleRefreshAll}
+              showSnackbar={showSnackbar}
+            />
           )}
 
           {/* ── Tab 2: Deduction policy (per employment type) ── */}
@@ -2106,10 +2514,10 @@ const EmploymentCategoryManagement = () => {
             <SectionCard sx={{ height: "calc(100vh - 320px)", display: "flex", flexDirection: "column" }}>
               <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: "flex", alignItems: "center", gap: 1.5, bgcolor: T.accentFaint, flexShrink: 0 }}>
                 <DeductionPolicyIcon sx={{ fontSize: 15, color: T.accent }} />
-                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Attendance deduction policy</Typography>
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>Leave Deduction Policy</Typography>
                 <Box sx={{ flex: 1 }} />
                 <Typography sx={{ fontSize: "0.72rem", color: T.muted, maxWidth: 420, textAlign: "right", display: { xs: "none", md: "block" } }}>
-                  Maps each employment type to leave types allowed in Earnings (absence / half-day / tardiness).
+                  Map each employment category to leave types used for absence, half-day, and tardiness.
                 </Typography>
               </Box>
               <DeductionPolicyTab typeConfigs={typeConfigs} showSnackbar={showSnackbar} />
@@ -2157,7 +2565,7 @@ const EmploymentCategoryManagement = () => {
                         </Box>
                         <Box>
                           <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.95rem", lineHeight: 1.2, mb: 0.3 }}>
-                            {isEditing ? "Edit Category" : "Category Details"}
+                            {isEditing ? "Edit Assignment" : "Employee Assignment"}
                           </Typography>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                             <Typography sx={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.68)" }}>
@@ -2178,7 +2586,6 @@ const EmploymentCategoryManagement = () => {
                     </Box>
 
                     <Box sx={{ px: 3.5, py: 3, overflowY: "auto", flexGrow: 1, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
-                      <Divider sx={{ mb: 2.5, borderColor: T.divider }} />
                       <Grid container spacing={2.5}>
                         <Grid item xs={12} sm={5}>
                           <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: T.accent, mb: 0.75 }}>Employee</Typography>
@@ -2221,10 +2628,22 @@ const EmploymentCategoryManagement = () => {
                           )}
                         </Grid>
                         <Grid item xs={12}>
-                          <Box sx={{ p: 1.5, bgcolor: alpha(editRecord.colorHex || T.accent, 0.04), borderRadius: 2, border: `1px dashed ${alpha(editRecord.colorHex || T.accent, 0.2)}`, display: "flex", alignItems: "center", gap: 1 }}>
-                            <LabelIcon sx={{ fontSize: 14, color: editRecord.colorHex || T.accent }} />
-                            <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>Label shown in other modules:</Typography>
-                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: editRecord.colorHex || T.accent }}>
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              bgcolor: T.accentFaint,
+                              borderRadius: 2,
+                              border: `1px solid ${T.accentBorder}`,
+                              borderLeft: `3px solid ${editRecord.colorHex || T.accent}`,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <LabelIcon sx={{ fontSize: 14, color: T.accent }} />
+                            <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>Label in other modules:</Typography>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text }}>
                               {editRecord.parentGroup && editRecord.typeName
                                 ? `${editRecord.parentGroup} | ${editRecord.typeName}`
                                 : editRecord.categoryLabel || "—"}
@@ -2251,7 +2670,7 @@ const EmploymentCategoryManagement = () => {
                             startIcon={<EditIcon sx={{ fontSize: "14px !important" }} />}
                             sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, "&:hover": { bgcolor: T.accentDark } }}
                           >
-                            Edit Record
+                            Edit Assignment
                           </AccentButton>
                         </>
                       ) : (

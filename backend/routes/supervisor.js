@@ -915,6 +915,16 @@ router.get('/api/supervisor-dtr/context/me', authenticateToken, async (req, res)
  * GET /api/supervisor-dtr/employees/me
  * All employees in the supervisor's assigned department(s) (department_assignment).
  * startDate/endDate are accepted for client compatibility; attendance is loaded separately.
+ *
+ * [CHANGE] READ-ONLY VIEWING AFTER EXPIRY: this route now passes
+ * { includeExpired: true } to fetchSupervisorDepartments(), so a supervisor
+ * whose supervisor_assignment window has lapsed (status flipped to 1 by the
+ * expireSupervisorAssignments() cron job) can still see their former
+ * department's employee list here. This endpoint is GET-only and never
+ * mutates data, so surfacing it after expiry does not grant any write
+ * capability — official time create/edit/upload endpoints separately call
+ * ensureActiveSupervisorAssignment() and will still reject an expired
+ * supervisor with a 403, regardless of what this endpoint returns.
  */
 router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervisorModuleAccess(DTR_SUPERVISOR_IDENTIFIER), async (req, res) => {
   const { departmentCode } = req.query;
@@ -923,7 +933,9 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
     const actorEmployeeNumber = await resolveActorEmployeeNumber(req);
     if (!actorEmployeeNumber) return res.json([]);
 
-    const { departments } = await fetchSupervisorDepartments(actorEmployeeNumber);
+    // [CHANGE] includeExpired: true — view-only list stays populated even
+    // after the assignment's end date has passed.
+    const { departments } = await fetchSupervisorDepartments(actorEmployeeNumber, { includeExpired: true });
     if (!departments.length) return res.json([]);
 
     let codes = departments.map((d) => d.code);

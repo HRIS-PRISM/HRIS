@@ -98,6 +98,7 @@ import OfficialTimeForm from './OfficialTimeForm';
 import DtrSavedSummaryPanel from './DtrSavedSummaryPanel';
 import AttendanceComputationDrawer from './AttendanceComputationDrawer';
 import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import {
   resolveDrawerFromComputationModule,
   HUB_COMPUTATION_BUTTONS,
@@ -111,9 +112,10 @@ import {
   isDtrHalfDayLateUndertimePending,
   parseHalfDayDatesSet,
   getDayNameFromYmd,
+  DTR_COMPUTED_LATE_UPDATE_EVENT,
+  DTR_COMPUTED_LATE_STORAGE_KEY,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
-import { computeAndApplyModuleLateUndertime } from '../../utils/computeModuleLateUndertimeForDtr';
 import {
   buildReviewByDate,
   parseHalfDayReviewJson,
@@ -142,6 +144,7 @@ import {
   findApprovedLeaveForDate,
   isDtrCalendarBannerRow,
 } from '../../utils/dtrFormatHelpers';
+import { calendarAppliesToBranch } from '../../constants/branches';
 const COMPUTATION_DRAWER_KEYS = new Set([
   'nonTeaching',
   'faculty30',
@@ -215,8 +218,33 @@ const scopeForModuleType = (mod) => {
 };
 
 /**
+ * Employment category → personnel_scope when computation_module_type is not
+ * yet loaded for this employee/period (common before Save-to-Summary).
+ * 3 = Teaching 30hrs, 4 = Designated 40hrs → academic;
+ * 0/1 JO + 2 Regular Non-Teaching → non_teaching.
+ */
+const scopeForEmploymentCategory = (cat) => {
+  if (cat == null || cat === '') return null;
+  const n = Number(cat);
+  if (n === 3 || n === 4) return 'academic';
+  if (n === 0 || n === 1 || n === 2) return 'non_teaching';
+  return null;
+};
+
+const resolveEmployeeSuspensionScope = (moduleType, employmentCategory) => {
+  // Prefer the attendance module actually applied on this DTR (badge:
+  // "Academic | 40 Hours") over employment category — category can be stale
+  // or wrong and was letting Non-Teaching-only suspensions paint on Academic DTRs.
+  const fromMod = scopeForModuleType(moduleType);
+  if (fromMod) return fromMod;
+  return scopeForEmploymentCategory(employmentCategory);
+};
+
+/**
  * A suspension applies to this employee's DTR only if its personnel_scope
  * is "all", or matches the employee's resolved scope exactly.
+ * If scope is still unknown, only "all" suspensions show — never leak a
+ * Non-Teaching-only / Academic-only marker onto the wrong DTR.
  * DTR-DISPLAY ONLY.
  */
 const suspensionAppliesToScope = (susp, employeeScope) => {
@@ -225,6 +253,23 @@ const suspensionAppliesToScope = (susp, employeeScope) => {
   if (scope === 'all') return true;
   if (!employeeScope) return false;
   return scope === employeeScope;
+};
+
+/** Prefer exact-scope match over "all", then newer id. */
+const pickSuspensionForEmployee = (list, employeeScope) => {
+  const matches = (list || []).filter((s) =>
+    suspensionAppliesToScope(s, employeeScope),
+  );
+  if (!matches.length) return null;
+  matches.sort((a, b) => {
+    const aExact =
+      employeeScope && (a.personnel_scope || 'all') === employeeScope ? 1 : 0;
+    const bExact =
+      employeeScope && (b.personnel_scope || 'all') === employeeScope ? 1 : 0;
+    if (bExact !== aExact) return bExact - aExact;
+    return (Number(b.id) || 0) - (Number(a.id) || 0);
+  });
+  return matches[0];
 };
 
 const formatOfficialClock = (timeString, formatTimeFn) => {
@@ -564,9 +609,11 @@ const getAuthHeaders = () => {
 };
 
 /** Employees per attendance API request (by employeeNumbers — no SQL re-rank). */
-const ATTENDANCE_CHUNK = 60;
+const ATTENDANCE_CHUNK = 80;
 /** Parallel attendance chunk requests while hydrating the table. */
-const ATTENDANCE_CONCURRENCY = 6;
+const ATTENDANCE_CONCURRENCY = 8;
+/** Skip holiday/suspension refresh for quiet/recent batch loads. */
+const HOLIDAY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** YYYY-MM-DD as a Philippines calendar day */
 const toPhCalendarYmd = (value) => {
@@ -598,10 +645,28 @@ const toPhCalendarYmd = (value) => {
 
 const normRecordYmd = (dateVal) => toPhCalendarYmd(dateVal);
 
-const recordMatchesDay = (record, dayPadded) => {
+/**
+ * Match an attendance row to a calendar day in the DTR month grid.
+ * Must compare the full YYYY-MM-DD — matching only "-11" lets an Aug/Oct 11
+ * (or any other month's 11th) steal September 11 and hide that day's
+ * suspension/holiday/leave indicator.
+ */
+const recordMatchesDay = (record, expectedYmd) => {
+  if (!expectedYmd) return false;
   const ymd = normRecordYmd(record?.date);
-  if (!ymd || dayPadded.length !== 2) return false;
-  return ymd.endsWith(`-${dayPadded}`);
+  return Boolean(ymd) && ymd === expectedYmd;
+};
+
+/** Build YYYY-MM-DD for day "01"…"31" from the DTR period being viewed. */
+const expectedYmdForDay = (dayPadded, startDate, selectedYear, selectedMonth) => {
+  if (startDate && /^\d{4}-\d{2}/.test(String(startDate))) {
+    const [y, m] = String(startDate).split('-');
+    if (y && m) return `${y}-${m}-${dayPadded}`;
+  }
+  if (selectedMonth != null && Number.isFinite(selectedYear)) {
+    return `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${dayPadded}`;
+  }
+  return null;
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────
@@ -714,7 +779,6 @@ const DailyTimeRecordFaculty = ({
   const [moduleDrawer, setModuleDrawer] = useState(null);
   /** Last opened computation module — kept after drawer closes so Save to Summary stays enabled */
   const [activeComputationDrawer, setActiveComputationDrawer] = useState(null);
-  const [lateComputeLoading, setLateComputeLoading] = useState(null);
   const [computationSaveSignal, setComputationSaveSignal] = useState(0);
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
   /** Bumped after Attendance Modification saves so computation modules remount + refetch. */
@@ -1207,10 +1271,15 @@ const DailyTimeRecordFaculty = ({
         ...prev,
         [key]: buildReviewByDate(parseHalfDayReviewJson(half_day_review)),
       }));
-      setComputationModuleTypeByEmployee((prev) => ({
-        ...prev,
-        [key]: computation_module_type || MODULE_TYPES.NON_TEACHING,
-      }));
+      setComputationModuleTypeByEmployee((prev) => {
+        // Skip null/unknown — a missing overall row must not become NON_TEACHING
+        // for suspension scope filtering (that made Academic markers vanish after load).
+        if (!computation_module_type) return prev;
+        return {
+          ...prev,
+          [key]: computation_module_type,
+        };
+      });
     },
     [startDate, endDate],
   );
@@ -1300,11 +1369,16 @@ const DailyTimeRecordFaculty = ({
     setSummaryRefreshKey((k) => k + 1);
     setActiveComputationDrawer(null);
     setModuleDrawer(null);
-    if (personID) {
+    setAttendanceRevision((n) => n + 1);
+    if (personID && startDate && endDate) {
       try {
-        await loadComputedLateForEmployee(personID);
+        await Promise.allSettled([
+          loadComputedLateForEmployee(personID),
+          fetchOfficialTimes(personID, startDate, endDate),
+          Promise.resolve(fetchRecordsRef.current?.()),
+        ]);
       } catch (err) {
-        console.error('Failed to refresh late/undertime after summary save:', err);
+        console.error('Failed to refresh hub after summary save:', err);
       }
     }
     setSnackbar({
@@ -1312,95 +1386,52 @@ const DailyTimeRecordFaculty = ({
       message: 'Attendance summary saved. Totals are now shown below.',
       severity: 'success',
     });
-  }, [personID, loadComputedLateForEmployee]);
+  }, [personID, startDate, endDate, loadComputedLateForEmployee, fetchOfficialTimes]);
 
-  const applyModuleLateUndertime = useCallback(
-    async (moduleType) => {
-      if (!moduleType) return;
-      if (!personID || !startDate || !endDate) {
-        setSnackbar({
-          open: true,
-          message: 'Select an employee and month first.',
-          severity: 'warning',
-        });
-        return;
-      }
-      if (!hasSearchedSingle) {
-        setSnackbar({
-          open: true,
-          message: 'Load the DTR for this employee first.',
-          severity: 'warning',
-        });
-        return;
-      }
-      if (!hasOfficialTimeSchedule) {
-        setSnackbar({
-          open: true,
-          message:
-            'No Official Time schedule found. Open Official Time to set it up first.',
-          severity: 'warning',
-        });
-        setModuleDrawer('officialTime');
-        return;
-      }
-      setLateComputeLoading(moduleType);
-      try {
-        const result = await computeAndApplyModuleLateUndertime({
-          personID,
-          startDate,
-          endDate,
-          moduleType,
-        });
-        const key = String(personID);
-        setComputedLateByEmployee((prev) => ({
-          ...prev,
-          [key]: result.byDate || {},
-        }));
-        setHalfDayDatesByEmployee((prev) => ({
-          ...prev,
-          [key]: parseHalfDayDatesSet(result.halfDayDates),
-        }));
-        setHalfDayReviewByEmployee((prev) => ({
-          ...prev,
-          [key]: buildReviewByDate(
-            parseHalfDayReviewJson(result.half_day_review),
-          ),
-        }));
-        setComputationModuleTypeByEmployee((prev) => ({
-          ...prev,
-          [key]: result.computation_module_type || moduleType,
-        }));
-        const label =
-          HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === moduleType)
-            ?.label || 'Module';
-        setSnackbar({
-          open: true,
-          message: `${label} late/undertime applied to DTR.`,
-          severity: 'success',
-        });
-      } catch (err) {
-        console.error('Module late/undertime compute failed:', err);
-        const msg =
-          err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          'Failed to apply late/undertime.';
-        setSnackbar({ open: true, message: msg, severity: 'error' });
-        if (/official time|no matching official/i.test(String(msg))) {
-          setModuleDrawer('officialTime');
+  /** Refresh DTR punches / OT / late columns after any hub drawer change. */
+  const refreshHubAfterDrawerChange = useCallback(
+    async ({ bumpRevision = true, refetchRecords = true } = {}) => {
+      if (bumpRevision) setAttendanceRevision((n) => n + 1);
+      setSummaryRefreshKey((k) => k + 1);
+      if (!personID || !startDate || !endDate) return;
+      const jobs = [];
+      if (refetchRecords) jobs.push(Promise.resolve(fetchRecordsRef.current?.()));
+      else {
+        jobs.push(fetchOfficialTimes(personID, startDate, endDate));
+        if (dtrType === 'regular') {
+          jobs.push(loadComputedLateForEmployee(personID));
         }
-      } finally {
-        setLateComputeLoading(null);
       }
+      await Promise.allSettled(jobs);
     },
     [
       personID,
       startDate,
       endDate,
-      hasSearchedSingle,
-      hasOfficialTimeSchedule,
+      dtrType,
+      fetchOfficialTimes,
+      loadComputedLateForEmployee,
     ],
   );
+
+  const closeHubDrawer = useCallback(
+    (opts) => {
+      setModuleDrawer(null);
+      void refreshHubAfterDrawerChange(opts);
+    },
+    [refreshHubAfterDrawerChange],
+  );
+
+  const openHubToolFromModule = useCallback((toolKey) => {
+    if (toolKey === 'officialTime' || toolKey === 'modification') {
+      setModuleDrawer(toolKey);
+      return;
+    }
+    if (COMPUTATION_DRAWER_KEYS.has(toolKey)) {
+      setActiveComputationDrawer(toolKey);
+      setModuleDrawer(toolKey);
+    }
+  }, []);
 
   const loadComputedLateBatch = useCallback(
     async (employeeNumbers) => {
@@ -1427,24 +1458,42 @@ const DailyTimeRecordFaculty = ({
     [startDate, endDate],
   );
 
-  // ─── Static data on mount ──────────────────────────────────────────────
+  // ─── Static data on mount + refresh helper ─────────────────────────────
+  const holidaysCacheAtRef = useRef(0);
+  const refreshHolidaysAndSuspensions = useCallback(async ({ force = false } = {}) => {
+    const now = Date.now();
+    if (
+      !force &&
+      holidaysCacheAtRef.current > 0 &&
+      now - holidaysCacheAtRef.current < HOLIDAY_CACHE_TTL_MS
+    ) {
+      return;
+    }
+    try {
+      const [hRes, sRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()),
+        axios.get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders()),
+      ]);
+      setHolidays(Array.isArray(hRes.data) ? hRes.data : []);
+      setSuspensions(Array.isArray(sRes.data) ? sRes.data : []);
+      holidaysCacheAtRef.current = Date.now();
+    } catch (e) {
+      console.error('Error fetching holidays/suspensions:', e);
+    }
+  }, []);
+
   useEffect(() => {
     const fetchAllStaticData = async () => {
       try {
         const deptRes = await axios.get(`${API_BASE_URL}/api/department-table`, getAuthHeaders());
         setDepartments(Array.isArray(deptRes.data) ? deptRes.data : []);
-        const [hRes, sRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/holiday`, getAuthHeaders()),
-          axios.get(`${API_BASE_URL}/api/suspensions`, getAuthHeaders()),
-        ]);
-        setHolidays(Array.isArray(hRes.data) ? hRes.data : []);
-        setSuspensions(Array.isArray(sRes.data) ? sRes.data : []);
+        await refreshHolidaysAndSuspensions();
       } catch (e) {
         console.error('Error fetching static data:', e);
       }
     };
     fetchAllStaticData();
-  }, []);
+  }, [refreshHolidaysAndSuspensions]);
 
   const filterByDtrType = (data, type) => {
     if (type === 'regular') return data.filter((r) => r.timeIN || r.timeOUT);
@@ -1470,7 +1519,12 @@ const DailyTimeRecordFaculty = ({
   // ─── Single user fetch ─────────────────────────────────────────────────
   const fetchRecords = useCallback(async () => {
     setMonthLoading(true);
+    // Avoid showing the previous employee's schedule while this fetch is in flight.
+    setOfficialTimes({});
     try {
+      // Always re-pull calendar overlays — suspensions added in Announcements
+      // while this page stayed mounted would otherwise stay missing.
+      await refreshHolidaysAndSuspensions();
       const r = await axios.post(
         `${API_BASE_URL}/attendance/api/view-attendance`,
         { personID, startDate, endDate },
@@ -1523,6 +1577,7 @@ const DailyTimeRecordFaculty = ({
     fetchOfficialTimes,
     fetchApprovedLeaves,
     loadComputedLateForEmployee,
+    refreshHolidaysAndSuspensions,
   ]);
 
   useEffect(() => {
@@ -1545,7 +1600,20 @@ const DailyTimeRecordFaculty = ({
   ]);
 
   useEffect(() => {
-    if (viewMode === 'multiple' && allUsersDTR.length > 0) fetchAllUsersDTR();
+    if (viewMode !== 'multiple' || allUsersDTR.length === 0) return;
+    // Re-filter already-loaded raw attendance — no full server refetch.
+    setAllUsersDTR((prev) =>
+      prev.map((u) => {
+        const raw = Array.isArray(u.rawRecords) ? u.rawRecords : u.records || [];
+        const filtered = filterByDtrType(raw, dtrType);
+        return {
+          ...u,
+          records: filtered,
+          hasRecords: filtered.length > 0,
+        };
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dtrType]);
 
   useEffect(() => {
@@ -1559,6 +1627,30 @@ const DailyTimeRecordFaculty = ({
     loadComputedLateForEmployeeRef.current = loadComputedLateForEmployee;
     loadComputedLateBatchRef.current = loadComputedLateBatch;
   });
+
+  // Keep DTR late/undertime columns in sync when a computation module persists.
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event?.key && event.key !== DTR_COMPUTED_LATE_STORAGE_KEY) return;
+      if (!personID || !startDate || !endDate) return;
+      loadComputedLateForEmployeeRef.current?.(personID);
+      setSummaryRefreshKey((k) => k + 1);
+    };
+    const handleComputedLateUpdated = () => {
+      if (!personID || !startDate || !endDate) return;
+      loadComputedLateForEmployeeRef.current?.(personID);
+      setSummaryRefreshKey((k) => k + 1);
+    };
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(DTR_COMPUTED_LATE_UPDATE_EVENT, handleComputedLateUpdated);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(
+        DTR_COMPUTED_LATE_UPDATE_EVENT,
+        handleComputedLateUpdated,
+      );
+    };
+  }, [personID, startDate, endDate]);
 
   // ─── Socket realtime ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1666,9 +1758,19 @@ const DailyTimeRecordFaculty = ({
       );
     };
     socket.on('attendanceChanged', handleAttendanceChanged);
+
+    const handleAdminDashboardUpdated = (payload) => {
+      const src = payload?.source;
+      if (src === 'suspensions' || src === 'holidays' || src === 'holiday') {
+        refreshHolidaysAndSuspensions();
+      }
+    };
+    socket.on('adminDashboardUpdated', handleAdminDashboardUpdated);
+
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       socket.off('attendanceChanged', handleAttendanceChanged);
+      socket.off('adminDashboardUpdated', handleAdminDashboardUpdated);
     };
   }, [
     socket,
@@ -1679,6 +1781,7 @@ const DailyTimeRecordFaculty = ({
     endDate,
     allUsersDTR.length,
     hasSearchedSingle,
+    refreshHolidaysAndSuspensions,
   ]);
 
   // Refetch when user returns to this tab (missed socket while elsewhere)
@@ -1691,6 +1794,7 @@ const DailyTimeRecordFaculty = ({
       }
       // Ignore quick alt-tab flicker; only refresh after being away briefly
       if (!hiddenAt || Date.now() - hiddenAt < 2000) return;
+      refreshHolidaysAndSuspensions();
       if (viewMode === 'single') {
         if (hasSearchedSingle && personID && startDate && endDate) {
           fetchRecordsRef.current?.();
@@ -1711,6 +1815,7 @@ const DailyTimeRecordFaculty = ({
     endDate,
     allUsersDTR.length,
     hasSearchedSingle,
+    refreshHolidaysAndSuspensions,
   ]);
 
   // ─── Batch fetch ───────────────────────────────────────────────────────
@@ -1740,16 +1845,19 @@ const DailyTimeRecordFaculty = ({
     }
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
-      // Names only first — dept/category come from maps already loaded on mount.
-      const empRes = await axios
-        .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
-          params: { startDate, endDate, skipAudit: '1' },
-          ...cfg(),
-        })
-        .catch((e) => {
-          if (!signal.aborted) console.warn('emp list:', e.message);
-          return { data: [] };
-        });
+      // Holidays + employee list in parallel (holiday/suspension uses short TTL cache).
+      const [, empRes] = await Promise.all([
+        refreshHolidaysAndSuspensions(),
+        axios
+          .get(`${API_BASE_URL}/attendance/api/dtr-employee-list`, {
+            params: { startDate, endDate, skipAudit: '1' },
+            ...cfg(),
+          })
+          .catch((e) => {
+            if (!signal.aborted) console.warn('emp list:', e.message);
+            return { data: [] };
+          }),
+      ]);
       if (signal.aborted) return;
 
       const empList = empRes.data || [];
@@ -1774,6 +1882,8 @@ const DailyTimeRecordFaculty = ({
         const empKey = String(empNum);
         const deptCode = departmentAssignmentsMap[empKey] || '';
         const empCat = empCatMap[empKey]?.employmentCategory;
+        const empBranch =
+          emp.branch != null && emp.branch !== '' ? Number(emp.branch) : null;
         const displayName =
           emp.firstName && emp.lastName
             ? formatFullName({
@@ -1792,7 +1902,9 @@ const DailyTimeRecordFaculty = ({
           registrationStatus: emp.registrationStatus || 'Not Registered',
           departmentCode: deptCode,
           employmentCategory: empCat,
+          branch: empBranch,
           records: [],
+          rawRecords: [],
           hasRecords: false,
           _loading: true,
           rawUser: {
@@ -1802,13 +1914,13 @@ const DailyTimeRecordFaculty = ({
             middleName: emp.middleName,
             departmentCode: deptCode,
             employmentCategory: empCat,
+            branch: empBranch,
             registrationStatus: emp.registrationStatus || 'Not Registered',
           },
         };
       });
 
       if (quiet) {
-        // Keep existing rows/records on screen; replace only as chunks arrive
         setAllUsersDTR((prev) => {
           const prevById = new Map(
             prev.map((u) => [String(u.employeeNumber), u]),
@@ -1819,6 +1931,7 @@ const DailyTimeRecordFaculty = ({
             return {
               ...u,
               records: existing.records || [],
+              rawRecords: existing.rawRecords || existing.records || [],
               hasRecords: existing.hasRecords,
               _loading: false,
             };
@@ -1835,80 +1948,10 @@ const DailyTimeRecordFaculty = ({
       );
 
       const empNums = skeletonUsers.map((u) => u.employeeNumber);
-      const chunks = [];
-      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
-        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
-      }
-
-      let hydrated = 0;
-      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
-        if (signal.aborted) break;
-        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
-        const batchRows = await Promise.all(
-          batch.map(async (chunk) => {
-            if (signal.aborted) return [];
-            try {
-              const pageRes = await axios.post(
-                `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-                {
-                  startDate,
-                  endDate,
-                  employeeNumbers: chunk,
-                  skipCount: true,
-                  skipAudit: true,
-                },
-                cfg(),
-              );
-              return pageRes.data?.data || [];
-            } catch (e) {
-              if (!signal.aborted)
-                console.error('Attendance chunk fetch failed:', e.message);
-              return [];
-            }
-          }),
-        );
-        if (signal.aborted) return;
-
-        const pageMap = new Map();
-        batchRows.flat().forEach((record) => {
-          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
-          if (!id) return;
-          if (!pageMap.has(id)) pageMap.set(id, []);
-          pageMap.get(id).push(record);
-        });
-
-        hydrated += batch.reduce((n, c) => n + c.length, 0);
-        setLoadPhase(
-          `${quiet ? 'Refreshing' : 'Loading'} attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
-        );
-
-        setAllUsersDTR((prev) =>
-          prev.map((user) => {
-            const key = String(user.employeeNumber);
-            if (!pageMap.has(key)) return user;
-            const rows = pageMap.get(key);
-            const filtered = filterByDtrType(rows, dtrType);
-            return {
-              ...user,
-              records: filtered,
-              hasRecords: filtered.length > 0,
-              _loading: false,
-            };
-          }),
-        );
-      }
-
-      if (signal.aborted) return;
-
-      setAllUsersDTR((prev) =>
-        prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
-      );
-      setLoadPhase('');
-
       const empListIds = empList.map((e) => e.personID);
 
-      // Secondary data — after names are visible (official time, print status, late)
-      Promise.all([
+      // Kick off OT / late / print-status while attendance chunks load.
+      const secondaryPromise = Promise.all([
         fetchBatchOfficialTimes(empNums, startDate, endDate),
         axios
           .post(
@@ -1937,6 +1980,93 @@ const DailyTimeRecordFaculty = ({
       ]).catch((e) => {
         if (!signal.aborted) console.warn('DTR batch secondary load:', e);
       });
+
+      const chunks = [];
+      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
+        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
+      }
+
+      // Accumulate chunk maps; flush to React every other concurrency round.
+      let pendingPageMap = new Map();
+      let hydrated = 0;
+      let flushRound = 0;
+      const flushPending = () => {
+        if (!pendingPageMap.size) return;
+        const pageMap = pendingPageMap;
+        pendingPageMap = new Map();
+        setAllUsersDTR((prev) =>
+          prev.map((user) => {
+            const key = String(user.employeeNumber);
+            if (!pageMap.has(key)) return user;
+            const rows = pageMap.get(key);
+            const filtered = filterByDtrType(rows, dtrType);
+            return {
+              ...user,
+              rawRecords: rows,
+              records: filtered,
+              hasRecords: filtered.length > 0,
+              _loading: false,
+            };
+          }),
+        );
+      };
+
+      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
+        if (signal.aborted) break;
+        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
+        const batchRows = await Promise.all(
+          batch.map(async (chunk) => {
+            if (signal.aborted) return [];
+            try {
+              const pageRes = await axios.post(
+                `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
+                {
+                  startDate,
+                  endDate,
+                  employeeNumbers: chunk,
+                  skipCount: true,
+                  skipAudit: true,
+                },
+                cfg(),
+              );
+              return pageRes.data?.data || [];
+            } catch (e) {
+              if (!signal.aborted)
+                console.error('Attendance chunk fetch failed:', e.message);
+              return [];
+            }
+          }),
+        );
+        if (signal.aborted) return;
+
+        batchRows.flat().forEach((record) => {
+          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
+          if (!id) return;
+          if (!pendingPageMap.has(id)) pendingPageMap.set(id, []);
+          pendingPageMap.get(id).push(record);
+        });
+
+        hydrated += batch.reduce((n, c) => n + c.length, 0);
+        setLoadPhase(
+          `${quiet ? 'Refreshing' : 'Loading'} attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+        );
+
+        flushRound += 1;
+        // Flush every round for small lists; every 2nd for large ones.
+        if (chunks.length <= 2 || flushRound % 2 === 0 || i + ATTENDANCE_CONCURRENCY >= chunks.length) {
+          flushPending();
+        }
+      }
+
+      if (signal.aborted) return;
+      flushPending();
+
+      setAllUsersDTR((prev) =>
+        prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
+      );
+      setLoadPhase('');
+
+      await secondaryPromise;
     } catch (error) {
       if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('fetchAllUsersDTR error:', error);
@@ -1963,6 +2093,7 @@ const DailyTimeRecordFaculty = ({
     loadComputedLateBatch,
     departmentAssignmentsMap,
     empCatMap,
+    refreshHolidaysAndSuspensions,
   ]);
 
   useEffect(() => {
@@ -2106,7 +2237,7 @@ const DailyTimeRecordFaculty = ({
         return full.includes(q) || emp.includes(q) || device.includes(q);
       });
     }
-    return filtered;
+    return sortEmployeesByLastName(filtered, (u) => u.fullName || u.lastName || u);
   }, [
     allUsersDTR,
     recordFilter,
@@ -2288,21 +2419,25 @@ const DailyTimeRecordFaculty = ({
     }
   };
 
-  /** Mount a single off-screen DTR, wait for ref, capture, then unmount. */
-  const mountAndCaptureUserDtr = async (user, scale = 2) => {
+  /** Mount/swap an off-screen DTR, wait for ref, capture. Keep mounted between users when keepMounted. */
+  const mountAndCaptureUserDtr = async (
+    user,
+    scale = 2,
+    { keepMounted = false } = {},
+  ) => {
     if (!user?.employeeNumber) throw new Error('Invalid user for DTR capture');
     setCaptureUser(user);
     await new Promise((r) => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => setTimeout(r, 40));
+        requestAnimationFrame(() => setTimeout(r, 16));
       });
     });
 
     const empKey = String(user.employeeNumber);
     const started = Date.now();
     let ref = bulkDTRRefs.current[empKey];
-    while (!ref && Date.now() - started < 8000) {
-      await new Promise((r) => setTimeout(r, 30));
+    while (!ref && Date.now() - started < 5000) {
+      await new Promise((r) => setTimeout(r, 16));
       ref = bulkDTRRefs.current[empKey];
     }
     if (!ref) throw new Error(`DTR element not found for ${empKey}`);
@@ -2310,9 +2445,13 @@ const DailyTimeRecordFaculty = ({
     try {
       return await captureDtrElement(ref, scale);
     } finally {
-      setCaptureUser(null);
-      delete bulkDTRRefs.current[empKey];
-      await new Promise((r) => setTimeout(r, 0));
+      if (!keepMounted) {
+        setCaptureUser(null);
+        delete bulkDTRRefs.current[empKey];
+        await new Promise((r) => setTimeout(r, 0));
+      } else {
+        delete bulkDTRRefs.current[empKey];
+      }
     }
   };
 
@@ -2482,7 +2621,7 @@ const DailyTimeRecordFaculty = ({
         pw = pdf.internal.pageSize.getWidth(),
         ph = pdf.internal.pageSize.getHeight();
       const captureScale =
-        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
+        previewUsers.length >= 40 ? 0.9 : previewUsers.length >= 20 ? 1.05 : 1.2;
       let successCount = 0;
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
@@ -2492,9 +2631,11 @@ const DailyTimeRecordFaculty = ({
           );
         }
         try {
-          const canvas = await mountAndCaptureUserDtr(user, captureScale);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale, {
+            keepMounted: i < previewUsers.length - 1,
+          });
           if (!canvas || canvas.width === 0) continue;
-          const imgData = canvas.toDataURL('image/jpeg', 0.82);
+          const imgData = canvas.toDataURL('image/jpeg', 0.75);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
           pdf.addImage(
@@ -2509,7 +2650,7 @@ const DailyTimeRecordFaculty = ({
         } catch (e) {
           console.error(`Error capturing ${user.employeeNumber}:`, e);
         }
-        if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+        if ((i + 1) % 8 === 0) await new Promise((r) => setTimeout(r, 0));
       }
       if (successCount === 0)
         throw new Error('No DTRs were successfully captured.');
@@ -2571,7 +2712,7 @@ const DailyTimeRecordFaculty = ({
         pw = pdf.internal.pageSize.getWidth(),
         ph = pdf.internal.pageSize.getHeight();
       const captureScale =
-        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
+        previewUsers.length >= 40 ? 0.9 : previewUsers.length >= 20 ? 1.05 : 1.2;
       let successCount = 0;
       for (let i = 0; i < previewUsers.length; i++) {
         const user = previewUsers[i];
@@ -2581,9 +2722,11 @@ const DailyTimeRecordFaculty = ({
           );
         }
         try {
-          const canvas = await mountAndCaptureUserDtr(user, captureScale);
+          const canvas = await mountAndCaptureUserDtr(user, captureScale, {
+            keepMounted: i < previewUsers.length - 1,
+          });
           if (!canvas || canvas.width === 0) continue;
-          const imgData = canvas.toDataURL('image/jpeg', 0.82);
+          const imgData = canvas.toDataURL('image/jpeg', 0.75);
           if (!imgData || imgData === 'data:,') continue;
           if (successCount > 0) pdf.addPage();
           pdf.addImage(
@@ -2598,7 +2741,7 @@ const DailyTimeRecordFaculty = ({
         } catch (e) {
           console.error(`Error capturing ${user.employeeNumber}:`, e);
         }
-        if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+        if ((i + 1) % 8 === 0) await new Promise((r) => setTimeout(r, 0));
       }
       if (successCount === 0)
         throw new Error('No DTRs were successfully captured.');
@@ -2650,23 +2793,23 @@ const DailyTimeRecordFaculty = ({
    * any — applies to this employee's DTR. Everything else (leave, holiday,
    * whole-day vs partial suspension label/type) is unchanged.
    */
-  const getDateIndicator = (dateString, employeeScope = null) => {
+  const getDateIndicator = (
+    dateString,
+    employeeScope = null,
+    employeeBranch = null,
+  ) => {
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
-    if (leaveReq)
-      return {
-        type: 'leave',
-        label: formatDtrLeaveLabel(leaveReq),
-        bgColor: 'rgba(46,125,50,0.2)',
-        textColor: '#000',
-        borderColor: '#2e7d32',
-      };
-    const susp = suspensions.find((s) =>
-      isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
-      suspensionAppliesToScope(s, employeeScope),
+    // Work suspension must stay visible after async leave load — previously
+    // leave was checked first, so a day-11 suspension flashed then vanished
+    // when approvedLeaves arrived (or was filtered by a late-loaded scope).
+    const matchingSuspensions = suspensions.filter(
+      (s) =>
+        isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
+        calendarAppliesToBranch(s, employeeBranch),
     );
+    const susp = pickSuspensionForEmployee(matchingSuspensions, employeeScope);
     if (susp) {
       const suspensionType = susp.suspension_type || 'whole_day';
       const isPartial = suspensionType === 'partial_day' && susp.effective_time;
@@ -2682,8 +2825,19 @@ const DailyTimeRecordFaculty = ({
         borderColor: '#d32f2f',
       };
     }
-    const hol = holidays.find((h) =>
-      isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
+      return {
+        type: 'leave',
+        label: formatDtrLeaveLabel(leaveReq),
+        bgColor: 'rgba(46,125,50,0.2)',
+        textColor: '#000',
+        borderColor: '#2e7d32',
+      };
+    const hol = holidays.find(
+      (h) =>
+        isDateInRange(date, h.date_start || h.date, h.date_end || h.date) &&
+        calendarAppliesToBranch(h, employeeBranch),
     );
     if (hol)
       return {
@@ -3383,32 +3537,46 @@ const DailyTimeRecordFaculty = ({
     type,
     employeeNumber = null,
     officialTimesForUser = {},
+    employmentCategory = null,
+    employeeBranch = null,
   ) =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const day = (i + 1).toString().padStart(2, '0');
-      const record = sourceRecords.find((r) => recordMatchesDay(r, day));
-      let fullDate = null;
-      if (record?.date) fullDate = normRecordYmd(record.date);
-      else if (startDate) {
-        const [y, m] = startDate.split('-');
-        fullDate = `${y}-${m}-${day}`;
-      } else if (selectedMonth !== null) {
-        fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
-      }
+      const expectedYmd = expectedYmdForDay(
+        day,
+        startDate,
+        selectedYear,
+        selectedMonth,
+      );
+      const record = sourceRecords.find((r) =>
+        recordMatchesDay(r, expectedYmd),
+      );
+      const fullDate = record?.date
+        ? normRecordYmd(record.date) || expectedYmd
+        : expectedYmd;
       const empKey =
         employeeNumber != null
           ? String(employeeNumber)
           : String(personID || '');
-      const moduleType =
-        computationModuleTypeByEmployee[empKey] ||
-        MODULE_TYPES.NON_TEACHING;
-      // DTR-DISPLAY scope filter: resolve this employee's coarse scope
-      // ("academic" / "non_teaching") from their already-known module type,
-      // then pass it into getDateIndicator so only suspensions that apply
-      // to this employee are ever shown. No new API call — reuses
-      // computationModuleTypeByEmployee, which is already tracked per-row.
-      const employeeScope = scopeForModuleType(moduleType);
-      const dateIndicator = getDateIndicator(fullDate, employeeScope);
+      // Prefer known computation module type; do NOT invent NON_TEACHING for
+      // scope filtering — that hid Academic suspensions on teaching staff
+      // before late/UT was saved for the period.
+      const knownModuleType = computationModuleTypeByEmployee[empKey] || null;
+      const moduleType = knownModuleType || MODULE_TYPES.NON_TEACHING;
+      const empCat =
+        employmentCategory ??
+        empCatMap[empKey]?.employmentCategory ??
+        selectedEmployee?.employmentCategory ??
+        null;
+      const employeeScope = resolveEmployeeSuspensionScope(
+        knownModuleType,
+        empCat,
+      );
+      const dateIndicator = getDateIndicator(
+        fullDate,
+        employeeScope,
+        employeeBranch,
+      );
       const isPartialSuspensionRow =
         dateIndicator?.type === 'suspension' &&
         dateIndicator?.suspensionType === 'partial_day';
@@ -3817,6 +3985,8 @@ const DailyTimeRecordFaculty = ({
     nameDisplay,
     officialTimesForUser = {},
     employeeNumber = null,
+    employmentCategory = null,
+    employeeBranch = null,
   ) => (
     <div
       style={{
@@ -3851,6 +4021,8 @@ const DailyTimeRecordFaculty = ({
               dtrType,
               employeeNumber,
               officialTimesForUser,
+              employmentCategory,
+              employeeBranch,
             )}
             {renderDTRFooter()}
           </tbody>
@@ -3885,6 +4057,8 @@ const DailyTimeRecordFaculty = ({
             ? officialTimes
             : batchOfficialTimesMap[user.employeeNumber] || {},
           user.employeeNumber,
+          user.rawUser?.employmentCategory ?? user.employmentCategory ?? null,
+          user.rawUser?.branch ?? user.branch ?? null,
         )}
       </div>
     </div>
@@ -4612,14 +4786,15 @@ const DailyTimeRecordFaculty = ({
                                   fontSize: '0.7rem',
                                   color: T.faint,
                                   display: { xs: 'none', lg: 'block' },
+                                  whiteSpace: 'nowrap',
                                 }}
                               >
-                                Apply Late/UT:
+                                Compute &amp; save:
                               </Typography>
                               {appliedLateUtLabel && (
                                 <Chip
                                   size="small"
-                                  label={`Applied: ${appliedLateUtLabel}`}
+                                  label={`On DTR: ${appliedLateUtLabel}`}
                                   sx={{
                                     height: 22,
                                     fontSize: '0.65rem',
@@ -4631,23 +4806,22 @@ const DailyTimeRecordFaculty = ({
                                 />
                               )}
                               {HUB_COMPUTATION_BUTTONS.map((btn) => {
-                                const isLoading =
-                                  lateComputeLoading === btn.moduleType;
+                                const isActive =
+                                  activeComputationDrawer === btn.drawer ||
+                                  moduleDrawer === btn.drawer;
                                 const isApplied =
                                   appliedLateUtModuleType === btn.moduleType;
                                 const categoryColor =
                                   btn.categoryColor || T.accent;
                                 const disabled =
-                                  !personID ||
-                                  !hasSearchedSingle ||
-                                  Boolean(lateComputeLoading);
+                                  !personID || !hasSearchedSingle;
                                 return (
                                   <Tooltip
-                                    key={`apply-${btn.drawer}`}
+                                    key={`compute-${btn.drawer}`}
                                     title={
                                       isApplied
-                                        ? `${btn.label} — currently applied to DTR late/undertime`
-                                        : btn.applyTip
+                                        ? `${btn.label} late/undertime is on this DTR — open to review or Save to Summary`
+                                        : `Open ${btn.label} module to review late/undertime, then Save to Summary`
                                     }
                                     placement="top"
                                   >
@@ -4657,30 +4831,21 @@ const DailyTimeRecordFaculty = ({
                                         size="small"
                                         disabled={disabled}
                                         startIcon={
-                                          isLoading ? (
-                                            <CircularProgress
-                                              size={14}
-                                              sx={{ color: 'inherit' }}
-                                            />
-                                          ) : (
-                                            <AccessTime
-                                              sx={{
-                                                fontSize: '15px !important',
-                                              }}
-                                            />
-                                          )
+                                          <AccessTime
+                                            sx={{
+                                              fontSize: '15px !important',
+                                            }}
+                                          />
                                         }
                                         onClick={() =>
-                                          applyModuleLateUndertime(
-                                            btn.moduleType,
-                                          )
+                                          openComputationDrawer(btn.drawer)
                                         }
                                         sx={{
                                           height: 32,
                                           fontSize: '0.72rem',
                                           fontWeight: 700,
                                           px: 1.25,
-                                          ...(isApplied
+                                          ...((isActive || isApplied)
                                             ? {
                                                 bgcolor: categoryColor,
                                                 color: '#fff',
@@ -4856,6 +5021,15 @@ const DailyTimeRecordFaculty = ({
                                           employeeName,
                                           officialTimes,
                                           personID,
+                                          selectedEmployee?.employmentCategory ??
+                                            empCatMap[String(personID)]
+                                              ?.employmentCategory ??
+                                            null,
+                                          selectedEmployee?.branch != null &&
+                                            selectedEmployee?.branch !== ''
+                                            ? Number(selectedEmployee.branch)
+                                            : selectedEmployee?.rawUser?.branch ??
+                                              null,
                                         )}
                                       </div>
                                     </div>
@@ -4867,26 +5041,12 @@ const DailyTimeRecordFaculty = ({
                         </Box>
 
                         {personID && hasSearchedSingle && (
-                          <Box
-                            className="no-print"
-                            sx={{
-                              px: 2,
-                              pt: 1.5,
-                              pb: 0.5,
-                              flexShrink: 0,
-                              borderTop: `1px solid ${T.divider}`,
-                            }}
-                          >
-                            <DtrSavedSummaryPanel
-                              key={summaryRefreshKey}
-                              personID={personID}
-                              startDate={startDate}
-                              endDate={endDate}
-                              computationButtons={HUB_COMPUTATION_BUTTONS}
-                              onOpenComputation={openComputationDrawer}
-                              activeDrawer={activeComputationDrawer}
-                            />
-                          </Box>
+                          <DtrSavedSummaryPanel
+                            key={summaryRefreshKey}
+                            personID={personID}
+                            startDate={startDate}
+                            endDate={endDate}
+                          />
                         )}
 
                         {selectedMonth !== null && records.length > 0 && (
@@ -6606,7 +6766,12 @@ const DailyTimeRecordFaculty = ({
       <Drawer
         anchor="right"
         open={isHubDrawerOpen(moduleDrawer)}
-        onClose={() => setModuleDrawer(null)}
+        onClose={() =>
+          closeHubDrawer({
+            bumpRevision: moduleDrawer === 'officialTime',
+            refetchRecords: moduleDrawer !== 'officialTime',
+          })
+        }
         className="no-print"
         ModalProps={{ keepMounted: false }}
         // Keep below AppBar/footer (1201); inset paper so chrome does not clip content
@@ -6647,12 +6812,11 @@ const DailyTimeRecordFaculty = ({
             }}
           >
             <AttendanceModification
-              key={`mod-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}`}
+              key={`mod-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}-r${attendanceRevision}`}
               embedded
-              onClose={() => setModuleDrawer(null)}
+              onClose={() => closeHubDrawer({ bumpRevision: false, refetchRecords: true })}
               onRecordsSaved={() => {
-                setAttendanceRevision((n) => n + 1);
-                fetchRecordsRef.current?.();
+                void refreshHubAfterDrawerChange({ bumpRevision: true, refetchRecords: true });
               }}
               initialContext={{
                 employeeNumber: personID || '',
@@ -6685,11 +6849,21 @@ const DailyTimeRecordFaculty = ({
             }}
           >
             <OfficialTimeForm
-              key={`ot-drawer-${personID || 'none'}`}
+              key={`ot-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}-r${attendanceRevision}`}
               embedded
-              onClose={() => setModuleDrawer(null)}
+              onClose={() =>
+                closeHubDrawer({ bumpRevision: true, refetchRecords: false })
+              }
+              onScheduleSaved={() => {
+                void refreshHubAfterDrawerChange({
+                  bumpRevision: true,
+                  refetchRecords: false,
+                });
+              }}
               initialContext={{
                 employeeNumber: personID || '',
+                startDate: startDate || '',
+                endDate: endDate || '',
                 employee: selectedEmployee || (personID
                   ? {
                       employeeNumber: personID,
@@ -6707,8 +6881,11 @@ const DailyTimeRecordFaculty = ({
             initialContext={hubDrawerInitialContext}
             saveSignal={computationSaveSignal}
             refreshEpoch={attendanceRevision}
-            onClose={() => setModuleDrawer(null)}
+            onClose={() =>
+              closeHubDrawer({ bumpRevision: false, refetchRecords: true })
+            }
             onSavedToSummary={handleSavedToSummary}
+            onOpenHubTool={openHubToolFromModule}
           />
         )}
       </Drawer>

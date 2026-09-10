@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
-const { authenticateToken, logAudit, requireAdmin, requireSuperAdmin, requireSelfOrAdmin } = require('../middleware/auth');
+const { authenticateToken, logAudit, requireAdmin, requireSuperAdmin, requireSelfOrAdmin, requireRoles } = require('../middleware/auth');
 const transporter = require('../config/email');
 const { notifyPayrollChanged } = require('../socket/socketService');
 
@@ -19,6 +19,8 @@ const validateEmail = (email, isRestricted) => {
 
   return true;
 };
+
+const VALID_BRANCH_CODES = [0, 1];
 
 // GET: Check email domain restriction setting
 router.get('/email-domain-restriction', authenticateToken, async (req, res) => {
@@ -1121,6 +1123,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
         u.role,
         u.employmentCategory,
         u.access_level,
+        u.branch,
         p.firstName,
         p.middleName,
         p.lastName,
@@ -1275,6 +1278,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
                 role: row.role,
                 status: attendanceStatus,
                 employmentCategory: row.employmentCategory,
+                branch: row.branch !== null && row.branch !== undefined ? Number(row.branch) : null,
                 accessLevel: row.access_level,
                 createdAt: row.created_at,
                 pageAccess: [],
@@ -1358,10 +1362,11 @@ router.get('/users/search', authenticateToken, requireAdmin, (req, res) => {
 
   try {
     let query = `
-      SELECT 
+      SELECT
         u.employeeNumber,
         u.email,
         u.role,
+        u.branch,
         p.firstName,
         p.middleName,
         p.lastName,
@@ -1467,6 +1472,7 @@ router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('empl
         u.email,
         u.role,
         u.employmentCategory,
+        u.branch,
         u.access_level,
         p.firstName,
         p.middleName,
@@ -1474,10 +1480,14 @@ router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('empl
         p.nameExtension,
         u.created_at,
         pa.page_id,
-        pa.page_privilege
+        pa.page_privilege,
+        da.code AS departmentCode,
+        dt.description AS departmentDescription
       FROM users u
       LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
       LEFT JOIN page_access pa ON u.employeeNumber = pa.employeeNumber
+      LEFT JOIN department_assignment da ON u.employeeNumber = da.employeeNumber
+      LEFT JOIN department_table dt ON da.code = dt.code
       WHERE u.employeeNumber = ?
     `;
 
@@ -1506,6 +1516,9 @@ router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('empl
         email: base.email,
         role: base.role,
         employmentCategory: base.employmentCategory,
+        departmentCode: base.departmentCode || null,
+        departmentDescription: base.departmentDescription || null,
+        branch: base.branch !== null && base.branch !== undefined ? Number(base.branch) : null,
         accessLevel: base.access_level,
         createdAt: base.created_at,
         pageAccess: results
@@ -1695,6 +1708,73 @@ router.put('/users/:employeeNumber/status', authenticateToken, requireSuperAdmin
   });
 });
 
+router.put('/users/:employeeNumber/branch', authenticateToken, requireSuperAdmin, (req, res) => {
+  const { employeeNumber } = req.params;
+  const { branch } = req.body;
+
+  if (employeeNumber === undefined || employeeNumber === null || employeeNumber === '') {
+    return res.status(400).json({ error: 'Parameters not found' });
+  }
+
+  // Normalize: accept numbers or numeric strings ("0", "1"), reject everything else
+  const branchCode = typeof branch === 'string' ? Number(branch) : branch;
+
+  if (
+    branch === undefined ||
+    branch === null ||
+    branch === '' ||
+    !Number.isInteger(branchCode) ||
+    !VALID_BRANCH_CODES.includes(branchCode)
+  ) {
+    return res.status(400).json({
+      error: 'Invalid branch. Must be 0 (Manila) or 1 (Cavite)',
+    });
+  }
+
+  // First, get the current branch for no-op check / audit context
+  const getCurrentBranchQuery = 'SELECT branch FROM users WHERE employeeNumber = ?';
+  db.query(getCurrentBranchQuery, [employeeNumber], (err, results) => {
+    if (err) {
+      console.error('Error fetching user current branch:', err);
+      return res.status(500).json({ error: 'Failed to fetch user current branch' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const currentBranch = results[0].branch; // 0, 1, or null
+
+    if (currentBranch === branchCode) {
+      return res.status(200).json({ message: 'Branch unchanged', branch: branchCode });
+    }
+
+    const branchUpdateQuery = 'UPDATE users SET branch = ? WHERE employeeNumber = ?';
+    db.query(branchUpdateQuery, [branchCode, employeeNumber], (updateErr, result) => {
+      if (updateErr) {
+        console.error('Error updating user branch:', updateErr);
+        return res.status(500).json({ error: 'Failed to update user branch' });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      try {
+        logAudit(req.user, 'Update', 'users', employeeNumber, employeeNumber);
+      } catch (e) {
+        console.error('Audit log error:', e);
+      }
+
+      res.status(200).json({
+        message: 'User branch updated successfully',
+        employeeNumber,
+        previousBranch: currentBranch,
+        newBranch: branchCode,
+      });
+    });
+  });
+});
 
 // POST: Reset password to surname and send email notification
 router.post('/users/reset-password', authenticateToken, requireAdmin, async (req, res) => {

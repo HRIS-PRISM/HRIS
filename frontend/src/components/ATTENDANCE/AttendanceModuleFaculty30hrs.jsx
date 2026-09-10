@@ -68,7 +68,7 @@ import API_BASE_URL from '../../apiConfig';
   import AttendanceWorkflowNav from './AttendanceWorkflowNav';
   import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
   import {
-    seedEmbeddedModuleContext,
+    useEmbeddedModuleAutoSearch,
     ATTENDANCE_EMBEDDED_ROOT_SX,
     notifyModuleSaveSuccess,
   } from '../../utils/attendanceModuleEmbedded';
@@ -90,7 +90,6 @@ import API_BASE_URL from '../../apiConfig';
     persistDailyLateUndertimeFromModule,
     persistHalfDayReviewDailyLate,
     fetchDailyLateUndertime,
-    applyStoredLateUndertimeToAttendanceRows,
   } from '../../utils/dtrLateUndertimeFromOverall';
   import {
     MODULE_TYPES,
@@ -143,6 +142,10 @@ import API_BASE_URL from '../../apiConfig';
     postAttendanceDevicePreflightNoSync,
     fetchAttendanceCalendarMaps,
     getLeaveStatusLabelForDate,
+    isSuspendedStatusLabel,
+    pickApplicableSuspension,
+    pickApplicableHoliday,
+    fetchEmployeeBranch,
   } from './attendanceLeaveIntegration';
   import { getAuthHeaders } from '../../utils/auth';
   import OverallAttendanceCompareModal from './OverallAttendanceCompareModal';
@@ -326,6 +329,7 @@ import API_BASE_URL from '../../apiConfig';
     displayName = '',
     onSelectEmployeeNumber,
     onSelectEmployeeName,
+    onSelectEmployee,
     onSearchQueryChange,
     disabled = false,
   }) => {
@@ -406,6 +410,7 @@ import API_BASE_URL from '../../apiConfig';
       const name = buildDisplayName(emp);
       onSelectEmployeeNumber(num);
       onSelectEmployeeName?.(name);
+      onSelectEmployee?.(emp);
       setQuery(formatEmployeeFieldValue(num, name));
       setDebouncedQuery(num);
       setOpen(false);
@@ -423,6 +428,7 @@ import API_BASE_URL from '../../apiConfig';
       const next = e.target.value;
       onSelectEmployeeNumber(next);
       onSelectEmployeeName?.('');
+      onSelectEmployee?.(null);
       setQuery(next);
       onSearchQueryChange?.(next.trim());
       queueSearch(next);
@@ -563,6 +569,119 @@ import API_BASE_URL from '../../apiConfig';
   function hasNoPunchesTimeInOutOnly(row) {
     return attendanceEmptyPunch(row?.timeIN) && attendanceEmptyPunch(row?.timeOUT);
   }
+
+// ─── Suspension scope/type helpers (Faculty 30hrs) ─────────────────────────
+const FACULTY_SCOPE = 'academic';
+
+const suspensionAppliesToFaculty = (susp) => {
+  if (!susp) return false;
+  const scope = susp.personnel_scope || 'all';
+  return scope === 'all' || scope === FACULTY_SCOPE;
+};
+
+/** Same start-anchored wraparound handling this module's calcSeg() already uses. */
+const normalizeOfficialEndSec = (startSec, endSec) => {
+  if (startSec == null || endSec == null) return endSec;
+  let fixedEnd = endSec;
+  while (fixedEnd <= startSec) fixedEnd += 12 * 3600;
+  return fixedEnd;
+};
+
+/**
+ * Choose the earlier of the employee's existing official end and a
+ * suspension cutoff, anchored to official start. Never extends the day: if
+ * the cutoff is later than the original end, the original is returned
+ * unchanged. Falls back to the original string whenever either side can't
+ * be parsed.
+ */
+const pickEarlierOfficialEnd = (officialStartStr, originalEndStr, candidateEndStr) => {
+  const offStartSec = parseClockToMinuteSec(officialStartStr);
+  const originalEndSec = normalizeOfficialEndSec(offStartSec, parseClockToMinuteSec(originalEndStr));
+  const candidateEndSec = normalizeOfficialEndSec(offStartSec, parseClockToMinuteSec(candidateEndStr));
+  if (offStartSec == null || originalEndSec == null || candidateEndSec == null) {
+    return originalEndStr;
+  }
+  return candidateEndSec < originalEndSec ? candidateEndStr : originalEndStr;
+};
+
+/**
+ * Partial-day suspension: shorten officialTimeOUT to the suspension cutoff
+ * for applicable dates, never extending the employee's existing official
+ * end time. Reads maps.suspensionByDate (raw, full metadata) — that map is
+ * never mutated or discarded; this only returns adjusted row copies.
+ */
+const clampFacultyRowsForPartialSuspension = (rows, suspensionByDate, employeeBranch) =>
+  (rows || []).map((row) => {
+    const d = String(row?.date ?? '').trim().slice(0, 10);
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToFaculty,
+      employeeBranch,
+    );
+    if (!susp) return row;
+    if ((susp.suspension_type || 'whole_day') !== 'partial_day') return row;
+    if (!susp.effective_time) return row;
+    const effectiveOfficialTimeOUT = pickEarlierOfficialEnd(
+      row?.officialTimeIN,
+      row?.officialTimeOUT,
+      susp.effective_time,
+    );
+    if (effectiveOfficialTimeOUT === row?.officialTimeOUT) return row;
+    return { ...row, officialTimeOUT: effectiveOfficialTimeOUT };
+  });
+
+/**
+ * Holiday or applicable whole-day suspension: zero late/undertime for the
+ * day regardless of punches, matching the existing full-day exclusion
+ * behavior. Does not touch officialTimeOUT or actual punches.
+ */
+const applyFacultyWholeDayOverrides = (rows, holidayByDate, suspensionByDate, employeeBranch) =>
+  (rows || []).map((row) => {
+    const d = String(row?.date ?? '').trim().slice(0, 10);
+    if (!d) return row;
+    const zeroed = {
+      lateTotal: ZERO_HM,
+      undertimeTotal: ZERO_HM,
+      formattedfinalcalcFaculty: ZERO_HM,
+    };
+    if (pickApplicableHoliday(holidayByDate, d, employeeBranch)) {
+      return { ...row, ...zeroed };
+    }
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToFaculty,
+      employeeBranch,
+    );
+    if (susp && (susp.suspension_type || 'whole_day') === 'whole_day') {
+      return { ...row, ...zeroed };
+    }
+    return row;
+  });
+
+/**
+ * Applicable-scope suspensions (whole-day + partial) for Faculty 30hrs.
+ * Used for status badges and calendar maps. Partial days still show a badge
+ * but are not treated as furlough (see isExcludedAttendanceCalendarDate).
+ * Out-of-scope (e.g. non_teaching-only) suspensions are omitted.
+ * maps.suspensionByDate (full metadata) is only read here, never mutated.
+ */
+const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch) => {
+  const out = {};
+  Object.keys(suspensionByDate || {}).forEach((d) => {
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      suspensionAppliesToFaculty,
+      employeeBranch,
+    );
+    if (susp) out[d] = susp;
+  });
+  return out;
+};
+
+
 
   function computeOfficialAwareAbsenceAndLate_TimeInOutOnly(rows, calendarMaps) {
     let absentDays = 0;
@@ -1346,6 +1465,8 @@ import API_BASE_URL from '../../apiConfig';
     onClose,
     onSavedToSummary,
     saveSignal = 0,
+    refreshEpoch = 0,
+    onOpenHubTool,
   } = {}) => {
     const seedEmp = String(initialContext?.employeeNumber || '').trim();
     const seedStart = initialContext?.startDate || '';
@@ -1359,6 +1480,7 @@ import API_BASE_URL from '../../apiConfig';
       initialContext?.fullName || initialContext?.employee?.fullName || '',
     );
     const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+    const [employeeBranch, setEmployeeBranch] = useState(null);
     const [startDate, setStartDate] = useState(seedStart);
     const [endDate, setEndDate] = useState(seedEnd);
     const [attendanceData, setAttendanceData] = useState([]);
@@ -1428,6 +1550,25 @@ import API_BASE_URL from '../../apiConfig';
     }, [embedded]);
 
     useEffect(() => {
+      const key = String(employeeNumber ?? '').trim();
+      if (!key) {
+        setEmployeeBranch(null);
+        return;
+      }
+      let cancelled = false;
+      fetchEmployeeBranch({
+        apiBaseUrl: API_BASE_URL,
+        getAuthHeaders,
+        employeeNumber: key,
+      }).then((branch) => {
+        if (!cancelled) setEmployeeBranch(branch);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [employeeNumber]);
+
+    useEffect(() => {
       if (attendanceData.length === 0) return;
       const timer = setTimeout(() => {
         document.body.style.removeProperty('overflow');
@@ -1473,6 +1614,15 @@ import API_BASE_URL from '../../apiConfig';
       setError('');
       setSuccess('');
       try {
+        let branch = employeeBranch;
+        if (branch == null && employeeNumber) {
+          branch = await fetchEmployeeBranch({
+            apiBaseUrl: API_BASE_URL,
+            getAuthHeaders,
+            employeeNumber,
+          });
+          setEmployeeBranch(branch);
+        }
         const [deviceRows, maps, attendanceRes] = await Promise.all([
           postAttendanceDevicePreflightNoSync({
             apiBaseUrl: API_BASE_URL,
@@ -1510,9 +1660,13 @@ import API_BASE_URL from '../../apiConfig';
           setHolidayByDate({});
           showModal(
             'No Device Records Found',
-            'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Device.',
+            'No biometric device records were found for this employee within the selected date range, and no records have been manually added.\n\nPlease verify the employee number and date range, check if the attendance device has synced, or add records in Attendance Modification.\n\nPress OK to open Attendance Modification.',
             'warning',
-            () => { closeModal(); navigate('/view_attendance'); },
+            () => {
+              closeModal();
+              if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('modification');
+              else navigate('/view_attendance');
+            },
           );
           return;
         }
@@ -1524,9 +1678,13 @@ import API_BASE_URL from '../../apiConfig';
           setHolidayByDate({});
           showModal(
             'No Official Time Schedule',
-            `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching attendance/official schedule rows exist for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time Management.`,
+            `Device records were found for this employee (${deviceRows.length} day${deviceRows.length !== 1 ? 's' : ''}), but no matching attendance/official schedule rows exist for this period.\n\nPlease set up the official time schedule in the Official Time Management module before generating attendance records.\n\nPress OK to open Official Time.`,
             'warning',
-            () => { closeModal(); navigate('/official_time'); },
+            () => {
+              closeModal();
+              if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('officialTime');
+              else navigate('/official_time');
+            },
           );
           return;
         }
@@ -1535,7 +1693,16 @@ import API_BASE_URL from '../../apiConfig';
         );
         if (!hasOfficialTime) { setShowNoOfficialTimeModal(true); return; }
 
-        const processedData = rawRows.map((row) => {
+         // Shorten officialTimeOUT to the applicable partial-suspension cutoff
+        // (never extending the original end) before this module's own
+        // formulas run. maps.suspensionByDate itself is untouched.
+        const suspensionAdjustedRawRows = clampFacultyRowsForPartialSuspension(
+          rawRows,
+          maps.suspensionByDate,
+          branch,
+        );
+
+        const processedDataPreOverrides = suspensionAdjustedRawRows.map((row) => {
           const {
             timeIN,
             timeOUT,
@@ -1716,10 +1883,29 @@ import API_BASE_URL from '../../apiConfig';
           };
         });
 
+        
+
+        // Whole-day suspension / holiday: zero late/undertime, matching the
+        // existing full-day exclusion behavior.
+        const processedData = applyFacultyWholeDayOverrides(
+          processedDataPreOverrides,
+          maps.holidayByDate,
+          maps.suspensionByDate,
+          branch,
+        );
+
+        // Scope-filtered map (whole + partial) for badges / calendar.
+        // Exclusion still ignores partial via isExcludedAttendanceCalendarDate.
+        const scopedSuspensionByDate = filterApplicableSuspensionsForFaculty(
+          maps.suspensionByDate,
+          branch,
+        );
+
         const calendarMaps = {
-          suspensionByDate: maps.suspensionByDate,
+          suspensionByDate: scopedSuspensionByDate,
           holidayByDate: maps.holidayByDate,
           leaveByDate: maps.leaveByDate,
+          employeeBranch: branch,
         };
 
         const buildReviewMapFromStored = (stored) =>
@@ -1738,7 +1924,7 @@ import API_BASE_URL from '../../apiConfig';
 
         const normalizedProcessed = processedData.map(normalizeFacultyRowDurations);
 
-        setSuspensionByDate(maps.suspensionByDate);
+        setSuspensionByDate(scopedSuspensionByDate);
         setLeaveByDate(maps.leaveByDate);
         setHolidayByDate(maps.holidayByDate);
         setTardinessOverrides({});
@@ -1770,20 +1956,19 @@ import API_BASE_URL from '../../apiConfig';
           totalLate: totalLateLabel,
         });
 
-        void (async () => {
+            void (async () => {
           try {
             const stored = await fetchDailyLateUndertime(
               employeeNumber,
               startDate,
               endDate,
             );
+            // Hydrate HR half-day review decisions only. This module's own
+            // suspension-aware computation (normalizedProcessed) is
+            // authoritative for lateTotal/undertimeTotal and is no longer
+            // overwritten by whatever was previously persisted — the module
+            // is the source of truth, not storage.
             setHalfDayReviewByDate(buildReviewMapFromStored(stored));
-            setAttendanceData(
-              applyStoredLateUndertimeToAttendanceRows(
-                normalizedProcessed,
-                stored?.byDate || {},
-              ).map(normalizeFacultyRowDurations),
-            );
           } catch (err) {
             console.warn(
               'Half-day review fetch failed; using local cache:',
@@ -1791,6 +1976,7 @@ import API_BASE_URL from '../../apiConfig';
             );
           }
         })();
+        
       } catch (err) {
         console.error('Error fetching attendance data:', err);
         const msg = 'Failed to fetch attendance data. Please try again.';
@@ -1804,15 +1990,33 @@ import API_BASE_URL from '../../apiConfig';
 
     // ── Status helpers ────────────────────────────────────────────────────────
     const getStatusLabelForDate = useCallback(
-      (date) => getLeaveStatusLabelForDate(date, { suspensionByDate, holidayByDate, leaveByDate }),
-      [suspensionByDate, holidayByDate, leaveByDate],
+      (date) =>
+        getLeaveStatusLabelForDate(date, {
+          suspensionByDate,
+          holidayByDate,
+          leaveByDate,
+          employeeBranch,
+        }),
+      [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
+    );
+
+    /** Whole-day suspension / holiday / leave only — not partial suspension. */
+    const isFurloughForDate = useCallback(
+      (date) =>
+        isExcludedAttendanceCalendarDate(date, {
+          suspensionByDate,
+          holidayByDate,
+          leaveByDate,
+          employeeBranch,
+        }),
+      [suspensionByDate, holidayByDate, leaveByDate, employeeBranch],
     );
 
     const commitTardinessOverride = useCallback((date, normalizedOrNull) => {
       setTardinessOverrides((prev) => {
         const row = attendanceData.find((r) => r.date === date);
         if (!row) return prev;
-        const f = Boolean(getStatusLabelForDate(date));
+        const f = isFurloughForDate(date);
         const sys = canonicalTardDisplay(getCellValue(row, '_tardiness', f, null, halfDayReviewByDate));
         const next = { ...prev };
         if (normalizedOrNull == null || normalizedOrNull === sys) {
@@ -1822,10 +2026,10 @@ import API_BASE_URL from '../../apiConfig';
         }
         return next;
       });
-    }, [attendanceData, getStatusLabelForDate, halfDayReviewByDate]);
+    }, [attendanceData, isFurloughForDate, halfDayReviewByDate]);
 
     const getStatusStyle = (label) => {
-      if (label === 'WORK SUSPENDED') return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
+      if (isSuspendedStatusLabel(label)) return { bgcolor: alpha('#d32f2f', 0.12), color: '#d32f2f', border: `1px solid ${alpha('#d32f2f', 0.4)}` };
       if (label === 'HOLIDAY')        return { bgcolor: alpha('#f57c00', 0.12), color: '#f57c00', border: `1px solid ${alpha('#f57c00', 0.4)}` };
       if (label === 'ON LEAVE')       return { bgcolor: alpha('#2e7d32', 0.12), color: '#2e7d32', border: `1px solid ${alpha('#2e7d32', 0.4)}` };
       return {};
@@ -1838,7 +2042,7 @@ import API_BASE_URL from '../../apiConfig';
 
     const totals = React.useMemo(() => {
       if (!attendanceData.length) return {};
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       const buckets = computeFaculty30MinuteBuckets(
         attendanceData,
         halfDayReviewByDate,
@@ -1848,48 +2052,48 @@ import API_BASE_URL from '../../apiConfig';
         },
       );
       const regularRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTime || row.formattedFacultyMaxRenderedTime === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTime);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTime === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTime);
       });
       const rowTardinessSum = sumTimeRows(attendanceData, (row) => {
-        const f = Boolean(getStatusLabelForDate(row.date));
+        const f = isFurloughForDate(row.date);
         if (f) return null;
         return getCellValue(row, '_tardiness', f, tardinessOverrides, halfDayReviewByDate);
       });
       const regularTardiness = rowTardinessSum;
       const hnRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeHN);
       });
       const hnTardiness = sumTimeRows(attendanceData, (row) => {
-        if (Boolean(getStatusLabelForDate(row.date))) return null;
+        if (isFurloughForDate(row.date)) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyHN === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN) : displayDurationHhMm(row.formattedfinalcalcFacultyHN);
       });
       const scRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC);
         return !row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeSC);
       });
       const scTardiness = sumTimeRows(attendanceData, (row) => {
-        if (Boolean(getStatusLabelForDate(row.date))) return null;
+        if (isFurloughForDate(row.date)) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultySC === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC) : displayDurationHhMm(row.formattedfinalcalcFacultySC);
       });
       const otRendered = sumTimeRows(attendanceData, (row) => {
-        const isFurlough = Boolean(getStatusLabelForDate(row.date));
+        const isFurlough = isFurloughForDate(row.date);
         if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT);
         return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeOT);
       });
       const otTardiness = sumTimeRows(attendanceData, (row) => {
-        if (Boolean(getStatusLabelForDate(row.date))) return null;
+        if (isFurloughForDate(row.date)) return null;
         return !row.officialTimeIN || !row.timeOUT || row.formattedfinalcalcFacultyOT === 'NaN:NaN:NaN' ? displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT) : displayDurationHhMm(row.formattedfinalcalcFacultyOT);
       });
       const lateTotalSec = attendanceData.reduce((sum, row) => {
         const d = String(row?.date ?? '').trim().slice(0, 10);
         if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return sum;
         if (!isScheduledByOfficialTime(row)) return sum;
-        if (Boolean(getStatusLabelForDate(row.date))) return sum;
+        if (isFurloughForDate(row.date)) return sum;
         if (hasNoPunchesTimeInOutOnly(row)) return sum;
         const entry = halfDayReviewByDate?.[d];
         if (entry?.status === HALF_DAY_STATUS.APPROVED && hasHrHalfDayConfirmation(entry)) {
@@ -1942,19 +2146,19 @@ import API_BASE_URL from '../../apiConfig';
         otRendered,
         otTardiness,
       };
-    }, [attendanceData, sumTimeRows, getStatusLabelForDate, leaveByDate, holidayByDate, suspensionByDate, tardinessOverrides, halfDayReviewByDate]);
+    }, [attendanceData, sumTimeRows, isFurloughForDate, leaveByDate, holidayByDate, suspensionByDate, employeeBranch, tardinessOverrides, halfDayReviewByDate]);
 
     const isAbsentAttendanceRow = useCallback((row) => {
       const d = String(row?.date ?? '').slice(0, 10);
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       if (isExcludedAttendanceCalendarDate(d, calendarMaps)) return false;
       if (!isScheduledByOfficialTime(row)) return false;
       return hasNoPunchesTimeInOutOnly(row);
-    }, [suspensionByDate, holidayByDate, leaveByDate]);
+    }, [suspensionByDate, holidayByDate, leaveByDate, employeeBranch]);
 
     const getHalfDayUiStatus = useCallback(
       (row) => {
-        const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+        const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
         return getRowHalfDayUiStatus(
           row,
           halfDayReviewByDate,
@@ -1962,18 +2166,18 @@ import API_BASE_URL from '../../apiConfig';
           calendarMaps,
         );
       },
-      [suspensionByDate, holidayByDate, leaveByDate, halfDayReviewByDate],
+      [suspensionByDate, holidayByDate, leaveByDate, employeeBranch, halfDayReviewByDate],
     );
 
     const collectUnresolvedHalfDayDates = useCallback(() => (
       attendanceData
         .filter((row) => {
           if (isAbsentAttendanceRow(row)) return false;
-          if (getStatusLabelForDate(row.date)) return false;
+          if (isFurloughForDate(row.date)) return false;
           return getHalfDayUiStatus(row) === 'suggested';
         })
         .map((row) => row.date)
-    ), [attendanceData, isAbsentAttendanceRow, getStatusLabelForDate, getHalfDayUiStatus]);
+    ), [attendanceData, isAbsentAttendanceRow, isFurloughForDate, getHalfDayUiStatus]);
 
     const warnUnresolvedHalfDays = useCallback(() => {
       const dates = collectUnresolvedHalfDayDates();
@@ -2070,7 +2274,7 @@ import API_BASE_URL from '../../apiConfig';
     }, [embedded, onSavedToSummary, employeeNumber, startDate, endDate, navigate]);
 
     const buildOverallRecordPayload = () => {
-      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate };
+      const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
       const approvedSet = getApprovedHalfDayDatesSet(halfDayReviewByDate);
       const dailyRows = buildDailyLateUndertimeRows(
         attendanceData,
@@ -2249,23 +2453,20 @@ import API_BASE_URL from '../../apiConfig';
     const handleSubmitRef = useRef(handleSubmit);
     useEffect(() => { handleSubmitRef.current = handleSubmit; });
 
-    const embeddedSeededRef = useRef(false);
-    useEffect(() => {
-      if (!embedded || !initialContext || embeddedSeededRef.current) return;
-      embeddedSeededRef.current = true;
-      seedEmbeddedModuleContext({
-        initialContext,
-        setEmployeeNumber,
-        setEmployeeDisplayName,
-        setStartDate,
-        setEndDate,
-        setSelectedYear,
-        setSelectedMonth,
-      });
-      setTimeout(() => {
-        handleSubmitRef.current?.();
-      }, 350);
-    }, [embedded, initialContext]);
+    useEmbeddedModuleAutoSearch({
+      embedded,
+      initialContext,
+      accessLoading,
+      hasAccess,
+      refreshEpoch,
+      setEmployeeNumber,
+      setEmployeeDisplayName,
+      setStartDate,
+      setEndDate,
+      setSelectedYear,
+      setSelectedMonth,
+      runSearchRef: handleSubmitRef,
+    });
 
     const handleWorkflowHydrate = useCallback((payload) => {
       setEmployeeNumber(payload.employeeNumber || '');
@@ -2350,6 +2551,7 @@ import API_BASE_URL from '../../apiConfig';
       setEmployeeNumber('');
       setEmployeeDisplayName('');
       setEmployeeSearchQuery('');
+      setEmployeeBranch(null);
       setStartDate('');
       setEndDate('');
       setAttendanceData([]);
@@ -2569,6 +2771,13 @@ import API_BASE_URL from '../../apiConfig';
                     onSearchQueryChange={setEmployeeSearchQuery}
                     onSelectEmployeeNumber={setEmployeeNumber}
                     onSelectEmployeeName={setEmployeeDisplayName}
+                    onSelectEmployee={(emp) =>
+                      setEmployeeBranch(
+                        emp?.branch != null && emp?.branch !== ''
+                          ? Number(emp.branch)
+                          : null,
+                      )
+                    }
                   />
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 160 }}>
@@ -2685,7 +2894,7 @@ import API_BASE_URL from '../../apiConfig';
                         <TableBody>
                           {attendanceData.map((row, index) => {
                             const statusLabel = getStatusLabelForDate(row.date);
-                            const isFurlough  = Boolean(statusLabel);
+                            const isFurlough  = isFurloughForDate(row.date);
                             const isEven      = index % 2 === 0;
 
                             const rowIsAbsent = isAbsentAttendanceRow(row);
@@ -2969,7 +3178,11 @@ import API_BASE_URL from '../../apiConfig';
             <Box sx={{ px: 3, py: 2, display: 'flex', gap: 1, justifyContent: 'flex-end', borderTop: `1px solid ${T.divider}` }}>
               <RowBtn icon={null} label="Close" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={() => setShowNoOfficialTimeModal(false)} />
               <button
-                onClick={() => { setShowNoOfficialTimeModal(false); navigate('/official_time'); }}
+                onClick={() => {
+                  setShowNoOfficialTimeModal(false);
+                  if (embedded && typeof onOpenHubTool === 'function') onOpenHubTool('officialTime');
+                  else navigate('/official_time');
+                }}
                 style={{ background: T.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 20px', fontWeight: 700, fontSize: '0.82rem', fontFamily: 'inherit', cursor: 'pointer', transition: 'background 0.15s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDark; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = T.accent; }}>

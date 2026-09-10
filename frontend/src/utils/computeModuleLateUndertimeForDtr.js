@@ -20,7 +20,12 @@ import {
   fetchDailyLateUndertime,
   rowsToByDateMap,
 } from './dtrLateUndertimeFromOverall';
-import { fetchAttendanceCalendarMaps } from '../components/ATTENDANCE/attendanceLeaveIntegration';
+import {
+  fetchAttendanceCalendarMaps,
+  fetchEmployeeBranch,
+  pickApplicableHoliday,
+  pickApplicableSuspension,
+} from '../components/ATTENDANCE/attendanceLeaveIntegration';
 import {
   computeArrivalLateSec,
   computeEarlyLeaveUndertimeSec,
@@ -79,12 +84,21 @@ const suspensionAppliesToScope = (susp, employeeScope) => {
  * Example: official 8:00–5:00, suspension effective 3:00 PM →
  * officialTimeOUT becomes 15:00:00 for that day only.
 */
-const clampPartialSuspensionEndTimes = (rows, suspensionByDate, employeeScope) =>
+const clampPartialSuspensionEndTimes = (
+  rows,
+  suspensionByDate,
+  employeeScope,
+  employeeBranch,
+) =>
   (rows || []).map((row) => {
     const d = dateOnly(row.date);
-    const susp = d ? suspensionByDate[d] : null;
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      (s) => suspensionAppliesToScope(s, employeeScope),
+      employeeBranch,
+    );
     if (!susp) return row;
-    if (!suspensionAppliesToScope(susp, employeeScope)) return row;
     if ((susp.suspension_type || 'whole_day') !== 'partial_day') return row;
     if (!susp.effective_time) return row;
     return { ...row, officialTimeOUT: susp.effective_time };
@@ -100,17 +114,22 @@ const applyHolidayAndWholeDaySuspensionOverrides = (
   holidayByDate,
   suspensionByDate,
   employeeScope,
+  employeeBranch,
 ) =>
   (rows || []).map((row) => {
     const d = dateOnly(row.date);
     if (!d) return row;
-    if (holidayByDate[d]) {
+    if (pickApplicableHoliday(holidayByDate, d, employeeBranch)) {
       return { ...row, lateTotal: ZERO, undertimeTotal: ZERO };
     }
-    const susp = suspensionByDate[d];
+    const susp = pickApplicableSuspension(
+      suspensionByDate,
+      d,
+      (s) => suspensionAppliesToScope(s, employeeScope),
+      employeeBranch,
+    );
     if (
       susp &&
-      suspensionAppliesToScope(susp, employeeScope) &&
       (susp.suspension_type || 'whole_day') === 'whole_day'
     ) {
       return { ...row, lateTotal: ZERO, undertimeTotal: ZERO };
@@ -437,7 +456,37 @@ export async function computeAndApplyModuleLateUndertime({
     typeof moduleType === 'string' && MODULE_PROCESSORS[moduleType]
       ? moduleType
       : MODULE_TYPES.NON_TEACHING;
+
+  // Non-Teaching is authoritative in its own Attendance Module, which already
+  // computes daily Late/Undertime and auto-persists it to
+  // overall_attendance_record.daily_late_undertime independent of Save to
+  // Summary (PUT /overall_attendance_record/daily-late-undertime upserts a
+  // stub row). This branch must only read and display that stored value —
+  // never recompute or force-overwrite it — so there is a single calculation,
+  // not two competing ones.
+  if (mod === MODULE_TYPES.NON_TEACHING) {
+    const stored = await fetchDailyLateUndertime(personID, startDate, endDate);
+    if (!stored || Object.keys(stored.byDate || {}).length === 0) {
+      throw new Error(
+        'No Non-Teaching daily Late/Undertime found yet. Open the Non-Teaching Attendance Module and search this employee for this period once to compute it.',
+      );
+    }
+    return {
+      byDate: stored.byDate || {},
+      halfDayDates: stored.halfDayDates || '',
+      half_day_review: stored.half_day_review ?? null,
+      computation_module_type:
+        stored.computation_module_type || MODULE_TYPES.NON_TEACHING,
+    };
+  }
+
   const processRows = MODULE_PROCESSORS[mod];
+
+  const employeeBranch = await fetchEmployeeBranch({
+    apiBaseUrl: API_BASE_URL,
+    getAuthHeaders,
+    employeeNumber: personID,
+  });
 
   const [attendanceRes, maps, stored] = await Promise.all([
     axios.get(`${API_BASE_URL}/attendance/api/attendance`, {
@@ -469,17 +518,20 @@ export async function computeAndApplyModuleLateUndertime({
     rawRowsFetched,
     suspensionByDate,
     employeeScope,
+    employeeBranch,
   );
   const processedData = applyHolidayAndWholeDaySuspensionOverrides(
     processRows(rawRows),
     holidayByDate,
     suspensionByDate,
     employeeScope,
+    employeeBranch,
   );
   const calendarMaps = {
     suspensionByDate: maps.suspensionByDate,
     holidayByDate: maps.holidayByDate,
     leaveByDate: maps.leaveByDate,
+    employeeBranch,
   };
   const reviewByDate = migrateLegacyHalfDayReview(
     buildReviewByDate(parseHalfDayReviewJson(stored?.half_day_review)),

@@ -134,6 +134,7 @@ import usePageAccess from "../../hooks/usePageAccess";
 import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
 import AccessDenied from "../AccessDenied";
 import CircularProgress from "@mui/material/CircularProgress";
+import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -1407,6 +1408,7 @@ const OfficialTimeForm = ({
   embedded = false,
   initialContext = null,
   onClose,
+  onScheduleSaved,
 } = {}) => {
   const { settings } = useSystemSettings();
   const { hasAccess, loading: accessLoading } = usePageAccess("official-time");
@@ -1582,6 +1584,10 @@ const OfficialTimeForm = ({
     setTimeout(() => setSuccessOpen(false), 3000);
   }, []);
 
+  const notifyScheduleSaved = useCallback(() => {
+    if (typeof onScheduleSaved === "function") onScheduleSaved();
+  }, [onScheduleSaved]);
+
   const buildDefaultRecords = useCallback(
     (empId) => DAYS_ORDER.map((day) => makeDefaultRow(empId, day)),
     [],
@@ -1723,8 +1729,10 @@ const OfficialTimeForm = ({
   useEffect(() => {
     if (!embedded || accessLoading || hasAccess === false) return;
     const num = String(initialContext?.employeeNumber || "").trim();
-    if (!num || embeddedSeedRef.current === num) return;
-    embeddedSeedRef.current = num;
+    if (!num) return;
+    const seedKey = `${num}|${initialContext?.startDate || ""}|${initialContext?.endDate || ""}`;
+    if (embeddedSeedRef.current === seedKey) return;
+    embeddedSeedRef.current = seedKey;
     const emp = initialContext?.employee
       ? {
           employeeNumber: num,
@@ -1848,6 +1856,7 @@ const OfficialTimeForm = ({
       setFound(allRows.length > 0);
       const newKey = `${normalizeDateStr(draftStartDate)}|${normalizeDateStr(draftEndDate)}`;
       setActiveScheduleKey(newKey);
+      notifyScheduleSaved();
     } catch (err) {
       const msg = err.code === "ECONNABORTED" ? "Request timed out."
         : err.response?.status === 409 ? err.response?.data?.message || "Date range overlaps an existing schedule."
@@ -1858,7 +1867,7 @@ const OfficialTimeForm = ({
     } finally {
       setSaving(false);
     }
-  }, [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, draftStatus, modalRecords, showToast, stampServerRecords, selectedEmployee]);
+  }, [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, draftStatus, modalRecords, showToast, stampServerRecords, selectedEmployee, notifyScheduleSaved]);
 
   // ── View/Edit schedule ──
   const handleStartEditViewSchedule = useCallback(() => {
@@ -1908,6 +1917,7 @@ const OfficialTimeForm = ({
       const normEnd = normalizeDateStr(newEndDate || viewScheduleInfo.endDate);
       setViewScheduleRecords(allRows.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd));
       setViewScheduleInfo((prev) => prev ? { ...prev, endDate: newEndDate || prev.endDate } : prev);
+      notifyScheduleSaved();
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error || err.message || "Error updating schedule.";
       setWarningMessage(msg);
@@ -1916,7 +1926,7 @@ const OfficialTimeForm = ({
     } finally {
       setEditViewSaving(false);
     }
-  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords, selectedEmployee]);
+  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords, selectedEmployee, notifyScheduleSaved]);
 
   // ── Upload ──
   const handleAnalyzeFile = useCallback(async () => {
@@ -1989,6 +1999,7 @@ const OfficialTimeForm = ({
       }
       showToast(`Upload complete! Inserted: ${response.data.inserted} rows.`);
       setFile(null);
+      notifyScheduleSaved();
     } catch (error) {
       const d = error.response?.data || {};
       setWarningMessage(d.message || error.message || "Upload failed.");
@@ -1999,7 +2010,7 @@ const OfficialTimeForm = ({
     } finally {
       setConfirming(false);
     }
-  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords, canUploadExcel]);
+  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords, canUploadExcel, notifyScheduleSaved]);
 
   // ── Department-scoped upload handlers ──
   const handleAnalyzeDeptFile = useCallback(async () => {
@@ -2080,6 +2091,7 @@ const OfficialTimeForm = ({
       setDeptFile(null);
       showToast(`Upload complete! Inserted: ${response.data.inserted} rows for "${deptUploadDepartment}".`);
       await fetchAllUsers();
+      notifyScheduleSaved();
     } catch (error) {
       const d = error.response?.data || {};
       setWarningMessage(d.message || error.message || "Upload failed.");
@@ -2090,7 +2102,7 @@ const OfficialTimeForm = ({
     } finally {
       setDeptConfirming(false);
     }
-  }, [deptFile, deptUploadDepartment, deptConfirming, deptUploadAcknowledgeChecked, showToast, fetchAllUsers]);
+  }, [deptFile, deptUploadDepartment, deptConfirming, deptUploadAcknowledgeChecked, showToast, fetchAllUsers, notifyScheduleSaved]);
 
   // ── Employment-Category-scoped upload handlers — mirrors the
   // Department-scoped handlers 1:1, posting to the
@@ -2175,6 +2187,7 @@ const OfficialTimeForm = ({
       const catLabel = employmentCategoryList.find((c) => String(c.id) === String(catUploadCategory))?.label || catUploadCategory;
       showToast(`Upload complete! Inserted: ${response.data.inserted} rows for "${catLabel}".`);
       await fetchAllUsers();
+      notifyScheduleSaved();
     } catch (error) {
       const d = error.response?.data || {};
       setWarningMessage(d.message || error.message || "Upload failed.");
@@ -2185,7 +2198,7 @@ const OfficialTimeForm = ({
     } finally {
       setCatConfirming(false);
     }
-  }, [catFile, catUploadCategory, catConfirming, catUploadAcknowledgeChecked, showToast, fetchAllUsers, employmentCategoryList]);
+  }, [catFile, catUploadCategory, catConfirming, catUploadAcknowledgeChecked, showToast, fetchAllUsers, employmentCategoryList, notifyScheduleSaved]);
 
   // ── All Users — fetch on view switch ──
   useEffect(() => { if (showAllUsers) { fetchAllUsers(); setSelectedUsers(new Set()); } }, [showAllUsers, fetchAllUsers]);
@@ -2242,7 +2255,7 @@ const OfficialTimeForm = ({
       list = list.filter((u) => u.endDate && normalizeDateStr(u.endDate) <= filterEndDate);
     }
 
-    return list;
+    return sortEmployeesByLastName(list, (u) => u.fullName || u);
   }, [
     allUsers,
     searchQuery,
@@ -3469,6 +3482,7 @@ const OfficialTimeForm = ({
                     const res = await axios.post(`${API_BASE_URL}/officialtime/bulk-schedules`, { employeeIDs: bulkTargetEmployees, blocks: bulkScheduleBlocks, records: sevenRows }, { ...getAuthHeaders(), timeout: 30000 });
                     showToast(`Bulk schedules processed. Inserted for ${Math.round((res.data.totalInserted || 0) / 7)} users.`);
                     await fetchAllUsers();
+                    notifyScheduleSaved();
                   } catch (err) {
                     setWarningMessage(err.response?.data?.message || err.message || "Error saving bulk schedules.");
                     setShowWarningModal(true);
