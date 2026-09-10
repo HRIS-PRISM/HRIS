@@ -683,6 +683,15 @@ const QUICK_ACTIONS = (settings) => [
     restricted: true,
   },
   {
+    label: "Admin Trail",
+    link: "/admin-action-trail",
+    icon: <History />,
+    tooltip: "Admin Action Trail (superadmin / admin actions)",
+    gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
+    restricted: true,
+    superTechOnly: true,
+  },
+  {
     label: "Registration",
     link: "/registration",
     icon: <PersonAdd />,
@@ -2199,9 +2208,15 @@ const CompactAuditLogs = ({ userRole }) => {
 // ─── QuickActions ─────────────────────────────────────────────────────────────
 const QuickActions = ({ settings, userRole }) => {
   const isSuperAdmin = userRole === "superadmin" || userRole === "technical";
-  const filteredActions = QUICK_ACTIONS(settings).filter(
-    (action) => !action.restricted || isSuperAdmin,
-  );
+  const filteredActions = QUICK_ACTIONS(settings).filter((action) => {
+    if (action.superTechOnly) {
+      return isSuperAdmin;
+    }
+    if (action.restricted) {
+      return isSuperAdmin;
+    }
+    return true;
+  });
   return (
     <Card
       sx={{

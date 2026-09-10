@@ -398,6 +398,13 @@ export const componentMapping = {
     description: 'Audit Trail',
     icon: History,
   },
+  'admin-action-trail': {
+    componentPath: 'components/AdminActionTrail.jsx',
+    routePath: '/admin-action-trail',
+    componentName: 'AdminActionTrail',
+    description: 'Admin Action Trail',
+    icon: History,
+  },
   settings: {
     componentPath: 'components/Settings.jsx',
     routePath: '/settings',
