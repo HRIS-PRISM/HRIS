@@ -19,9 +19,10 @@ import {
   Group as GroupIcon, ArrowBack, ArrowForward, Close,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { styled, alpha } from '@mui/material/styles';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import AccessDenied from '../AccessDenied';
 import {
   AttendanceFilterHeader,
@@ -37,15 +38,20 @@ import usePageAccess from '../../hooks/usePageAccess';
 import { normalizeRole } from '../../utils/pageAccessUtils';
 import { getUserInfo, getAuthHeaders as buildAuthHeaders } from '../../utils/auth';
 import {
-  formatFullName, filterByDtrType, enhanceDtrWatermarksInClone, DTR_WIDTH_IN,
-  formatDtrPdfFileName, formatDtrBulkPdfFileName, openPdfBlobForPrint,
+  formatFullName, filterByDtrType,
+  formatDtrPdfFileName, formatDtrBulkPdfFileName,
 } from '../../utils/dtrFormatHelpers';
 import {
   fetchDailyLateUndertimeBatch, parseHalfDayDatesSet,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
 import { MODULE_TYPES } from '../../utils/halfDayReview';
-import DtrTablePairView, { DtrTableContainer } from './DtrTablePairView';
+import DTRTemplate from './DTRTemplate';
+import { DtrTableContainer } from './DtrTablePairView';
+import {
+  printDtrHtmlPages,
+  downloadDtrHtmlPages,
+} from './DailyTimeRecordPrintable';
 
 const getAuthHeaders = () => buildAuthHeaders();
 
@@ -60,6 +66,17 @@ const getUserRole = () => {
     if (!token) return null;
     return JSON.parse(atob(token.split('.')[1])).role || null;
   } catch { return null; }
+};
+
+const scopeForModuleType = (mod) => {
+  if (mod === MODULE_TYPES.NON_TEACHING) return 'non_teaching';
+  if (
+    mod === MODULE_TYPES.FACULTY_30HRS ||
+    mod === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return 'academic';
+  }
+  return null;
 };
 
 const T = {
@@ -121,26 +138,6 @@ const scrollbarSx = {
 
 const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const ensureCaptureStyles = (el) => {
-  if (!el) return {};
-  const orig = {
-    backgroundColor: el.style.backgroundColor, width: el.style.width,
-    visibility: el.style.visibility, display: el.style.display,
-    position: el.style.position, left: el.style.left,
-    zIndex: el.style.zIndex, opacity: el.style.opacity,
-  };
-  Object.assign(el.style, {
-    backgroundColor: '#ffffff', width: DTR_WIDTH_IN, visibility: 'visible',
-    display: 'block', position: 'fixed', left: '-9999px', zIndex: '10000', opacity: '1',
-  });
-  return orig;
-};
-
-const restoreCaptureStyles = (el, orig) => {
-  if (!el || !orig) return;
-  Object.keys(orig).forEach((k) => { el.style[k] = orig[k] || ''; });
-};
-
 const DailyTimeRecordSupervisor = () => {
   const { hasAccess, loading: accessLoading } = usePageAccess('daily-time-record-supervisor');
   const supervisorEmpNum = getSupervisorEmployeeNumber();
@@ -177,10 +174,8 @@ const DailyTimeRecordSupervisor = () => {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewUsers, setPreviewUsers] = useState([]);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [captureUser, setCaptureUser] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
-  const bulkDTRRefs = useRef({});
   const abortRef = useRef(null);
 
   const currentYear = new Date().getFullYear();
@@ -296,7 +291,12 @@ const DailyTimeRecordSupervisor = () => {
         return {
           employeeNumber: empNum,
           fullName: displayName,
+          firstName: emp.firstName || '',
+          lastName: emp.lastName || '',
+          middleName: emp.middleName || '',
           departmentCode: emp.departmentCode || '',
+          employmentCategory: emp.employmentCategory ?? null,
+          branch: emp.branch ?? null,
           records: [],
           _loading: true,
         };
@@ -501,83 +501,49 @@ const DailyTimeRecordSupervisor = () => {
     setPreviewModalOpen(true);
   };
 
-  /** Mount a single off-screen DTR, wait for ref, capture, then unmount. */
-  const mountAndCaptureUserDtr = async (user, scale = 2) => {
-    if (!user?.employeeNumber) throw new Error('Invalid user for DTR capture');
-    setCaptureUser(user);
-    await new Promise((r) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setTimeout(r, 40));
-      });
+  const resolvePdfFileName = (users) => {
+    if (users.length === 1) {
+      return formatDtrPdfFileName(users[0], startDate);
+    }
+    return formatDtrBulkPdfFileName(startDate, {
+      department: deptFilter !== 'all' ? deptFilter : '',
     });
+  };
 
-    const empKey = String(user.employeeNumber);
-    const started = Date.now();
-    let ref = bulkDTRRefs.current[empKey];
-    while (!ref && Date.now() - started < 8000) {
-      await new Promise((r) => setTimeout(r, 30));
-      ref = bulkDTRRefs.current[empKey];
-    }
-    if (!ref) throw new Error(`DTR element not found for ${empKey}`);
-
+  const buildDtrPrintPages = (users) => {
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    const pages = [];
     try {
-      const orig = ensureCaptureStyles(ref);
-      const canvas = await html2canvas(ref, {
-        scale,
-        useCORS: true,
-        logging: false,
-        onclone: (doc) => enhanceDtrWatermarksInClone(doc),
+      users.forEach((user) => {
+        flushSync(() => {
+          root.render(renderEmployeeDtr(user));
+        });
+        const html = container.firstElementChild?.outerHTML;
+        if (html) pages.push(html);
       });
-      restoreCaptureStyles(ref, orig);
-      return canvas;
     } finally {
-      setCaptureUser(null);
-      delete bulkDTRRefs.current[empKey];
-      await new Promise((r) => setTimeout(r, 0));
+      root.unmount();
     }
+    return pages;
   };
 
   const handlePrintAll = async () => {
     if (!previewUsers.length) return;
     try {
       setPrinting(true);
-      setPrintStatus('Preparing DTRs for printing…');
+      setPrintStatus(
+        previewUsers.length === 1
+          ? 'Preparing DTR…'
+          : `Preparing ${previewUsers.length} DTRs…`,
+      );
       setPreviewModalOpen(false);
       await new Promise((r) => requestAnimationFrame(r));
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
-      const dtrW = 8, dtrH = 9.5;
-      const pw = pdf.internal.pageSize.getWidth();
-      const ph = pdf.internal.pageSize.getHeight();
-      const captureScale =
-        previewUsers.length >= 40 ? 1.0 : previewUsers.length >= 20 ? 1.2 : 1.5;
-      let successCount = 0;
-
-      for (let i = 0; i < previewUsers.length; i++) {
-        const user = previewUsers[i];
-        if (i === 0 || (i + 1) % 5 === 0 || i === previewUsers.length - 1) {
-          setPrintStatus(`Capturing DTR ${i + 1} of ${previewUsers.length}…`);
-        }
-        try {
-          const canvas = await mountAndCaptureUserDtr(user, captureScale);
-          if (!canvas?.width) continue;
-          const imgData = canvas.toDataURL('image/jpeg', 0.82);
-          if (!imgData || imgData === 'data:,') continue;
-          if (successCount > 0) pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', (pw - dtrW) / 2, (ph - dtrH) / 2, dtrW, dtrH);
-          successCount++;
-        } catch (e) {
-          console.error(`Capture failed for ${user.employeeNumber}:`, e);
-        }
-        if ((i + 1) % 4 === 0) await new Promise((r) => setTimeout(r, 0));
-      }
-
-      if (!successCount) throw new Error('No DTRs were captured.');
-      const bulkPdfName =
-        previewUsers.length === 1
-          ? formatDtrPdfFileName(previewUsers[0], startDate)
-          : formatDtrBulkPdfFileName(startDate);
-      pdf.autoPrint();
-      openPdfBlobForPrint(pdf, bulkPdfName);
+      const pages = buildDtrPrintPages(previewUsers);
+      if (!pages.length) throw new Error('No DTRs could be prepared.');
+      await printDtrHtmlPages(pages, {
+        title: resolvePdfFileName(previewUsers).replace(/\.pdf$/i, ''),
+      });
 
       const year = new Date(startDate).getFullYear();
       const month = new Date(startDate).getMonth() + 1;
@@ -589,53 +555,83 @@ const DailyTimeRecordSupervisor = () => {
         },
         getAuthHeaders(),
       );
-      setSnackbar({ open: true, message: `Printed ${successCount} DTR(s).`, severity: 'success' });
+      setSnackbar({
+        open: true,
+        message: `Printed ${previewUsers.length} DTR(s).`,
+        severity: 'success',
+      });
     } catch (e) {
       setSnackbar({ open: true, message: e.message || 'Print failed.', severity: 'error' });
     } finally {
-      setCaptureUser(null);
       setPrinting(false);
       setPrintStatus('');
     }
   };
 
-  const renderCaptureDtr = (user) => (
-    <div
-      key={user.employeeNumber}
-      ref={(el) => {
-        if (el) bulkDTRRefs.current[String(user.employeeNumber)] = el;
-      }}
-      style={{
-        position: 'absolute', left: '-9999px', top: 0, visibility: 'hidden',
-        width: DTR_WIDTH_IN, color: 'black',
-      }}
-      className="bulk-dtr-print"
-    >
+  const handleDownloadAll = async () => {
+    if (!previewUsers.length) return;
+    try {
+      setPrinting(true);
+      setPrintStatus(
+        previewUsers.length === 1
+          ? 'Preparing PDF download…'
+          : `Preparing PDF ${previewUsers.length} DTRs…`,
+      );
+      setPreviewModalOpen(false);
+      await new Promise((r) => requestAnimationFrame(r));
+      const pages = buildDtrPrintPages(previewUsers);
+      if (!pages.length) throw new Error('No DTRs could be prepared.');
+      const fileName = resolvePdfFileName(previewUsers);
+      await downloadDtrHtmlPages(pages, fileName, {
+        title: fileName.replace(/\.pdf$/i, ''),
+        onProgress: (done, total) => {
+          if (done === 1 || done === total || done % 5 === 0) {
+            setPrintStatus(`Building PDF ${done} of ${total}…`);
+          }
+        },
+      });
+      setSnackbar({
+        open: true,
+        message: `Downloaded ${previewUsers.length} DTR(s).`,
+        severity: 'success',
+      });
+    } catch (e) {
+      setSnackbar({ open: true, message: e.message || 'Download failed.', severity: 'error' });
+    } finally {
+      setPrinting(false);
+      setPrintStatus('');
+    }
+  };
+
+  const renderEmployeeDtr = (user) => {
+    const empKey = String(user.employeeNumber);
+    const knownModuleType = computationModuleTypeByEmployee[empKey] || null;
+    return (
       <DtrTableContainer>
-        <DtrTablePairView
+        <DTRTemplate
+          employeeName={user.fullName}
           records={user.records}
-          nameDisplay={user.fullName}
-          officialTimesForUser={batchOfficialTimesMap[user.employeeNumber] || {}}
-          employeeNumber={user.employeeNumber}
-          dtrType={dtrType}
+          officialTime={batchOfficialTimesMap[user.employeeNumber] || {}}
+          showOfficialTimeOnDtr={showOfficialTimeOnDtr}
           startDate={startDate}
           endDate={endDate}
           selectedYear={selectedYear}
           selectedMonth={selectedMonth}
-          showOfficialTimeOnDtr={showOfficialTimeOnDtr}
           holidays={holidays}
           suspensions={suspensions}
-          approvedLeaves={approvedLeavesByEmployee[String(user.employeeNumber)] || []}
-          computedLateForEmployee={computedLateByEmployee[String(user.employeeNumber)] || {}}
-          halfDayDatesSet={halfDayDatesByEmployee[String(user.employeeNumber)] || new Set()}
-          halfDayReviewByDate={halfDayReviewByEmployee[String(user.employeeNumber)] || {}}
-          computationModuleType={
-            computationModuleTypeByEmployee[String(user.employeeNumber)] || MODULE_TYPES.NON_TEACHING
-          }
+          approvedLeaves={approvedLeavesByEmployee[empKey] || []}
+          computedLateByDate={computedLateByEmployee[empKey] || {}}
+          suggestedHalfDayDatesSet={halfDayDatesByEmployee[empKey] || new Set()}
+          halfDayReviewByDate={halfDayReviewByEmployee[empKey] || {}}
+          computationModuleType={knownModuleType || MODULE_TYPES.NON_TEACHING}
+          employeeScope={scopeForModuleType(knownModuleType)}
+          employmentCategory={user.employmentCategory ?? null}
+          employeeBranch={user.branch ?? null}
+          dtrType={dtrType}
         />
       </DtrTableContainer>
-    </div>
-  );
+    );
+  };
 
   const renderLeftPanelContent = () => (
     <Box sx={filterPanelScrollSx}>
@@ -1095,19 +1091,8 @@ const DailyTimeRecordSupervisor = () => {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            @page { size: A4; margin: 0; }
             @media print {
               .no-print { display: none !important; }
-              .header,.top-banner,header,footer,.MuiDrawer-root,.MuiAppBar-root { display: none !important; }
-              html,body { width: 21cm; height: 29.7cm; margin: 0; padding: 0; background: white; }
-              .MuiContainer-root { max-width: 100% !important; width: 21cm !important; margin: 0 auto !important; padding: 0 !important; background: white !important; }
-              .table-container { width: 100% !important; display: block !important; background: transparent !important; }
-              .table-wrapper { display: flex !important; justify-content: center !important; }
-              .table-side-by-side { display: flex !important; flex-direction: row !important; gap: 1.5% !important; width: 100% !important; }
-              .table-side-by-side table { width: 47% !important; border: 1px solid black !important; border-collapse: collapse !important; background: white !important; }
-              table { page-break-inside: avoid !important; table-layout: fixed !important; }
-              table td, table th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-              .bulk-dtr-print { display: none !important; }
             }
           `}</style>
 
@@ -1368,29 +1353,7 @@ const DailyTimeRecordSupervisor = () => {
                               overflowX: 'auto',
                             }}
                           >
-                            <DtrTableContainer>
-                              <DtrTablePairView
-                                records={previewUser.records}
-                                nameDisplay={previewUser.fullName}
-                                officialTimesForUser={batchOfficialTimesMap[previewUser.employeeNumber] || {}}
-                                employeeNumber={previewUser.employeeNumber}
-                                dtrType={dtrType}
-                                startDate={startDate}
-                                endDate={endDate}
-                                selectedYear={selectedYear}
-                                selectedMonth={selectedMonth}
-                                showOfficialTimeOnDtr={showOfficialTimeOnDtr}
-                                holidays={holidays}
-                                suspensions={suspensions}
-                                approvedLeaves={approvedLeavesByEmployee[String(previewUser.employeeNumber)] || []}
-                                computedLateForEmployee={computedLateByEmployee[String(previewUser.employeeNumber)] || {}}
-                                halfDayDatesSet={halfDayDatesByEmployee[String(previewUser.employeeNumber)] || new Set()}
-                                halfDayReviewByDate={halfDayReviewByEmployee[String(previewUser.employeeNumber)] || {}}
-                                computationModuleType={
-                                  computationModuleTypeByEmployee[String(previewUser.employeeNumber)] || MODULE_TYPES.NON_TEACHING
-                                }
-                              />
-                            </DtrTableContainer>
+                            {renderEmployeeDtr(previewUser)}
                           </Paper>
                         </Box>
                       </Fade>
@@ -1399,9 +1362,6 @@ const DailyTimeRecordSupervisor = () => {
                 </SectionCard>
               </Grid>
             </Grid>
-
-            {/* Single off-screen DTR — mounted only while capturing */}
-            {captureUser ? renderCaptureDtr(captureUser) : null}
 
             {/* Print preview modal */}
             <Dialog
@@ -1534,29 +1494,7 @@ const DailyTimeRecordSupervisor = () => {
                         border: `1px solid ${T.accentBorder}`,
                       }}
                     >
-                      <DtrTableContainer>
-                        <DtrTablePairView
-                          records={previewUsers[previewIndex].records}
-                          nameDisplay={previewUsers[previewIndex].fullName}
-                          officialTimesForUser={batchOfficialTimesMap[previewUsers[previewIndex].employeeNumber] || {}}
-                          employeeNumber={previewUsers[previewIndex].employeeNumber}
-                          dtrType={dtrType}
-                          startDate={startDate}
-                          endDate={endDate}
-                          selectedYear={selectedYear}
-                          selectedMonth={selectedMonth}
-                          showOfficialTimeOnDtr={showOfficialTimeOnDtr}
-                          holidays={holidays}
-                          suspensions={suspensions}
-                          approvedLeaves={approvedLeavesByEmployee[String(previewUsers[previewIndex].employeeNumber)] || []}
-                          computedLateForEmployee={computedLateByEmployee[String(previewUsers[previewIndex].employeeNumber)] || {}}
-                          halfDayDatesSet={halfDayDatesByEmployee[String(previewUsers[previewIndex].employeeNumber)] || new Set()}
-                          halfDayReviewByDate={halfDayReviewByEmployee[String(previewUsers[previewIndex].employeeNumber)] || {}}
-                          computationModuleType={
-                            computationModuleTypeByEmployee[String(previewUsers[previewIndex].employeeNumber)] || MODULE_TYPES.NON_TEACHING
-                          }
-                        />
-                      </DtrTableContainer>
+                      {renderEmployeeDtr(previewUsers[previewIndex])}
                     </Paper>
                   </Box>
                 )}
@@ -1575,40 +1513,75 @@ const DailyTimeRecordSupervisor = () => {
                   gap: 2,
                 }}
               >
-                <AccentButton
-                  variant="contained"
-                  onClick={handlePrintAll}
-                  disabled={printing}
-                  startIcon={
-                    printing
-                      ? <CircularProgress size={14} sx={{ color: '#fff' }} />
-                      : <PrintIcon sx={{ fontSize: '16px !important' }} />
-                  }
-                  sx={{
-                    bgcolor: T.accent,
-                    color: '#fff',
-                    boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
-                    '&:hover': { bgcolor: T.accentDark },
-                  }}
-                >
-                  {printing ? 'Printing…' : 'Print All'}
-                  {!printing && (
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                  <AccentButton
+                    variant="contained"
+                    onClick={handlePrintAll}
+                    disabled={printing}
+                    startIcon={
+                      printing
+                        ? <CircularProgress size={14} sx={{ color: '#fff' }} />
+                        : <PrintIcon sx={{ fontSize: '16px !important' }} />
+                    }
+                    sx={{
+                      bgcolor: T.accent,
+                      color: '#fff',
+                      boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                      '&:hover': { bgcolor: T.accentDark },
+                    }}
+                  >
+                    {printing ? 'Printing…' : 'Print All'}
+                    {!printing && (
+                      <Box
+                        component="span"
+                        sx={{
+                          ml: 1,
+                          bgcolor: 'rgba(255,255,255,0.25)',
+                          borderRadius: '20px',
+                          px: 1,
+                          py: 0.2,
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {previewUsers.length}
+                      </Box>
+                    )}
+                  </AccentButton>
+                  <AccentButton
+                    variant="outlined"
+                    onClick={handleDownloadAll}
+                    disabled={printing}
+                    startIcon={
+                      <PictureAsPdfIcon sx={{ fontSize: '16px !important' }} />
+                    }
+                    sx={{
+                      borderColor: T.accentBorder,
+                      color: T.accent,
+                      '&:hover': {
+                        bgcolor: T.accentFaint,
+                        borderColor: T.accent,
+                      },
+                    }}
+                  >
+                    Download PDF
                     <Box
                       component="span"
                       sx={{
                         ml: 1,
-                        bgcolor: 'rgba(255,255,255,0.25)',
+                        bgcolor: T.accentFaint,
                         borderRadius: '20px',
                         px: 1,
                         py: 0.2,
                         fontSize: '0.72rem',
                         fontWeight: 700,
+                        color: T.accent,
                       }}
                     >
                       {previewUsers.length}
                     </Box>
-                  )}
-                </AccentButton>
+                  </AccentButton>
+                </Box>
                 <AccentButton
                   variant="text"
                   onClick={() => setPreviewModalOpen(false)}

@@ -6,11 +6,21 @@ import {
   isDtrHalfDayLateUndertimePending,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import {
+  MODULE_TYPES,
+  getRowHalfDayUiStatus,
+  getDtrHalfDayIndicator,
+  getDtrAbsentIndicator,
+  isDtrAbsentRow,
+  resolveDtrRowIndicator,
+  resolveDtrRowTint,
+} from '../../utils/halfDayReview';
+import {
   DTR_PRINTABLE_WIDTH_MM,
   DTR_PRINTABLE_HEIGHT_MM,
   DTR_SHEET_WIDTH_MM,
   DTR_CUT_GAP_MM,
   DTR_NON_WORKING_DAY_LABEL,
+  DTR_ABSENT_LABEL,
   isDtrNonWorkingDayRow,
   getDtrUnscheduledWeekdayBanner,
   formatDtrLeaveLabel,
@@ -25,6 +35,7 @@ import {
   formatSuspensionEffectiveTime,
   getDtrWeekdayName,
 } from '../../utils/dtrFormatHelpers';
+import { calendarAppliesToBranch } from '../../constants/branches';
 
 const emptyOfficialTime = (v) => {
   if (v == null) return true;
@@ -159,15 +170,16 @@ const buildRegularDaysOfficialLines = (officialTimes, formatTimeFn) => {
 
 // Totals exactly 100% so the fixed layout gives the Late / U-time columns a
 // predictable width instead of leaving the browser to redistribute leftovers.
-const DTR_COLGROUP = (
+const buildDtrColgroup = (wideDayCol = false) => (
   <colgroup>
-    <col style={{ width: '8%' }} />
-    <col style={{ width: '15.5%' }} />
-    <col style={{ width: '15.5%' }} />
-    <col style={{ width: '15.5%' }} />
-    <col style={{ width: '15.5%' }} />
-    <col style={{ width: '15%' }} />
-    <col style={{ width: '15%' }} />
+    {/* Days — widen when a partial-suspension label (e.g. SUSP 3:00 PM) is shown */}
+    <col style={{ width: wideDayCol ? '14%' : '8%' }} />
+    <col style={{ width: wideDayCol ? '14.5%' : '15.5%' }} />
+    <col style={{ width: wideDayCol ? '14.5%' : '15.5%' }} />
+    <col style={{ width: wideDayCol ? '14.5%' : '15.5%' }} />
+    <col style={{ width: wideDayCol ? '14.5%' : '15.5%' }} />
+    <col style={{ width: wideDayCol ? '14%' : '15%' }} />
+    <col style={{ width: wideDayCol ? '14%' : '15%' }} />
   </colgroup>
 );
 
@@ -188,6 +200,31 @@ const DEFAULT_CELL_STYLE = {
   letterSpacing: '-0.3px',
 };
 
+const DAY_CELL_STACK_STYLE = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '1px',
+  lineHeight: 1.15,
+  width: '100%',
+  minWidth: 0,
+};
+
+const DAY_LABEL_STYLE = {
+  fontSize: '10px',
+  lineHeight: 1.15,
+};
+
+const PARTIAL_SUSP_LABEL_STYLE = {
+  fontSize: '6px',
+  fontWeight: 700,
+  color: '#b71c1c',
+  lineHeight: 1.15,
+  letterSpacing: '0',
+  whiteSpace: 'nowrap',
+};
+
 const dtrRawEmpty = (v) =>
   v == null || (typeof v === 'string' && v.trim() === '');
 
@@ -204,12 +241,59 @@ const dtrWmSpanStyle = {
   printColorAdjust: 'exact',
 };
 
+const scopeForModuleType = (mod) => {
+  if (mod === MODULE_TYPES.NON_TEACHING) return 'non_teaching';
+  if (
+    mod === MODULE_TYPES.FACULTY_30HRS ||
+    mod === MODULE_TYPES.DESIGNATED_40HRS
+  ) {
+    return 'academic';
+  }
+  return null;
+};
+
+const scopeForEmploymentCategory = (cat) => {
+  if (cat == null || cat === '') return null;
+  const n = Number(cat);
+  if (n === 3 || n === 4) return 'academic';
+  if (n === 0 || n === 1 || n === 2) return 'non_teaching';
+  return null;
+};
+
 const suspensionAppliesToScope = (susp, employeeScope) => {
   if (!susp) return false;
   const scope = susp.personnel_scope || 'all';
   if (scope === 'all') return true;
   if (!employeeScope) return false;
   return scope === employeeScope;
+};
+
+/** Prefer exact-scope match over "all", then newer id. */
+const pickSuspensionForEmployee = (list, employeeScope) => {
+  const matches = (list || []).filter((s) =>
+    suspensionAppliesToScope(s, employeeScope),
+  );
+  if (!matches.length) return null;
+  matches.sort((a, b) => {
+    const aExact =
+      employeeScope && (a.personnel_scope || 'all') === employeeScope ? 1 : 0;
+    const bExact =
+      employeeScope && (b.personnel_scope || 'all') === employeeScope ? 1 : 0;
+    if (bExact !== aExact) return bExact - aExact;
+    return (Number(b.id) || 0) - (Number(a.id) || 0);
+  });
+  return matches[0];
+};
+
+const expectedYmdForDay = (dayPadded, startDate, selectedYear, selectedMonth) => {
+  if (startDate && /^\d{4}-\d{2}/.test(String(startDate))) {
+    const [y, m] = String(startDate).split('-');
+    if (y && m) return `${y}-${m}-${dayPadded}`;
+  }
+  if (selectedMonth != null && Number.isFinite(selectedYear)) {
+    return `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${dayPadded}`;
+  }
+  return null;
 };
 
 /**
@@ -234,6 +318,9 @@ export default function DTRTemplate({
   halfDayReviewByDate = {},
   computationModuleType,
   employeeScope = null,
+  employmentCategory = null,
+  /** When passed (including null), holidays/suspensions are campus-filtered. Omit to show all. */
+  employeeBranch,
   formatTime = defaultFormatTime,
   keyPrefix = 'dtr',
   cellStyle = DEFAULT_CELL_STYLE,
@@ -279,23 +366,30 @@ export default function DTRTemplate({
     return false;
   };
 
+  const resolvedEmployeeScope =
+    employeeScope ||
+    scopeForModuleType(computationModuleType) ||
+    scopeForEmploymentCategory(employmentCategory);
+
+  const matchesCalendarBranch = (entry) =>
+    employeeBranch === undefined
+      ? true
+      : calendarAppliesToBranch(entry, employeeBranch);
+
   const getDateIndicator = (dateString) => {
     if (!dateString) return null;
     const date = toPhCalendarYmd(dateString);
     if (!date) return null;
-    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
-    if (leaveReq)
-      return {
-        type: 'leave',
-        label: formatDtrLeaveLabel(leaveReq),
-        bgColor: 'rgba(46,125,50,0.2)',
-        textColor: '#000',
-        borderColor: '#2e7d32',
-      };
-    const susp = suspensions.find(
+    // Suspension before leave so a work-suspension day stays visible after
+    // approved leave loads (same order as the hub DTR).
+    const matchingSuspensions = suspensions.filter(
       (s) =>
         isDateInRange(date, s.date_start || s.date, s.date_end || s.date) &&
-        suspensionAppliesToScope(s, employeeScope),
+        matchesCalendarBranch(s),
+    );
+    const susp = pickSuspensionForEmployee(
+      matchingSuspensions,
+      resolvedEmployeeScope,
     );
     if (susp) {
       const suspensionType = susp.suspension_type || 'whole_day';
@@ -312,8 +406,19 @@ export default function DTRTemplate({
         borderColor: '#d32f2f',
       };
     }
-    const hol = holidays.find((h) =>
-      isDateInRange(date, h.date_start || h.date, h.date_end || h.date),
+    const leaveReq = findApprovedLeaveForDate(date, approvedLeaves);
+    if (leaveReq)
+      return {
+        type: 'leave',
+        label: formatDtrLeaveLabel(leaveReq),
+        bgColor: 'rgba(46,125,50,0.2)',
+        textColor: '#000',
+        borderColor: '#2e7d32',
+      };
+    const hol = holidays.find(
+      (h) =>
+        isDateInRange(date, h.date_start || h.date, h.date_end || h.date) &&
+        matchesCalendarBranch(h),
     );
     if (hol)
       return {
@@ -325,6 +430,26 @@ export default function DTRTemplate({
       };
     return null;
   };
+
+  const needsWideDayCol = (() => {
+    for (let i = 0; i < daysInSelectedMonth; i++) {
+      const day = String(i + 1).padStart(2, '0');
+      const ymd = expectedYmdForDay(
+        day,
+        startDate,
+        selectedYear,
+        selectedMonth,
+      );
+      const ind = getDateIndicator(ymd);
+      if (
+        ind?.type === 'suspension' &&
+        ind?.suspensionType === 'partial_day'
+      ) {
+        return true;
+      }
+    }
+    return false;
+  })();
 
   const getDtrHeaderData = () => {
     const regularDaysLines = showOfficialTimeOnDtr
@@ -817,7 +942,7 @@ export default function DTRTemplate({
           backgroundColor: rowTint,
           position: 'relative',
           verticalAlign: 'middle',
-          overflow: 'visible',
+          overflow: styleObj?.overflow ?? 'visible',
           WebkitPrintColorAdjust: 'exact',
           printColorAdjust: 'exact',
         }}
@@ -856,32 +981,70 @@ export default function DTRTemplate({
     );
   };
 
+  const renderDayNumberCell = (
+    dayLabel,
+    styleObj,
+    rowTint,
+    partialSuspLabel = null,
+  ) => (
+    <td
+      style={{
+        ...styleObj,
+        backgroundColor: rowTint,
+        position: 'relative',
+        // Let the Days column show the full SUSP label; width comes from colgroup.
+        ...(partialSuspLabel
+          ? {
+              height: 'auto',
+              overflow: 'visible',
+              whiteSpace: 'nowrap',
+              verticalAlign: 'middle',
+            }
+          : null),
+        WebkitPrintColorAdjust: 'exact',
+        printColorAdjust: 'exact',
+      }}
+    >
+      <div style={DAY_CELL_STACK_STYLE}>
+        <div style={DAY_LABEL_STYLE}>{dayLabel}</div>
+        {partialSuspLabel ? (
+          <div style={PARTIAL_SUSP_LABEL_STYLE}>{partialSuspLabel}</div>
+        ) : null}
+      </div>
+    </td>
+  );
+
+  const hasScheduleForUser = Object.values(officialTime || {}).some(
+    (sched) =>
+      !emptyOfficialTime(sched?.officialTimeIN) &&
+      !emptyOfficialTime(sched?.officialTimeOUT),
+  );
+  const moduleType = computationModuleType || MODULE_TYPES.NON_TEACHING;
+
   const renderTableRows = (styleObj, rowKeyPrefix) =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const dayNum = i + 1;
       const day = dayNum.toString().padStart(2, '0');
       const dayLabel = String(dayNum);
-      const record = records.find((r) => r.date && recordMatchesDay(r, day));
-      let fullDate = null;
-      if (record?.date) fullDate = toPhCalendarYmd(record.date);
-      if (!fullDate && startDate) {
-        const [y, m] = startDate.split('-');
-        fullDate = `${y}-${m}-${day}`;
-      } else if (!fullDate && selectedMonth !== null) {
-        fullDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${day}`;
-      }
-      const indicator = getDateIndicator(fullDate);
-      const dateIndicator = indicator;
+      const expectedYmd = expectedYmdForDay(
+        day,
+        startDate,
+        selectedYear,
+        selectedMonth,
+      );
+      const record = records.find((r) =>
+        expectedYmd
+          ? toPhCalendarYmd(r?.date) === expectedYmd
+          : r?.date && recordMatchesDay(r, day),
+      );
+      const fullDate = record?.date
+        ? toPhCalendarYmd(record.date) || expectedYmd
+        : expectedYmd;
+      const dateIndicator = getDateIndicator(fullDate);
 
       const isPartialSuspensionRow =
-        indicator?.type === 'suspension' &&
-        indicator?.suspensionType === 'partial_day';
-
-      const rowTint = indicator
-        ? indicator.bgColor.replace(/,\s*[\d.]+\)$/i, ', 0.08)')
-        : !isSpecialDtr && fullDate && suggestedHalfDayDatesSet.has(fullDate)
-          ? 'rgba(106, 27, 154, 0.06)'
-          : 'transparent';
+        dateIndicator?.type === 'suspension' &&
+        dateIndicator?.suspensionType === 'partial_day';
 
       const isNotScheduledDay = (() => {
         if (isSpecialDtr) {
@@ -916,24 +1079,71 @@ export default function DTRTemplate({
             breaktimeOUT: record?.breaktimeOUT,
             timeOUT: record?.timeOUT,
           };
+      const dayName = getDtrWeekdayName(fullDate);
+      const suppressScheduleBanners = !isSpecialDtr && !hasScheduleForUser;
+      const rowForStatus = {
+        ...(record || {}),
+        date: fullDate || record?.date,
+        timeIN: timeFields.timeIN,
+        breaktimeIN: timeFields.breaktimeIN,
+        breaktimeOUT: timeFields.breaktimeOUT,
+        timeOUT: timeFields.timeOUT,
+      };
+      const rowIsAbsent =
+        !isSpecialDtr &&
+        !suppressScheduleBanners &&
+        !isPartialSuspensionRow &&
+        isDtrAbsentRow({
+          record: rowForStatus,
+          dateIndicator,
+          isNotScheduledDay,
+          moduleType,
+          hasPeriodRecords,
+        });
+      const halfUi =
+        !isSpecialDtr && !dateIndicator && !rowIsAbsent
+          ? getRowHalfDayUiStatus(rowForStatus, halfDayReviewByDate, moduleType)
+          : null;
+      const halfDayIndicator = halfUi ? getDtrHalfDayIndicator(halfUi) : null;
+      const absentIndicator = rowIsAbsent ? getDtrAbsentIndicator() : null;
+      const indicator = isPartialSuspensionRow
+        ? null
+        : resolveDtrRowIndicator(dateIndicator, {
+            absentIndicator,
+            halfDayIndicator,
+          });
+      let rowTint = resolveDtrRowTint(dateIndicator, {
+        absentIndicator,
+        halfDayIndicator,
+        suggestedHalfDay:
+          halfUi === 'suggested' ||
+          Boolean(fullDate && suggestedHalfDayDatesSet.has(fullDate)),
+      });
+      if (isPartialSuspensionRow) {
+        rowTint = 'rgba(211,47,47,0.06)';
+      }
       const isNonWorkingDayRow =
         !isPartialSuspensionRow &&
+        !suppressScheduleBanners &&
         isDtrNonWorkingDayRow({
           isNotScheduledDay,
-          indicator,
+          indicator: dateIndicator,
           timeFields,
           hasPeriodRecords,
           fullDate,
+          dayName,
         });
-      const unscheduledWeekdayLabel = isPartialSuspensionRow
-        ? ''
-        : getDtrUnscheduledWeekdayBanner({
-            isNotScheduledDay,
-            indicator,
-            timeFields,
-            hasPeriodRecords,
-            fullDate,
-          });
+      const unscheduledWeekdayLabel =
+        isPartialSuspensionRow || suppressScheduleBanners
+          ? ''
+          : getDtrUnscheduledWeekdayBanner({
+              isNotScheduledDay,
+              indicator: dateIndicator,
+              timeFields,
+              hasPeriodRecords,
+              fullDate,
+              dayName,
+            });
       const nonWorkingRowTint =
         isNonWorkingDayRow || unscheduledWeekdayLabel
           ? 'rgba(128, 128, 128, 0.06)'
@@ -941,7 +1151,7 @@ export default function DTRTemplate({
 
       // Shared by regular + honorarium / service-credit / overtime:
       // HOLIDAY, ON LEAVE / leave type, SUSPENSION, NON-WORKING DAY, weekday banners.
-      if (isDtrCalendarBannerRow(indicator) && !isPartialSuspensionRow) {
+      if (isDtrCalendarBannerRow(dateIndicator) && !isPartialSuspensionRow) {
         return (
           <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
             <td
@@ -966,7 +1176,7 @@ export default function DTRTemplate({
                 printColorAdjust: 'exact',
               }}
             >
-              <span style={dtrWmSpanStyle}>{indicator.label}</span>
+              <span style={dtrWmSpanStyle}>{dateIndicator.label}</span>
             </td>
           </tr>
         );
@@ -1031,18 +1241,7 @@ export default function DTRTemplate({
           </tr>
         );
       }
-
-      // Honorarium / Service Credits / Overtime: specialTimeIN/OUT + hours/minutes.
-      if (isSpecialDtr) {
-        const hoursVal =
-          record?.hours != null && record.hours !== ''
-            ? String(record.hours)
-            : '';
-        const minutesVal =
-          record?.minutes != null && record.minutes !== ''
-            ? String(record.minutes)
-            : '';
-        const cellIndicator = isPartialSuspensionRow ? null : indicator;
+      if (rowIsAbsent) {
         return (
           <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
             <td
@@ -1055,20 +1254,46 @@ export default function DTRTemplate({
               }}
             >
               <div style={{ fontSize: '10px' }}>{dayLabel}</div>
-              {isPartialSuspensionRow && (
-                <div
-                  style={{
-                    fontSize: '6px',
-                    fontWeight: 700,
-                    color: '#b71c1c',
-                    lineHeight: 1.1,
-                    marginTop: 1,
-                  }}
-                >
-                  {indicator.label}
-                </div>
-              )}
             </td>
+            <td
+              colSpan={6}
+              style={{
+                ...styleObj,
+                backgroundColor: rowTint,
+                textAlign: 'center',
+                verticalAlign: 'middle',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact',
+              }}
+            >
+              <span style={dtrWmSpanStyle}>{DTR_ABSENT_LABEL}</span>
+            </td>
+          </tr>
+        );
+      }
+
+      // Honorarium / Service Credits / Overtime: specialTimeIN/OUT + hours/minutes.
+      if (isSpecialDtr) {
+        const hoursVal =
+          record?.hours != null && record.hours !== ''
+            ? String(record.hours)
+            : '';
+        const minutesVal =
+          record?.minutes != null && record.minutes !== ''
+            ? String(record.minutes)
+            : '';
+        const cellIndicator = isPartialSuspensionRow ? null : indicator;
+        const partialSuspLabel = isPartialSuspensionRow
+          ? dateIndicator.label
+          : null;
+        return (
+          <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
+            {renderDayNumberCell(
+              dayLabel,
+              styleObj,
+              rowTint,
+              partialSuspLabel,
+            )}
             {renderDtrAmPmWatermarkCell(
               record?.specialTimeIN,
               formatTime(record?.specialTimeIN || ''),
@@ -1126,11 +1351,14 @@ export default function DTRTemplate({
       }
 
       const cellIndicator = isPartialSuspensionRow ? null : indicator;
+      const partialSuspLabel = isPartialSuspensionRow
+        ? `SUSP ${formatSuspensionEffectiveTime(dateIndicator.effectiveTime)}`
+        : null;
       const computed = computedLateByDate[fullDate];
       const isExcludedDay =
-        indicator?.type === 'holiday' ||
+        dateIndicator?.type === 'holiday' ||
         (dateIndicator?.type === 'suspension' && !isPartialSuspensionRow) ||
-        indicator?.type === 'leave';
+        dateIndicator?.type === 'leave';
       const hasIncompletePunch = Boolean(
         record &&
         ((dtrRawEmpty(record?.timeIN) && !dtrRawEmpty(record?.timeOUT)) ||
@@ -1140,7 +1368,7 @@ export default function DTRTemplate({
         record,
         fullDate,
         reviewByDate: halfDayReviewByDate,
-        moduleType: computationModuleType,
+        moduleType,
       });
       const { lateDisplay, undertimeDisplay } = resolveDtrLateUndertimeDisplay({
         computed,
@@ -1152,30 +1380,12 @@ export default function DTRTemplate({
       });
       return (
         <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
-          <td
-            style={{
-              ...styleObj,
-              backgroundColor: rowTint,
-              position: 'relative',
-              WebkitPrintColorAdjust: 'exact',
-              printColorAdjust: 'exact',
-            }}
-          >
-            <div style={{ fontSize: '10px' }}>{dayLabel}</div>
-            {isPartialSuspensionRow && (
-              <div
-                style={{
-                  fontSize: '6px',
-                  fontWeight: 700,
-                  color: '#b71c1c',
-                  lineHeight: 1.05,
-                  marginTop: 1,
-                }}
-              >
-                SUSP {formatSuspensionEffectiveTime(indicator.effectiveTime)}
-              </div>
-            )}
-          </td>
+          {renderDayNumberCell(
+            dayLabel,
+            styleObj,
+            rowTint,
+            partialSuspLabel,
+          )}
           {renderDtrAmPmWatermarkCell(
             record?.timeIN,
             formatTime(record?.timeIN || ''),
@@ -1364,7 +1574,7 @@ export default function DTRTemplate({
                 tableLayout: 'fixed',
               }}
             >
-              {DTR_COLGROUP}
+              {buildDtrColgroup(needsWideDayCol)}
               {renderHeader()}
               <tbody className="dtr-body">
                 {renderTableRows(cellStyle, `${keyPrefix}${tableIdx}`)}

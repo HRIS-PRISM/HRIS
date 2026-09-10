@@ -1,90 +1,108 @@
 import API_BASE_URL from '../apiConfig';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   Box,
   Typography,
-  Paper,
   Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   TextField,
+  MenuItem,
   Chip,
-  Checkbox,
-  FormControlLabel,
+  CircularProgress,
+  Alert,
+  IconButton,
+  Tooltip,
+  alpha,
+  Card,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TablePagination,
+  Backdrop,
+  InputAdornment,
   Dialog,
-  DialogTitle,
   DialogContent,
   DialogActions,
-  IconButton,
-  InputAdornment,
-  CircularProgress,
-  Container,
-  Alert,
-  Grid,
-  Card,
-  CardContent,
-  Tooltip,
-  Avatar,
-  Fade,
-  Backdrop,
-  styled,
-  alpha,
-  CardHeader,
-  Modal,
-  Snackbar,
 } from '@mui/material';
+import { styled } from '@mui/material/styles';
 import {
   Download as DownloadIcon,
-  Delete as DeleteIcon,
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  Add as AddIcon,
-  Edit as EditIcon,
-  Remove as RemoveIcon,
-  LockOpen as LockOpenIcon,
+  Home,
+  History,
+  Search as SearchIcon,
+  Close as CloseIcon,
+  Security,
   Lock as LockIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
-  FileDownload as FileDownloadIcon,
-  Close as CloseIcon,
-  Search as SearchIcon,
-  FilterList,
-  Security,
   Warning,
-  Error,
-  Home,
-  Refresh,
-  Person,
-  AccessTime,
-  ViewList,
-  SupervisorAccount,
-  AdminPanelSettings,
-  Work,
-  Info,
-  Category,
-  Assignment,
-  Assessment,
-  Payment,
-  Description as FormIcon,
-  Folder,
-  FolderSpecial,
-  KeyboardArrowDown,
-  KeyboardArrowUp,
 } from '@mui/icons-material';
 import { getUserInfo } from '../utils/auth';
 import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import { useSocket } from '../contexts/SocketContext';
-import {
-  buildDashboardAuditSentence,
-} from '../utils/dashboardAuditFormat';
+import { buildDashboardAuditSentence } from '../utils/dashboardAuditFormat';
 
-// Get auth headers function
+/* ── Design tokens (aligned with PagesList / AdminActionTrail) ── */
+const T = {
+  accent: '#6d2323',
+  accentDark: '#5a1d1d',
+  accentMid: '#8B4545',
+  accentFaint: 'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
+  text: '#1a1a1a',
+  muted: '#6b6b6b',
+  faint: '#a0a0a0',
+  surface: '#ffffff',
+  headerGrad: 'linear-gradient(135deg,#6d2323 0%,#5a1d1d 100%)',
+};
+
+const BD = T.accentBorder;
+const SUBTLE = 'rgba(109,35,35,0.03)';
+
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+`;
+
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: `0.5px solid ${T.accentBorder}`,
+  overflow: 'hidden',
+  background: T.surface,
+});
+
+const FieldInput = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: 8,
+    fontSize: '0.875rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
+  },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
+
+const AccentButton = styled(Button)({
+  borderRadius: 8,
+  textTransform: 'none',
+  fontWeight: 600,
+  fontSize: '0.875rem',
+  letterSpacing: '0.01em',
+  transition: 'all 0.18s ease',
+  '&:hover': { transform: 'translateY(-1px)' },
+  '&:active': { transform: 'translateY(0)' },
+});
+
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
   return {
@@ -93,54 +111,6 @@ const getAuthHeaders = () => {
       Authorization: `Bearer ${token}`,
     },
   };
-};
-
-// System Settings Hook
-const useSystemSettings = () => {
-  const [settings, setSettings] = useState({
-    primaryColor: '#894444',
-    secondaryColor: '#6d2323',
-    accentColor: '#FEF9E1',
-    textColor: '#FFFFFF',
-    textPrimaryColor: '#6D2323',
-    textSecondaryColor: '#FEF9E1',
-    hoverColor: '#6D2323',
-    backgroundColor: '#FFFFFF',
-  });
-
-  useEffect(() => {
-    const storedSettings = localStorage.getItem('systemSettings');
-    if (storedSettings) {
-      try {
-        const parsedSettings = JSON.parse(storedSettings);
-        if (parsedSettings && typeof parsedSettings === 'object') {
-          setSettings(parsedSettings);
-        }
-      } catch (error) {
-        console.error('Error parsing stored settings:', error);
-      }
-    }
-
-    const fetchSettings = async () => {
-      try {
-        const url = API_BASE_URL.includes('/api')
-          ? `${API_BASE_URL}/system-settings`
-          : `${API_BASE_URL}/api/system-settings`;
-
-        const response = await axios.get(url, getAuthHeaders());
-        if (response.data && typeof response.data === 'object') {
-          setSettings(response.data);
-          localStorage.setItem('systemSettings', JSON.stringify(response.data));
-        }
-      } catch (error) {
-        console.error('Error fetching system settings:', error);
-      }
-    };
-
-    fetchSettings();
-  }, []);
-
-  return settings;
 };
 
 // ─── Session durations ───────────────────────────────────────────────────────
@@ -287,51 +257,159 @@ const shouldShowAuditLogEntry = (log) => {
   return true;
 };
 
+const ACTION_MAP = {
+  DELETED: ['DELETE', 'REMOVE', 'DESTROY'],
+  REVERSED: ['RESTORE', 'REVERS'],
+  DEDUCTED: ['DEDUCT', 'TARDINESS'],
+  'ASSIGNED LEAVE': ['ASSIGN'],
+  TEVL: ['TEVL'],
+  'VL BALANCE': ['VL BALANCE'],
+  UPDATE: ['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'],
+  VIEW: ['VIEW', 'OPEN', 'READ'],
+  CREATE: ['ADD', 'INSERT', 'CREATE', 'REGISTER'],
+  APPROVED: ['APPROVE'],
+  APPLIED: ['APPLIED'],
+  REJECTED: ['REJECT'],
+};
+
+const normalizeAction = (action) => {
+  if (typeof action !== 'string') return null;
+  const normalized = action.trim().toUpperCase();
+  if (!normalized) return null;
+
+  for (const [mainAction, keywords] of Object.entries(ACTION_MAP)) {
+    if (keywords.some((keyword) => normalized.includes(keyword))) {
+      return mainAction;
+    }
+  }
+
+  return null;
+};
+
+const formatTimestamp = (ts) => {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
+  return `${d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })} · ${d.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+};
+
+const formatModuleName = (tableName) => {
+  if (!tableName) return '—';
+  return String(tableName)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const parseAuditDetailsSafe = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const buildLogDescription = (log) => {
+  const details = parseAuditDetailsSafe(log?.details_json) || {};
+  const txMsg =
+    typeof details.transaction_message === 'string' &&
+    details.transaction_message.trim();
+  if (txMsg) return txMsg;
+  if (details.module_type === 'dashboard') {
+    return buildDashboardAuditSentence(log);
+  }
+  const action = log?.action || 'Action';
+  const module = formatModuleName(log?.table_name);
+  const target = log?.targetEmployeeNumber
+    ? ` (Target: ${log.targetEmployeeNumber})`
+    : '';
+  return `${action} on ${module}${target}`;
+};
+
+const getActionColor = (action) => {
+  if (!action) return T.accent;
+  const a = action.toUpperCase();
+  if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
+    return '#c62828';
+  if (a.includes('REJECT')) return '#b91c1c';
+  if (['RESTORE', 'REVERS'].some((k) => a.includes(k))) return '#ec4899';
+  if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k))) return '#f97316';
+  if (a.includes('ASSIGN')) return '#6366f1';
+  if (['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'].some((k) => a.includes(k)))
+    return '#1565c0';
+  if (['VIEW', 'OPEN', 'READ'].some((k) => a.includes(k))) return '#00838f';
+  if (['CREATE', 'ADD', 'INSERT', 'REGISTER'].some((k) => a.includes(k)))
+    return '#2e7d32';
+  return T.accent;
+};
+
+const formatTimer = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const getTimerColor = (seconds) => {
+  if (seconds < 120) return '#ef4444';
+  if (seconds < 300) return '#f59e0b';
+  return '#10b981';
+};
+
+const headCellSx = {
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: '0.6rem',
+  fontWeight: 700,
+  color: alpha(T.accent, 0.5),
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
+  borderBottom: `2px solid ${alpha(T.accent, 0.12)}`,
+  bgcolor: '#fafafa',
+  py: 0.75,
+  px: 2,
+  whiteSpace: 'nowrap',
+};
+
 const AuditLogs = () => {
   const navigate = useNavigate();
+  const { socket } = useSocket();
+
   const [currentUser, setCurrentUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [filteredLogs, setFilteredLogs] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+
   const [actionFilter, setActionFilter] = useState('');
   const [moduleFilter, setModuleFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState('');
-  const [toast, setToast] = useState(null);
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(true);
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const [sessionTimer, setSessionTimer] = useState(600); // will be overridden per role
+  const [sessionTimer, setSessionTimer] = useState(600);
   const [sessionWarningShown, setSessionWarningShown] = useState(false);
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false);
-  const [auditPage, setAuditPage] = useState(1);
-  const [expandedOfficialDetails, setExpandedOfficialDetails] = useState({});
-  const [resolvedEmployeeNames, setResolvedEmployeeNames] = useState({});
-  const LOGS_PER_PAGE = 10;
-  const logScrollRef = useRef(null);
 
-  const LOG_LIST_HEIGHT = 500;
-
-  const settings = useSystemSettings();
-  const { socket, connected } = useSocket();
-
-  // ── Derived: is the current user a technical role? ─────────────────────────
   const isTechnical = userRole === 'technical';
 
-  // ── Per-role session duration (ms) ────────────────────────────────────────
-  const SESSION_DURATION = isTechnical
-    ? SESSION_DURATION_TECHNICAL
-    : SESSION_DURATION_DEFAULT;
-
-  //ACCESSING
   const {
     hasAccess,
     loading: accessLoading,
-    error: accessError,
   } = usePageAccess('audit-logs');
 
   const canBypassPageAccess =
@@ -340,80 +418,13 @@ const AuditLogs = () => {
     (userRole === 'administrator' || userRole === 'admin') &&
     hasAccess === true;
   const canAccessAuditModule = canBypassPageAccess || canAdminAccessByPage;
-  // ACCESSING END
 
-  // Memoized styled components
-  const GlassCard = useMemo(
-    () =>
-      styled(Card)(({ theme }) => ({
-        borderRadius: 20,
-        background: `${settings?.accentColor || '#FEF9E1'}F2`,
-        backdropFilter: 'blur(10px)',
-        boxShadow: `0 8px 40px ${settings?.primaryColor || '#894444'}14`,
-        border: `1px solid ${settings?.primaryColor || '#894444'}1A`,
-        overflow: 'hidden',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        '&:hover': {
-          boxShadow: `0 12px 48px ${settings?.primaryColor || '#894444'}26`,
-          transform: 'translateY(-4px)',
-        },
-      })),
-    [settings],
-  );
+  const isAdmin =
+    userRole === 'administrator' ||
+    userRole === 'admin' ||
+    canBypassPageAccess;
+  const pageTitle = isAdmin ? 'Audit Trail (All Users)' : 'My Activity Log';
 
-  const ProfessionalButton = useMemo(
-    () =>
-      styled(Button)(({ theme, variant }) => ({
-        borderRadius: 12,
-        fontWeight: 600,
-        padding: '12px 24px',
-        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        textTransform: 'none',
-        fontSize: '0.95rem',
-        letterSpacing: '0.025em',
-        boxShadow:
-          variant === 'contained'
-            ? `0 4px 14px ${settings?.primaryColor || '#894444'}40`
-            : 'none',
-        '&:hover': {
-          transform: 'translateY(-2px)',
-          boxShadow:
-            variant === 'contained'
-              ? `0 6px 20px ${settings?.primaryColor || '#894444'}59`
-              : 'none',
-        },
-        '&:active': {
-          transform: 'translateY(0)',
-        },
-      })),
-    [settings],
-  );
-
-  const ModernTextField = useMemo(
-    () =>
-      styled(TextField)(({ theme }) => ({
-        '& .MuiOutlinedInput-root': {
-          borderRadius: 12,
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          '&:hover': {
-            transform: 'translateY(-1px)',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          },
-          '&.Mui-focused': {
-            transform: 'translateY(-1px)',
-            boxShadow: `0 4px 20px ${settings?.primaryColor || '#894444'}40`,
-            backgroundColor: 'rgba(255, 255, 255, 1)',
-          },
-        },
-        '& .MuiInputLabel-root': {
-          fontWeight: 500,
-        },
-      })),
-    [settings],
-  );
-
-  // Session management
   const isSessionValid = () => {
     const sessionData = sessionStorage.getItem('auditLogsSession');
     if (!sessionData) return false;
@@ -422,13 +433,12 @@ const AuditLogs = () => {
       const { timestamp, role } = JSON.parse(sessionData);
       const now = Date.now();
       const sessionAge = now - timestamp;
-      // Honour whichever duration was used when the session was originally created
       const duration =
         role === 'technical'
           ? SESSION_DURATION_TECHNICAL
           : SESSION_DURATION_DEFAULT;
       return sessionAge < duration;
-    } catch (error) {
+    } catch {
       return false;
     }
   };
@@ -442,27 +452,13 @@ const AuditLogs = () => {
     sessionStorage.setItem('auditLogsSession', JSON.stringify(sessionData));
   };
 
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     sessionStorage.removeItem('auditLogsSession');
     setIsAuthenticated(false);
     setPasswordDialogOpen(true);
-  };
+    setSessionWarningShown(false);
+  }, []);
 
-  // Format timer display
-  const formatTimer = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Get timer color based on remaining time
-  const getTimerColor = (seconds) => {
-    if (seconds < 120) return '#ef4444'; // Red - less than 2 mins
-    if (seconds < 300) return '#f59e0b'; // Orange - less than 5 mins
-    return '#10b981'; // Green - more than 5 mins
-  };
-
-  // Get current user
   useEffect(() => {
     const userInfo = getUserInfo();
     if (userInfo) {
@@ -471,12 +467,10 @@ const AuditLogs = () => {
     }
   }, []);
 
-  // ── Auto-authenticate technical users; check session for everyone else ─────
   useEffect(() => {
-    if (userRole === null) return; // wait until role is known
+    if (userRole === null) return;
 
     if (userRole === 'technical') {
-      // Technical users skip the password gate entirely
       if (!isAuthenticated) {
         storeSession('technical');
         setIsAuthenticated(true);
@@ -487,7 +481,6 @@ const AuditLogs = () => {
       return;
     }
 
-    // For all other roles, check the existing session
     if (isSessionValid()) {
       setIsAuthenticated(true);
       setPasswordDialogOpen(false);
@@ -497,11 +490,9 @@ const AuditLogs = () => {
     }
   }, [userRole]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Session timer countdown
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // Initialise the timer from the stored session so it survives page refreshes
     const sessionData = sessionStorage.getItem('auditLogsSession');
     if (sessionData) {
       try {
@@ -512,7 +503,9 @@ const AuditLogs = () => {
             : SESSION_DURATION_DEFAULT;
         const remaining = duration - (Date.now() - timestamp);
         setSessionTimer(Math.max(0, Math.floor(remaining / 1000)));
-      } catch (_) {}
+      } catch {
+        /* ignore */
+      }
     }
 
     const interval = setInterval(() => {
@@ -540,21 +533,55 @@ const AuditLogs = () => {
           const secondsRemaining = Math.floor(remaining / 1000);
           setSessionTimer(secondsRemaining);
 
-          // Show warning when 2 minutes remaining and warning hasn't been shown yet
           if (secondsRemaining <= 120 && !sessionWarningShown) {
             setSessionWarningOpen(true);
             setSessionWarningShown(true);
           }
         }
-      } catch (error) {
+      } catch {
         clearSession();
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, sessionWarningShown]);
+  }, [isAuthenticated, sessionWarningShown, clearSession]);
 
-  // Real-time: listen for new audit log entries via WebSocket
+  const loadAuditLogs = useCallback(
+    async (isRefresh = false) => {
+      if (!isAuthenticated) return;
+
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+
+      try {
+        const response = await axios.get(
+          `${API_BASE_URL}/audit-logs`,
+          getAuthHeaders(),
+        );
+
+        if (response.data && Array.isArray(response.data)) {
+          setAuditLogs(response.data.filter(shouldShowAuditLogEntry));
+        } else {
+          setAuditLogs([]);
+        }
+      } catch (error) {
+        console.error('Error loading audit logs:', error);
+        setAuditLogs([]);
+        setToast({ message: 'Failed to load audit logs', type: 'error' });
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [isAuthenticated],
+  );
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadAuditLogs();
+    }
+  }, [isAuthenticated, loadAuditLogs]);
+
   useEffect(() => {
     if (!socket || !isAuthenticated) return;
 
@@ -570,136 +597,35 @@ const AuditLogs = () => {
     return () => socket.off('auditLogCreated', handleNewAuditLog);
   }, [socket, isAuthenticated]);
 
-  // Load audit logs
-  const loadAuditLogs = async () => {
-    if (!isAuthenticated) return;
-
-    try {
-      setLoading(true);
-      const response = await axios.get(
-        `${API_BASE_URL}/audit-logs`,
-        getAuthHeaders(),
-      );
-
-      if (response.data && Array.isArray(response.data)) {
-        // Avoid "double" entries: transaction_table messages are mirrored into audit_log
-        // under `leave_transaction`. Those are already visible in the Transaction Logs UIs,
-        // so we hide them in the Audit Logs page to keep one audit entry per action.
-        setAuditLogs(response.data.filter(shouldShowAuditLogEntry));
-      } else {
-        setAuditLogs([]);
-      }
-    } catch (error) {
-      console.error('Error loading audit logs:', error);
-      setAuditLogs([]);
-      setToast({ message: 'Failed to load audit logs', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadAuditLogs();
-    }
-  }, [isAuthenticated]);
+    setPage(0);
+  }, [actionFilter, moduleFilter, dateFilter, employeeFilter]);
 
-  const parseAuditDetailsSafe = (raw) => {
-    if (!raw) return null;
-    if (typeof raw === 'object') return raw;
-    if (typeof raw !== 'string') return null;
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
-    }
-  };
+  const uniqueActions = useMemo(
+    () =>
+      [
+        ...new Set(
+          auditLogs.map((log) => normalizeAction(log.action)).filter(Boolean),
+        ),
+      ].sort((a, b) => String(a).localeCompare(String(b))),
+    [auditLogs],
+  );
 
-  const getActorEmployeeNumber = (log) => {
-    const details = parseAuditDetailsSafe(log?.details_json);
-    return details?.actor_employeeNumber || log?.employeeNumber || null;
-  };
+  const uniqueModules = useMemo(
+    () =>
+      [...new Set(auditLogs.map((l) => l.table_name).filter(Boolean))].sort(
+        (a, b) => String(a).localeCompare(String(b)),
+      ),
+    [auditLogs],
+  );
 
-  const getTargetEmployeeNumber = (log) => {
-    const details = parseAuditDetailsSafe(log?.details_json);
-    const payload = details?.payload || {};
-    return (
-      details?.target_employeeNumber ||
-      payload?.employeeNumber ||
-      payload?.employee_number ||
-      log?.targetEmployeeNumber ||
-      null
-    );
-  };
-
-  const getResolvedEmployeeName = (employeeNumber) => {
-    if (!employeeNumber) return '';
-    const key = String(employeeNumber);
-    return resolvedEmployeeNames[key] || '';
-  };
-
-  useEffect(() => {
-    if (!isAuthenticated || !Array.isArray(auditLogs) || auditLogs.length === 0) {
-      return;
-    }
-
-    const employeeIds = new Set();
-    auditLogs.forEach((log) => {
-      const actorEmpNum = getActorEmployeeNumber(log);
-      const targetEmpNum = getTargetEmployeeNumber(log);
-      if (actorEmpNum) employeeIds.add(String(actorEmpNum));
-      if (targetEmpNum) employeeIds.add(String(targetEmpNum));
-    });
-
-    const unresolved = [...employeeIds].filter(
-      (id) => !resolvedEmployeeNames[id],
-    );
-    if (!unresolved.length) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const fetchedNames = {};
-      await Promise.all(
-        unresolved.map(async (empNum) => {
-          try {
-            const res = await axios.get(
-              `${API_BASE_URL}/personalinfo/person_table/${empNum}`,
-              getAuthHeaders(),
-            );
-            const firstName = res.data?.firstName || '';
-            const middleName = res.data?.middleName || '';
-            const lastName = res.data?.lastName || '';
-            const middleInitial = middleName ? `${middleName.charAt(0)}.` : '';
-            const formatted = `${lastName}, ${firstName} ${middleInitial}`
-              .replace(/\s+/g, ' ')
-              .trim();
-            if (formatted) fetchedNames[empNum] = formatted;
-          } catch (e) {
-            // keep empty on failed lookup
-          }
-        }),
-      );
-
-      if (!cancelled && Object.keys(fetchedNames).length) {
-        setResolvedEmployeeNames((prev) => ({ ...prev, ...fetchedNames }));
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [auditLogs, isAuthenticated]);
-
-  useEffect(() => {
-    setAuditPage(1);
-    if (logScrollRef.current) {
-      logScrollRef.current.scrollTop = 0;
-    }
-  }, [actionFilter, moduleFilter, dateFilter, employeeFilter, isAuthenticated]);
-
-  // Filter logs
-  useEffect(() => {
+  const filteredLogs = useMemo(() => {
     let filtered = [...auditLogs];
 
     if (
@@ -720,14 +646,7 @@ const AuditLogs = () => {
         filtered = filtered.filter((log) => {
           const actorCol = String(log.employeeNumber || '').toLowerCase();
           const targetCol = String(log.targetEmployeeNumber || '').toLowerCase();
-          if (actorCol.includes(q) || targetCol.includes(q)) return true;
-          const actorResolved = String(
-            getActorEmployeeNumber(log) || '',
-          ).toLowerCase();
-          const targetResolved = String(
-            getTargetEmployeeNumber(log) || '',
-          ).toLowerCase();
-          return actorResolved.includes(q) || targetResolved.includes(q);
+          return actorCol.includes(q) || targetCol.includes(q);
         });
       }
     }
@@ -740,7 +659,8 @@ const AuditLogs = () => {
 
     if (moduleFilter) {
       filtered = filtered.filter(
-        (log) => log.table_name?.toLowerCase() === moduleFilter.toLowerCase(),
+        (log) =>
+          log.table_name?.toLowerCase() === moduleFilter.toLowerCase(),
       );
     }
 
@@ -758,33 +678,22 @@ const AuditLogs = () => {
       return dateB - dateA;
     });
 
-    setFilteredLogs(filtered);
+    return filtered;
   }, [
-    actionFilter,
-    moduleFilter,
-    dateFilter,
-    employeeFilter,
     auditLogs,
     userRole,
     currentUser,
+    employeeFilter,
+    actionFilter,
+    moduleFilter,
+    dateFilter,
   ]);
 
-  // Reset to page 1 whenever filteredLogs change
-  useEffect(() => {
-    setAuditPage(1);
-  }, [filteredLogs.length]);
+  const pagedLogs = useMemo(() => {
+    const start = page * rowsPerPage;
+    return filteredLogs.slice(start, start + rowsPerPage);
+  }, [filteredLogs, page, rowsPerPage]);
 
-  // Auto-hide toast
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => {
-        setToast(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
-
-  // Handle password submit - verify confidential password
   const handlePasswordSubmit = async () => {
     if (!passwordInput) {
       setPasswordError('Please enter an authorized password.');
@@ -803,7 +712,11 @@ const AuditLogs = () => {
         setPasswordDialogOpen(false);
         setIsAuthenticated(true);
         storeSession(userRole);
-        setToast();
+        setSessionWarningShown(false);
+        setToast({
+          message: 'Access granted. Your session has started.',
+          type: 'success',
+        });
         setPasswordInput('');
       } else {
         setPasswordError('Incorrect password. Please try again.');
@@ -824,91 +737,7 @@ const AuditLogs = () => {
     navigate(-1);
   };
 
-  // Handle session warning close
-  const handleSessionWarningClose = () => {
-    setSessionWarningOpen(false);
-  };
-
-  // ENHANCED: Get action color with distinct colors for each action type
-  const getActionColor = (action) => {
-    if (!action) return '#10b981';
-    const a = action.toUpperCase();
-    if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
-      return '#ef4444';
-    if (a.includes('REJECT')) return '#b91c1c';
-    if (['RESTORE', 'REVERS'].some((k) => a.includes(k))) return '#ec4899';
-    if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k))) return '#f97316';
-    if (a.includes('ASSIGN')) return '#6366f1';
-    if (a.includes('TEVL')) return '#f59e0b';
-    if (a.includes('VL BALANCE')) return '#0d9488';
-    if (['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'].some((k) => a.includes(k)))
-      return '#3b82f6';
-    if (['VIEW', 'OPEN', 'READ'].some((k) => a.includes(k))) return '#06b6d4';
-    if (a.includes('LOGOUT')) return '#7c3aed';
-    if (a.includes('LOGIN')) return '#8b5cf6';
-    return '#10b981';
-  };
-
-  // ENHANCED: Get action icon for each action type
-  const getActionIcon = (action) => {
-    if (!action) return <AddIcon sx={{ fontSize: 16 }} />;
-    const a = action.toUpperCase();
-    if (['DELETE', 'REMOVE', 'DESTROY'].some((k) => a.includes(k)))
-      return <DeleteIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('REJECT'))
-      return <CancelIcon sx={{ fontSize: 16 }} />;
-    if (['RESTORE', 'REVERS'].some((k) => a.includes(k)))
-      return <RefreshIcon sx={{ fontSize: 16 }} />;
-    if (['DEDUCT', 'TARDINESS'].some((k) => a.includes(k)))
-      return <RemoveIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('ASSIGN')) return <Assignment sx={{ fontSize: 16 }} />;
-    if (a.includes('TEVL')) return <AddIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('VL BALANCE')) return <Assessment sx={{ fontSize: 16 }} />;
-    if (['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'].some((k) => a.includes(k)))
-      return <EditIcon sx={{ fontSize: 16 }} />;
-    if (['VIEW', 'OPEN', 'READ'].some((k) => a.includes(k)))
-      return <VisibilityIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('LOGOUT')) return <LockIcon sx={{ fontSize: 16 }} />;
-    if (a.includes('LOGIN')) return <LockOpenIcon sx={{ fontSize: 16 }} />;
-    return <AddIcon sx={{ fontSize: 16 }} />;
-  };
-
-  // Format audit log entry with color-coded action
-  const formatAuditLog = (log) => {
-    if (log.table_name === 'leave_transaction' || log._isTransaction) {
-      const ts = log.timestamp ? new Date(log.timestamp) : null;
-      const formattedTime =
-        ts && !isNaN(ts)
-          ? `${ts.toLocaleDateString()} ${ts.toLocaleTimeString()}`
-          : 'No Date';
-      const safeMessage = (log.action || log.message || 'No message')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      return `[${formattedTime}] - <strong>Employee ${log.employeeNumber || 'Unknown'}</strong>: ${safeMessage}`;
-    }
-
-    const timestamp = new Date(log.timestamp);
-    const formattedTime = `${timestamp.toLocaleDateString()} ${timestamp.toLocaleTimeString()}`;
-    const employeeNumber = log.employeeNumber || 'Unknown';
-    const action = log.action?.toUpperCase() || 'UNKNOWN';
-    const actionColor = getActionColor(log.action);
-    const module = log.table_name?.toUpperCase() || 'UNKNOWN';
-    const recordId = log.record_id ? ` #${log.record_id}` : '';
-    const targetEmployee = log.targetEmployeeNumber
-      ? ` (Target: ${log.targetEmployeeNumber})`
-      : '';
-
-    let logString = `[${formattedTime}] - `;
-    logString += `<strong>Employee ${employeeNumber}</strong> `;
-    logString += `performed <strong style="color: ${actionColor};">${action}</strong> `;
-    logString += `on <strong>${module}${recordId}</strong>${targetEmployee}.`;
-
-    return logString;
-  };
-
-  // Export audit log
-  const handleExportLog = () => {
+  const handleExport = () => {
     let csv =
       'Timestamp,Employee Number,Action,Table Name,Record ID,Target Employee\n';
 
@@ -930,1053 +759,14 @@ const AuditLogs = () => {
     a.download = `audit-trail-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
-
-    setToast({});
+    setToast({ message: 'Export downloaded', type: 'success' });
   };
 
-  // Refresh logs
   const handleRefresh = () => {
-    setRefreshing(true);
-    loadAuditLogs();
-    setToast({});
+    loadAuditLogs(true);
+    setToast({ message: 'Logs refreshed', type: 'success' });
   };
 
-  // Store first the action needed to normalize
-  const ACTION_MAP = {
-    DELETED: ['DELETE', 'REMOVE', 'DESTROY'],
-    REVERSED: ['RESTORE', 'REVERS'],
-    DEDUCTED: ['DEDUCT', 'TARDINESS'],
-    'ASSIGNED LEAVE': ['ASSIGN'],
-    TEVL: ['TEVL'],
-    'VL BALANCE': ['VL BALANCE'],
-    UPDATE: ['UPDATE', 'EDIT', 'MODIFY', 'CHANGE'],
-    VIEW: ['VIEW', 'OPEN', 'READ'],
-    CREATE: ['ADD', 'INSERT', 'CREATE', 'REGISTER'],
-    // Earnings audit actions (leave / SC / CTO) use full phrases like "approved service credit earnings"
-    APPROVED: ['APPROVE'],
-    APPLIED: ['APPLIED'],
-    REJECTED: ['REJECT'],
-  };
-
-  // Normalize first the action before putting on map
-  const normalizeAction = (action) => {
-    if (typeof action !== 'string') return null;
-    const normalized = action.trim().toUpperCase();
-    if (!normalized) return null;
-
-    for (const [mainAction, keywords] of Object.entries(ACTION_MAP)) {
-      if (keywords.some((keyword) => normalized.includes(keyword))) {
-        return mainAction;
-      }
-    }
-
-    return null;
-  };
-
-  // Get unique actions for filter
-  const getUniqueActions = () => {
-    return [
-      ...new Set(
-        auditLogs.map((log) => normalizeAction(log.action)).filter(Boolean),
-      ),
-    ].sort();
-  };
-
-  // Get unique modules for filter
-  const getUniqueModules = () => {
-    const modules = [
-      ...new Set(auditLogs.map((log) => log.table_name).filter(Boolean)),
-    ];
-    return modules.sort();
-  };
-
-  // Format module name
-  const formatModuleName = (tableName) => {
-    if (!tableName) return '';
-    const t = String(tableName).toLowerCase();
-    if (t === 'earnings_sc') return 'Earnings — Service credits';
-    if (t === 'earnings_leave') return 'Earnings — Leave';
-    if (t === 'earnings_cto') return 'Earnings — CTO';
-    if (t === 'service_credit') return 'Service credits (ledger)';
-    return String(tableName).toUpperCase().replace(/[\s\-]+/g, '_');
-  };
-
-  const toSimpleName = (name) => {
-    const raw = String(name || '').trim();
-    if (!raw) return '';
-    if (raw.includes(',')) {
-      const [last, rest] = raw.split(',');
-      const firstToken = (rest || '').trim().split(/\s+/).filter(Boolean)[0] || '';
-      const lastToken = (last || '').trim();
-      return `${firstToken} ${lastToken}`.trim();
-    }
-    return raw;
-  };
-
-  const getLeaveTypeLabel = (code) => {
-    const c = String(code || '').trim().toUpperCase();
-    if (!c) return '';
-    const map = {
-      VL: 'Vacation Leave',
-      SL: 'Sick Leave',
-      SPL: 'Special Privilege Leave',
-      ML: 'Maternity Leave',
-      PL: 'Paternity Leave',
-      FL: 'Force Leave',
-    };
-    return map[c] || c;
-  };
-
-  const parseEarningsTxMessage = (message) => {
-    const raw = String(message || '').trim();
-    if (!raw) return null;
-    const lifecycleRx =
-      /^(.*?)\s+(created|approved|rejected|deleted)\s+(leave earnings|service credit earnings|CTO earnings)(?:\s+\(([-\d.]+)\s*hrs\))?(?:\s+\[([^\]]+)\])?(?:\s+for\s+(\d{4}-\d{2}))?\s+for\s+(.*?)$/i;
-    const deductionRx =
-      /^(.*?)\s+(applied)\s+(tardiness leave deduction|service credit balance deduction|CTO balance deduction)(?:\s+\(([-\d.]+)\s*hrs\))?(?:\s+\[([^\]]+)\])?(?:\s+for\s+(\d{4}-\d{2}))?\s+for\s+(.*?)(?:\.\s*Balance updated:.*)?$/i;
-    const m = raw.match(lifecycleRx) || raw.match(deductionRx);
-    if (!m) return null;
-    return {
-      actorRaw: m[1]?.trim() || '',
-      action: (m[2] || '').toLowerCase(),
-      earningType: (m[3] || '').toLowerCase(),
-      hours: m[4] != null ? Number(m[4]) : null,
-      leaveCode: m[5] ? String(m[5]).toUpperCase() : '',
-      period: m[6] || '',
-      targetRaw: m[7]?.trim() || '',
-    };
-  };
-
-  const getEarningsDisplayMeta = (log) => {
-    const details = parseAuditDetailsSafe(log?.details_json) || {};
-    const payload = details?.payload || {};
-    const txFromDetails =
-      typeof details.transaction_message === 'string'
-        ? details.transaction_message.trim()
-        : '';
-    const txParsed = parseEarningsTxMessage(
-      txFromDetails || log?.action || log?.message || '',
-    );
-
-    const actorEmp = getActorEmployeeNumber(log) || 'unknown';
-    const targetEmp = getTargetEmployeeNumber(log) || 'unknown';
-    const actorResolved = getResolvedEmployeeName(actorEmp);
-    const targetResolved = getResolvedEmployeeName(targetEmp);
-
-    const actorNameFromTx = txParsed?.actorRaw
-      ? txParsed.actorRaw.replace(/\(\s*\d+\s*\)\s*$/i, '').trim()
-      : '';
-    const targetNameFromTx = txParsed?.targetRaw
-      ? txParsed.targetRaw.replace(/\(\s*\d+\s*\)\s*$/i, '').trim()
-      : '';
-
-    const actorName = toSimpleName(actorResolved || actorNameFromTx);
-    const targetName = toSimpleName(targetResolved || targetNameFromTx);
-
-    const actionRaw = String(log?.action || '').toLowerCase();
-    const action =
-      txParsed?.action ||
-      (/\btardiness leave deduction\b/i.test(actionRaw)
-        ? 'applied'
-        : actionRaw.split(' ')[0]) ||
-      'updated';
-    const earningTypeRaw =
-      txParsed?.earningType ||
-      (/\btardiness leave deduction\b/i.test(actionRaw)
-        ? 'tardiness leave deduction'
-        : /\bservice credit balance deduction\b/i.test(actionRaw)
-          ? 'service credit balance deduction'
-          : /\bcto balance deduction\b/i.test(actionRaw)
-            ? 'CTO balance deduction'
-            : String(log?.table_name || '').toLowerCase().startsWith('earnings_')
-              ? `${String(log.table_name).replace(/^earnings_/i, '')} earnings`
-              : 'earnings');
-    const earningType = earningTypeRaw.toLowerCase();
-
-    const leaveCode = (
-      txParsed?.leaveCode ||
-      payload?.leave_code ||
-      ''
-    )
-      .toString()
-      .toUpperCase();
-
-    const periodRaw =
-      txParsed?.period ||
-      (payload?.period_year && payload?.period_month
-        ? `${payload.period_year}-${String(payload.period_month).padStart(2, '0')}`
-        : '');
-
-    const hoursRaw =
-      txParsed?.hours ??
-      payload?.earned_hours ??
-      payload?.earnedHrs ??
-      null;
-    const hours = Number(hoursRaw);
-
-    return {
-      action,
-      earningType,
-      leaveCode,
-      period: periodRaw,
-      hours: Number.isFinite(hours) ? hours : null,
-      actorName,
-      targetName,
-      actorEmp,
-      targetEmp,
-    };
-  };
-
-  const buildActionBadgeLabel = (log) => {
-    const table = String(log?.table_name || '').toLowerCase();
-    if (table === 'service_credit') {
-      const act = String(log?.action || '').trim().toLowerCase();
-      if (act === 'assigned') return 'ASSIGNED SERVICE CREDIT';
-      if (act === 'updated') return 'UPDATED SERVICE CREDIT';
-      if (act === 'deleted') return 'DELETED SERVICE CREDIT';
-      if (act.includes('applied action')) return 'APPLIED SERVICE CREDIT';
-      return `${String(log?.action || 'ACTIVITY').toUpperCase()} SERVICE CREDIT`;
-    }
-    if (table === 'cto_credit') {
-      const act = String(log?.action || '').trim().toLowerCase();
-      if (act === 'assigned') return 'ASSIGNED CTO';
-      if (act === 'updated') return 'UPDATED CTO';
-      if (act === 'deleted') return 'DELETED CTO';
-      return `${String(log?.action || 'ACTIVITY').toUpperCase()} CTO`;
-    }
-    const isEarningsLike =
-      table.startsWith('earnings_') ||
-      (table === 'leave_transaction' &&
-        /(?:leave|service credit|cto)\s+earnings/i.test(
-          String(log?.action || log?.message || ''),
-        ));
-    if (!isEarningsLike) return log.action?.toUpperCase() || 'UNKNOWN';
-
-    const actionRaw = String(log?.action || '').toLowerCase();
-    if (/\btardiness leave deduction\b/i.test(actionRaw)) {
-      const meta = getEarningsDisplayMeta(log);
-      const codePart = meta.leaveCode ? ` [${meta.leaveCode}]` : '';
-      return `APPLIED TARDINESS LEAVE DEDUCTION${codePart}`;
-    }
-    if (/\bservice credit balance deduction\b/i.test(actionRaw)) {
-      return 'APPLIED SERVICE CREDIT BALANCE DEDUCTION';
-    }
-    if (/\bcto balance deduction\b/i.test(actionRaw)) {
-      return 'APPLIED CTO BALANCE DEDUCTION';
-    }
-
-    const meta = getEarningsDisplayMeta(log);
-    const typeUpper = meta.earningType
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toUpperCase();
-    const codePart = meta.leaveCode ? ` (${meta.leaveCode})` : '';
-    return `${meta.action.toUpperCase()} ${typeUpper.toUpperCase()}${codePart}`;
-  };
-
-  // Build a clean readable sentence for each audit log entry
-  const buildLogDescription = (log) => {
-    const detailsAny = parseAuditDetailsSafe(log?.details_json) || {};
-    const txMsgGlobal =
-      typeof detailsAny.transaction_message === 'string' &&
-      detailsAny.transaction_message.trim();
-    if (txMsgGlobal) return txMsgGlobal;
-
-    const tableNameLower = String(log?.table_name || '').toLowerCase();
-    if (detailsAny.module_type === 'dashboard') {
-      return buildDashboardAuditSentence(log);
-    }
-
-    const isEarningsModule = tableNameLower.startsWith('earnings_');
-    const isEarningsTransaction =
-      tableNameLower === 'leave_transaction' &&
-      /(?:leave|service credit|cto)\s+earnings/i.test(
-        String(log?.action || log?.message || ''),
-      );
-
-    if (isEarningsModule || isEarningsTransaction) {
-      const meta = getEarningsDisplayMeta(log);
-      const hoursText =
-        meta.hours !== null ? ` total of ${meta.hours} hours ` : ' ';
-      const periodText = meta.period ? ` for ${meta.period}` : '';
-
-      if (meta.earningType.includes('tardiness leave deduction')) {
-        const leaveLabel = meta.leaveCode ? getLeaveTypeLabel(meta.leaveCode) : '';
-        const codePart = meta.leaveCode ? ` [${meta.leaveCode}]` : '';
-        const hrsPart =
-          meta.hours !== null ? ` (${meta.hours} hrs)` : '';
-        return `${meta.actorName || `Employee #${meta.actorEmp}`} (${meta.actorEmp}) applied tardiness leave deduction${hrsPart}${codePart}${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`} (${meta.targetEmp}).`;
-      }
-
-      if (meta.earningType.includes('leave earnings') && meta.leaveCode) {
-        const leaveLabel = getLeaveTypeLabel(meta.leaveCode);
-        return `${meta.actorName || `Employee #${meta.actorEmp}`} ${meta.action} an earning${hoursText}for ${leaveLabel} (${meta.leaveCode})${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`}.`;
-      }
-
-      const typeLabel = meta.earningType
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
-      return `${meta.actorName || `Employee #${meta.actorEmp}`} ${meta.action} ${typeLabel}${hoursText}${periodText} for ${meta.targetName || `employee #${meta.targetEmp}`}.`;
-    }
-
-    // Leave balance adjustments (show before/after balance)
-    const tableLower = String(log?.table_name || '').toLowerCase();
-    const actionLower = String(log?.action || '').toLowerCase();
-    if (tableLower === 'leave_assignment' && actionLower.includes('auto-adjust leave balance')) {
-      const actorEmpNum = getActorEmployeeNumber(log);
-      const targetEmpNum = getTargetEmployeeNumber(log);
-      const actorName = getResolvedEmployeeName(actorEmpNum);
-      const targetName = getResolvedEmployeeName(targetEmpNum);
-
-      const details = parseAuditDetailsSafe(log?.details_json) || {};
-      const beforeRem = Number(details?.before?.remaining_hours);
-      const afterRem = Number(details?.after?.remaining_hours);
-      const beforeUsed = Number(details?.before?.used_hours);
-      const afterUsed = Number(details?.after?.used_hours);
-      const leaveCode = String(details?.leave_code || '').toUpperCase();
-
-      const fmt = (n) => (Number.isFinite(n) ? n.toFixed(3) : '—');
-      const fmtDays = (n) =>
-        Number.isFinite(n) ? (n / 8).toFixed(3) : '—';
-
-      const who = actorEmpNum
-        ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
-        : 'Unknown user';
-      const target = targetEmpNum
-        ? `${targetName ? `${targetName} ` : ''}employee #${targetEmpNum}`
-        : 'employee';
-
-      const remLine = `Remaining${leaveCode ? ` [${leaveCode}]` : ''}: ${fmt(beforeRem)} → ${fmt(afterRem)} hrs (${fmtDays(beforeRem)} → ${fmtDays(afterRem)} day(s))`;
-      const usedLine = `Used: ${fmt(beforeUsed)} → ${fmt(afterUsed)} hrs`;
-
-      return `${who} adjusted ${target}'s leave balance. ${remLine}. ${usedLine}.`;
-    }
-
-    if (
-      tableLower === 'leave_transaction' &&
-      /hr leave (bulk )?approval (deduction|reversal)/i.test(actionLower)
-    ) {
-      const details = parseAuditDetailsSafe(log?.details_json) || {};
-      if (typeof details.transaction_message === 'string' && details.transaction_message.trim()) {
-        return details.transaction_message.trim();
-      }
-      const beforeH = Number(details.available_hours_before);
-      const afterH = Number(details.available_hours_after);
-      const chargeTo = String(details.charge_to || '').toUpperCase();
-      const hrs = Number(details.deducted_hours ?? details.restored_hours);
-      const fmt = (n) => (Number.isFinite(n) ? n.toFixed(3) : '—');
-      if (Number.isFinite(beforeH) && Number.isFinite(afterH)) {
-        return `${log.action}. ${chargeTo ? `[${chargeTo}] ` : ''}Balance: ${fmt(beforeH)} → ${fmt(afterH)} hrs${Number.isFinite(hrs) ? ` (${fmt(hrs)} hrs)` : ''}.`;
-      }
-    }
-
-    if (isEarningsModule) {
-      // fallback kept for safety; branch above handles earnings
-      return 'Earnings activity logged.';
-    }
-
-    const detailsWithButton = parseAuditDetailsSafe(log?.details_json) || {};
-    if (detailsWithButton.button) {
-      const actorEmpNum =
-        detailsWithButton.actor_employeeNumber || getActorEmployeeNumber(log);
-      const targetEmpNum =
-        detailsWithButton.target_employeeNumber || getTargetEmployeeNumber(log);
-      const actorName = getResolvedEmployeeName(actorEmpNum);
-      const isOfficialTimeModuleAudit =
-        detailsWithButton.audit_event === 'official_time_search' ||
-        detailsWithButton.audit_event === 'official_time_add' ||
-        detailsWithButton.audit_event === 'official_time_edit' ||
-        (String(log.table_name || '').toLowerCase().includes('official time') &&
-          /searched employee|added schedule|edited schedule/i.test(
-            String(detailsWithButton.button || ''),
-          ));
-
-      if (isOfficialTimeModuleAudit) {
-        const moduleLabel = log.table_name
-          ? formatModuleName(log.table_name)
-          : 'OFFICIAL_TIME';
-        const actor = actorEmpNum
-          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
-          : 'Unknown user';
-        const targetUser = String(
-          detailsWithButton.target_username ||
-            detailsWithButton.target_name ||
-            '',
-        ).trim();
-        const target = targetEmpNum
-          ? targetUser
-            ? `${targetUser} (#${targetEmpNum})`
-            : `(#${targetEmpNum})`
-          : targetUser || '—';
-        const parts = [];
-        if (detailsWithButton.changes_summary) {
-          parts.push(
-            detailsWithButton.audit_event === 'official_time_search'
-              ? detailsWithButton.changes_summary
-              : `Period: ${detailsWithButton.changes_summary}`,
-          );
-        } else if (Number.isFinite(Number(detailsWithButton.records_count))) {
-          parts.push(`${detailsWithButton.records_count} schedule(s)`);
-        }
-        if (detailsWithButton.month_label) {
-          parts.push(`Year: ${detailsWithButton.month_label}`);
-        }
-        const verb =
-          detailsWithButton.audit_event === 'official_time_add'
-            ? 'added official time for'
-            : detailsWithButton.audit_event === 'official_time_edit'
-              ? 'edited official time for'
-              : 'searched official time for';
-        return `${actor} ${verb} ${target} in ${moduleLabel}${parts.length ? ` · ${parts.join(' · ')}` : ''}`;
-      }
-
-      const isDtrOverallAudit =
-        detailsWithButton.audit_event === 'dtr_overall_search' ||
-        (String(log.table_name || '')
-          .toLowerCase()
-          .includes('daily time record (overall)') &&
-          String(detailsWithButton.button || '').toLowerCase() === 'search');
-
-      if (isDtrOverallAudit) {
-        const moduleLabel = log.table_name
-          ? formatModuleName(log.table_name)
-          : 'DAILY_TIME_RECORD_(OVERALL)';
-        const actor = actorEmpNum
-          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
-          : 'Unknown user';
-        const targetUser = String(
-          detailsWithButton.target_username ||
-            detailsWithButton.target_name ||
-            '',
-        ).trim();
-        const target = targetEmpNum
-          ? targetUser
-            ? `${targetUser} (#${targetEmpNum})`
-            : `(#${targetEmpNum})`
-          : targetUser || '—';
-        const coverage =
-          detailsWithButton.period_start && detailsWithButton.period_end
-            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
-            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
-        const parts = [];
-        if (coverage) parts.push(`Coverage: ${coverage}`);
-        if (detailsWithButton.month_label) {
-          parts.push(`Month: ${detailsWithButton.month_label}`);
-        }
-        const count = Number(detailsWithButton.records_count);
-        if (Number.isFinite(count)) parts.push(`${count} record(s)`);
-        return `${actor} searched DTR in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
-      }
-
-      const isStateAudit =
-        detailsWithButton.audit_event === 'state_view' ||
-        (String(log.table_name || '').toLowerCase().includes('attendance state') &&
-          /fetched records/i.test(String(detailsWithButton.button || '')));
-
-      if (isStateAudit) {
-        const moduleLabel = log.table_name
-          ? formatModuleName(log.table_name)
-          : 'ATTENDANCE_STATE';
-        const actor = actorEmpNum
-          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
-          : 'Unknown user';
-        const targetUser = String(
-          detailsWithButton.target_username ||
-            detailsWithButton.target_name ||
-            '',
-        ).trim();
-        const target = targetEmpNum
-          ? targetUser
-            ? `${targetUser} (#${targetEmpNum})`
-            : `(#${targetEmpNum})`
-          : targetUser || '—';
-        const coverage =
-          detailsWithButton.period_start && detailsWithButton.period_end
-            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
-            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
-        const parts = [];
-        if (coverage) parts.push(`Coverage: ${coverage}`);
-        if (detailsWithButton.month_label) {
-          parts.push(`Month: ${detailsWithButton.month_label}`);
-        }
-        const count = Number(detailsWithButton.records_count);
-        if (Number.isFinite(count)) parts.push(`${count} record(s)`);
-        return `${actor} fetched attendance state in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
-      }
-
-      const isModificationAudit =
-        detailsWithButton.audit_event === 'modification_view' ||
-        detailsWithButton.audit_event === 'modification_save' ||
-        (String(log.table_name || '')
-          .toLowerCase()
-          .includes('attendance modification') &&
-          (detailsWithButton.audit_event === 'modification_view' ||
-            detailsWithButton.audit_event === 'modification_save' ||
-            /loaded|saved changes/i.test(String(detailsWithButton.button || ''))));
-
-      if (isModificationAudit) {
-        const moduleLabel = log.table_name
-          ? formatModuleName(log.table_name)
-          : 'ATTENDANCE_MODIFICATION';
-        const actor = actorEmpNum
-          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
-          : 'Unknown user';
-        const targetUser = String(
-          detailsWithButton.target_username ||
-            detailsWithButton.target_name ||
-            '',
-        ).trim();
-        const target = targetEmpNum
-          ? targetUser
-            ? `${targetUser} (#${targetEmpNum})`
-            : `(#${targetEmpNum})`
-          : targetUser || '—';
-        const coverage =
-          detailsWithButton.period_start && detailsWithButton.period_end
-            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
-            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
-        const monthPart = detailsWithButton.month_label
-          ? `Month: ${detailsWithButton.month_label}`
-          : null;
-        const parts = [];
-        if (coverage) parts.push(`Coverage: ${coverage}`);
-        if (monthPart) parts.push(monthPart);
-
-        if (detailsWithButton.audit_event === 'modification_save') {
-          const rows = Number(detailsWithButton.rows_changed);
-          if (Number.isFinite(rows) && rows > 0) {
-            parts.push(`${rows} day(s) changed`);
-          }
-          if (detailsWithButton.changes_summary) {
-            parts.push(`Changes: ${detailsWithButton.changes_summary}`);
-          }
-          if (detailsWithButton.save_remarks) {
-            parts.push(`Reason: ${detailsWithButton.save_remarks}`);
-          }
-          return `${actor} saved attendance changes in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
-        }
-
-        const count = Number(detailsWithButton.records_count);
-        const countPart = Number.isFinite(count)
-          ? `${count} record(s)`
-          : null;
-        if (countPart) parts.push(countPart);
-        const viewLabel =
-          detailsWithButton.view_type === 'full_month'
-            ? 'full month'
-            : 'records';
-        return `${actor} loaded ${viewLabel} in ${moduleLabel} for ${target} · ${parts.join(' · ')}`;
-      }
-
-      const isHalfDayAudit =
-        detailsWithButton.audit_event === 'half_day_review' ||
-        detailsWithButton.half_day_date ||
-        /half\s*day/i.test(String(detailsWithButton.button || ''));
-
-      if (isHalfDayAudit) {
-        const formatAuditTimestamp = (iso) => {
-          if (!iso) return '';
-          const d = new Date(iso);
-          if (Number.isNaN(d.getTime())) return '';
-          const pad = (n) => String(n).padStart(2, '0');
-          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-        };
-
-        const halfDayComputationLabels = {
-          NON_TEACHING: 'Non-Teaching',
-          DESIGNATED_40HRS: 'Faculty Designated',
-          FACULTY_30HRS: 'Faculty 30hrs',
-        };
-
-        const statusRaw = String(
-          detailsWithButton.half_day_status ||
-            (String(detailsWithButton.button || '').toLowerCase().includes('reject')
-              ? 'rejected'
-              : 'approved'),
-        ).toLowerCase();
-        const verb = statusRaw === 'rejected' ? 'rejected' : 'approved';
-        const statusLabel =
-          statusRaw === 'rejected'
-            ? 'Rejected'
-            : statusRaw === 'approved'
-              ? 'Approved'
-              : statusRaw
-                ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1)
-                : '—';
-
-        const moduleLabel = log.table_name
-          ? formatModuleName(log.table_name)
-          : 'ATTENDANCE_MODULE';
-
-        const actor = actorEmpNum
-          ? `${actorName || 'Unknown'} (#${actorEmpNum})`
-          : 'Unknown user';
-
-        const targetUser = String(
-          detailsWithButton.target_username ||
-            detailsWithButton.target_name ||
-            '',
-        ).trim();
-        const target = targetEmpNum
-          ? targetUser
-            ? `${targetUser} (#${targetEmpNum})`
-            : `(#${targetEmpNum})`
-          : targetUser || '—';
-
-        const coverage =
-          detailsWithButton.period_start && detailsWithButton.period_end
-            ? `${detailsWithButton.period_start} to ${detailsWithButton.period_end}`
-            : String(log.record_id || '').replace(/\s+to\s+/i, ' to ') || '';
-
-        const computation =
-          halfDayComputationLabels[detailsWithButton.computation_module_type] ||
-          detailsWithButton.computation_module_type ||
-          '—';
-
-        const detailParts = [];
-        if (coverage) detailParts.push(`Coverage: ${coverage}`);
-        if (detailsWithButton.half_day_date) {
-          detailParts.push(`Half-Day Date: ${detailsWithButton.half_day_date}`);
-        }
-        detailParts.push(`Status: ${statusLabel}`);
-        detailParts.push(`Computation: ${computation}`);
-        if (detailsWithButton.rendered_total) {
-          detailParts.push(`Rendered: ${detailsWithButton.rendered_total}`);
-        }
-        const deductionSrc = String(
-          detailsWithButton.deduction_source || '',
-        ).toLowerCase();
-        if (deductionSrc === 'earnings') {
-          detailParts.push('Deduction: Earnings (excluded from Total Tardiness)');
-        } else if (deductionSrc === 'attendance') {
-          detailParts.push('Deduction: Attendance (Late Total)');
-        }
-        if (detailsWithButton.tardiness_total) {
-          detailParts.push(`Tardiness: ${detailsWithButton.tardiness_total}`);
-        }
-        const whenText = formatAuditTimestamp(
-          detailsWithButton.when || log.timestamp,
-        );
-        if (whenText) detailParts.push(`Timestamp: ${whenText}`);
-
-        return `${actor} ${verb} Half Day in ${moduleLabel} for ${target} · ${detailParts.join(' · ')}`;
-      }
-
-      const button =
-        detailsWithButton.button || log.action || 'Unknown action';
-      const targetName =
-        detailsWithButton.target_name || getResolvedEmployeeName(targetEmpNum);
-      const month =
-        detailsWithButton.month_label ||
-        (detailsWithButton.period_start && detailsWithButton.period_end
-          ? `${detailsWithButton.period_start} – ${detailsWithButton.period_end}`
-          : log.record_id || '');
-      const searchQ = detailsWithButton.search_query
-        ? ` · query "${detailsWithButton.search_query}"`
-        : '';
-      const syncParts = [];
-      if (Number.isFinite(Number(detailsWithButton.records_loaded))) {
-        syncParts.push(`${detailsWithButton.records_loaded} loaded`);
-      }
-      if (Number(detailsWithButton.device_saved) > 0) {
-        syncParts.push(`${detailsWithButton.device_saved} saved`);
-      }
-      if (Number(detailsWithButton.device_updated) > 0) {
-        syncParts.push(`${detailsWithButton.device_updated} updated`);
-      }
-      if (Number.isFinite(Number(detailsWithButton.days_calculated))) {
-        syncParts.push(`${detailsWithButton.days_calculated} days calculated`);
-      }
-      if (detailsWithButton.total_late) {
-        syncParts.push(`late ${detailsWithButton.total_late}`);
-      }
-      const syncText = syncParts.length
-        ? ` · ${syncParts.join(', ')}`
-        : '';
-      const moduleLabel = log.table_name
-        ? formatModuleName(log.table_name)
-        : 'module';
-      const whenRaw = detailsWithButton.when || log.timestamp;
-      const whenTs = whenRaw ? new Date(whenRaw) : null;
-      const whenText =
-        whenTs && !isNaN(whenTs.getTime())
-          ? whenTs.toLocaleString()
-          : '';
-
-      const actor = actorEmpNum
-        ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
-        : 'Unknown user';
-      const target = targetEmpNum
-        ? `${targetName ? `${targetName} ` : ''}(#${targetEmpNum})`
-        : detailsWithButton.target_name || '—';
-
-      return `${actor} clicked "${button}" in ${moduleLabel} for ${target}${month ? ` · ${month}` : ''}${searchQ}${syncText}${whenText ? ` · ${whenText}` : ''}.`;
-    }
-
-    const actorEmpNum = getActorEmployeeNumber(log);
-    const targetEmpNum = getTargetEmployeeNumber(log);
-    const actorName = getResolvedEmployeeName(actorEmpNum);
-    const targetName = getResolvedEmployeeName(targetEmpNum);
-    const actor = actorEmpNum
-      ? `${actorName ? `${actorName} ` : ''}(#${actorEmpNum})`
-      : 'Unknown user';
-    const action = log.action?.toLowerCase() || 'performed an action';
-    const module = log.table_name
-      ? formatModuleName(log.table_name)
-      : 'the system';
-    const targetHint = targetEmpNum
-      ? ` on ${targetName ? `${targetName} ` : ''}employee #${targetEmpNum}`
-      : '';
-    return `${actor} performed ${action} on ${module}${targetHint}.`;
-  };
-
-  const isOfficialTimeModule = (tableName) => {
-    const t = String(tableName || '').toLowerCase();
-    return (
-      t.includes('official time') ||
-      t.includes('official_time') ||
-      t.includes('officialtime')
-    );
-  };
-
-  const parseAuditDetails = (raw) => {
-    if (!raw) return null;
-    if (typeof raw === 'object') return raw;
-    if (typeof raw !== 'string') return null;
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
-    }
-  };
-
-  const getOfficialTimeAuditSnapshot = (log) => {
-    if (!isOfficialTimeModule(log?.table_name)) return null;
-    const details = parseAuditDetails(log?.details_json);
-    if (!details || typeof details !== 'object') return null;
-
-    if (Array.isArray(details.records) && details.records.length > 0) {
-      return details;
-    }
-
-    if (Array.isArray(details.schedules) && details.schedules.length > 0) {
-      const flattenedRecords = details.schedules.flatMap((schedule) => {
-        const list = Array.isArray(schedule?.records) ? schedule.records : [];
-        return list.map((r) => ({
-          ...r,
-          employeeID:
-            r?.employeeID ||
-            schedule?.employeeID ||
-            details?.employeeID ||
-            null,
-          startDate: r?.startDate || schedule?.startDate || details?.startDate,
-          endDate: r?.endDate || schedule?.endDate || details?.endDate,
-          academicYear:
-            r?.academicYear || schedule?.academicYear || details?.academicYear,
-        }));
-      });
-      if (flattenedRecords.length > 0) {
-        return { ...details, records: flattenedRecords };
-      }
-    }
-
-    return null;
-  };
-
-  const toggleOfficialDetails = (rowKey) => {
-    setExpandedOfficialDetails((prev) => ({
-      ...prev,
-      [rowKey]: !prev[rowKey],
-    }));
-  };
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredLogs.length / LOGS_PER_PAGE),
-  );
-  const pagedLogs = filteredLogs.slice(
-    (auditPage - 1) * LOGS_PER_PAGE,
-    auditPage * LOGS_PER_PAGE,
-  );
-
-  const virtualizationRange = { startIndex: 0, endIndex: -1 };
-  const visibleLogs = pagedLogs;
-  const topSpacerHeight = 0;
-  const bottomSpacerHeight = 0;
-
-  // ACCESSING 2
-  if (accessLoading || userRole === null) {
-    // Shimmer keyframe injected once via a <style> tag
-    const shimmerCSS = `
-      @keyframes auditShimmer {
-        0%   { background-position: -800px 0; }
-        100% { background-position:  800px 0; }
-      }
-    `;
-
-    const shimmerBg = {
-      background:
-        'linear-gradient(90deg, #f0e6e6 25%, #faf0f0 50%, #f0e6e6 75%)',
-      backgroundSize: '800px 100%',
-      animation: 'auditShimmer 1.6s infinite linear',
-      borderRadius: 2,
-    };
-
-    // Reusable shimmer bar
-    const ShimmerBar = ({ width = '100%', height = 14, sx = {} }) => (
-      <Box sx={{ width, height, ...shimmerBg, ...sx }} />
-    );
-
-    // A single fake log-row skeleton
-    const SkeletonRow = ({ delay = 0 }) => (
-      <Box
-        sx={{
-          bgcolor: '#fff',
-          border: '1px solid #f3e8e8',
-          borderLeft: '4px solid #e8d0d0',
-          borderRadius: 2,
-          p: 2.5,
-          mb: 1.5,
-          opacity: 0,
-          animation: `fadeInRow 0.4s ease forwards`,
-          animationDelay: `${delay}s`,
-          '@keyframes fadeInRow': {
-            from: { opacity: 0, transform: 'translateY(6px)' },
-            to: { opacity: 1, transform: 'translateY(0)' },
-          },
-        }}
-      >
-        {/* Row 1: action badge + timestamp */}
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            mb: 1.5,
-            alignItems: 'center',
-          }}
-        >
-          <ShimmerBar width={90} height={22} sx={{ borderRadius: '6px' }} />
-          <ShimmerBar width={140} height={12} sx={{ borderRadius: 1 }} />
-        </Box>
-        {/* Row 2: actor chip */}
-        <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
-          <ShimmerBar width={160} height={38} sx={{ borderRadius: '8px' }} />
-        </Box>
-        {/* Row 3: description line */}
-        <ShimmerBar width="85%" height={13} sx={{ mb: 0.75 }} />
-        <ShimmerBar width="55%" height={13} />
-      </Box>
-    );
-
-    return (
-      <Box
-        sx={{
-          py: 4,
-          borderRadius: '14px',
-          width: '100vw',
-          mx: 'auto',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          position: 'relative',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          minHeight: '92vh',
-        }}
-      >
-        <style>{shimmerCSS}</style>
-        <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-          {/* ── Header card skeleton ── */}
-          <Box
-            sx={{
-              borderRadius: '20px',
-              border: '1px solid #f0e0e0',
-              overflow: 'hidden',
-              mb: 4,
-              boxShadow: '0 8px 40px #89444414',
-            }}
-          >
-            <Box
-              sx={{
-                p: 5,
-                bgcolor: '#fef9f9',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                {/* Avatar circle */}
-                <Box
-                  sx={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: '50%',
-                    ...shimmerBg,
-                    flexShrink: 0,
-                  }}
-                />
-                <Box>
-                  <ShimmerBar
-                    width={220}
-                    height={22}
-                    sx={{ mb: 1.5, borderRadius: 2 }}
-                  />
-                  <ShimmerBar
-                    width={320}
-                    height={13}
-                    sx={{ borderRadius: 1 }}
-                  />
-                </Box>
-              </Box>
-              {/* Right chips + buttons */}
-              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
-                <ShimmerBar
-                  width={72}
-                  height={28}
-                  sx={{ borderRadius: '14px' }}
-                />
-                <ShimmerBar
-                  width={72}
-                  height={28}
-                  sx={{ borderRadius: '14px' }}
-                />
-                <ShimmerBar
-                  width={48}
-                  height={48}
-                  sx={{ borderRadius: '12px' }}
-                />
-                <ShimmerBar
-                  width={100}
-                  height={44}
-                  sx={{ borderRadius: '12px' }}
-                />
-              </Box>
-            </Box>
-          </Box>
-
-          {/* ── Filter card skeleton ── */}
-          <Box
-            sx={{
-              borderRadius: '20px',
-              border: '1px solid #f0e0e0',
-              overflow: 'hidden',
-              mb: 4,
-              boxShadow: '0 8px 40px #89444414',
-            }}
-          >
-            {/* Card header */}
-            <Box
-              sx={{
-                px: 4,
-                py: 3,
-                bgcolor: '#fdf5f5',
-                borderBottom: '1px solid #f5e8e8',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-              }}
-            >
-              <Box
-                sx={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: '50%',
-                  ...shimmerBg,
-                  flexShrink: 0,
-                }}
-              />
-              <Box>
-                <ShimmerBar
-                  width={160}
-                  height={18}
-                  sx={{ mb: 1, borderRadius: 2 }}
-                />
-                <ShimmerBar width={260} height={12} sx={{ borderRadius: 1 }} />
-              </Box>
-            </Box>
-            {/* 4-column filter row */}
-            <Box
-              sx={{
-                p: 4,
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 3,
-              }}
-            >
-              {[0, 1, 2, 3].map((i) => (
-                <ShimmerBar
-                  key={i}
-                  width="100%"
-                  height={56}
-                  sx={{ borderRadius: '12px' }}
-                />
-              ))}
-            </Box>
-          </Box>
-
-          {/* ── Log list card skeleton ── */}
-          <Box
-            sx={{
-              borderRadius: '20px',
-              border: '1px solid #f0e0e0',
-              overflow: 'hidden',
-              boxShadow: '0 8px 40px #89444414',
-            }}
-          >
-            {/* List header */}
-            <Box
-              sx={{
-                px: 4,
-                py: 3,
-                bgcolor: '#fdf5f5',
-                borderBottom: '1px solid #f5e8e8',
-              }}
-            >
-              <ShimmerBar
-                width={200}
-                height={18}
-                sx={{ mb: 1, borderRadius: 2 }}
-              />
-              <ShimmerBar width={280} height={12} sx={{ borderRadius: 1 }} />
-            </Box>
-
-            {/* Skeleton rows */}
-            <Box sx={{ p: 3 }}>
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <SkeletonRow key={i} delay={i * 0.07} />
-              ))}
-            </Box>
-
-            {/* Footer pagination */}
-            <Box
-              sx={{
-                px: 3,
-                py: 2,
-                borderTop: '1px solid #f0e0e0',
-                bgcolor: '#fdf9f9',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <ShimmerBar width={200} height={14} sx={{ borderRadius: 1 }} />
-              <Box sx={{ display: 'flex', gap: 0.75 }}>
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <ShimmerBar
-                    key={i}
-                    width={30}
-                    height={30}
-                    sx={{ borderRadius: '8px' }}
-                  />
-                ))}
-              </Box>
-            </Box>
-          </Box>
-        </Box>
-      </Box>
-    );
-  }
   if (userRole && !accessLoading && !canAccessAuditModule) {
     return (
       <AccessDenied
@@ -1987,1603 +777,720 @@ const AuditLogs = () => {
       />
     );
   }
-  //ACCESSING END2
 
-  // Show password dialog ONLY for non-technical unauthenticated users
+  if (!userRole || accessLoading || (loading && !isAuthenticated)) {
+    return (
+      <Box
+        sx={{
+          minHeight: '70vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CircularProgress size={28} sx={{ color: T.accent }} />
+      </Box>
+    );
+  }
+
   if (!isAuthenticated && !isTechnical) {
     return (
-      <Modal
-        open={passwordDialogOpen}
-        onClose={handleCloseDialog}
-        disableEscapeKeyDown
-      >
-        <Box
-          sx={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: { xs: '90%', sm: 500 },
-            maxWidth: 600,
-            bgcolor: 'white',
-            borderRadius: 3,
-            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            overflow: 'hidden',
-            border: `2px solid ${settings?.primaryColor || '#894444'}`,
+      <>
+        <style>{GLOBAL_CSS}</style>
+        <Dialog
+          open={passwordDialogOpen}
+          onClose={handleCloseDialog}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              overflow: 'hidden',
+              border: `1px solid ${T.accentBorder}`,
+            },
           }}
         >
-          {/* Header */}
           <Box
             sx={{
-              p: 3,
-              bgcolor: 'white',
-              borderBottom: `3px solid ${settings?.primaryColor || '#894444'}`,
+              px: 3,
+              py: 2,
+              background: T.headerGrad,
               display: 'flex',
               alignItems: 'center',
               gap: 2,
             }}
           >
-            <Avatar
-              sx={{
-                bgcolor: alpha(settings?.primaryColor || '#894444', 0.1),
-                color: settings?.primaryColor || '#894444',
-                width: 56,
-                height: 56,
-              }}
-            >
-              <LockIcon sx={{ fontSize: 28 }} />
-            </Avatar>
+            <LockIcon sx={{ fontSize: 28, color: '#fff' }} />
             <Box>
               <Typography
-                variant="h5"
-                sx={{ fontWeight: 'bold', color: '#333' }}
+                sx={{ fontWeight: 800, color: '#fff', fontSize: '1.05rem' }}
               >
                 Audit Logs Access
               </Typography>
-              <Typography variant="body2" sx={{ color: '#666' }}>
+              <Typography sx={{ fontSize: '0.78rem', color: alpha('#fff', 0.85) }}>
                 This module requires authorization
               </Typography>
             </Box>
           </Box>
 
-          {/* Content */}
-          <Box sx={{ p: 4, bgcolor: 'white' }}>
+          <DialogContent sx={{ px: 3, pt: 2.5, pb: 1 }}>
             <Alert
               severity="info"
               icon={<Security />}
               sx={{
-                mb: 3,
+                mb: 2.5,
                 borderRadius: 2,
-                bgcolor: alpha(settings?.primaryColor || '#894444', 0.05),
-                border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
-                '& .MuiAlert-icon': {
-                  color: settings?.primaryColor || '#894444',
-                  fontSize: 28,
-                },
+                bgcolor: T.accentFaint,
+                border: `1px solid ${T.accentBorder}`,
+                '& .MuiAlert-icon': { color: T.accent },
               }}
             >
-              <Typography
-                variant="body1"
-                sx={{ fontWeight: 600, mb: 2, color: '#333' }}
-              >
+              <Typography sx={{ fontWeight: 600, fontSize: '0.85rem', mb: 1 }}>
                 Access Control Notice
               </Typography>
-              <Box sx={{ pl: 1 }}>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: '#666',
-                    mb: 1,
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <Box
-                    component="span"
-                    sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}
-                  >
-                    •
-                  </Box>
-                  <Box>
-                    Access to this module is restricted to authorized personnel
-                    only
-                  </Box>
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: '#666',
-                    mb: 1,
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <Box
-                    component="span"
-                    sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}
-                  >
-                    •
-                  </Box>
-                  <Box>
-                    For security compliance, sessions are limited to 10 minutes
-                  </Box>
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: '#666',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <Box
-                    component="span"
-                    sx={{ mr: 1, color: settings?.primaryColor || '#894444' }}
-                  >
-                    •
-                  </Box>
-                  <Box>
-                    Re-authentication will be required upon session expiration
-                  </Box>
-                </Typography>
-              </Box>
+              <Typography sx={{ fontSize: '0.78rem', color: T.muted, mb: 0.5 }}>
+                • Access is restricted to authorized personnel only
+              </Typography>
+              <Typography sx={{ fontSize: '0.78rem', color: T.muted, mb: 0.5 }}>
+                • Sessions are limited to 10 minutes for security compliance
+              </Typography>
+              <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+                • Re-authentication is required upon session expiration
+              </Typography>
             </Alert>
 
-            <TextField
+            <FieldInput
               autoFocus
-              margin="dense"
+              fullWidth
               label="Enter Authorized Password"
               type={showPassword ? 'text' : 'password'}
-              fullWidth
-              variant="outlined"
               value={passwordInput}
               onChange={(e) => {
                 setPasswordInput(e.target.value);
                 setPasswordError('');
               }}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  handlePasswordSubmit();
-                }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handlePasswordSubmit();
               }}
               error={!!passwordError}
               helperText={passwordError}
-              sx={{
-                mb: 3,
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: 2,
-                },
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      onClick={() => setShowPassword((v) => !v)}
+                      edge="end"
+                    >
+                      {showPassword ? (
+                        <VisibilityOffIcon sx={{ fontSize: 18 }} />
+                      ) : (
+                        <VisibilityIcon sx={{ fontSize: 18 }} />
+                      )}
+                    </IconButton>
+                  </InputAdornment>
+                ),
               }}
             />
+          </DialogContent>
 
-            {/* Action Buttons */}
-            <Box display="flex" justifyContent="flex-end" gap={2} mt={2}>
-              <Button
-                onClick={handleCloseDialog}
-                variant="outlined"
-                sx={{
-                  color: settings?.primaryColor || '#894444',
-                  borderColor: settings?.primaryColor || '#894444',
-                  px: 3,
-                  py: 1.2,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  borderRadius: 2,
-                  '&:hover': {
-                    borderColor: settings?.secondaryColor || '#6d2323',
-                    backgroundColor: alpha(
-                      settings?.primaryColor || '#894444',
-                      0.08,
-                    ),
-                  },
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handlePasswordSubmit}
-                variant="contained"
-                sx={{
-                  backgroundColor: settings?.primaryColor || '#894444',
-                  color: 'white',
-                  px: 4,
-                  py: 1.2,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  borderRadius: 2,
-                  minWidth: 140,
-                  '&:hover': {
-                    backgroundColor: settings?.secondaryColor || '#6d2323',
-                  },
-                }}
-                startIcon={<LockIcon />}
-              >
-                Access
-              </Button>
-            </Box>
-          </Box>
-        </Box>
-      </Modal>
+          <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+            <Button
+              onClick={handleCloseDialog}
+              variant="outlined"
+              sx={{
+                borderColor: T.accentBorder,
+                color: T.accent,
+                textTransform: 'none',
+                fontWeight: 600,
+              }}
+            >
+              Cancel
+            </Button>
+            <AccentButton
+              variant="contained"
+              startIcon={<LockIcon sx={{ fontSize: 16 }} />}
+              onClick={handlePasswordSubmit}
+              sx={{
+                bgcolor: T.accent,
+                color: '#fff',
+                '&:hover': { bgcolor: T.accentDark },
+              }}
+            >
+              Access
+            </AccentButton>
+          </DialogActions>
+        </Dialog>
+      </>
     );
   }
-
-  const isAdmin =
-    userRole === 'administrator' ||
-    userRole === 'admin' ||
-    canBypassPageAccess;
-  const pageTitle = isAdmin ? 'Audit Trail (All Users)' : 'My Activity Log';
 
   return (
     <Box
       sx={{
-        py: 4,
-        borderRadius: '14px',
+        // UsersList shell, with a bit more right inset so it isn't edge-flush
+        py: { xs: 1, md: 2 },
+        mt: { xs: 0, md: -2 },
+        mb: { xs: 1, md: 2 },
         width: '100vw',
-        mx: 'auto',
-        maxWidth: '100%',
-        overflow: 'hidden',
+        maxWidth: 'none',
         position: 'relative',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        minHeight: '92vh',
+        left: '63%',
+        transform: 'translateX(-61%)',
+        pl: { xs: 2, sm: 3, md: 5 },
+        pr: { xs: 3, sm: 5, md: 10 },
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 'calc(100vh - 160px)',
       }}
     >
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard>
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${
-                    settings?.accentColor || '#FEF9E1'
-                  } 0%, ${alpha(
-                    settings?.accentColor || '#FEF9E1',
-                    0.9,
-                  )} 100%)`,
-                  color: settings?.primaryColor || '#894444',
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: `radial-gradient(circle, ${alpha(
-                      settings?.primaryColor || '#894444',
-                      0.1,
-                    )} 0%, ${alpha(
-                      settings?.primaryColor || '#894444',
-                      0,
-                    )} 70%)`,
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: `radial-gradient(circle, ${alpha(
-                      settings?.primaryColor || '#894444',
-                      0.08,
-                    )} 0%, ${alpha(
-                      settings?.primaryColor || '#894444',
-                      0,
-                    )} 70%)`,
-                  }}
-                />
+      <style>{GLOBAL_CSS}</style>
 
-                <Box
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  position="relative"
-                  zIndex={1}
-                >
-                  <Box display="flex" alignItems="center">
-                    <Avatar
-                      sx={{
-                        bgcolor: alpha(
-                          settings?.primaryColor || '#894444',
-                          0.15,
-                        ),
-                        mr: 4,
-                        width: 64,
-                        height: 64,
-                        boxShadow: `0 8px 24px ${alpha(
-                          settings?.primaryColor || '#894444',
-                          0.15,
-                        )}`,
-                      }}
-                    >
-                      <Security
-                        sx={{
-                          fontSize: 32,
-                          color: settings?.primaryColor || '#894444',
-                        }}
-                      />
-                    </Avatar>
-                    <Box>
-                      <Typography
-                        variant="h4"
-                        component="h1"
-                        sx={{
-                          fontWeight: 700,
-                          mb: 1,
-                          lineHeight: 1.2,
-                          color: settings?.primaryColor || '#894444',
-                        }}
-                      >
-                        {pageTitle}
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          opacity: 0.8,
-                          fontWeight: 400,
-                          color: settings?.textPrimaryColor || '#6D2323',
-                        }}
-                      >
-                        {isAdmin
-                          ? 'System-wide activity tracking and security monitoring'
-                          : 'Your personal activity history and access logs'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip
-                      label={`${filteredLogs.length} Logs`}
-                      size="small"
-                      sx={{
-                        bgcolor: alpha(
-                          settings?.primaryColor || '#894444',
-                          0.15,
-                        ),
-                        color: settings?.primaryColor || '#894444',
-                        fontWeight: 500,
-                        '& .MuiChip-label': { px: 1 },
-                      }}
-                    />
-
-                    {/* Session Timer — shown for all roles; label clarifies the duration */}
-                    <Tooltip
-                      title={
-                        <Box>
-                          <Typography variant="body2">
-                            Session expires in {formatTimer(sessionTimer)}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{ display: 'block', mt: 0.5 }}
-                          >
-                            {isTechnical
-                              ? 'Technical accounts have a 30-minute session'
-                              : 'For security purposes, access to audit logs is limited to 10-minute sessions'}
-                          </Typography>
-                        </Box>
-                      }
-                      placement="bottom"
-                      arrow
-                    >
-                      <Chip
-                        icon={<LockIcon sx={{ fontSize: 16 }} />}
-                        label={formatTimer(sessionTimer)}
-                        size="small"
-                        sx={{
-                          bgcolor: alpha(getTimerColor(sessionTimer), 0.15),
-                          color: getTimerColor(sessionTimer),
-                          fontWeight: 600,
-                          fontSize: '0.9rem',
-                          border: `2px solid ${alpha(getTimerColor(sessionTimer), 0.3)}`,
-                          '& .MuiChip-label': { px: 1.5 },
-                          '& .MuiChip-icon': {
-                            color: getTimerColor(sessionTimer),
-                            animation:
-                              sessionTimer < 120 ? 'pulse 1s infinite' : 'none',
-                          },
-                          '@keyframes pulse': {
-                            '0%, 100%': { opacity: 1 },
-                            '50%': { opacity: 0.5 },
-                          },
-                          cursor: 'pointer',
-                        }}
-                      />
-                    </Tooltip>
-
-                    <Tooltip title="Refresh Logs">
-                      <IconButton
-                        onClick={handleRefresh}
-                        disabled={loading}
-                        sx={{
-                          bgcolor: alpha(
-                            settings?.primaryColor || '#894444',
-                            0.1,
-                          ),
-                          '&:hover': {
-                            bgcolor: alpha(
-                              settings?.primaryColor || '#894444',
-                              0.2,
-                            ),
-                          },
-                          color: settings?.primaryColor || '#894444',
-                          width: 48,
-                          height: 48,
-                          '&:disabled': {
-                            bgcolor: alpha(
-                              settings?.primaryColor || '#894444',
-                              0.05,
-                            ),
-                            color: alpha(
-                              settings?.primaryColor || '#894444',
-                              0.3,
-                            ),
-                          },
-                        }}
-                      >
-                        {loading ? (
-                          <CircularProgress
-                            size={24}
-                            sx={{ color: settings?.primaryColor || '#894444' }}
-                          />
-                        ) : (
-                          <RefreshIcon />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-
-                    {isAdmin && (
-                      <ProfessionalButton
-                        variant="contained"
-                        startIcon={<FileDownloadIcon />}
-                        onClick={handleExportLog}
-                        sx={{
-                          bgcolor: settings?.primaryColor || '#894444',
-                          color: settings?.accentColor || '#FEF9E1',
-                          '&:hover': {
-                            bgcolor: settings?.secondaryColor || '#6d2323',
-                          },
-                        }}
-                      >
-                        Export
-                      </ProfessionalButton>
-                    )}
-                  </Box>
-                </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Toast Messages */}
-        {toast && toast.type === 'success' && (
-          <Backdrop
-            open={true}
-            sx={{
-              zIndex: 9999,
-              backdropFilter: 'blur(8px)',
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            }}
-            onClick={() => setToast(null)}
-          >
-            <Fade in timeout={300}>
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                sx={{
-                  position: 'relative',
-                  minWidth: '400px',
-                  maxWidth: '600px',
-                }}
-              >
-                <Alert
-                  severity="success"
-                  sx={{
-                    borderRadius: 4,
-                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.4)',
-                    fontSize: '1.1rem',
-                    p: 3,
-                    '& .MuiAlert-message': { fontWeight: 500 },
-                    '& .MuiAlert-icon': { fontSize: '2rem' },
-                  }}
-                  icon={<CheckCircleIcon />}
-                  onClose={() => setToast(null)}
-                >
-                  {toast.message}
-                </Alert>
-              </Box>
-            </Fade>
-          </Backdrop>
-        )}
-        {toast && toast.type === 'error' && (
-          <Backdrop
-            open={true}
-            sx={{
-              zIndex: 9999,
-              backdropFilter: 'blur(8px)',
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            }}
-            onClick={() => setToast(null)}
-          >
-            <Fade in timeout={300}>
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                sx={{
-                  position: 'relative',
-                  minWidth: '400px',
-                  maxWidth: '600px',
-                }}
-              >
-                <Alert
-                  severity="error"
-                  sx={{
-                    borderRadius: 4,
-                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.4)',
-                    fontSize: '1.1rem',
-                    p: 3,
-                    '& .MuiAlert-message': { fontWeight: 500 },
-                    '& .MuiAlert-icon': { fontSize: '2rem' },
-                  }}
-                  icon={<Error />}
-                  onClose={() => setToast(null)}
-                >
-                  {toast.message}
-                </Alert>
-              </Box>
-            </Fade>
-          </Backdrop>
-        )}
-
-        {/* Search & Filter */}
-        <Fade in timeout={700}>
-          <GlassCard sx={{ mb: 4 }}>
-            <CardHeader
-              title={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <Avatar
-                    sx={{
-                      bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.8),
-                      color: settings?.textPrimaryColor || '#6D2323',
-                    }}
-                  >
-                    <FilterList />
-                  </Avatar>
-                  <Box>
-                    <Typography
-                      variant="h5"
-                      component="div"
-                      sx={{
-                        fontWeight: 600,
-                        color: settings?.textPrimaryColor || '#6D2323',
-                      }}
-                    >
-                      Search & Filter
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ color: settings?.textPrimaryColor || '#6D2323' }}
-                    >
-                      Find and filter audit logs by various criteria
-                    </Typography>
-                  </Box>
-                </Box>
-              }
+      <Backdrop
+        open={!!toast}
+        sx={{ zIndex: 9999, backdropFilter: 'blur(8px)', bgcolor: 'rgba(0,0,0,0.5)' }}
+        onClick={() => setToast(null)}
+      >
+        <Box onClick={(e) => e.stopPropagation()} sx={{ minWidth: 360, maxWidth: 520 }}>
+          {toast && (
+            <Alert
+              severity={toast.type === 'error' ? 'error' : 'success'}
               sx={{
-                bgcolor: alpha(settings?.accentColor || '#FEF9E1', 0.5),
-                pb: 2,
-                borderBottom: `1px solid ${alpha(
-                  settings?.primaryColor || '#894444',
-                  0.1,
-                )}`,
+                borderRadius: 3,
+                boxShadow: '0 12px 48px rgba(0,0,0,0.4)',
+                fontSize: '1rem',
+                p: 2.5,
+                '& .MuiAlert-message': { fontWeight: 600 },
               }}
-            />
-            <CardContent sx={{ p: 4 }}>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={3}>
-                  <ModernTextField
-                    fullWidth
-                    label="Search Employee Number"
-                    placeholder="e.g. 2024-001"
-                    value={employeeFilter}
-                    onChange={(e) => setEmployeeFilter(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon
-                            sx={{
-                              color: settings?.primaryColor || '#894444',
-                              fontSize: 20,
-                            }}
-                          />
-                        </InputAdornment>
-                      ),
-                      endAdornment: employeeFilter ? (
-                        <InputAdornment position="end">
-                          <IconButton
-                            size="small"
-                            onClick={() => setEmployeeFilter('')}
-                          >
-                            <CloseIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </InputAdornment>
-                      ) : null,
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={3}>
-                  <ModernTextField
-                    select
-                    fullWidth
-                    label="All Actions"
-                    value={actionFilter}
-                    onChange={(e) => setActionFilter(e.target.value)}
-                  >
-                    <MenuItem value="">All Actions</MenuItem>
-                    {getUniqueActions().map((action) => (
-                      <MenuItem key={action} value={action}>
-                        <Box
-                          sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-                        >
-                          {getActionIcon(action)}
-                          <span
-                            style={{
-                              color: getActionColor(action),
-                              fontWeight: 600,
-                            }}
-                          >
-                            {action}
-                          </span>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </ModernTextField>
-                </Grid>
-                <Grid item xs={12} md={3}>
-                  <ModernTextField
-                    select
-                    fullWidth
-                    label="All Modules"
-                    value={moduleFilter}
-                    onChange={(e) => setModuleFilter(e.target.value)}
-                  >
-                    <MenuItem value="">All Modules</MenuItem>
-                    {getUniqueModules().map((module) => (
-                      <MenuItem key={module} value={module}>
-                        {formatModuleName(module)}
-                      </MenuItem>
-                    ))}
-                  </ModernTextField>
-                </Grid>
-                <Grid item xs={12} md={3}>
-                  <ModernTextField
-                    type="date"
-                    fullWidth
-                    label="Filter by Date"
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-              </Grid>
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {/* Loading Backdrop */}
-        <Backdrop
-          sx={{
-            color: settings?.accentColor || '#FEF9E1',
-            zIndex: (theme) => theme.zIndex.drawer + 1,
-          }}
-          open={loading && !refreshing}
-        >
-          <Box sx={{ textAlign: 'center' }}>
-            <CircularProgress color="inherit" size={60} thickness={4} />
-            <Typography
-              variant="h6"
-              sx={{ mt: 2, color: settings?.accentColor || '#FEF9E1' }}
+              onClose={() => setToast(null)}
             >
-              Loading audit logs...
-            </Typography>
-          </Box>
-        </Backdrop>
+              {toast.message}
+            </Alert>
+          )}
+        </Box>
+      </Backdrop>
 
-        {/* Audit Log Entries */}
-        {!loading && (
-          <Fade in timeout={900}>
-            <GlassCard>
-              <Box
-                sx={{
-                  p: 3,
-                  background: `linear-gradient(135deg, ${
-                    settings?.accentColor || '#FEF9E1'
-                  } 0%, ${alpha(
-                    settings?.accentColor || '#FEF9E1',
-                    0.9,
-                  )} 100%)`,
-                  color: settings?.primaryColor || '#894444',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  borderBottom: `1px solid ${alpha(
-                    settings?.primaryColor || '#894444',
-                    0.1,
-                  )}`,
-                }}
-              >
-                <Box>
-                  <Typography
-                    variant="h5"
-                    sx={{
-                      fontWeight: 600,
-                      color: settings?.primaryColor || '#894444',
-                    }}
-                  >
-                    {isAdmin ? 'System Activity Log' : 'My Activity History'}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      opacity: 0.8,
-                      color: settings?.textPrimaryColor || '#6D2323',
-                    }}
-                  >
-                    {actionFilter || moduleFilter || dateFilter
-                      ? `Showing ${filteredLogs.length} of ${auditLogs.length} logs matching filters`
-                      : `Total: ${auditLogs.length} registered logs`}
-                  </Typography>
-                </Box>
-              </Box>
-
-              {/* Scrollable container for log entries */}
-              <Box
-                ref={logScrollRef}
-                sx={{
-                  minHeight: `${LOG_LIST_HEIGHT}px`,
-                  overflowY: 'auto',
-                  p: 3,
-                  '&::-webkit-scrollbar': { width: '8px' },
-                  '&::-webkit-scrollbar-track': {
-                    background: alpha(settings?.accentColor || '#FEF9E1', 0.2),
-                    borderRadius: '4px',
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    background: alpha(settings?.primaryColor || '#894444', 0.5),
-                    borderRadius: '4px',
-                    '&:hover': {
-                      background: alpha(
-                        settings?.primaryColor || '#894444',
-                        0.7,
-                      ),
-                    },
-                  },
-                }}
-              >
-                {filteredLogs.length === 0 ? (
-                  <Box
-                    sx={{
-                      textAlign: 'center',
-                      py: 8,
-                      color: '#666',
-                    }}
-                  >
-                    <Info
-                      sx={{
-                        fontSize: 80,
-                        color: alpha(settings?.primaryColor || '#894444', 0.3),
-                        mb: 3,
-                      }}
-                    />
-                    <Typography
-                      variant="h6"
-                      sx={{ mb: 1, color: settings?.primaryColor || '#894444' }}
-                    >
-                      No audit logs found
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        color: alpha(settings?.primaryColor || '#894444', 0.6),
-                      }}
-                    >
-                      {isAdmin
-                        ? 'System activities will be logged here'
-                        : 'Your activities will be logged here'}
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Box>
-                    {topSpacerHeight > 0 && (
-                      <Box sx={{ height: `${topSpacerHeight}px` }} />
-                    )}
-                    {visibleLogs.map((log, index) => {
-                      const virtualIndex = index;
-                      const rowKey =
-                        log.id ||
-                        `${virtualIndex}-${log.timestamp || 'no-time'}`;
-                      const actionColor = getActionColor(log.action);
-                      const actionBg = alpha(actionColor, 0.1);
-                      const officialSnapshot =
-                        getOfficialTimeAuditSnapshot(log);
-                      const hasOfficialSnapshot =
-                        officialSnapshot &&
-                        Array.isArray(officialSnapshot.records) &&
-                        officialSnapshot.records.length > 0;
-                      const isOfficialExpanded =
-                        !!expandedOfficialDetails[rowKey];
-
-                      const ts = log.timestamp ? new Date(log.timestamp) : null;
-                      const timeLabel =
-                        ts && !isNaN(ts)
-                          ? `${ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-                          : null;
-
-                      const actorEmpNum = getActorEmployeeNumber(log);
-                      const targetEmpNum = getTargetEmployeeNumber(log);
-                      const actorName =
-                        log.actorName || getResolvedEmployeeName(actorEmpNum);
-                      const targetName =
-                        log.targetName || getResolvedEmployeeName(targetEmpNum);
-                      const description = buildLogDescription(log);
-
-                      return (
-                        <Box
-                          key={rowKey}
-                          sx={{
-                            bgcolor: '#fff',
-                            border: `1px solid ${alpha(actionColor, 0.18)}`,
-                            borderLeft: `4px solid ${actionColor}`,
-                            borderRadius: 2,
-                            p: 2.5,
-                            mb: 1.5,
-                            boxShadow: '0 1px 6px rgba(0,0,0,0.05)',
-                            transition: 'box-shadow 0.2s ease',
-                            '&:hover': {
-                              boxShadow: `0 4px 16px ${alpha(actionColor, 0.12)}`,
-                            },
-                          }}
-                        >
-                          {/* Row 1: WHAT + WHEN */}
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              mb: 1.25,
-                              flexWrap: 'wrap',
-                              gap: 1,
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 0.6,
-                                px: 1.25,
-                                py: 0.35,
-                                borderRadius: '6px',
-                                bgcolor: actionBg,
-                                border: `1px solid ${alpha(actionColor, 0.2)}`,
-                              }}
-                            >
-                              {React.cloneElement(getActionIcon(log.action), {
-                                sx: { fontSize: 13, color: actionColor },
-                              })}
-                              <Typography
-                                sx={{
-                                  fontSize: '0.72rem',
-                                  fontWeight: 700,
-                                  color: actionColor,
-                                  lineHeight: 1,
-                                }}
-                              >
-                                {buildActionBadgeLabel(log)}
-                              </Typography>
-                            </Box>
-                            {timeLabel && (
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.5,
-                                }}
-                              >
-                                <AccessTime
-                                  sx={{ fontSize: 12, color: '#c0c0c0' }}
-                                />
-                                <Typography
-                                  variant="caption"
-                                  sx={{ color: '#b0b0b0', fontSize: '0.72rem' }}
-                                >
-                                  {timeLabel}
-                                </Typography>
-                              </Box>
-                            )}
-                          </Box>
-
-                          {/* Row 2: WHO */}
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              gap: 1.5,
-                              mb: 1.25,
-                              flexWrap: 'wrap',
-                            }}
-                          >
-                            {actorEmpNum && (
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.75,
-                                  px: 1.25,
-                                  py: 0.6,
-                                  bgcolor: alpha(
-                                    settings?.primaryColor || '#894444',
-                                    0.06,
-                                  ),
-                                  borderRadius: '8px',
-                                  border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.15)}`,
-                                }}
-                              >
-                                <Person
-                                  sx={{
-                                    fontSize: 14,
-                                    color: settings?.primaryColor || '#894444',
-                                  }}
-                                />
-                                <Box>
-                                  <Typography
-                                    sx={{
-                                      fontSize: '0.62rem',
-                                      color: '#aaa',
-                                      lineHeight: 1,
-                                      mb: 0.2,
-                                      fontWeight: 600,
-                                      letterSpacing: '0.04em',
-                                    }}
-                                  >
-                                    PERFORMED BY
-                                  </Typography>
-                                  {actorName && (
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.82rem',
-                                        fontWeight: 700,
-                                        color:
-                                          settings?.primaryColor || '#894444',
-                                        lineHeight: 1.2,
-                                      }}
-                                    >
-                                      {actorName}
-                                    </Typography>
-                                  )}
-                                  <Typography
-                                    sx={{
-                                      fontSize: '0.68rem',
-                                      color: '#888',
-                                      lineHeight: 1,
-                                      mt: actorName ? 0.2 : 0,
-                                    }}
-                                  >
-                                    #{actorEmpNum}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            )}
-
-                            {targetEmpNum && (
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 0.75,
-                                  px: 1.25,
-                                  py: 0.6,
-                                  bgcolor: alpha('#1565C0', 0.05),
-                                  borderRadius: '8px',
-                                  border: '1px solid rgba(21,101,192,0.15)',
-                                  ml: 'auto',
-                                }}
-                              >
-                                <Person
-                                  sx={{ fontSize: 14, color: '#1565C0' }}
-                                />
-                                <Box>
-                                  <Typography
-                                    sx={{
-                                      fontSize: '0.62rem',
-                                      color: '#aaa',
-                                      lineHeight: 1,
-                                      mb: 0.2,
-                                      fontWeight: 600,
-                                      letterSpacing: '0.04em',
-                                    }}
-                                  >
-                                    EMPLOYEE
-                                  </Typography>
-                                  {targetName && (
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.82rem',
-                                        fontWeight: 700,
-                                        color: '#1565C0',
-                                        lineHeight: 1.2,
-                                      }}
-                                    >
-                                      {targetName}
-                                    </Typography>
-                                  )}
-                                  <Typography
-                                    sx={{
-                                      fontSize: '0.68rem',
-                                      color: '#888',
-                                      lineHeight: 1,
-                                      mt: targetName ? 0.2 : 0,
-                                    }}
-                                  >
-                                    #{targetEmpNum}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            )}
-                          </Box>
-
-                          {/* Row 3: Clean sentence */}
-                          <Typography
-                            sx={{
-                              fontSize: '0.85rem',
-                              color: '#444',
-                              lineHeight: 1.65,
-                              fontWeight: 400,
-                            }}
-                          >
-                            {description}
-                          </Typography>
-
-                          {hasOfficialSnapshot && (
-                            <Box sx={{ mt: 1.5 }}>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => toggleOfficialDetails(rowKey)}
-                                startIcon={
-                                  isOfficialExpanded ? (
-                                    <KeyboardArrowUp sx={{ fontSize: 16 }} />
-                                  ) : (
-                                    <KeyboardArrowDown sx={{ fontSize: 16 }} />
-                                  )
-                                }
-                                sx={{
-                                  textTransform: 'none',
-                                  fontWeight: 700,
-                                  borderColor: alpha(
-                                    settings?.primaryColor || '#894444',
-                                    0.3,
-                                  ),
-                                  color: settings?.primaryColor || '#894444',
-                                  fontSize: '0.75rem',
-                                  py: 0.35,
-                                  px: 1,
-                                }}
-                              >
-                                {isOfficialExpanded
-                                  ? 'Hide official time schedule record'
-                                  : 'View official time schedule record'}
-                              </Button>
-
-                              {isOfficialExpanded && (
-                                <Box
-                                  sx={{
-                                    mt: 1.2,
-                                    borderRadius: 1.5,
-                                    border: `1px solid ${alpha(settings?.primaryColor || '#894444', 0.2)}`,
-                                    bgcolor: alpha(
-                                      settings?.accentColor || '#FEF9E1',
-                                      0.45,
-                                    ),
-                                    p: 1.25,
-                                  }}
-                                >
-                                  <Typography
-                                    sx={{
-                                      fontSize: '0.72rem',
-                                      fontWeight: 700,
-                                      color: alpha(
-                                        settings?.primaryColor || '#894444',
-                                        0.85,
-                                      ),
-                                      textTransform: 'uppercase',
-                                      letterSpacing: '0.03em',
-                                      mb: 0.75,
-                                    }}
-                                  >
-                                    Official Time Schedule Snapshot (Stored in
-                                    Audit)
-                                  </Typography>
-
-                                  <Typography
-                                    sx={{
-                                      fontSize: '0.74rem',
-                                      color: '#555',
-                                      mb: 0.75,
-                                    }}
-                                  >
-                                    Employee: #
-                                    {officialSnapshot.employeeID ||
-                                      log.targetEmployeeNumber ||
-                                      'N/A'}
-                                    {officialSnapshot.startDate
-                                      ? ` | Start: ${officialSnapshot.startDate}`
-                                      : ''}
-                                    {officialSnapshot.endDate
-                                      ? ` | End: ${officialSnapshot.endDate}`
-                                      : ''}
-                                    {officialSnapshot.academicYear
-                                      ? ` | Academic Year: ${officialSnapshot.academicYear}`
-                                      : ''}
-                                  </Typography>
-
-                                  <Box sx={{ overflowX: 'auto' }}>
-                                    <Box
-                                      sx={{
-                                        minWidth: 860,
-                                        border: '1px solid rgba(0,0,0,0.08)',
-                                        borderRadius: 1,
-                                        bgcolor: '#fff',
-                                      }}
-                                    >
-                                      <Box
-                                        sx={{
-                                          display: 'grid',
-                                          gridTemplateColumns:
-                                            '120px repeat(4, 120px) 150px 150px 150px',
-                                          px: 1,
-                                          py: 0.7,
-                                          bgcolor: alpha(
-                                            settings?.primaryColor || '#894444',
-                                            0.08,
-                                          ),
-                                          borderBottom:
-                                            '1px solid rgba(0,0,0,0.08)',
-                                          fontSize: '0.7rem',
-                                          fontWeight: 700,
-                                          color:
-                                            settings?.primaryColor || '#894444',
-                                        }}
-                                      >
-                                        <Box>DAY</Box>
-                                        <Box>TIME IN</Box>
-                                        <Box>BREAK IN</Box>
-                                        <Box>BREAK OUT</Box>
-                                        <Box>TIME OUT</Box>
-                                        <Box>HONORARIUM</Box>
-                                        <Box>SERVICE CREDIT</Box>
-                                        <Box>OVERTIME</Box>
-                                      </Box>
-
-                                      {officialSnapshot.records.map(
-                                        (r, idx2) => {
-                                          const honorarium = `${r.officialHonorariumTimeIN || '-'} -> ${
-                                            r.officialHonorariumTimeOUT || '-'
-                                          }`;
-                                          const serviceCredit = `${
-                                            r.officialServiceCreditTimeIN || '-'
-                                          } -> ${r.officialServiceCreditTimeOUT || '-'}`;
-                                          const overtime = `${r.officialOverTimeIN || '-'} -> ${
-                                            r.officialOverTimeOUT || '-'
-                                          }`;
-
-                                          return (
-                                            <Box
-                                              key={`${rowKey}-record-${idx2}`}
-                                              sx={{
-                                                display: 'grid',
-                                                gridTemplateColumns:
-                                                  '120px repeat(4, 120px) 150px 150px 150px',
-                                                px: 1,
-                                                py: 0.65,
-                                                borderBottom:
-                                                  idx2 <
-                                                  officialSnapshot.records
-                                                    .length -
-                                                    1
-                                                    ? '1px solid rgba(0,0,0,0.05)'
-                                                    : 'none',
-                                                fontSize: '0.72rem',
-                                                color: '#333',
-                                                bgcolor:
-                                                  idx2 % 2 === 0
-                                                    ? '#fff'
-                                                    : '#fafafa',
-                                                fontFamily: 'monospace',
-                                              }}
-                                            >
-                                              <Box
-                                                sx={{
-                                                  fontFamily: 'inherit',
-                                                  fontWeight: 700,
-                                                }}
-                                              >
-                                                {r.day || '-'}
-                                              </Box>
-                                              <Box>
-                                                {r.officialTimeIN || '-'}
-                                              </Box>
-                                              <Box>
-                                                {r.officialBreaktimeIN || '-'}
-                                              </Box>
-                                              <Box>
-                                                {r.officialBreaktimeOUT || '-'}
-                                              </Box>
-                                              <Box>
-                                                {r.officialTimeOUT || '-'}
-                                              </Box>
-                                              <Box>{honorarium}</Box>
-                                              <Box>{serviceCredit}</Box>
-                                              <Box>{overtime}</Box>
-                                            </Box>
-                                          );
-                                        },
-                                      )}
-                                    </Box>
-                                  </Box>
-
-                                  {officialSnapshot.truncated && (
-                                    <Typography
-                                      sx={{
-                                        fontSize: '0.72rem',
-                                        color: '#b25c00',
-                                        mt: 0.8,
-                                      }}
-                                    >
-                                      Snapshot truncated in audit storage.
-                                    </Typography>
-                                  )}
-                                </Box>
-                              )}
-                            </Box>
-                          )}
-                        </Box>
-                      );
-                    })}
-                    {bottomSpacerHeight > 0 && (
-                      <Box sx={{ height: `${bottomSpacerHeight}px` }} />
-                    )}
-                  </Box>
-                )}
-              </Box>
-
-              {/* Footer with pagination */}
-              <Box
-                sx={{
-                  mt: 0,
-                  pt: 2,
-                  pb: 2,
-                  borderTop: '1px solid #e5e7eb',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  px: 3,
-                  flexWrap: 'wrap',
-                  gap: 2,
-                  backgroundColor: alpha(
-                    settings?.accentColor || '#FEF9E1',
-                    0.5,
-                  ),
-                }}
-              >
-                <Typography sx={{ color: '#666', fontSize: '14px' }}>
-                  <strong>Total Logs:</strong> {filteredLogs.length}{' '}
-                  <span style={{ color: '#999' }}>
-                    | Showing{' '}
-                    {filteredLogs.length === 0
-                      ? 0
-                      : (auditPage - 1) * LOGS_PER_PAGE + 1}
-                    –{Math.min(auditPage * LOGS_PER_PAGE, filteredLogs.length)}{' '}
-                    of {filteredLogs.length}
-                  </span>
-                </Typography>
-
-                {/* Pagination controls */}
-                {totalPages > 1 && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <IconButton
-                      size="small"
-                      disabled={auditPage === 1}
-                      onClick={() => {
-                        setAuditPage((p) => p - 1);
-                        logScrollRef.current?.scrollTo({
-                          top: 0,
-                          behavior: 'smooth',
-                        });
-                      }}
-                      sx={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '8px',
-                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', auditPage === 1 ? 0.1 : 0.25)}`,
-                        color:
-                          auditPage === 1
-                            ? '#ccc'
-                            : settings?.primaryColor || '#894444',
-                        '&:hover': {
-                          bgcolor: alpha(
-                            settings?.primaryColor || '#894444',
-                            0.06,
-                          ),
-                        },
-                      }}
-                    >
-                      <Box
-                        component="span"
-                        sx={{
-                          fontSize: '1rem',
-                          lineHeight: 1,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ‹
-                      </Box>
-                    </IconButton>
-
-                    {Array.from({ length: totalPages }, (_, i) => i + 1)
-                      .filter(
-                        (p) =>
-                          p === 1 ||
-                          p === totalPages ||
-                          Math.abs(p - auditPage) <= 2,
-                      )
-                      .reduce((acc, p, idx, arr) => {
-                        if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
-                        acc.push(p);
-                        return acc;
-                      }, [])
-                      .map((item, idx) =>
-                        item === '...' ? (
-                          <Typography
-                            key={`ellipsis-${idx}`}
-                            sx={{ px: 0.5, color: '#aaa', fontSize: '0.85rem' }}
-                          >
-                            …
-                          </Typography>
-                        ) : (
-                          <IconButton
-                            key={item}
-                            size="small"
-                            onClick={() => {
-                              setAuditPage(item);
-                              logScrollRef.current?.scrollTo({
-                                top: 0,
-                                behavior: 'smooth',
-                              });
-                            }}
-                            sx={{
-                              width: 30,
-                              height: 30,
-                              borderRadius: '8px',
-                              fontSize: '0.78rem',
-                              fontWeight: item === auditPage ? 700 : 400,
-                              bgcolor:
-                                item === auditPage
-                                  ? settings?.primaryColor || '#894444'
-                                  : 'transparent',
-                              color: item === auditPage ? '#fff' : '#666',
-                              border: `1px solid ${item === auditPage ? settings?.primaryColor || '#894444' : alpha(settings?.primaryColor || '#894444', 0.15)}`,
-                              '&:hover': {
-                                bgcolor:
-                                  item === auditPage
-                                    ? settings?.primaryColor || '#894444'
-                                    : alpha(
-                                        settings?.primaryColor || '#894444',
-                                        0.06,
-                                      ),
-                              },
-                            }}
-                          >
-                            {item}
-                          </IconButton>
-                        ),
-                      )}
-
-                    <IconButton
-                      size="small"
-                      disabled={auditPage === totalPages}
-                      onClick={() => {
-                        setAuditPage((p) => p + 1);
-                        logScrollRef.current?.scrollTo({
-                          top: 0,
-                          behavior: 'smooth',
-                        });
-                      }}
-                      sx={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '8px',
-                        border: `1px solid ${alpha(settings?.primaryColor || '#894444', auditPage === totalPages ? 0.1 : 0.25)}`,
-                        color:
-                          auditPage === totalPages
-                            ? '#ccc'
-                            : settings?.primaryColor || '#894444',
-                        '&:hover': {
-                          bgcolor: alpha(
-                            settings?.primaryColor || '#894444',
-                            0.06,
-                          ),
-                        },
-                      }}
-                    >
-                      <Box
-                        component="span"
-                        sx={{
-                          fontSize: '1rem',
-                          lineHeight: 1,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ›
-                      </Box>
-                    </IconButton>
-                  </Box>
-                )}
-              </Box>
-            </GlassCard>
-          </Fade>
-        )}
-      </Box>
-
-      {/* Session Warning Modal */}
-      <Modal
+      <Dialog
         open={sessionWarningOpen}
-        onClose={handleSessionWarningClose}
-        disableEscapeKeyDown={false}
+        onClose={() => setSessionWarningOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            border: `2px solid ${getTimerColor(sessionTimer)}`,
+          },
+        }}
       >
         <Box
           sx={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: { xs: '90%', sm: 450 },
-            maxWidth: 500,
-            bgcolor: 'white',
-            borderRadius: 3,
-            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            overflow: 'hidden',
-            border: `2px solid ${getTimerColor(sessionTimer)}`,
+            px: 3,
+            py: 2,
+            bgcolor: alpha(getTimerColor(sessionTimer), 0.1),
+            borderBottom: `3px solid ${getTimerColor(sessionTimer)}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
           }}
         >
-          {/* Header */}
-          <Box
-            sx={{
-              p: 3,
-              bgcolor: alpha(getTimerColor(sessionTimer), 0.1),
-              borderBottom: `3px solid ${getTimerColor(sessionTimer)}`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 2,
-            }}
-          >
-            <Avatar
-              sx={{
-                bgcolor: alpha(getTimerColor(sessionTimer), 0.2),
-                color: getTimerColor(sessionTimer),
-                width: 56,
-                height: 56,
-              }}
-            >
-              <Warning sx={{ fontSize: 28 }} />
-            </Avatar>
-            <Box>
-              <Typography
-                variant="h5"
-                sx={{ fontWeight: 'bold', color: '#333' }}
-              >
-                Session Expiring Soon
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#666' }}>
-                Your access to audit logs will expire shortly
-              </Typography>
-            </Box>
-          </Box>
-
-          {/* Content */}
-          <Box sx={{ p: 4, bgcolor: 'white' }}>
-            <Alert
-              severity="warning"
-              icon={<Warning />}
-              sx={{
-                mb: 3,
-                borderRadius: 2,
-                bgcolor: alpha(getTimerColor(sessionTimer), 0.05),
-                border: `1px solid ${alpha(getTimerColor(sessionTimer), 0.2)}`,
-                '& .MuiAlert-icon': {
-                  color: getTimerColor(sessionTimer),
-                  fontSize: 28,
-                },
-              }}
-            >
-              <Typography
-                variant="body1"
-                sx={{ fontWeight: 600, mb: 1, color: '#333' }}
-              >
-                Time Remaining: {formatTimer(sessionTimer)}
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#666' }}>
-                For security purposes, your session will automatically expire.
-                You will need to re-authenticate to continue accessing the audit
-                logs.
-              </Typography>
-            </Alert>
-
-            <Box display="flex" justifyContent="flex-end" gap={2} mt={2}>
-              <Button
-                onClick={handleSessionWarningClose}
-                variant="contained"
-                sx={{
-                  backgroundColor: getTimerColor(sessionTimer),
-                  color: 'white',
-                  px: 4,
-                  py: 1.2,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  borderRadius: 2,
-                  minWidth: 100,
-                  '&:hover': {
-                    backgroundColor: alpha(getTimerColor(sessionTimer), 0.8),
-                  },
-                }}
-              >
-                OK
-              </Button>
-            </Box>
+          <Warning sx={{ fontSize: 28, color: getTimerColor(sessionTimer) }} />
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: '1rem', color: T.text }}>
+              Session Expiring Soon
+            </Typography>
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
+              Your access to audit logs will expire shortly
+            </Typography>
           </Box>
         </Box>
-      </Modal>
-
-      {/* Fixed bottom-right session timer (shown after warning triggers) */}
-      {sessionWarningShown && (
-        <Fade in timeout={300}>
-          <Box
+        <DialogContent sx={{ pt: 2.5 }}>
+          <Alert
+            severity="warning"
+            icon={<Warning />}
             sx={{
-              position: 'fixed',
-              bottom: 24,
-              right: 24,
-              zIndex: 9999,
+              borderRadius: 2,
+              bgcolor: alpha(getTimerColor(sessionTimer), 0.05),
+              border: `1px solid ${alpha(getTimerColor(sessionTimer), 0.2)}`,
             }}
           >
-            <Chip
-              icon={<LockIcon sx={{ fontSize: 16 }} />}
-              label={formatTimer(sessionTimer)}
-              size="medium"
+            <Typography sx={{ fontWeight: 600, mb: 0.5 }}>
+              Time Remaining: {formatTimer(sessionTimer)}
+            </Typography>
+            <Typography sx={{ fontSize: '0.82rem', color: T.muted }}>
+              For security purposes, your session will automatically expire.
+              {isTechnical
+                ? ' Technical accounts have a 30-minute session.'
+                : ' Access is limited to 10-minute sessions.'}
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <AccentButton
+            variant="contained"
+            onClick={() => setSessionWarningOpen(false)}
+            sx={{
+              bgcolor: getTimerColor(sessionTimer),
+              color: '#fff',
+              '&:hover': { bgcolor: getTimerColor(sessionTimer), opacity: 0.9 },
+            }}
+          >
+            Continue
+          </AccentButton>
+        </DialogActions>
+      </Dialog>
+
+      {/* Hero */}
+      <SectionCard sx={{ mb: 1.5, flexShrink: 0, width: '100%' }}>
+        <Box
+          sx={{
+            px: 4,
+            py: 1.5,
+            background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            position: 'relative',
+            overflow: 'hidden',
+            flexWrap: 'wrap',
+            gap: 1.5,
+          }}
+        >
+            <Box
               sx={{
-                bgcolor: alpha(getTimerColor(sessionTimer), 0.9),
-                color: 'white',
-                fontWeight: 600,
-                fontSize: '1rem',
-                border: `2px solid ${getTimerColor(sessionTimer)}`,
-                '& .MuiChip-label': { px: 1.5 },
-                '& .MuiChip-icon': {
-                  color: 'white',
-                  animation: sessionTimer < 60 ? 'pulse 1s infinite' : 'none',
-                },
-                '@keyframes pulse': {
-                  '0%, 100%': { opacity: 1 },
-                  '50%': { opacity: 0.5 },
-                },
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                position: 'absolute',
+                top: -50,
+                right: -50,
+                width: 200,
+                height: 200,
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(circle,rgba(109,35,35,0.1) 0%,transparent 70%)',
               }}
             />
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2.5,
+                position: 'relative',
+                zIndex: 1,
+              }}
+            >
+              <Security sx={{ fontSize: 28, color: T.accent }} />
+              <Box>
+                <Typography
+                  sx={{
+                    fontSize: '1.1rem',
+                    fontWeight: 900,
+                    color: T.accent,
+                    lineHeight: 1.2,
+                    mb: 0.2,
+                  }}
+                >
+                  {pageTitle}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: '0.78rem',
+                    color: T.accentMid,
+                    fontWeight: 600,
+                    opacity: 0.9,
+                  }}
+                >
+                  {isAdmin
+                    ? 'System-wide activity tracking and security monitoring'
+                    : 'Your personal activity history and access logs'}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.25,
+                position: 'relative',
+                zIndex: 1,
+                flexWrap: 'wrap',
+              }}
+            >
+              <Box
+                sx={{
+                  px: 2,
+                  py: 0.6,
+                  borderRadius: 6,
+                  bgcolor: alpha(T.accent, 0.09),
+                  border: `1px solid ${alpha(T.accent, 0.18)}`,
+                }}
+              >
+                <Typography
+                  sx={{ fontSize: '0.78rem', color: T.accent, fontWeight: 700 }}
+                >
+                  {filteredLogs.length} log
+                  {filteredLogs.length !== 1 ? 's' : ''}
+                </Typography>
+              </Box>
+
+              <Tooltip
+                title={
+                  isTechnical
+                    ? 'Technical accounts have a 30-minute session'
+                    : 'Access to audit logs is limited to 10-minute sessions'
+                }
+              >
+                <Chip
+                  icon={<LockIcon sx={{ fontSize: '14px !important' }} />}
+                  label={formatTimer(sessionTimer)}
+                  size="small"
+                  sx={{
+                    height: 28,
+                    bgcolor: alpha(getTimerColor(sessionTimer), 0.12),
+                    color: getTimerColor(sessionTimer),
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
+                    border: `1px solid ${alpha(getTimerColor(sessionTimer), 0.25)}`,
+                    '& .MuiChip-icon': {
+                      color: getTimerColor(sessionTimer),
+                      animation:
+                        sessionTimer <= 120 ? 'pulse 1s infinite' : 'none',
+                    },
+                  }}
+                />
+              </Tooltip>
+
+              <Tooltip title="Home">
+                <IconButton
+                  size="small"
+                  onClick={() => navigate('/admin-home')}
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${alpha(T.accent, 0.18)}`,
+                    borderRadius: 1.5,
+                    color: T.accent,
+                    '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                  }}
+                >
+                  <Home sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Refresh">
+                <IconButton
+                  size="small"
+                  onClick={handleRefresh}
+                  disabled={loading || refreshing}
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    bgcolor: alpha(T.accent, 0.08),
+                    border: `1px solid ${alpha(T.accent, 0.18)}`,
+                    borderRadius: 1.5,
+                    color: T.accent,
+                    '&:hover': { bgcolor: alpha(T.accent, 0.14) },
+                  }}
+                >
+                  {loading || refreshing ? (
+                    <CircularProgress size={14} sx={{ color: T.accent }} />
+                  ) : (
+                    <RefreshIcon sx={{ fontSize: 16 }} />
+                  )}
+                </IconButton>
+              </Tooltip>
+
+              {isAdmin && (
+                <AccentButton
+                  size="small"
+                  variant="contained"
+                  startIcon={<DownloadIcon sx={{ fontSize: 14 }} />}
+                  onClick={handleExport}
+                  sx={{
+                    fontSize: '0.78rem',
+                    bgcolor: T.accent,
+                    color: '#fff',
+                    boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`,
+                    '&:hover': { bgcolor: T.accentDark },
+                  }}
+                >
+                  Export
+                </AccentButton>
+              )}
+            </Box>
           </Box>
-        </Fade>
-      )}
+        </SectionCard>
+
+        {/* Records */}
+        <SectionCard
+          sx={{
+            width: '100%',
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              px: 2.5,
+              py: 1.25,
+              borderBottom: `1px solid ${BD}`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              bgcolor: SUBTLE,
+              flexShrink: 0,
+              flexWrap: 'wrap',
+            }}
+          >
+            <SearchIcon
+              sx={{ color: alpha(T.accent, 0.4), fontSize: 17, flexShrink: 0 }}
+            />
+            <FieldInput
+              size="small"
+              placeholder="Search employee #…"
+              value={employeeFilter}
+              onChange={(e) => setEmployeeFilter(e.target.value)}
+              sx={{ minWidth: 160, flex: 1, '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+              InputProps={{
+                endAdornment: employeeFilter ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setEmployeeFilter('')}>
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+            />
+            <FieldInput
+              select
+              size="small"
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              sx={{ minWidth: 140, '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+            >
+              <MenuItem value="">All Actions</MenuItem>
+              {uniqueActions.map((a) => (
+                <MenuItem key={a} value={a}>
+                  {a}
+                </MenuItem>
+              ))}
+            </FieldInput>
+            <FieldInput
+              select
+              size="small"
+              value={moduleFilter}
+              onChange={(e) => setModuleFilter(e.target.value)}
+              sx={{ minWidth: 140, '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+            >
+              <MenuItem value="">All Modules</MenuItem>
+              {uniqueModules.map((m) => (
+                <MenuItem key={m} value={m}>
+                  {formatModuleName(m)}
+                </MenuItem>
+              ))}
+            </FieldInput>
+            <FieldInput
+              type="date"
+              size="small"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 140, '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+            />
+          </Box>
+
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            {loading && !auditLogs.length ? (
+              <Box sx={{ py: 8, textAlign: 'center' }}>
+                <Box
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    border: `2px solid ${alpha(T.accent, 0.15)}`,
+                    borderTopColor: T.accent,
+                    borderRadius: '50%',
+                    animation: 'spin 0.7s linear infinite',
+                    mx: 'auto',
+                    mb: 2,
+                  }}
+                />
+                <Typography
+                  sx={{ color: T.muted, fontWeight: 500, fontSize: '0.84rem' }}
+                >
+                  Loading audit logs…
+                </Typography>
+              </Box>
+            ) : (
+              <Table stickyHeader size="small" sx={{ width: '100%', minWidth: 960 }}>
+                <TableHead>
+                  <TableRow>
+                    {['When', 'Employee', 'Action', 'Module', 'Target', 'Description'].map(
+                      (h) => (
+                        <TableCell key={h} sx={headCellSx}>
+                          {h}
+                        </TableCell>
+                      ),
+                    )}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {pagedLogs.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
+                        <History
+                          sx={{
+                            fontSize: 40,
+                            color: alpha(T.accent, 0.25),
+                            mb: 1,
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            fontWeight: 600,
+                            color: T.accent,
+                            fontSize: '0.9rem',
+                          }}
+                        >
+                          No audit logs found
+                        </Typography>
+                        <Typography
+                          sx={{ color: T.muted, fontSize: '0.78rem', mt: 0.5 }}
+                        >
+                          {isAdmin
+                            ? 'System activities will be logged here'
+                            : 'Your activities will be logged here'}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    pagedLogs.map((log) => {
+                      const actionColor = getActionColor(log.action);
+                      const description = buildLogDescription(log);
+                      return (
+                        <TableRow
+                          key={log.id || `${log.timestamp}-${log.employeeNumber}`}
+                          sx={{
+                            '&:nth-of-type(even)': { bgcolor: T.rowOdd },
+                            '&:hover': { bgcolor: T.rowHover },
+                            transition: 'background-color 0.12s ease',
+                            borderBottom: `1px solid ${alpha(T.accent, 0.06)}`,
+                          }}
+                        >
+                          <TableCell sx={{ px: 2, py: 1.1, whiteSpace: 'nowrap' }}>
+                            <Typography
+                              sx={{
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: '0.7rem',
+                                color: T.muted,
+                                fontWeight: 500,
+                              }}
+                            >
+                              {formatTimestamp(log.timestamp)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                            <Typography
+                              sx={{
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                color: T.text,
+                              }}
+                            >
+                              #{log.employeeNumber || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                px: 1,
+                                py: 0.2,
+                                borderRadius: '20px',
+                                bgcolor: alpha(actionColor, 0.08),
+                                border: `1px solid ${alpha(actionColor, 0.2)}`,
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: 700,
+                                  color: actionColor,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {String(log.action || '—').toUpperCase()}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                            <Typography
+                              sx={{ fontSize: '0.78rem', color: T.text, fontWeight: 500 }}
+                            >
+                              {formatModuleName(log.table_name)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                            <Typography
+                              sx={{
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: '0.72rem',
+                                color: T.muted,
+                              }}
+                            >
+                              {log.targetEmployeeNumber || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ px: 2, py: 1.1, maxWidth: 320 }}>
+                            <Typography
+                              sx={{
+                                fontSize: '0.75rem',
+                                color: T.muted,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={description}
+                            >
+                              {description}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </Box>
+
+          <TablePagination
+            component="div"
+            count={filteredLogs.length}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            sx={{
+              flexShrink: 0,
+              borderTop: `1px solid ${BD}`,
+              bgcolor: SUBTLE,
+              '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows':
+                {
+                  fontSize: '0.78rem',
+                  color: T.muted,
+                },
+            }}
+          />
+        </SectionCard>
     </Box>
   );
 };

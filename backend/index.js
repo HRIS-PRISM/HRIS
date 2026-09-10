@@ -54,6 +54,7 @@ const profileRoutes = require('./routes/profile');
 const announcementsRoutes = require('./routes/announcements');
 const suspensionsRoutes = require('./routes/suspensions');
 const auditRoutes = require('./routes/audit');
+const adminActionTrailRoutes = require('./routes/adminActionTrail');
 const tasksRoutes = require('./routes/tasks');
 const dashboardRoutes = require('./routes/dashboard');
 const notesRoutes = require('./routes/notes');
@@ -150,6 +151,50 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.log('Audit log table ready');
   }
 });
+
+// Admin Action Trail — superadmin / administrator / admin actors only
+const ensureAdminActionTrailTableSQL = `
+  CREATE TABLE IF NOT EXISTS admin_action_trail (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employeeNumber VARCHAR(64) NULL,
+    actor_role VARCHAR(64) NULL,
+    action VARCHAR(512) NOT NULL,
+    table_name VARCHAR(128) NULL,
+    record_id INT NULL,
+    targetEmployeeNumber VARCHAR(64) NULL,
+    details_json LONGTEXT NULL,
+    timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_admin_action_trail_timestamp (timestamp),
+    KEY idx_admin_action_trail_employee (employeeNumber),
+    KEY idx_admin_action_trail_actor_role (actor_role)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
+db.query(ensureAdminActionTrailTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure admin_action_trail table exists:', err);
+  } else {
+    console.log('Admin action trail table ready');
+  }
+});
+
+db.query(
+  `INSERT INTO pages (page_name, page_description, page_url, page_group, component_identifier)
+   SELECT
+     'Admin Action Trail',
+     'Trail of superadmin and administrator actions across the system',
+     '/admin-action-trail',
+     'superadmin,technical',
+     'admin-action-trail'
+   WHERE NOT EXISTS (
+     SELECT 1 FROM pages WHERE component_identifier = 'admin-action-trail'
+   )`,
+  (seedErr) => {
+    if (seedErr && seedErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('admin-action-trail page seed:', seedErr.message);
+    }
+  },
+);
 
 // Dedicated earnings / payroll-audit trail (used by earningsRoutes, leave half-day, salary shortfall mirror)
 const ensureEarningsAuditLogTableSQL = `
@@ -480,6 +525,7 @@ app.use('/', leaveRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
 app.use('/', auditRoutes);
+app.use('/', adminActionTrailRoutes);
 app.use('/', tasksRoutes);
 app.use('/', dashboardRoutes);
 app.use('/', notesRoutes);

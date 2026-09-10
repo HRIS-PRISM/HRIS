@@ -12,6 +12,7 @@
     Button,
     Card,
     Checkbox,
+    CircularProgress,
     Fade,
     FormControlLabel,
     IconButton,
@@ -56,8 +57,13 @@
   import {
     DTRPrintStyles,
     printDtrHtml,
+    downloadDtrHtml,
   } from './DailyTimeRecordPrintable';
-  import { fetchEmployeeDisplayName } from '../../utils/dtrFormatHelpers';
+  import {
+    fetchEmployeeDisplayName,
+    formatDtrPdfFileName,
+  } from '../../utils/dtrFormatHelpers';
+  import { fetchEmployeeBranch } from './attendanceLeaveIntegration';
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +127,26 @@
       return 'academic';
     }
     return null;
+  };
+
+  /**
+   * Employment category → personnel_scope when computation_module_type is not
+   * yet loaded for this employee/period.
+   * 3 = Teaching 30hrs, 4 = Designated 40hrs → academic;
+   * 0/1 JO + 2 Regular Non-Teaching → non_teaching.
+   */
+  const scopeForEmploymentCategory = (cat) => {
+    if (cat == null || cat === '') return null;
+    const n = Number(cat);
+    if (n === 3 || n === 4) return 'academic';
+    if (n === 0 || n === 1 || n === 2) return 'non_teaching';
+    return null;
+  };
+
+  const resolveEmployeeSuspensionScope = (moduleType, employmentCategory) => {
+    const fromMod = scopeForModuleType(moduleType);
+    if (fromMod) return fromMod;
+    return scopeForEmploymentCategory(employmentCategory);
   };
 
   // ─── DESIGN TOKENS (unified with DailyTimeRecordFaculty / Payslip) ───────────
@@ -197,6 +223,12 @@
     const [endDate, setEndDate] = useState('');
     const [records, setRecords] = useState([]);
     const [employeeName, setEmployeeName] = useState('');
+    const [employeeNameParts, setEmployeeNameParts] = useState({
+      firstName: '',
+      lastName: '',
+      middleName: '',
+    });
+    const [pdfDownloadLoading, setPdfDownloadLoading] = useState(false);
     const [officialTimes, setOfficialTimes] = useState({});
     const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
     const dtrRef = useRef(null);
@@ -210,9 +242,9 @@
       () => new Set(),
     );
     const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
-    const [computationModuleType, setComputationModuleType] = useState(
-      MODULE_TYPES.NON_TEACHING,
-    );
+    const [computationModuleType, setComputationModuleType] = useState(null);
+    const [employmentCategory, setEmploymentCategory] = useState(null);
+    const [employeeBranch, setEmployeeBranch] = useState(undefined);
 
     // ── Anti-tamper state ──────────────────────────────────────────────────────
     const [originalRecords, setOriginalRecords] = useState([]);
@@ -436,6 +468,11 @@
           const full =
             `${firstName || ''} ${middleName ? middleName + ' ' : ''}${lastName || ''}`.trim();
           setEmployeeName(full || 'Unknown');
+          setEmployeeNameParts({
+            firstName: firstName || '',
+            lastName: lastName || '',
+            middleName: middleName || '',
+          });
           // Load official-time data in background so the main DTR overlay can close earlier.
           fetchOfficialTimes(personID, startDate, endDate, requestSeq);
           await loadComputedLateForDTR();
@@ -460,6 +497,12 @@
             setEmployeeName((prev) =>
               prev && prev !== 'No records found' ? prev : '',
             );
+          setEmployeeNameParts({
+            firstName: '',
+            lastName: '',
+            middleName: '',
+            fullName: name || '',
+          });
         }
       } catch (err) {
         console.error(err);
@@ -536,6 +579,45 @@
       }
     };
 
+    const fetchEmployeeProfileForSuspensions = async (empID) => {
+      if (!empID) {
+        setEmploymentCategory(null);
+        setEmployeeBranch(undefined);
+        return;
+      }
+      try {
+        const [branch, empCatRes] = await Promise.all([
+          fetchEmployeeBranch({
+            apiBaseUrl: API_BASE_URL,
+            getAuthHeaders,
+            employeeNumber: empID,
+          }),
+          axios
+            .get(
+              `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+              getAuthHeaders(),
+            )
+            .catch(() => ({ data: [] })),
+        ]);
+        setEmployeeBranch(
+          branch === 0 || branch === 1 ? branch : undefined,
+        );
+        const rows = Array.isArray(empCatRes.data) ? empCatRes.data : [];
+        const match = rows.find(
+          (item) => String(item.employeeNumber) === String(empID),
+        );
+        const cat =
+          match?.employmentCategory != null && match.employmentCategory !== ''
+            ? Number(match.employmentCategory)
+            : null;
+        setEmploymentCategory(Number.isFinite(cat) ? cat : null);
+      } catch (err) {
+        console.error('Error fetching employee branch/category:', err);
+        setEmploymentCategory(null);
+        setEmployeeBranch(undefined);
+      }
+    };
+
     const fetchApprovedLeaves = async (empID) => {
       try {
         const response = await axios.get(
@@ -564,6 +646,7 @@
           // Initial load: no period yet — fetchOfficialTimes will not filter
           fetchOfficialTimes(personID, null, null),
           fetchApprovedLeaves(personID),
+          fetchEmployeeProfileForSuspensions(personID),
           axios
             .get(`${API_BASE_URL}/holiday`, getAuthHeaders())
             .then((r) => {
@@ -588,7 +671,9 @@
         setHalfDayDatesSet(new Set());
         setSuggestedHalfDayDatesSet(new Set());
         setHalfDayReviewByDate({});
-        setComputationModuleType(MODULE_TYPES.NON_TEACHING);
+        // Do not invent NON_TEACHING — that hid academic suspensions when the
+        // computation module had not been saved yet for this period.
+        setComputationModuleType(null);
         return;
       }
       const { byDate, halfDayDates, half_day_review, computation_module_type } =
@@ -601,9 +686,7 @@
       setHalfDayReviewByDate(
         buildReviewByDate(parseHalfDayReviewJson(half_day_review)),
       );
-      setComputationModuleType(
-        computation_module_type || MODULE_TYPES.NON_TEACHING,
-      );
+      setComputationModuleType(computation_module_type || null);
     }, [personID, startDate, endDate]);
 
     useEffect(() => {
@@ -713,21 +796,43 @@
       return true;
     };
 
-    // ── Native browser print (replaces jsPDF + html2canvas capture) ────────────
-    // Both Print and Download now use window.print(). The browser's own print
-    // dialog offers "Save as PDF" as a destination, so no client-side PDF
-    // generation library is needed anymore. The @media print CSS further down
-    // controls exactly how the DTR looks on the printed / saved page.
+    // Print uses fast HTML; Download builds a PDF and auto-saves it
+    // as: Surname, First Name, MI. Month, Year.pdf
+    const resolveSinglePdfName = () =>
+      formatDtrPdfFileName(
+        {
+          ...employeeNameParts,
+          fullName: employeeName,
+        },
+        startDate,
+      );
+
     const printPage = async () => {
+      if (!dtrRef.current) return;
       if (!verifyIntegrity()) return;
       restoreDOMFromOriginal();
-      await printDtrHtml(dtrRef.current);
+      await printDtrHtml(dtrRef.current, {
+        title: resolveSinglePdfName().replace(/\.pdf$/i, ''),
+      });
     };
 
     const downloadPDF = async () => {
+      if (!dtrRef.current) return;
       if (!verifyIntegrity()) return;
       restoreDOMFromOriginal();
-      await printDtrHtml(dtrRef.current);
+      setPdfDownloadLoading(true);
+      try {
+        await downloadDtrHtml(dtrRef.current, resolveSinglePdfName());
+      } catch (error) {
+        console.error('Error downloading DTR PDF:', error);
+        setSnackbar({
+          open: true,
+          message: error?.message || 'Failed to download PDF.',
+          severity: 'error',
+        });
+      } finally {
+        setPdfDownloadLoading(false);
+      }
     };
 
     // ── Month / quick-date selection (shared with the hub DTR view) ────────────
@@ -743,6 +848,7 @@
       applyQuickDateRange(value, setStartDate, setEndDate, setSelectedMonth);
       setRecords([]);
       setEmployeeName('');
+      setEmployeeNameParts({ firstName: '', lastName: '', middleName: '' });
       setOfficialTimes({});
     };
 
@@ -758,13 +864,14 @@
       );
     }
 
-    // No more singlePrintLoading — window.print() is synchronous from our
-    // point of view (the dialog blocks the browser, not our JS thread).
-    const loadingOverlayOpen = accessLoading || pageLoading || monthLoading;
+    // Download PDF shows overlay while the file is built and saved.
+    const loadingOverlayOpen =
+      accessLoading || pageLoading || monthLoading || pdfDownloadLoading;
 
     const loadingOverlayMessage = (() => {
       if (accessLoading) return 'Checking access…';
       if (pageLoading) return 'Loading Daily Time Record…';
+      if (pdfDownloadLoading) return 'Preparing PDF download…';
       if (monthLoading)
         return selectedMonth !== null
           ? `Loading DTR — ${monthsShort[selectedMonth]}…`
@@ -787,8 +894,15 @@
       computedLateByDate: computedLateByDate,
       suggestedHalfDayDatesSet,
       halfDayReviewByDate,
-      computationModuleType,
-      employeeScope: scopeForModuleType(computationModuleType),
+      computationModuleType: computationModuleType || undefined,
+      employeeScope: resolveEmployeeSuspensionScope(
+        computationModuleType,
+        employmentCategory,
+      ),
+      employmentCategory,
+      ...(employeeBranch === 0 || employeeBranch === 1
+        ? { employeeBranch }
+        : {}),
       formatTime,
     };
 
@@ -798,7 +912,7 @@
         <LoadingOverlay
           open={loadingOverlayOpen}
           message={loadingOverlayMessage}
-          showDelayMs={150}
+          showDelayMs={pdfDownloadLoading ? 0 : 150}
         />
         <Snackbar
           open={snackbar.open}
@@ -1347,16 +1461,21 @@
                                   <PrintIcon sx={{ fontSize: 16 }} />
                                 </IconButton>
                               </Tooltip>
-                              {/* No more loading spinner / disabled state — window.print()
-                                  is a synchronous call from React's perspective; the
-                                  browser's own dialog handles the wait. */}
                               <AccentButton
                                 variant="contained"
                                 size="small"
+                                disabled={pdfDownloadLoading}
                                 startIcon={
-                                  <PictureAsPdfIcon
-                                    sx={{ fontSize: '13px !important' }}
-                                  />
+                                  pdfDownloadLoading ? (
+                                    <CircularProgress
+                                      size={13}
+                                      sx={{ color: '#fff' }}
+                                    />
+                                  ) : (
+                                    <PictureAsPdfIcon
+                                      sx={{ fontSize: '13px !important' }}
+                                    />
+                                  )
                                 }
                                 onClick={downloadPDF}
                                 sx={{
@@ -1367,7 +1486,9 @@
                                   '&:hover': { bgcolor: T.accentDark },
                                 }}
                               >
-                                Download PDF
+                                {pdfDownloadLoading
+                                  ? 'Downloading…'
+                                  : 'Download PDF'}
                               </AccentButton>
                             </Box>
                           )}
@@ -1478,9 +1599,8 @@
                             sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }}
                           />
                           <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
-                            Download opens your browser's print dialog — choose
-                            "Save as PDF" for {monthsShort[selectedMonth]}{' '}
-                            {selectedYear}
+                            Download saves a PDF automatically for{' '}
+                            {monthsShort[selectedMonth]} {selectedYear}
                           </Typography>
                         </Box>
                       )}

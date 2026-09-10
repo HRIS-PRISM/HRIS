@@ -144,6 +144,7 @@ import DailyTimeRecordSupervisor from "./components/ATTENDANCE/DailyTimeRecordSu
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
 import AuditLogs from "./components/AuditLogs";
+import AdminActionTrail from "./components/AdminActionTrail";
 import Settings from "./components/Settings";
 import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
@@ -1707,6 +1708,10 @@ function App() {
             <Route
               path="/audit-logs"
               element={adminPage(AuditLogs, 'audit-logs', 'You do not have permission to access Audit Logs.')}
+            />
+            <Route
+              path="/admin-action-trail"
+              element={superTechPage(AdminActionTrail, 'admin-action-trail', 'You do not have permission to access Admin Action Trail.')}
             />
             <Route
               path="/reports"

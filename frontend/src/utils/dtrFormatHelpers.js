@@ -379,10 +379,43 @@ export const MONTHS_UPPER = [
   'DECEMBER',
 ];
 
+export const MONTHS_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
 export const formatMonth = (dateString) => {
   if (!dateString) return '';
   const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
   return MONTHS_UPPER[m] || '';
+};
+
+export const formatMonthTitle = (dateString) => {
+  if (!dateString) return '';
+  const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
+  return MONTHS_LONG[m] || '';
+};
+
+export const formatMonthShort = (dateString) => {
+  if (!dateString) return '';
+  const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
+  return MONTHS_SHORT[m] || '';
+};
+
+export const formatDtrYear = (dateString) => {
+  if (!dateString) return '';
+  const y = parseInt(dateString.split('T')[0].split('-')[0], 10);
+  return Number.isFinite(y) ? String(y) : '';
 };
 
 /** Safe filename — strips characters invalid on Windows/macOS */
@@ -392,9 +425,14 @@ export const sanitizePdfFileName = (name) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const withPdfExtension = (base) => {
+  const clean = sanitizePdfFileName(base);
+  return clean.toLowerCase().endsWith('.pdf') ? clean : `${clean}.pdf`;
+};
+
 /**
- * PDF name: SURNAME, F. M. - FEBRUARY.pdf
- * e.g. DELA CRUZ, J. R. - FEBRUARY.pdf
+ * Single DTR PDF: Surname, First Name, MI. Month, Year.pdf
+ * e.g. Dela Cruz, Juan, A. August, 2026.pdf
  */
 export const formatDtrPdfFileName = (user = {}, startDate) => {
   const last = (
@@ -402,19 +440,20 @@ export const formatDtrPdfFileName = (user = {}, startDate) => {
     user.surname ||
     user.familyName ||
     ''
-  )
-    .trim()
-    .toUpperCase();
+  ).trim();
   const first = (user.firstName || user.givenName || '').trim();
   const middleRaw = (user.middleName || user.middleInitial || '').trim();
+  const middleInitial = middleRaw
+    ? `${middleRaw.charAt(0).toUpperCase()}.`
+    : '';
 
   let namePart = '';
-  if (last) {
-    const firstInit = first ? `${first.charAt(0).toUpperCase()}.` : '';
-    const middleInit = middleRaw ? `${middleRaw.charAt(0).toUpperCase()}.` : '';
-    namePart = last;
-    if (firstInit) namePart += `, ${firstInit}`;
-    if (middleInit) namePart += ` ${middleInit}`;
+  if (last && first) {
+    namePart = middleInitial
+      ? `${last}, ${first}, ${middleInitial}`
+      : `${last}, ${first}.`;
+  } else if (last) {
+    namePart = middleInitial ? `${last}, ${middleInitial}` : last;
   } else {
     namePart = String(
       user.fullName || user.displayName || user.name || 'DTR',
@@ -422,15 +461,30 @@ export const formatDtrPdfFileName = (user = {}, startDate) => {
     if (/^[0-9a-f-]{36}$/i.test(namePart)) namePart = 'DTR';
   }
 
-  const month = formatMonth(startDate) || 'DTR';
-  const base = sanitizePdfFileName(`${namePart} - ${month}`);
-  return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  const month = formatMonthTitle(startDate) || 'DTR';
+  const year = formatDtrYear(startDate);
+  const period = year ? `${month}, ${year}` : month;
+  return withPdfExtension(`${namePart} ${period}`);
 };
 
-/** Combined multi-employee DTR PDF */
-export const formatDtrBulkPdfFileName = (startDate) => {
-  const month = formatMonth(startDate) || 'DTR';
-  return sanitizePdfFileName(`DTR BATCH - ${month}.pdf`);
+/**
+ * Bulk DTR PDF: Aug, 2026.pdf
+ * With department / employment-category filter:
+ *   Aug, 2026, CBPA.pdf
+ *   Aug, 2026, Non-Teaching.pdf
+ */
+export const formatDtrBulkPdfFileName = (
+  startDate,
+  { department, employmentCategory } = {},
+) => {
+  const month = formatMonthShort(startDate) || 'DTR';
+  const year = formatDtrYear(startDate);
+  const parts = [year ? `${month}, ${year}` : month];
+  const dept = String(department || '').trim();
+  const empCat = String(employmentCategory || '').trim();
+  if (dept) parts.push(dept);
+  if (empCat) parts.push(empCat);
+  return withPdfExtension(parts.join(', '));
 };
 
 /** Open PDF for print/save-as-PDF with a proper filename instead of a blob UUID */

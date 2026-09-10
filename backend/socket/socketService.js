@@ -445,6 +445,24 @@ function broadcastNewAuditLog(logEntry) {
   }
 }
 
+/**
+ * Broadcast a new admin_action_trail row to superadmin + technical only.
+ * @param {object} logEntry
+ */
+function broadcastNewAdminActionTrail(logEntry) {
+  try {
+    const io = getIO();
+    ['superadmin', 'technical'].forEach((role) => {
+      io.to(`role:${role}`).emit('adminActionTrailCreated', logEntry);
+    });
+    console.log(
+      `✓ Broadcasted admin action trail: ${logEntry.action} by ${logEntry.employeeNumber}`,
+    );
+  } catch (error) {
+    console.error('Failed to broadcast admin action trail:', error.message);
+  }
+}
+
 module.exports = {
   notifyPageAccessGranted,
   notifyPageAccessRevoked,
@@ -468,6 +486,7 @@ module.exports = {
   notifyEarningsChanged,
   notifyAnnouncementChanged,
   broadcastNewAuditLog,
+  broadcastNewAdminActionTrail,
   notifyContactThreadChanged,
   notifySupervisorAssignmentChanged,
 };

@@ -78,6 +78,7 @@ export const routeToComponentMap = {
   '/attendance-adjustment-reports': 'attendance-adjustment-reports',
   '/announcement': 'announcement',
   '/audit-logs': 'audit-logs',
+  '/admin-action-trail': 'admin-action-trail',
   '/pages-list': 'pages-list',
   '/bulk-register': 'bulk-register',
   '/philhealth-table': 'philhealth',

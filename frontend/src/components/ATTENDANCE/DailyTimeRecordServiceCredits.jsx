@@ -41,8 +41,8 @@ import {
   useAttendanceCompactPage,
 } from './attendanceFilterLayout';
 import DTRTemplate from './DTRTemplate';
-import { DTRPrintStyles, printDtrHtml } from './DailyTimeRecordPrintable';
-import { fetchEmployeeDisplayName } from '../../utils/dtrFormatHelpers';
+import { DTRPrintStyles, printDtrHtml, downloadDtrHtml } from './DailyTimeRecordPrintable';
+import { fetchEmployeeDisplayName, formatDtrPdfFileName } from '../../utils/dtrFormatHelpers';
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -162,6 +162,11 @@ const DailyTimeRecordServiceCredits = () => {
   const [endDate, setEndDate] = useState('');
   const [records, setRecords] = useState([]);
   const [employeeName, setEmployeeName] = useState('');
+  const [employeeNameParts, setEmployeeNameParts] = useState({
+    firstName: '',
+    lastName: '',
+    middleName: '',
+  });
   const [officialTimes, setOfficialTimes] = useState({});
   const dtrRef = useRef(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
@@ -342,6 +347,11 @@ const DailyTimeRecordServiceCredits = () => {
         const { firstName, lastName, middleName } = data[0];
         const full = `${firstName || ''} ${middleName ? middleName + ' ' : ''}${lastName || ''}`.trim();
         setEmployeeName(full || 'Unknown');
+        setEmployeeNameParts({
+          firstName: firstName || '',
+          lastName: lastName || '',
+          middleName: middleName || '',
+        });
         await fetchOfficialTimes(personID);
       } else {
         stopObserver();
@@ -363,6 +373,12 @@ const DailyTimeRecordServiceCredits = () => {
           setEmployeeName((prev) =>
             prev && prev !== 'No records found' ? prev : '',
           );
+        setEmployeeNameParts({
+          firstName: '',
+          lastName: '',
+          middleName: '',
+          fullName: name || '',
+        });
       }
     } catch (err) { console.error(err); }
     finally {
@@ -475,19 +491,42 @@ const DailyTimeRecordServiceCredits = () => {
     return true;
   };
 
-  // ── Capture helpers ────────────────────────────────────────────────────────
+  // Print uses fast HTML; Download auto-saves:
+  // Surname, First Name, MI. Month, Year.pdf
+  const resolveSinglePdfName = () =>
+    formatDtrPdfFileName(
+      { ...employeeNameParts, fullName: employeeName },
+      startDate,
+    );
+
   const printPage = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
-    await printDtrHtml(dtrRef.current);
+    await printDtrHtml(dtrRef.current, {
+      title: resolveSinglePdfName().replace(/\.pdf$/i, ''),
+    });
   };
 
   const downloadPDF = async () => {
     if (!dtrRef.current) return;
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
-    await printDtrHtml(dtrRef.current);
+    setSinglePrintLoading(true);
+    setSinglePrintStatus('Preparing PDF download…');
+    try {
+      await downloadDtrHtml(dtrRef.current, resolveSinglePdfName());
+    } catch (error) {
+      console.error('Error downloading DTR PDF:', error);
+      setSnackbar({
+        open: true,
+        message: error?.message || 'Failed to download PDF.',
+        severity: 'error',
+      });
+    } finally {
+      setSinglePrintLoading(false);
+      setSinglePrintStatus('');
+    }
   };
 
   // ── Month / quick-date selection (shared with the hub / Honorarium DTR view) ──
@@ -513,6 +552,7 @@ const DailyTimeRecordServiceCredits = () => {
     setStartDate('');
     setEndDate('');
     setEmployeeName('');
+    setEmployeeNameParts({ firstName: '', lastName: '', middleName: '' });
     resetIntegrityState();
   };
 
@@ -520,6 +560,7 @@ const DailyTimeRecordServiceCredits = () => {
     applyQuickDateRange(value, setStartDate, setEndDate, setSelectedMonth);
     setRecords([]);
     setEmployeeName('');
+    setEmployeeNameParts({ firstName: '', lastName: '', middleName: '' });
     resetIntegrityState();
   };
 
@@ -1091,7 +1132,7 @@ const DailyTimeRecordServiceCredits = () => {
                                 '&:disabled': { bgcolor: '#ddd !important' },
                               }}
                             >
-                              {singlePrintLoading ? 'Processing…' : 'Download PDF'}
+                              {singlePrintLoading ? 'Downloading…' : 'Download PDF'}
                             </AccentButton>
                           </Box>
                         )}

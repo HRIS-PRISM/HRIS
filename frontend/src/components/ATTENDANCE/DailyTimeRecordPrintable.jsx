@@ -1,11 +1,20 @@
 import React from 'react';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import {
   DTR_PAGE_MARGIN_MM,
   DTR_PRINTABLE_WIDTH_MM,
   DTR_PRINTABLE_HEIGHT_MM,
+  sanitizePdfFileName,
 } from '../../utils/dtrFormatHelpers';
 
 const MM_TO_PX = 96 / 25.4;
+
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
 /**
  * Print stylesheet — prints the same on-screen DTR HTML (no canvas, no portal clone).
@@ -114,7 +123,10 @@ const waitForPrintAssets = async (doc) => {
  * fits is printed at full size and uses the full page width.
  */
 const fitDtrToPage = (doc) => {
-  const scaleWrapper = doc.querySelector('.dtr-print-scale');
+  doc.querySelectorAll('.dtr-print-scale').forEach(fitScaleWrapper);
+};
+
+const fitScaleWrapper = (scaleWrapper) => {
   const page = scaleWrapper?.querySelector('.dtr-page');
   if (!scaleWrapper || !page) return;
 
@@ -147,18 +159,43 @@ const fitDtrToPage = (doc) => {
   }
 };
 
-/**
- * Print the already-rendered DTR HTML in an isolated document.
- * This preserves the React template and inline styles while avoiding app-shell
- * overflow/position rules. No canvas, screenshot, or raster image is created.
- */
-export async function printDtrHtml(sourceElement) {
-  if (!sourceElement) return;
+/* One printed sheet per DTR when several employees are printed in one job. */
+const DTR_MULTI_PAGE_CSS = `
+  @media print {
+    .dtr-print-area {
+      page-break-after: always !important;
+      break-after: page !important;
+    }
 
+    .dtr-print-area:last-of-type {
+      page-break-after: auto !important;
+      break-after: auto !important;
+    }
+  }
+`;
+
+/** Screen/layout CSS so off-screen capture measures the same as print. */
+const DTR_CAPTURE_LAYOUT_CSS = `
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .dtr-print-area {
+    display: block;
+    width: ${DTR_PRINTABLE_WIDTH_MM}mm;
+    height: ${DTR_PRINTABLE_HEIGHT_MM}mm;
+    margin: 0 auto;
+    padding: 0;
+    overflow: hidden;
+    background: #fff;
+  }
+  .dtr-print-scale { transform-origin: top left; }
+`;
+
+const normalizeHtmlPages = (htmlPages) =>
+  (Array.isArray(htmlPages) ? htmlPages : [htmlPages]).filter(Boolean);
+
+const createDtrFrameDocument = async (pages, { title } = {}) => {
   const frame = document.createElement('iframe');
-  frame.setAttribute('title', 'DTR print document');
+  frame.setAttribute('title', 'DTR document');
   frame.setAttribute('aria-hidden', 'true');
-  // Sized to the real printable area so measurements match the printed page.
   frame.style.cssText = [
     'position:fixed',
     'left:-10000px',
@@ -172,8 +209,15 @@ export async function printDtrHtml(sourceElement) {
   const printDocument = frame.contentDocument;
   if (!printDocument) {
     frame.remove();
-    return;
+    return null;
   }
+
+  const body = pages
+    .map(
+      (html) =>
+        `<main class="dtr-print-area"><div class="dtr-print-scale">${html}</div></main>`,
+    )
+    .join('');
 
   printDocument.open();
   printDocument.write(`<!doctype html>
@@ -181,18 +225,15 @@ export async function printDtrHtml(sourceElement) {
       <head>
         <meta charset="utf-8" />
         <base href="${document.baseURI}" />
-        <title>Daily Time Record</title>
+        <title>${escapeHtml(title || 'Daily Time Record')}</title>
         <style>
           * { box-sizing: border-box; }
-          html, body { margin: 0; padding: 0; background: #fff; }
+          ${DTR_CAPTURE_LAYOUT_CSS}
           ${DTR_PRINT_CSS}
+          ${pages.length > 1 ? DTR_MULTI_PAGE_CSS : ''}
         </style>
       </head>
-      <body>
-        <main class="dtr-print-area">
-          <div class="dtr-print-scale">${sourceElement.outerHTML}</div>
-        </main>
-      </body>
+      <body>${body}</body>
     </html>`);
   printDocument.close();
 
@@ -202,8 +243,38 @@ export async function printDtrHtml(sourceElement) {
       frame.contentWindow.requestAnimationFrame(resolve),
     ),
   );
-
   fitDtrToPage(printDocument);
+  return frame;
+};
+
+export const triggerFileDownload = (blob, fileName) => {
+  const safeName = sanitizePdfFileName(
+    fileName?.toLowerCase?.().endsWith('.pdf')
+      ? fileName
+      : `${fileName || 'Daily Time Record'}.pdf`,
+  );
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = safeName;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return safeName;
+};
+
+/**
+ * Print one or more already-rendered DTRs as HTML in an isolated document.
+ * No canvas/PDF — opens the browser print dialog.
+ */
+export async function printDtrHtmlPages(htmlPages, { title } = {}) {
+  const pages = normalizeHtmlPages(htmlPages);
+  if (!pages.length) return;
+
+  const frame = await createDtrFrameDocument(pages, { title });
+  if (!frame) return;
 
   const removeFrame = () => {
     window.setTimeout(() => frame.remove(), 0);
@@ -215,8 +286,86 @@ export async function printDtrHtml(sourceElement) {
   frame.contentWindow.focus();
   frame.contentWindow.print();
 
-  // Fallback for browsers that do not fire afterprint on iframe documents.
   window.setTimeout(() => {
     if (frame.isConnected) frame.remove();
   }, 60000);
+}
+
+/**
+ * Build a multi-page PDF from DTR HTML and trigger an automatic download.
+ * Print stays on the fast HTML path; only Download uses this raster step.
+ */
+export async function downloadDtrHtmlPages(
+  htmlPages,
+  fileName,
+  { title, onProgress } = {},
+) {
+  const pages = normalizeHtmlPages(htmlPages);
+  if (!pages.length) return null;
+
+  const safeName = sanitizePdfFileName(
+    fileName?.toLowerCase?.().endsWith('.pdf')
+      ? fileName
+      : `${fileName || 'Daily Time Record'}.pdf`,
+  );
+
+  const frame = await createDtrFrameDocument(pages, {
+    title: title || safeName.replace(/\.pdf$/i, ''),
+  });
+  if (!frame) return null;
+
+  try {
+    const doc = frame.contentDocument;
+    const areas = Array.from(doc.querySelectorAll('.dtr-print-area'));
+    if (!areas.length) throw new Error('No DTR pages to download.');
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = DTR_PAGE_MARGIN_MM;
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+
+    for (let i = 0; i < areas.length; i++) {
+      onProgress?.(i + 1, areas.length);
+      const canvas = await html2canvas(areas[i], {
+        scale: areas.length >= 30 ? 1.1 : areas.length >= 15 ? 1.35 : 1.6,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      const scale = Math.min(maxW / (imgW * 0.264583), maxH / (imgH * 0.264583));
+      const drawW = imgW * 0.264583 * scale;
+      const drawH = imgH * 0.264583 * scale;
+      const x = (pageW - drawW) / 2;
+      const y = (pageH - drawH) / 2;
+      if (i > 0) pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', x, y, drawW, drawH);
+    }
+
+    const blob = pdf.output('blob');
+    triggerFileDownload(blob, safeName);
+    return safeName;
+  } finally {
+    frame.remove();
+  }
+}
+
+/** Print a single on-screen DTR element. */
+export async function printDtrHtml(sourceElement, options) {
+  if (!sourceElement) return;
+  await printDtrHtmlPages([sourceElement.outerHTML], options);
+}
+
+/** Download a single on-screen DTR element as a PDF file. */
+export async function downloadDtrHtml(sourceElement, fileName, options) {
+  if (!sourceElement) return null;
+  return downloadDtrHtmlPages([sourceElement.outerHTML], fileName, options);
 }
