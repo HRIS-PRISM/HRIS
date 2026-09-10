@@ -1,4 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
+import { getUserInfo } from '../../utils/auth';
 import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import {
@@ -21,6 +22,7 @@ import {
   Select,
   MenuItem,
   InputAdornment,
+  ListSubheader,
 } from '@mui/material';
 import * as XLSX from 'xlsx';
 import LoadingOverlay from '../LoadingOverlay';
@@ -48,7 +50,10 @@ import {
   Visibility,
   Compare,
   Edit as EditIcon,
+  Description as DescriptionIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
+import Appendix33LayoutDialog from './Appendix33LayoutDialog';
 import {
   Grid,
   Card,
@@ -237,12 +242,44 @@ const PayrollProcessed = () => {
   });
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('error');
   const [payrollFormulasData, setPayrollFormulasData] = useState([]);
   const [activePayrollView, setActivePayrollView] = useState('FULL_VIEW');
   const [openViewModal, setOpenViewModal] = useState(false);
   const [viewRow, setViewRow] = useState(null);
   const [empCatMap, setEmpCatMap] = useState({});
   const [selectedEmpCat, setSelectedEmpCat] = useState('');
+  const [openAppendix33Layout, setOpenAppendix33Layout] = useState(false);
+  const [activeAppendix33Name, setActiveAppendix33Name] = useState('');
+  const [openExportAppendix33, setOpenExportAppendix33] = useState(false);
+  const [exportMonth, setExportMonth] = useState('');
+  const [exportYear, setExportYear] = useState('');
+  // '' = all | `dept:CODE` | `emp:TYPE_NAME`
+  const [exportInclude, setExportInclude] = useState('');
+  const [exportEmpTypeOptions, setExportEmpTypeOptions] = useState([]);
+  const [exportAvailability, setExportAvailability] = useState({
+    loading: false,
+    count: null,
+    available: false,
+    error: '',
+  });
+  const isTechnical = String(getUserInfo()?.role || '').toLowerCase() === 'technical';
+
+  const parseExportInclude = (value) => {
+    if (!value) return { department: '', employmentType: '' };
+    if (value.startsWith('dept:')) return { department: value.slice(5), employmentType: '' };
+    if (value.startsWith('emp:')) return { department: '', employmentType: value.slice(4) };
+    return { department: '', employmentType: '' };
+  };
+
+  const exportIncludeLabel = (value) => {
+    const { department, employmentType } = parseExportInclude(value);
+    if (employmentType) return employmentType;
+    if (department) {
+      return departments.find((d) => d.code === department)?.description || department;
+    }
+    return 'All departments & categories';
+  };
 
   // ── Payroll Month Filter State ──────────────────────────────────────────────
   const currentYear = new Date().getFullYear();
@@ -445,6 +482,28 @@ const PayrollProcessed = () => {
     } catch (err) { console.error('Error fetching departments:', err); }
   };
 
+  const fetchExportEmploymentTypes = async () => {
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`,
+        getAuthHeaders(),
+      );
+      const flat = Array.isArray(res.data?.flat) ? res.data.flat : [];
+      const unique = [];
+      const seen = new Set();
+      flat.filter((row) => row.isActive !== 0 && row.isActive !== false).forEach((row) => {
+        const name = String(row.typeName || '').trim();
+        if (!name || seen.has(name)) return;
+        seen.add(name);
+        unique.push({ typeName: name, parentGroup: row.parentGroup || '' });
+      });
+      unique.sort((a, b) => a.typeName.localeCompare(b.typeName));
+      setExportEmpTypeOptions(unique);
+    } catch (err) {
+      console.error('Error fetching employment categories for export:', err);
+    }
+  };
+
   usePayrollRealtimeRefresh(() => {
     fetchDepartments();
     fetchEmpCatMap();
@@ -453,11 +512,60 @@ const PayrollProcessed = () => {
     fetchPayrollFormulasData();
   });
 
-  useEffect(() => { fetchDepartments(); }, []);
+  useEffect(() => { fetchDepartments(); fetchExportEmploymentTypes(); }, []);
   useEffect(() => { fetchEmpCatMap(); }, []);
   useEffect(() => { fetchFinalizedPayroll(); }, [selectedEmpCat, empCatMap]);
   useEffect(() => { fetchReleasedPayroll(); }, []);
   useEffect(() => { fetchPayrollFormulasData(); }, []);
+  useEffect(() => {
+    if (!isTechnical) return;
+    axios.get(`${API_BASE_URL}/PayrollExportRoute/appendix33-templates`, getAuthHeaders())
+      .then((res) => setActiveAppendix33Name(res.data.active?.name || ''))
+      .catch(() => setActiveAppendix33Name(''));
+  }, [isTechnical, openAppendix33Layout]);
+
+  useEffect(() => {
+    if (!openExportAppendix33 || !exportMonth || !exportYear) {
+      setExportAvailability({ loading: false, count: null, available: false, error: '' });
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setExportAvailability((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        const params = { month: Number(exportMonth), year: Number(exportYear) };
+        const { department, employmentType } = parseExportInclude(exportInclude);
+        if (department) params.department = department;
+        if (employmentType) params.employmentType = employmentType;
+        const res = await axios.get(
+          `${API_BASE_URL}/PayrollExportRoute/export-appendix33/availability`,
+          { ...getAuthHeaders(), params },
+        );
+        if (cancelled) return;
+        const count = Number(res.data?.count || 0);
+        setExportAvailability({
+          loading: false,
+          count,
+          available: Boolean(res.data?.available) && count > 0,
+          error: '',
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setExportAvailability({
+          loading: false,
+          count: null,
+          available: false,
+          error: err?.response?.data?.error || 'Could not check if payroll data is available.',
+        });
+      }
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [openExportAppendix33, exportMonth, exportYear, exportInclude]);
 
   useEffect(() => {
     if (filteredFinalizedData.length > 0 && releasedIdSet.size > 0) {
@@ -809,6 +917,112 @@ const PayrollProcessed = () => {
     worksheet['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } });
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Processed Payroll');
     XLSX.writeFile(workbook, `PayrollProcessed_${monthName}_${year}.xlsx`);
+  };
+
+  // Errors come back as a Blob because the request asks for one, so they have to be
+  // read back out before the message can be shown.
+  const readExportError = async (err) => {
+    const data = err?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text());
+        if (parsed.unmapped?.length) {
+          const list = parsed.unmapped.map((u) => `${u.department} (${u.count})`).join(', ');
+          return `${parsed.error} Unmapped: ${list}`;
+        }
+        if (parsed.overflows?.length) {
+          const list = parsed.overflows
+            .map((o) => `${o.department} needs ${o.needed} rows (template holds ${o.capacity})`)
+            .join('; ');
+          return `${parsed.error} ${list}`;
+        }
+        return parsed.error || 'Export failed.';
+      } catch {
+        return 'Export failed.';
+      }
+    }
+    return data?.error || err?.message || 'Export failed.';
+  };
+
+  const openAppendix33ExportModal = () => {
+    const now = new Date();
+    setExportMonth(selectedMonth || String(now.getMonth() + 1).padStart(2, '0'));
+    setExportYear(selectedYear || String(now.getFullYear()));
+    setExportInclude(selectedDepartment ? `dept:${selectedDepartment}` : '');
+    setExportAvailability({ loading: true, count: null, available: false, error: '' });
+    setOpenExportAppendix33(true);
+  };
+
+  // Fills the EARIST Appendix 33 template on the server and downloads it for the
+  // month, year, and department / employment category chosen in the download modal.
+  const handleExportAppendix33 = async () => {
+    if (!exportMonth || !exportYear) {
+      setSnackbarSeverity('error');
+      setSnackbarMessage('Choose a month and year for the payroll workbook.');
+      setSnackbarOpen(true);
+      return;
+    }
+    if (exportAvailability.loading) return;
+    if (exportAvailability.count === 0) return;
+
+    setOverlayLoading(true);
+    try {
+      const payload = {
+        month: Number(exportMonth),
+        year: Number(exportYear),
+      };
+      const { department, employmentType } = parseExportInclude(exportInclude);
+      if (department) payload.department = department;
+      if (employmentType) payload.employmentType = employmentType;
+
+      const response = await axios.post(
+        `${API_BASE_URL}/PayrollExportRoute/export-appendix33`,
+        payload,
+        { ...getAuthHeaders(), responseType: 'blob' },
+      );
+
+      const disposition = response.headers['content-disposition'] || '';
+      const match = /filename="?([^";]+)"?/.exec(disposition);
+      const filename = match ? match[1] : `EARIST_Payroll_${exportYear}_${exportMonth}.xlsm`;
+
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: response.headers['content-type'] }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setOpenExportAppendix33(false);
+      setOverlayLoading(false);
+      setSuccessAction('download');
+      setSuccessOpen(true);
+      const usedTemplate = response.headers['x-appendix33-template'];
+      if (usedTemplate) {
+        setActiveAppendix33Name(decodeURIComponent(usedTemplate));
+        setSnackbarSeverity('success');
+        setSnackbarMessage(`Exported using: ${decodeURIComponent(usedTemplate)}`);
+        setSnackbarOpen(true);
+      }
+      setTimeout(() => setSuccessOpen(false), 2500);
+    } catch (err) {
+      setOverlayLoading(false);
+      const message = await readExportError(err);
+      if (err?.response?.status === 404) {
+        setExportAvailability({
+          loading: false,
+          count: 0,
+          available: false,
+          error: message,
+        });
+        return;
+      }
+      setOpenExportAppendix33(false);
+      setSnackbarSeverity('error');
+      setSnackbarMessage(message);
+      setSnackbarOpen(true);
+    }
   };
 
   if (accessLoading) {
@@ -1529,6 +1743,29 @@ const PayrollProcessed = () => {
                 </IconButton>
               </span>
             </Tooltip>
+            <Tooltip title="Download the EARIST Appendix 33 payroll workbook">
+              <IconButton onClick={openAppendix33ExportModal} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 36, height: 36, borderRadius: 2, '&:hover': { bgcolor: T.accentFaint } }}>
+                <DescriptionIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+            {isTechnical && (
+              <>
+                {activeAppendix33Name && (
+                  <Chip
+                    size="small"
+                    label={`In use: ${activeAppendix33Name}`}
+                    sx={{ height: 22, maxWidth: 220, fontSize: '0.65rem', fontWeight: 700, bgcolor: T.accentFaint, color: T.accent, border: `1px solid ${T.accentBorder}`, fontFamily: T.font }}
+                  />
+                )}
+                <Tooltip title={activeAppendix33Name
+                  ? `Appendix 33 layout (technical) — in use: ${activeAppendix33Name}`
+                  : 'Appendix 33 layout (technical only)'}>
+                  <IconButton onClick={() => setOpenAppendix33Layout(true)} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 36, height: 36, borderRadius: 2, '&:hover': { bgcolor: T.accentFaint } }}>
+                    <SettingsIcon sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
           </Box>
         </Box>
 
@@ -1749,13 +1986,149 @@ const PayrollProcessed = () => {
         </Box>
       </Modal>
 
+      {/* ── Appendix 33 Download Modal ── */}
+      <Modal open={openExportAppendix33} onClose={() => setOpenExportAppendix33(false)}>
+        <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: { xs: '90%', sm: 480 }, bgcolor: T.surface, borderRadius: 3, boxShadow: '0 24px 80px rgba(0,0,0,0.18)', overflow: 'hidden', border: `2px solid ${T.accentBorder}`, fontFamily: T.font }}>
+          <Box sx={{ height: 4, background: `linear-gradient(90deg, ${T.accent} 0%, ${T.accentMid} 100%)` }} />
+          <Box sx={{ px: 3, py: 2.5, background: T.headerGrad, display: 'flex', alignItems: 'center', gap: 2, borderBottom: `1px solid ${T.divider}` }}>
+            <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <DescriptionIcon sx={{ fontSize: 18, color: T.accent }} />
+            </Box>
+            <Box>
+              <Typography sx={{ fontWeight: 700, color: T.text, fontSize: '0.95rem', fontFamily: T.font }}>Download Payroll Excel</Typography>
+              <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.2, fontFamily: T.font }}>Choose the period and which department to include</Typography>
+            </Box>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            <Typography sx={{ fontSize: '0.82rem', color: T.muted, mb: 2, fontFamily: T.font }}>
+              What month and year should the workbook cover? Include one department, one employment category (for example General Administration), or everything.
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
+              <FormControl size="small" fullWidth>
+                <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Month</InputLabel>
+                <Select value={exportMonth} onChange={(e) => setExportMonth(e.target.value)} label="Month" sx={filterSelectSx}>
+                  {monthOptions.filter((opt) => opt.value).map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>{opt.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small" fullWidth>
+                <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Year</InputLabel>
+                <Select value={exportYear} onChange={(e) => setExportYear(e.target.value)} label="Year" sx={filterSelectSx}>
+                  {payrollYearOptions.map((y) => (
+                    <MenuItem key={y} value={String(y)} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>{y}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+            <FormControl size="small" fullWidth sx={{ mb: 2 }}>
+              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Include</InputLabel>
+              <Select
+                value={exportInclude}
+                onChange={(e) => setExportInclude(e.target.value)}
+                label="Include"
+                sx={filterSelectSx}
+              >
+                <MenuItem value="" sx={{ fontSize: '0.82rem', fontFamily: T.font }}>All departments & categories</MenuItem>
+                <ListSubheader sx={{ fontFamily: T.font, fontSize: '0.7rem', fontWeight: 700, color: T.accent, lineHeight: '28px' }}>
+                  Departments
+                </ListSubheader>
+                {departments.map((dept) => (
+                  <MenuItem key={`dept-${dept.id || dept.code}`} value={`dept:${dept.code}`} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                    {dept.description || dept.code}
+                  </MenuItem>
+                ))}
+                <ListSubheader sx={{ fontFamily: T.font, fontSize: '0.7rem', fontWeight: 700, color: T.accent, lineHeight: '28px' }}>
+                  Employment categories
+                </ListSubheader>
+                {exportEmpTypeOptions.map((row) => (
+                  <MenuItem key={`emp-${row.typeName}`} value={`emp:${row.typeName}`} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                    {row.typeName}
+                    {row.parentGroup ? ` (${row.parentGroup})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {exportAvailability.loading && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2.5 }}>
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+                <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font }}>
+                  Checking if payroll data is available…
+                </Typography>
+              </Box>
+            )}
+            {!exportAvailability.loading && exportAvailability.count === 0 && (
+              <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2, fontFamily: T.font }}>
+                <Typography sx={{ fontWeight: 600, fontSize: '0.82rem', fontFamily: T.font }}>
+                  No payroll data available
+                </Typography>
+                <Typography sx={{ fontSize: '0.76rem', color: T.muted, fontFamily: T.font }}>
+                  {exportAvailability.error || `No finalized payroll found for ${monthOptions.find((m) => m.value === exportMonth)?.label || 'this month'} ${exportYear} in ${exportIncludeLabel(exportInclude)}. Choose a different period or include option.`}
+                </Typography>
+              </Alert>
+            )}
+            {!exportAvailability.loading && exportAvailability.count > 0 && (
+              <Alert severity="success" sx={{ mb: 2.5, borderRadius: 2, fontFamily: T.font }}>
+                <Typography sx={{ fontWeight: 600, fontSize: '0.82rem', fontFamily: T.font }}>
+                  {exportAvailability.count} record{exportAvailability.count === 1 ? '' : 's'} available
+                </Typography>
+                <Typography sx={{ fontSize: '0.76rem', color: T.muted, fontFamily: T.font }}>
+                  {monthOptions.find((m) => m.value === exportMonth)?.label} {exportYear} · {exportIncludeLabel(exportInclude)}
+                </Typography>
+              </Alert>
+            )}
+            {!exportAvailability.loading && exportAvailability.count == null && exportAvailability.error && (
+              <Alert severity="error" sx={{ mb: 2.5, borderRadius: 2, fontFamily: T.font }}>
+                {exportAvailability.error}
+              </Alert>
+            )}
+            <Box display="flex" justifyContent="flex-end" gap={1.25}>
+              <AccentButton variant="outlined" onClick={() => setOpenExportAppendix33(false)} sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Cancel</AccentButton>
+              <AccentButton
+                variant="contained"
+                onClick={handleExportAppendix33}
+                disabled={!exportMonth || !exportYear || exportAvailability.loading || exportAvailability.count === 0}
+                startIcon={exportAvailability.loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <DescriptionIcon sx={{ fontSize: '14px !important' }} />}
+                sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, '&:disabled': { bgcolor: '#e0e0e0', color: '#9e9e9e' } }}
+              >
+                Download
+              </AccentButton>
+            </Box>
+          </Box>
+        </Box>
+      </Modal>
+
       <style>{`@keyframes pulseLine { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+
+      <Appendix33LayoutDialog
+        open={openAppendix33Layout}
+        onClose={() => setOpenAppendix33Layout(false)}
+        getAuthHeaders={getAuthHeaders}
+        onBusy={setOverlayLoading}
+        onActiveChange={(active) => setActiveAppendix33Name(active?.name || '')}
+        onMessage={(msg, severity = 'info') => {
+          setSnackbarSeverity(severity === 'error' ? 'error' : 'success');
+          setSnackbarMessage(msg);
+          setSnackbarOpen(true);
+        }}
+      />
 
       <LoadingOverlay open={overlayLoading || releaseLoading} message={releaseLoading ? 'Releasing...' : 'Processing...'} />
       <SuccessfulOverlay open={successOpen} action={successAction} onClose={() => setSuccessOpen(false)} />
 
-      <Snackbar open={snackbarOpen} autoHideDuration={4000} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
-        <Alert onClose={() => setSnackbarOpen(false)} severity="error" sx={{ width: '100%', backgroundColor: '#d32f2f', color: 'white', fontFamily: T.font, '& .MuiAlert-icon': { color: 'white' }, '& .MuiAlert-action': { color: 'white' } }}>
+      <Snackbar open={snackbarOpen} autoHideDuration={5000} onClose={() => setSnackbarOpen(false)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert
+          onClose={() => setSnackbarOpen(false)}
+          severity={snackbarSeverity}
+          sx={{
+            width: '100%',
+            backgroundColor: snackbarSeverity === 'error' ? '#d32f2f' : T.accent,
+            color: 'white',
+            fontFamily: T.font,
+            '& .MuiAlert-icon': { color: 'white' },
+            '& .MuiAlert-action': { color: 'white' },
+          }}
+        >
           {snackbarMessage}
         </Alert>
       </Snackbar>

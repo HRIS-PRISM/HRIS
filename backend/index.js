@@ -30,6 +30,7 @@ const Payroll = require('./payrollRoutes/Payroll');
 const PayrollReleased = require('./payrollRoutes/PayrollReleased');
 const PayrollJO = require('./payrollRoutes/PayrollJO');
 const PayrollFormulas = require('./payrollRoutes/PayrollFormulas');
+const PayrollExport = require('./payrollRoutes/PayrollExport');
 const UploadPayroll = require('./payrollRoutes/UploadPayroll');
 const EmployeeCategory = require('./dashboardRoutes/EmployeeCategory');
 const dashboardAuditRoute = require('./dashboardRoutes/DashboardAuditRoute');
@@ -117,7 +118,14 @@ app.use(
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Content-Disposition',
+      'X-Appendix33-Template',
+      'X-Appendix33-Template-Id',
+      'X-Appendix33-Employees',
+    ],
   }),
 );
 
@@ -501,6 +509,7 @@ app.use('/leaveRoute', leaveRoutes);
 app.use('/SendPayslipRoute', SendPayslip);
 app.use('/PayrollRoute', Payroll);
 app.use('/PayrollReleasedRoute', PayrollReleased);
+app.use('/PayrollExportRoute', PayrollExport);
 app.use('/PayrollJORoutes', PayrollJO);
 app.use('/EmploymentCategoryRoutes', EmployeeCategory);
 app.use('/dashboard-audit', dashboardAuditRoute);
