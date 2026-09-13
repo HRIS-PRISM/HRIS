@@ -244,7 +244,7 @@
     const [halfDayReviewByDate, setHalfDayReviewByDate] = useState({});
     const [computationModuleType, setComputationModuleType] = useState(null);
     const [employmentCategory, setEmploymentCategory] = useState(null);
-    const [employeeBranch, setEmployeeBranch] = useState(undefined);
+    const [employeeBranch, setEmployeeBranch] = useState(null);
 
     // ── Anti-tamper state ──────────────────────────────────────────────────────
     const [originalRecords, setOriginalRecords] = useState([]);
@@ -582,26 +582,15 @@
     const fetchEmployeeProfileForSuspensions = async (empID) => {
       if (!empID) {
         setEmploymentCategory(null);
-        setEmployeeBranch(undefined);
         return;
       }
       try {
-        const [branch, empCatRes] = await Promise.all([
-          fetchEmployeeBranch({
-            apiBaseUrl: API_BASE_URL,
-            getAuthHeaders,
-            employeeNumber: empID,
-          }),
-          axios
-            .get(
-              `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-              getAuthHeaders(),
-            )
-            .catch(() => ({ data: [] })),
-        ]);
-        setEmployeeBranch(
-          branch === 0 || branch === 1 ? branch : undefined,
-        );
+        const empCatRes = await axios
+          .get(
+            `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
+            getAuthHeaders(),
+          )
+          .catch(() => ({ data: [] }));
         const rows = Array.isArray(empCatRes.data) ? empCatRes.data : [];
         const match = rows.find(
           (item) => String(item.employeeNumber) === String(empID),
@@ -612,9 +601,8 @@
             : null;
         setEmploymentCategory(Number.isFinite(cat) ? cat : null);
       } catch (err) {
-        console.error('Error fetching employee branch/category:', err);
+        console.error('Error fetching employee category:', err);
         setEmploymentCategory(null);
-        setEmployeeBranch(undefined);
       }
     };
 
@@ -664,6 +652,26 @@
       };
       init();
     }, [personID]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Campus branch for holiday/suspension filtering (same as pasted DTR behavior).
+    useEffect(() => {
+      const key = String(personID ?? '').trim();
+      if (!key) {
+        setEmployeeBranch(null);
+        return;
+      }
+      let cancelled = false;
+      fetchEmployeeBranch({
+        apiBaseUrl: API_BASE_URL,
+        getAuthHeaders,
+        employeeNumber: key,
+      }).then((branch) => {
+        if (!cancelled) setEmployeeBranch(branch);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [personID]);
 
     const loadComputedLateForDTR = useCallback(async () => {
       if (!personID || !startDate || !endDate) {
@@ -900,9 +908,8 @@
         employmentCategory,
       ),
       employmentCategory,
-      ...(employeeBranch === 0 || employeeBranch === 1
-        ? { employeeBranch }
-        : {}),
+      // Always pass (incl. null) so DTRTemplate applies campus filter like the pasted DTR.
+      employeeBranch,
       formatTime,
     };
 

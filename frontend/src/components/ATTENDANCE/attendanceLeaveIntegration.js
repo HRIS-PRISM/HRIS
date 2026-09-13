@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { calendarAppliesToBranch, normalizeBranchCode } from '../../constants/branches';
+import { formatSuspensionEffectiveTime } from '../../utils/dtrFormatHelpers';
 
 /**
  * Device pre-check without writing device punches into attendancerecord
@@ -174,8 +175,14 @@ export function getLeaveStatusLabelForDate(date, maps) {
     employeeBranch,
   );
   if (susp) {
-    // Whole-day and partial both show this badge. Partial days keep
-    // punches/hours (not furlough) via isExcludedAttendanceCalendarDate.
+    // Partial days keep punches/hours (not furlough) via
+    // isExcludedAttendanceCalendarDate; badge includes cutoff time so HR
+    // can tell whole-day vs partial at a glance.
+    const suspType = susp.suspension_type || 'whole_day';
+    if (suspType === 'partial_day') {
+      const from = formatSuspensionEffectiveTime(susp.effective_time);
+      return from ? `SUSP FROM ${from}` : 'SUSP PARTIAL';
+    }
     return 'WORK SUSPENDED';
   }
   if (pickApplicableHoliday(holidayByDate, date, employeeBranch)) {
@@ -195,7 +202,11 @@ export function getLeaveStatusLabelForDate(date, maps) {
 export function isSuspendedStatusLabel(label) {
   if (!label) return false;
   const s = String(label);
-  return s === 'WORK SUSPENDED' || s.startsWith('SUSP FROM ');
+  return (
+    s === 'WORK SUSPENDED' ||
+    s === 'SUSP PARTIAL' ||
+    s.startsWith('SUSP FROM ')
+  );
 }
 
 const FILED_LEAVE_STATUS_LABEL = {

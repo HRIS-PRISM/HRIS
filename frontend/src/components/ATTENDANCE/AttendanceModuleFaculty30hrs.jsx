@@ -3007,7 +3007,17 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
                                         )}
                                         {statusLabel && (
                                           <Chip size="small" label={statusLabel}
-                                            sx={{ fontWeight: 700, fontSize: '0.62rem', height: 16, mt: 0.3, ...getStatusStyle(statusLabel) }} />
+                                            sx={{
+                                              fontWeight: 700,
+                                              fontSize: '0.62rem',
+                                              height: 'auto',
+                                              minHeight: 16,
+                                              py: 0.15,
+                                              mt: 0.3,
+                                              maxWidth: 'none',
+                                              '& .MuiChip-label': { px: 0.75, whiteSpace: 'nowrap' },
+                                              ...getStatusStyle(statusLabel),
+                                            }} />
                                         )}
                                       </Box>
                                     </TableCell>

@@ -868,11 +868,15 @@ const StatusChip = ({ label }) => {
       sx={{
         fontWeight: 700,
         fontSize: '0.6rem',
-        height: 16,
+        height: 'auto',
+        minHeight: 16,
+        py: 0.15,
         mt: 0.3,
+        maxWidth: 'none',
         bgcolor: s.bg,
         color: s.color,
         border: `1px solid ${s.border}`,
+        '& .MuiChip-label': { px: 0.75, whiteSpace: 'nowrap' },
       }}
     />
   );
