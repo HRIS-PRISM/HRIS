@@ -25,6 +25,7 @@ import SuccessfulOverlay from '../SuccessfulOverlay';
 import LoadingOverlay from '../LoadingOverlay';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
+import { BRANCHES, branchLabel, normalizeBranchCode } from '../../constants/branches';
 
 // Get auth headers function
 const getAuthHeaders = () => {
@@ -45,6 +46,7 @@ const Holiday = () => {
     date_start: "",
     date_end: "",
     status: "Active",
+    branch: "all",
     image: null,
   });
 
@@ -233,13 +235,19 @@ const Holiday = () => {
       formData.append("date_start", newHoliday.date_start);
       formData.append("date_end", newHoliday.date_end);
       formData.append("status", newHoliday.status);
+      formData.append(
+        "branch",
+        newHoliday.branch === "all" || newHoliday.branch === "" || newHoliday.branch == null
+          ? "all"
+          : String(newHoliday.branch),
+      );
       if (newHoliday.image) formData.append("image", newHoliday.image);
 
       await axios.post(`${API_BASE_URL}/holiday`, formData, {
         headers: { Authorization: getAuthHeaders().headers.Authorization },
       });
       fetchHoliday();
-      setNewHoliday({ title: "", about: "", date_start: "", date_end: "", status: "Active", image: null });
+      setNewHoliday({ title: "", about: "", date_start: "", date_end: "", status: "Active", branch: "all", image: null });
       setSuccessAction("create");
       setSuccessOpen(true);
       setLoading(false);
@@ -258,6 +266,10 @@ const Holiday = () => {
       date_start: item.date_start ? new Date(item.date_start).toISOString().split("T")[0] : "",
       date_end: item.date_end ? new Date(item.date_end).toISOString().split("T")[0] : "",
       status: item.status || "Active",
+      branch:
+        item.branch === null || item.branch === undefined || item.branch === ""
+          ? "all"
+          : String(normalizeBranchCode(item.branch) ?? "all"),
       image: item.image || null,
     });
     setIsEditingHoliday(false);
@@ -283,6 +295,12 @@ const Holiday = () => {
       payload.append("date_start", editForm.date_start || "");
       payload.append("date_end", editForm.date_end || "");
       payload.append("status", editForm.status || "Active");
+      payload.append(
+        "branch",
+        editForm.branch === "all" || editForm.branch === "" || editForm.branch == null
+          ? "all"
+          : String(editForm.branch),
+      );
       if (editForm.image && editForm.image instanceof File) {
         payload.append("image", editForm.image);
       }
@@ -576,6 +594,38 @@ const Holiday = () => {
                     </Select>
                   </FormControl>
                 </Grid>
+                <Grid item xs={12} md={3}>
+                  <FormControl fullWidth>
+                    <InputLabel
+                      sx={{
+                        fontWeight: 500,
+                        color: settings?.textPrimaryColor || '#6D2323',
+                        "&.Mui-focused": { color: settings?.primaryColor || '#894444' },
+                      }}
+                    >
+                      Branch
+                    </InputLabel>
+                    <Select
+                      name="branch"
+                      value={newHoliday.branch ?? "all"}
+                      onChange={handleNewChange}
+                      label="Branch"
+                      sx={{
+                        borderRadius: 3,
+                        backgroundColor: "rgba(255, 255, 255, 0.8)",
+                      }}
+                    >
+                      {BRANCHES.map((b) => (
+                        <MenuItem
+                          key={b.code === null ? "all" : String(b.code)}
+                          value={b.code === null ? "all" : String(b.code)}
+                        >
+                          {b.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
                 <Grid item xs={12}>
                   <Typography variant="subtitle2" sx={{ mb: 1, color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>
                     Picture (optional) — shown in announcements & carousel
@@ -682,7 +732,10 @@ const Holiday = () => {
                         <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "12%" }}>
                           Status
                         </PremiumTableCell>
-                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "18%", textAlign: "center" }}>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
+                          Branch
+                        </PremiumTableCell>
+                        <PremiumTableCell isHeader sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "16%", textAlign: "center" }}>
                           Actions
                         </PremiumTableCell>
                       </TableRow>
@@ -691,7 +744,7 @@ const Holiday = () => {
                       {filteredData.length === 0 ? (
                         <TableRow>
                           <TableCell
-                            colSpan={7}
+                            colSpan={8}
                             sx={{ textAlign: "center", py: 8 }}
                           >
                             <Box sx={{ textAlign: "center" }}>
@@ -768,7 +821,10 @@ const Holiday = () => {
                                 }}
                               />
                             </PremiumTableCell>
-                            <PremiumTableCell sx={{ textAlign: "center", width: "18%" }}>
+                            <PremiumTableCell sx={{ color: settings?.textPrimaryColor || '#6D2323', width: "10%" }}>
+                              {branchLabel(item.branch)}
+                            </PremiumTableCell>
+                            <PremiumTableCell sx={{ textAlign: "center", width: "16%" }}>
                               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
                                 <Tooltip title="Edit Holiday">
                                   <ProfessionalButton
@@ -876,6 +932,10 @@ const Holiday = () => {
                   <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Status</Typography>
                   <Typography variant="body1" sx={{ mt: 0.5 }}>{editForm.status || "—"}</Typography>
                 </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Branch</Typography>
+                  <Typography variant="body1" sx={{ mt: 0.5 }}>{branchLabel(editForm.branch === "all" ? null : editForm.branch)}</Typography>
+                </Grid>
                 {editForm.image && (
                   <Grid item xs={12}>
                     <Typography variant="subtitle2" sx={{ color: settings?.textPrimaryColor || '#6D2323', fontWeight: 600 }}>Image</Typography>
@@ -970,6 +1030,38 @@ const Holiday = () => {
                     {statusOptions.map((option) => (
                       <MenuItem key={option} value={option}>
                         {option}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel
+                    sx={{
+                      fontWeight: 500,
+                      color: settings?.textPrimaryColor || '#6D2323',
+                      "&.Mui-focused": { color: settings?.primaryColor || '#894444' },
+                    }}
+                  >
+                    Branch
+                  </InputLabel>
+                  <Select
+                    name="branch"
+                    value={editForm.branch ?? "all"}
+                    onChange={(e) => setEditForm({ ...editForm, branch: e.target.value })}
+                    label="Branch"
+                    sx={{
+                      borderRadius: 3,
+                      backgroundColor: "rgba(255, 255, 255, 0.8)",
+                    }}
+                  >
+                    {BRANCHES.map((b) => (
+                      <MenuItem
+                        key={b.code === null ? "all" : String(b.code)}
+                        value={b.code === null ? "all" : String(b.code)}
+                      >
+                        {b.label}
                       </MenuItem>
                     ))}
                   </Select>

@@ -14,7 +14,7 @@ function initializeSocket(server) {
     'http://192.168.10.36:5137',
     'http://192.168.10.55:5137',
     'http://136.239.248.42:5137',
-    'http://192.168.50.55:5137',
+    'http://192.168.50.49:5137',
   ];
 
   function isOriginAllowed(origin) {

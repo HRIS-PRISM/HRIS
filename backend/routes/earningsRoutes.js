@@ -65,6 +65,7 @@ const express = require("express");
   } = require("../utils/leaveAssignmentBalanceUtils");
 
   const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const toDaysVal = (hrs) => Number((toNum(hrs) / 8).toFixed(3));
 
   const parseJsonSafe = (raw) => {
     if (raw == null) return {};
@@ -491,8 +492,9 @@ const express = require("express");
       db.query(
         `INSERT INTO leave_assignment
           (employeeNumber, leave_code, total_hours, remaining_hours, used_hours,
-           carried_forward_hours, allocated_hours, period_year, period_semester, earning_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          carried_forward_hours, allocated_hours, period_year, period_semester, earning_status,
+          total_days, remaining_days, used_days, allocated_days)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           employeeNumber,
           leaveCode,
@@ -504,6 +506,12 @@ const express = require("express");
           year,
           String(month),
           fields.earning_status,
+          // [NEW] Days-equivalent shadow columns, derived from the same
+          // values written to the hours columns above.
+          toDaysVal(fields.total_hours),
+          toDaysVal(fields.remaining_hours),
+          toDaysVal(fields.used_hours),
+          toDaysVal(fields.allocated_hours),
         ],
         (err, result) => resolve(!err ? result?.insertId : null),
       );
@@ -538,8 +546,8 @@ const express = require("express");
     const rows = await new Promise((resolve) => {
       db.query(
         `SELECT * FROM leave_assignment
-         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
-         ORDER BY period_year ASC, id ASC`,
+        WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+        ORDER BY period_year ASC, id ASC`,
         [employeeNumber, leaveCode],
         (err, r) => resolve(!err && Array.isArray(r) ? r : []),
       );
@@ -555,14 +563,19 @@ const express = require("express");
       await new Promise((resolve) => {
         db.query(
           `UPDATE leave_assignment SET
-             allocated_hours = ?, total_hours = ?, remaining_hours = ?,
-             carried_forward_hours = 0, earning_status = ?
-           WHERE id = ?`,
+            allocated_hours = ?, total_hours = ?, remaining_hours = ?,
+            carried_forward_hours = 0, earning_status = ?,
+            allocated_days = ?, total_days = ?, remaining_days = ?, carried_forward_days = 0
+          WHERE id = ?`,
           [
             recomputed.allocated_hours,
             recomputed.total_hours,
             recomputed.remaining_hours,
             recomputed.earning_status,
+            // [NEW] Days-equivalent shadow columns.
+            toDaysVal(recomputed.allocated_hours),
+            toDaysVal(recomputed.total_hours),
+            toDaysVal(recomputed.remaining_hours),
             period.id,
           ],
           () => resolve(),
@@ -1556,6 +1569,7 @@ const stats = {
       `SELECT employee_number, leave_code, period_year, period_month, earned_hours, earn_status
        FROM leave_earnings
        WHERE earn_status = 'approved'
+       AND (voided_at IS NULL AND COALESCE(voided,0) = 0)
        ORDER BY employee_number, leave_code, period_year DESC, period_month DESC`,
       (err, rows) => {
         if (err) return res.status(500).json({ error: "Failed to fetch approved leave earnings" });
@@ -1984,163 +1998,170 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
   return doInsert();
 });
 
-  router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) => {
-    const { id } = req.params;
+router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
 
-    db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (err, rows) => {
-      if (err || !rows.length) return res.status(404).json({ error: "Record not found" });
-      const rec = rows[0];
-      if (rec.earn_status === "approved") return res.status(400).json({ error: "Already approved" });
-      if (Number(rec.is_applied) === 1) return res.status(400).json({ error: "Earning already applied to assignment" });
+  db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (err, rows) => {
+    if (err || !rows.length) return res.status(404).json({ error: "Record not found" });
+    const rec = rows[0];
+    if (rec.earn_status === "approved") return res.status(400).json({ error: "Already approved" });
+    if (Number(rec.is_applied) === 1) return res.status(400).json({ error: "Earning already applied to assignment" });
 
-      db.query(
-        `UPDATE leave_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?`,
-        [req.user?.username || null, id],
-        (err2) => {
-          if (err2) return res.status(500).json({ error: "Failed to approve" });
+    db.query(
+      `UPDATE leave_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?`,
+      [req.user?.username || null, id],
+      (err2) => {
+        if (err2) return res.status(500).json({ error: "Failed to approve" });
 
-          const earnedHrs   = toNum(rec.earned_hours);
-          const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
+        const earnedHrs   = toNum(rec.earned_hours);
+        const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
 
-          (async () => {
-            const beforeBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
+        (async () => {
+          const beforeBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
 
-            let matched = await findPeriodAssignment({
+          let matched = await findPeriodAssignment({
+            employeeNumber: rec.employee_number,
+            leaveCode: rec.leave_code,
+            periodYear: rec.period_year,
+            periodMonth,
+          });
+
+          if (!matched && periodMonth) {
+            matched = await ensurePeriodAssignment({
               employeeNumber: rec.employee_number,
               leaveCode: rec.leave_code,
               periodYear: rec.period_year,
               periodMonth,
             });
+          }
 
-            if (!matched && periodMonth) {
+          const afterUpdate = async () => {
+            await new Promise((resolve, reject) => {
+              db.query(
+                "UPDATE leave_earnings SET is_applied = 1 WHERE id = ?",
+                [id],
+                (e) => (e ? reject(e) : resolve()),
+              );
+            });
+
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+            const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
+            const txMessageBase = buildEarningsTransactionMessage({
+              actionLabel: "approved",
+              actorDisplay,
+              targetDisplay,
+              earningTypeLabel: "leave earnings",
+              hoursValue: toNum(rec.earned_hours),
+              leaveCode: rec.leave_code,
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            const afterBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
+            const delta = toNum(rec.earned_hours);
+            const txMessage =
+              `${txMessageBase}. ` +
+              `Balance updated: ${beforeBalHrs.toFixed(3)} hrs → ${afterBalHrs.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
+
+            auditEarning(
+              req,
+              "approved leave earnings",
+              "leave",
+              parseInt(id),
+              rec.earn_status,
+              "approved",
+              rec,
+              { transaction_message: txMessage },
+            );
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+
+            try {
+              const io = getIo(req);
+              if (io) {
+                io.emit("leaveAssignmentChanged", {
+                  scope: "leave_assignment",
+                  action: "updated-from-earnings-approval",
+                  employeeNumber: rec.employee_number,
+                  leave_code: rec.leave_code,
+                  period_year: rec.period_year,
+                  period_month: rec.period_month,
+                  earning_id: parseInt(id, 10),
+                });
+              }
+            } catch (emitErr) {
+              // non-fatal
+            }
+
+            emitEarningsChanged("approved", {
+              module: "leave",
+              employeeNumber: String(rec.employee_number),
+              period_year: rec.period_year,
+              period_month: rec.period_month,
+              earning_id: parseInt(id, 10),
+            });
+
+            db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
+          };
+
+          if (earnedHrs >= 0) {
+            if (!matched) {
               matched = await ensurePeriodAssignment({
                 employeeNumber: rec.employee_number,
                 leaveCode: rec.leave_code,
                 periodYear: rec.period_year,
-                periodMonth,
+                periodMonth: periodMonth || 0,
               });
             }
+            if (!matched) throw new Error("Could not find or create assignment for earning period");
 
-            const afterUpdate = async () => {
-              await new Promise((resolve, reject) => {
-                db.query(
-                  "UPDATE leave_earnings SET is_applied = 1 WHERE id = ?",
-                  [id],
-                  (e) => (e ? reject(e) : resolve()),
-                );
-              });
-
-              const actorEmpNum = getActorEmployeeNumber(req);
-              const [actorName, targetName] = await Promise.all([
-                getEmployeeFullName(actorEmpNum),
-                getEmployeeFullName(rec.employee_number),
-              ]);
-              const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-              const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
-              const txMessageBase = buildEarningsTransactionMessage({
-                actionLabel: "approved",
-                actorDisplay,
-                targetDisplay,
-                earningTypeLabel: "leave earnings",
-                hoursValue: toNum(rec.earned_hours),
-                leaveCode: rec.leave_code,
-                periodYear: rec.period_year,
-                periodMonth: rec.period_month,
-              });
-              const afterBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
-              const delta = toNum(rec.earned_hours);
-              const txMessage =
-                `${txMessageBase}. ` +
-                `Balance updated: ${beforeBalHrs.toFixed(3)} hrs → ${afterBalHrs.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
-
-              auditEarning(
-                req,
-                "approved leave earnings",
-                "leave",
-                parseInt(id),
-                rec.earn_status,
-                "approved",
-                rec,
-                { transaction_message: txMessage },
+            const repaired = await repairPeriodCarryForwardIfEmpty(db, matched);
+            const recomputed = await recomputeAssignmentLedgerFields(db, repaired);
+            await new Promise((resolve, reject) => {
+              db.query(
+                `UPDATE leave_assignment SET
+                   allocated_hours = ?, total_hours = ?, remaining_hours = ?,
+                   carried_forward_hours = ?, earning_status = ?,
+                   allocated_days = ?, total_days = ?, remaining_days = ?, carried_forward_days = ?
+                 WHERE id = ?`,
+                [
+                  recomputed.allocated_hours,
+                  recomputed.total_hours,
+                  recomputed.remaining_hours,
+                  recomputed.carried_forward_hours,
+                  recomputed.earning_status,
+                  // [NEW] Days-equivalent shadow columns — this is the fix for the
+                  // "earning_status turns to 1 but total/remaining/allocated_days reset to 0" bug.
+                  toDaysVal(recomputed.allocated_hours),
+                  toDaysVal(recomputed.total_hours),
+                  toDaysVal(recomputed.remaining_hours),
+                  toDaysVal(recomputed.carried_forward_hours),
+                  matched.id,
+                ],
+                (e) => (e ? reject(e) : resolve()),
               );
-              await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-
-              try {
-                const io = getIo(req);
-                if (io) {
-                  io.emit("leaveAssignmentChanged", {
-                    scope: "leave_assignment",
-                    action: "updated-from-earnings-approval",
-                    employeeNumber: rec.employee_number,
-                    leave_code: rec.leave_code,
-                    period_year: rec.period_year,
-                    period_month: rec.period_month,
-                    earning_id: parseInt(id, 10),
-                  });
-                }
-              } catch (emitErr) {
-                // non-fatal
-              }
-
-              emitEarningsChanged("approved", {
-                module: "leave",
-                employeeNumber: String(rec.employee_number),
-                period_year: rec.period_year,
-                period_month: rec.period_month,
-                earning_id: parseInt(id, 10),
-              });
-
-              db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
-            };
-
-            if (earnedHrs >= 0) {
-              if (!matched) {
-                matched = await ensurePeriodAssignment({
-                  employeeNumber: rec.employee_number,
-                  leaveCode: rec.leave_code,
-                  periodYear: rec.period_year,
-                  periodMonth: periodMonth || 0,
-                });
-              }
-              if (!matched) throw new Error("Could not find or create assignment for earning period");
-
-              const repaired = await repairPeriodCarryForwardIfEmpty(db, matched);
-              const recomputed = await recomputeAssignmentLedgerFields(db, repaired);
-              await new Promise((resolve, reject) => {
-                db.query(
-                  `UPDATE leave_assignment SET
-                     allocated_hours = ?, total_hours = ?, remaining_hours = ?,
-                     carried_forward_hours = ?, earning_status = ?
-                   WHERE id = ?`,
-                  [
-                    recomputed.allocated_hours,
-                    recomputed.total_hours,
-                    recomputed.remaining_hours,
-                    recomputed.carried_forward_hours,
-                    recomputed.earning_status,
-                    matched.id,
-                  ],
-                  (e) => (e ? reject(e) : resolve()),
-                );
-              });
+            });
+            await afterUpdate();
+          } else {
+            try {
+              await runNegativeLeaveDeductionPipeline(req, rec, parseInt(id, 10));
               await afterUpdate();
-            } else {
-              try {
-                await runNegativeLeaveDeductionPipeline(req, rec, parseInt(id, 10));
-                await afterUpdate();
-              } catch (e) {
-                console.error("[earnings] leave deduction pipeline:", e.message);
-                throw e;
-              }
+            } catch (e) {
+              console.error("[earnings] leave deduction pipeline:", e.message);
+              throw e;
             }
-          })().catch((e) => {
-            console.error("[earnings] approve error:", e.message);
-            res.status(500).json({ error: "Failed to approve earning", detail: e.message });
-          });
-        }
-      );
-    });
+          }
+        })().catch((e) => {
+          console.error("[earnings] approve error:", e.message);
+          res.status(500).json({ error: "Failed to approve earning", detail: e.message });
+        });
+      }
+    );
   });
+});
 
   router.patch("/leave/:id/reject", authenticateToken, requireAdmin, (req, res) => {
     const { id } = req.params;
@@ -2391,6 +2412,7 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
 
   const ensureScPeriodRow = (rec) => ensureScPeriodRowAsync(db, rec);
 
+ 
   const refreshScPeriodLedger = async (periodRow) => {
     const ledger = await recomputeScLedgerFieldsAsync(db, periodRow);
     await scQueryAsync(

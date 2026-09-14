@@ -1,0 +1,100 @@
+{
+  "generatedFrom": "templates/EARIST_Appendix33.xlsm",
+  "wtaxFirstRow": 8,
+  "payFirstRow": 21,
+  "dedsFirstRow": 20,
+  "totalCapacity": 584,
+  "departments": {
+    "GEN.AD": {
+      "capacity": 141,
+      "wtaxSubtotal": 149,
+      "paySubtotal": 163,
+      "dedsSubtotal": 162,
+      "summaryRow": 8
+    },
+    "AUX": {
+      "capacity": 19,
+      "wtaxSubtotal": 27,
+      "paySubtotal": 41,
+      "dedsSubtotal": 40,
+      "summaryRow": 9
+    },
+    "CEN": {
+      "capacity": 27,
+      "wtaxSubtotal": 35,
+      "paySubtotal": 49,
+      "dedsSubtotal": 48,
+      "summaryRow": 10
+    },
+    "CIT": {
+      "capacity": 62,
+      "wtaxSubtotal": 70,
+      "paySubtotal": 84,
+      "dedsSubtotal": 83,
+      "summaryRow": 11
+    },
+    "CBPA": {
+      "capacity": 71,
+      "wtaxSubtotal": 79,
+      "paySubtotal": 93,
+      "dedsSubtotal": 92,
+      "summaryRow": 12
+    },
+    "CAS": {
+      "capacity": 47,
+      "wtaxSubtotal": 55,
+      "paySubtotal": 69,
+      "dedsSubtotal": 68,
+      "summaryRow": 13
+    },
+    "CAFA": {
+      "capacity": 24,
+      "wtaxSubtotal": 32,
+      "paySubtotal": 46,
+      "dedsSubtotal": 45,
+      "summaryRow": 14
+    },
+    "CED": {
+      "capacity": 50,
+      "wtaxSubtotal": 58,
+      "paySubtotal": 72,
+      "dedsSubtotal": 71,
+      "summaryRow": 15
+    },
+    "PE": {
+      "capacity": 13,
+      "wtaxSubtotal": 21,
+      "paySubtotal": 35,
+      "dedsSubtotal": 34,
+      "summaryRow": 16
+    },
+    "RESEARCH": {
+      "capacity": 13,
+      "wtaxSubtotal": 21,
+      "paySubtotal": 35,
+      "dedsSubtotal": 34,
+      "summaryRow": 17
+    },
+    "EXTENSION": {
+      "capacity": 39,
+      "wtaxSubtotal": 47,
+      "paySubtotal": 61,
+      "dedsSubtotal": 60,
+      "summaryRow": 18
+    },
+    "TEMPO": {
+      "capacity": 65,
+      "wtaxSubtotal": 73,
+      "paySubtotal": 87,
+      "dedsSubtotal": 86,
+      "summaryRow": 19
+    },
+    "CONTRACTUAL": {
+      "capacity": 13,
+      "wtaxSubtotal": 21,
+      "paySubtotal": 35,
+      "dedsSubtotal": 34,
+      "summaryRow": 20
+    }
+  }
+}

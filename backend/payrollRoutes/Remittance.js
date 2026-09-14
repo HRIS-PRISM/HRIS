@@ -121,7 +121,7 @@ router.get(
         FROM users u
         LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
         LEFT JOIN department_assignment da ON da.employeeNumber = u.employeeNumber
-        WHERE da.employeeNumber IS NOT NULL
+        WHERE p.firstName IS NOT NULL
       `;
 
       const queryParams = [];

@@ -10,6 +10,7 @@ import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import { useSocket } from '../../contexts/SocketContext';
 import {
   Button,
@@ -1228,22 +1229,18 @@ const PersonTable = () => {
     fetchPersons().finally(() => setPageLoading(false));
   }, []);
 
-  // ── Alphabetical sort by lastName ─────────────────────────
+  // ── Alphabetical sort by lastName (A–Z first; specials last) ──
   useEffect(() => {
     const query = searchQuery.toLowerCase();
     setFilteredData(
-      data
-        .filter(
+      sortEmployeesByLastName(
+        data.filter(
           (p) =>
             p.firstName?.toLowerCase().includes(query) ||
             p.lastName?.toLowerCase().includes(query) ||
             p.agencyEmployeeNum?.toLowerCase().includes(query),
-        )
-        .sort((a, b) =>
-          (a.lastName || '').localeCompare(b.lastName || '', undefined, {
-            sensitivity: 'base',
-          }),
         ),
+      ),
     );
   }, [searchQuery, data]);
 

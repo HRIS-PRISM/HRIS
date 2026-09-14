@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { broadcastNewAuditLog } = require('../socket/socketService');
+const {
+  broadcastNewAuditLog,
+  broadcastNewAdminActionTrail,
+} = require('../socket/socketService');
 const { PAGE_ACCESS_ACTIVE_SQL } = require('../utils/pageAccess');
 const {
   resolveCanonicalEmployeeNumber,
@@ -12,6 +15,8 @@ const {
 const ADMIN_ROLES = ['admin', 'administrator', 'superadmin', 'technical'];
 const SUPERADMIN_ROLES = ['superadmin', 'technical'];
 const TECHNICAL_ROLES = ['technical'];
+/** Roles whose actions are written to admin_action_trail (excludes technical). */
+const TRAILED_ADMIN_ROLES = ['superadmin', 'administrator', 'admin'];
 
 /** Short TTL cache so every API call does not re-hit users + canonical emp lookup. */
 const ENRICH_TTL_MS = Math.max(
@@ -379,6 +384,11 @@ function logAudit(
       ? user.employeeNumber
       : user || null;
 
+  const actorRole =
+    user && typeof user === 'object' && user.role
+      ? String(user.role).toLowerCase()
+      : null;
+
   let safeRecordId = null;
   if (recordId !== undefined && recordId !== null && recordId !== '') {
     const n =
@@ -431,6 +441,45 @@ function logAudit(
       });
     },
   );
+
+  if (actorRole && TRAILED_ADMIN_ROLES.includes(actorRole)) {
+    const trailQuery = `
+      INSERT INTO admin_action_trail
+        (employeeNumber, actor_role, action, table_name, record_id, targetEmployeeNumber, details_json, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+
+    db.query(
+      trailQuery,
+      [
+        employeeNumber,
+        actorRole,
+        action,
+        tableName,
+        safeRecordId,
+        targetEmployeeNumber,
+        detailsJson,
+      ],
+      (trailErr, trailResult) => {
+        if (trailErr) {
+          console.error('Error inserting admin action trail:', trailErr);
+          return;
+        }
+
+        broadcastNewAdminActionTrail({
+          id: trailResult.insertId,
+          employeeNumber,
+          actor_role: actorRole,
+          action,
+          table_name: tableName,
+          record_id: safeRecordId,
+          targetEmployeeNumber: targetEmployeeNumber || null,
+          details_json: detailsJson,
+          timestamp,
+        });
+      },
+    );
+  }
 }
 
 function insertAuditLog(employeeNumber, action) {
@@ -461,4 +510,5 @@ module.exports = {
   insertAuditLog,
   ADMIN_ROLES,
   SUPERADMIN_ROLES,
+  TRAILED_ADMIN_ROLES,
 };

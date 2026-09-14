@@ -1,4 +1,20 @@
+import axios from 'axios';
+
 export const DTR_WIDTH_IN = '8.7in';
+
+/* ── A4 DTR page geometry ──────────────────────────────────────────────────
+ * Single source of truth shared by DTRTemplate (screen) and the print CSS, so
+ * the on-screen DTR and the printed/PDF DTR always use identical dimensions.
+ * Margins are kept at the small end of what consumer printers can reproduce
+ * so the two DTR copies use as much of the sheet as possible.
+ */
+export const DTR_PAGE_MARGIN_MM = 6;
+export const DTR_PRINTABLE_WIDTH_MM = 210 - DTR_PAGE_MARGIN_MM * 2; // 198
+export const DTR_PRINTABLE_HEIGHT_MM = 297 - DTR_PAGE_MARGIN_MM * 2; // 285
+/** Gutter left between the two copies so the sheet can be cut in half. */
+export const DTR_CUT_GAP_MM = 14;
+export const DTR_SHEET_WIDTH_MM =
+  (DTR_PRINTABLE_WIDTH_MM - DTR_CUT_GAP_MM) / 2; // 92
 
 export const DTR_NON_WORKING_DAY_LABEL = 'NON-WORKING DAY';
 
@@ -284,14 +300,53 @@ export const formatFullName = (user = {}) => {
     `${lastPart}${lastPart && firstPart ? ', ' : ''}${firstPart}${middle ? ' ' + middle : ''}`.trim() ||
     user.fullName ||
     user.displayName ||
+    user.name ||
     'Unknown'
   );
+};
+
+/** Resolve employee display name when attendance returns no rows for the period. */
+export const fetchEmployeeDisplayName = async (
+  apiBaseUrl,
+  employeeID,
+  authConfig = {},
+) => {
+  const id = String(employeeID || '').trim();
+  if (!id || !apiBaseUrl) return '';
+  try {
+    const { data } = await axios.get(
+      `${apiBaseUrl}/Remittance/employees/search?q=${encodeURIComponent(id)}`,
+      authConfig,
+    );
+    const list = Array.isArray(data) ? data : [];
+    const match =
+      list.find(
+        (e) =>
+          String(e.employeeNumber ?? e.agencyEmployeeNum ?? '') === id,
+      ) || list[0];
+    if (!match) return '';
+    return formatFullName(match);
+  } catch {
+    return '';
+  }
 };
 
 export const formatTime = (timeString) => {
   if (!timeString) return '';
   const normalized = String(timeString).replace(/\s+/g, ' ').trim();
   return normalized.replace(/^(\d{1,2}:\d{2}):\d{2}(\s?[AP]M)?$/i, '$1$2');
+};
+
+/** "15:00" / "15:00:00" -> "3:00 PM" for partial-suspension DTR remarks. */
+export const formatSuspensionEffectiveTime = (t) => {
+  if (!t) return '';
+  const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return String(t);
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${min} ${ampm}`;
 };
 
 export const MONTHS_LONG = [
@@ -324,10 +379,43 @@ export const MONTHS_UPPER = [
   'DECEMBER',
 ];
 
+export const MONTHS_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
 export const formatMonth = (dateString) => {
   if (!dateString) return '';
   const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
   return MONTHS_UPPER[m] || '';
+};
+
+export const formatMonthTitle = (dateString) => {
+  if (!dateString) return '';
+  const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
+  return MONTHS_LONG[m] || '';
+};
+
+export const formatMonthShort = (dateString) => {
+  if (!dateString) return '';
+  const m = parseInt(dateString.split('T')[0].split('-')[1]) - 1;
+  return MONTHS_SHORT[m] || '';
+};
+
+export const formatDtrYear = (dateString) => {
+  if (!dateString) return '';
+  const y = parseInt(dateString.split('T')[0].split('-')[0], 10);
+  return Number.isFinite(y) ? String(y) : '';
 };
 
 /** Safe filename — strips characters invalid on Windows/macOS */
@@ -337,9 +425,14 @@ export const sanitizePdfFileName = (name) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const withPdfExtension = (base) => {
+  const clean = sanitizePdfFileName(base);
+  return clean.toLowerCase().endsWith('.pdf') ? clean : `${clean}.pdf`;
+};
+
 /**
- * PDF name: SURNAME, F. M. - FEBRUARY.pdf
- * e.g. DELA CRUZ, J. R. - FEBRUARY.pdf
+ * Single DTR PDF: Surname, First Name, MI. Month, Year.pdf
+ * e.g. Dela Cruz, Juan, A. August, 2026.pdf
  */
 export const formatDtrPdfFileName = (user = {}, startDate) => {
   const last = (
@@ -347,19 +440,20 @@ export const formatDtrPdfFileName = (user = {}, startDate) => {
     user.surname ||
     user.familyName ||
     ''
-  )
-    .trim()
-    .toUpperCase();
+  ).trim();
   const first = (user.firstName || user.givenName || '').trim();
   const middleRaw = (user.middleName || user.middleInitial || '').trim();
+  const middleInitial = middleRaw
+    ? `${middleRaw.charAt(0).toUpperCase()}.`
+    : '';
 
   let namePart = '';
-  if (last) {
-    const firstInit = first ? `${first.charAt(0).toUpperCase()}.` : '';
-    const middleInit = middleRaw ? `${middleRaw.charAt(0).toUpperCase()}.` : '';
-    namePart = last;
-    if (firstInit) namePart += `, ${firstInit}`;
-    if (middleInit) namePart += ` ${middleInit}`;
+  if (last && first) {
+    namePart = middleInitial
+      ? `${last}, ${first}, ${middleInitial}`
+      : `${last}, ${first}.`;
+  } else if (last) {
+    namePart = middleInitial ? `${last}, ${middleInitial}` : last;
   } else {
     namePart = String(
       user.fullName || user.displayName || user.name || 'DTR',
@@ -367,15 +461,30 @@ export const formatDtrPdfFileName = (user = {}, startDate) => {
     if (/^[0-9a-f-]{36}$/i.test(namePart)) namePart = 'DTR';
   }
 
-  const month = formatMonth(startDate) || 'DTR';
-  const base = sanitizePdfFileName(`${namePart} - ${month}`);
-  return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  const month = formatMonthTitle(startDate) || 'DTR';
+  const year = formatDtrYear(startDate);
+  const period = year ? `${month}, ${year}` : month;
+  return withPdfExtension(`${namePart} ${period}`);
 };
 
-/** Combined multi-employee DTR PDF */
-export const formatDtrBulkPdfFileName = (startDate) => {
-  const month = formatMonth(startDate) || 'DTR';
-  return sanitizePdfFileName(`DTR BATCH - ${month}.pdf`);
+/**
+ * Bulk DTR PDF: Aug, 2026.pdf
+ * With department / employment-category filter:
+ *   Aug, 2026, CBPA.pdf
+ *   Aug, 2026, Non-Teaching.pdf
+ */
+export const formatDtrBulkPdfFileName = (
+  startDate,
+  { department, employmentCategory } = {},
+) => {
+  const month = formatMonthShort(startDate) || 'DTR';
+  const year = formatDtrYear(startDate);
+  const parts = [year ? `${month}, ${year}` : month];
+  const dept = String(department || '').trim();
+  const empCat = String(employmentCategory || '').trim();
+  if (dept) parts.push(dept);
+  if (empCat) parts.push(empCat);
+  return withPdfExtension(parts.join(', '));
 };
 
 /** Open PDF for print/save-as-PDF with a proper filename instead of a blob UUID */

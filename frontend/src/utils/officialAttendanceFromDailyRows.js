@@ -2,6 +2,10 @@
  * Single source of truth for official-time-aware attendance metrics
  * (matches Overall Attendance / AttendanceSummary.jsx logic).
  */
+import {
+  pickApplicableHoliday,
+  pickApplicableSuspension,
+} from '../components/ATTENDANCE/attendanceLeaveIntegration';
 
 export function parseOfficialTimeToSeconds(timeStr) {
   if (!timeStr) return null;
@@ -262,16 +266,29 @@ export function isNonTeachingHalfDayByPunches(row) {
 
 /**
  * @param {string} dateStr
- * @param {{ suspensionByDate?: Record<string, unknown>, holidayByDate?: Record<string, unknown>, leaveByDate?: Record<string, unknown> }} [calendarMaps] - from `fetchAttendanceCalendarMaps`
+ * @param {{ suspensionByDate?: Record<string, unknown>, holidayByDate?: Record<string, unknown>, leaveByDate?: Record<string, unknown>, employeeBranch?: number|null }} [calendarMaps] - from `fetchAttendanceCalendarMaps`
  */
 export function isExcludedAttendanceCalendarDate(dateStr, calendarMaps) {
   if (!calendarMaps || typeof calendarMaps !== "object") return false;
   const d = String(dateStr ?? "").trim().slice(0, 10);
   if (!d || d.length < 8) return false;
-  const s = calendarMaps.suspensionByDate;
-  const h = calendarMaps.holidayByDate;
-  const l = calendarMaps.leaveByDate;
-  return !!(s?.[d] || h?.[d] || l?.[d]);
+  const { suspensionByDate, holidayByDate, leaveByDate, employeeBranch } =
+    calendarMaps;
+  // Partial-day suspensions still show a badge / clamp official end, but must
+  // not exclude the day (furlough / absent / half-day / totals).
+  const susp = pickApplicableSuspension(
+    suspensionByDate,
+    d,
+    null,
+    employeeBranch,
+  );
+  if (susp && (susp.suspension_type || "whole_day") === "whole_day") {
+    return true;
+  }
+  if (pickApplicableHoliday(holidayByDate, d, employeeBranch)) {
+    return true;
+  }
+  return !!leaveByDate?.[d];
 }
 
 /** Dates where daily row is treated as a half-day (same rules as metrics). */

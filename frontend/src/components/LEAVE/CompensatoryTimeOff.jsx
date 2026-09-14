@@ -17,6 +17,7 @@ import axios from "axios";
 import useLeaveRealtimeRefresh from "../../hooks/useLeaveRealtimeRefresh";
 import usePayrollPeriodLock from "../../hooks/usePayrollPeriodLock";
 import { PAYROLL_LOCK_TOOLTIP } from "../../utils/payrollPeriodLock";
+import { compareEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 import {
   Typography, TextField, Button, Box, Grid, Chip, Modal, IconButton,
   Select, MenuItem, FormControl, Alert, InputAdornment, Card, Avatar,
@@ -1617,12 +1618,11 @@ const CompensatoryTimeOff = () => {
       const empNo       = (e?.employeeNumber || "").toString();
       const cat         = empCatRawMap[empNo];
       const eligible    = cat ? (cat.is40hrs || cat.isDesignated) : false;
-      const sortLast    = (e?.lastName || "").trim().toLowerCase();
-      return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase(), _eligible: eligible, _sortLast: sortLast };
+      return { ...e, _displayName: displayName, _searchKey: `${displayName} ${empNo}`.toLowerCase(), _eligible: eligible };
     });
     return withMeta.sort((a, b) => {
       if (a._eligible !== b._eligible) return a._eligible ? -1 : 1;
-      return a._sortLast.localeCompare(b._sortLast);
+      return compareEmployeesByLastName(a, b);
     });
   }, [employees, empCatRawMap, buildDisplayName]);
 
@@ -1667,7 +1667,7 @@ const CompensatoryTimeOff = () => {
         ...grp,
         displayRecords: ctoRecordsForDisplay(grp.records),
       }))
-      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""));
+      .sort((a, b) => compareEmployeesByLastName(a, b));
   }, [filteredRecords, getEmployeeInfo, buildDisplayName]);
 
   const paginatedGroups = useMemo(() => {

@@ -144,6 +144,7 @@ import DailyTimeRecordSupervisor from "./components/ATTENDANCE/DailyTimeRecordSu
 import UsersList from "./components/UsersList";
 import PagesList from "./components/PagesList";
 import AuditLogs from "./components/AuditLogs";
+import AdminActionTrail from "./components/AdminActionTrail";
 import Settings from "./components/Settings";
 import AdminSecurity from "./components/AdminManagement";
 import PayrollJO from "./components/PAYROLL/PayrollJO";
@@ -155,6 +156,7 @@ import AssignmentManagement from "./components/LEAVE/AssignmentManagement";
 import EarningsManagement from "./components/LEAVE/EarningsManagement";
 
 import RecordsPanel from "./components/LEAVE/RecordsPanel";
+import OfficialTimeFormSupervisor from "./components/ATTENDANCE/OfficialTimeFormSupervisor";
 import { adminPage, allUserPage, superTechPage, technicalPage, ADMIN_ROUTE_ROLES } from "./utils/gatedRoutes";
 
 
@@ -1171,6 +1173,16 @@ function App() {
               }
             />
             <Route
+              path="/official_time_supervisor"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["administrator", "superadmin", "technical", "staff"]}
+                >
+                  <OfficialTimeFormSupervisor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/pds-templates"
               element={
                 <ProtectedRoute
@@ -1696,6 +1708,10 @@ function App() {
             <Route
               path="/audit-logs"
               element={adminPage(AuditLogs, 'audit-logs', 'You do not have permission to access Audit Logs.')}
+            />
+            <Route
+              path="/admin-action-trail"
+              element={superTechPage(AdminActionTrail, 'admin-action-trail', 'You do not have permission to access Admin Action Trail.')}
             />
             <Route
               path="/reports"

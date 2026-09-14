@@ -2,6 +2,7 @@ import API_BASE_URL from '../../apiConfig';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -913,8 +914,13 @@ const AttendanceAdjustmentReports = () => {
       }
     });
 
-    employeesNotUsingDevice.sort((a, b) => a.displayName.localeCompare(b.displayName));
-    Object.values(coverageBuckets).forEach((arr) => arr.sort((a, b) => a.displayName.localeCompare(b.displayName)));
+    const sortedEmployeesNotUsingDevice = sortEmployeesByLastName(
+      employeesNotUsingDevice,
+      (e) => e.displayName || e,
+    );
+    Object.keys(coverageBuckets).forEach((key) => {
+      coverageBuckets[key] = sortEmployeesByLastName(coverageBuckets[key], (e) => e.displayName || e);
+    });
 
     const byCoverage = [
       { name: 'Has Records (20+)', value: coverageBuckets.hasRecords.length, fill: '#059669' },
@@ -996,20 +1002,22 @@ const AttendanceAdjustmentReports = () => {
       unregisteredRawCountMap.set(String(row.PersonID), Number(row.rawRecordCount) || 0);
     });
 
-    const unregisteredDeviceUsers = allDeviceUsersRaw
-      .filter((u) => u?.PersonID != null && !allEmployeeSet.has(String(u.PersonID)))
-      .map((u) => {
-        const emp = String(u.PersonID);
-        return {
-          employeeNumber: emp,
-          displayName: formatPersonDisplayName(null, u.PersonName || emp),
-          personName: u.PersonName || '',
-          firstSeen: formatDeviceTimestamp(u.firstSeen),
-          lastSeen: formatDeviceTimestamp(u.lastSeen),
-          rawRecordCount: unregisteredRawCountMap.get(emp) || 0,
-        };
-      })
-      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    const unregisteredDeviceUsers = sortEmployeesByLastName(
+      (Array.isArray(allDeviceUsersRaw) ? allDeviceUsersRaw : [])
+        .filter((u) => u?.PersonID != null && !allEmployeeSet.has(String(u.PersonID)))
+        .map((u) => {
+          const emp = String(u.PersonID);
+          return {
+            employeeNumber: emp,
+            displayName: formatPersonDisplayName(null, u.PersonName || emp),
+            personName: u.PersonName || '',
+            firstSeen: formatDeviceTimestamp(u.firstSeen),
+            lastSeen: formatDeviceTimestamp(u.lastSeen),
+            rawRecordCount: unregisteredRawCountMap.get(emp) || 0,
+          };
+        }),
+      (u) => u.displayName || u,
+    );
 
     return {
       byCoverage,
@@ -1019,7 +1027,7 @@ const AttendanceAdjustmentReports = () => {
       byPunchDays,
       byPunchConsistencyWide,
       punchConsistency,
-      employeesNotUsingDevice,
+      employeesNotUsingDevice: sortedEmployeesNotUsingDevice,
       unregisteredDeviceUsers,
       withRecords,
       withoutRecords,

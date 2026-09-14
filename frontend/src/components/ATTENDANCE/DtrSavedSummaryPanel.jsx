@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import {
   Box,
-  Button,
   CircularProgress,
   Collapse,
   Typography,
@@ -17,6 +16,7 @@ const T = {
   accentFaint: 'rgba(109,35,35,0.06)',
   faint: '#a0a0a0',
   muted: '#6b6b6b',
+  divider: 'rgba(0,0,0,0.08)',
 };
 
 const getAuthHeaders = () => {
@@ -52,15 +52,12 @@ const hasSavedSummaryTotals = (row) => {
 
 /**
  * Read-only attendance summary for DTR hub.
- * Full summary appears only after Save to Summary from a computation module.
+ * Shown only after Save to Summary from a computation module.
  */
 const DtrSavedSummaryPanel = ({
   personID,
   startDate,
   endDate,
-  onOpenComputation,
-  computationButtons = [],
-  activeDrawer = null,
 }) => {
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -100,132 +97,75 @@ const DtrSavedSummaryPanel = ({
   }, [loadSummary]);
 
   if (!personID || !startDate || !endDate) return null;
-
-  const saved = hasSavedSummaryTotals(row);
+  if (loading && !hasSavedSummaryTotals(row)) return null;
+  if (!hasSavedSummaryTotals(row) || !row) return null;
 
   return (
     <Box
+      className="no-print"
       sx={{
-        mb: 1.5,
-        borderRadius: '10px',
-        border: `1px solid ${T.accentBorder}`,
-        bgcolor: '#fff',
-        overflow: 'hidden',
+        px: 2,
+        pt: 1.5,
+        pb: 0.5,
+        flexShrink: 0,
+        borderTop: `1px solid ${T.divider}`,
       }}
     >
       <Box
         sx={{
-          px: 1.75,
-          py: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 1,
-          bgcolor: T.accentFaint,
-          borderBottom: open && saved ? `1px solid ${T.accentBorder}` : 'none',
-          cursor: 'pointer',
+          mb: 1.5,
+          borderRadius: '10px',
+          border: `1px solid ${T.accentBorder}`,
+          bgcolor: '#fff',
+          overflow: 'hidden',
         }}
-        onClick={() => setOpen((v) => !v)}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-          <Assignment sx={{ fontSize: 18, color: T.accent }} />
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: '0.82rem', fontWeight: 800, color: T.accent }}>
-              Attendance Summary
-            </Typography>
-            <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 600 }}>
-              {saved
-                ? 'Saved from computation module — ready for payroll / earnings'
-                : (
-                  <>
-                    Review tardiness / half-days. When ready, use{' '}
-                    <Box component="span" sx={{ fontWeight: 800, color: T.accent }}>
-                      Save to Summary
-                    </Box>{' '}
-                    in the module&apos;s attendance summary bar.
-                  </>
-                )}
-            </Typography>
+        <Box
+          sx={{
+            px: 1.75,
+            py: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+            bgcolor: T.accentFaint,
+            borderBottom: open ? `1px solid ${T.accentBorder}` : 'none',
+            cursor: 'pointer',
+          }}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <Assignment sx={{ fontSize: 18, color: T.accent }} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: '0.82rem', fontWeight: 800, color: T.accent }}>
+                Attendance Summary
+              </Typography>
+              <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontWeight: 600 }}>
+                Saved from computation module — ready for payroll / earnings
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+            {loading && <CircularProgress size={16} sx={{ color: T.accent }} />}
+            {open ? (
+              <ExpandLess sx={{ fontSize: 20, color: T.accent }} />
+            ) : (
+              <ExpandMore sx={{ fontSize: 20, color: T.accent }} />
+            )}
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-          {!saved &&
-            typeof onOpenComputation === 'function' &&
-            computationButtons.length > 0 && (
-              <Box
-                sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, justifyContent: 'flex-end' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {computationButtons.map((btn) => {
-                  const isActive = activeDrawer === btn.drawer;
-                  const categoryColor = btn.categoryColor || T.accent;
-                  return (
-                    <Button
-                      key={btn.drawer}
-                      size="small"
-                      variant="outlined"
-                      onClick={() => onOpenComputation(btn.drawer)}
-                      sx={{
-                        textTransform: 'none',
-                        fontWeight: 700,
-                        fontSize: '0.68rem',
-                        py: 0.25,
-                        px: 0.9,
-                        minHeight: 28,
-                        ...(isActive
-                          ? {
-                              borderColor: categoryColor,
-                              color: '#fff',
-                              bgcolor: categoryColor,
-                              boxShadow: `0 2px 8px ${alpha(categoryColor, 0.3)}`,
-                              '&:hover': {
-                                bgcolor: categoryColor,
-                                filter: 'brightness(0.92)',
-                                borderColor: categoryColor,
-                              },
-                              '&.Mui-focusVisible': {
-                                bgcolor: categoryColor,
-                                borderColor: categoryColor,
-                              },
-                            }
-                          : {
-                              borderColor: alpha(categoryColor, 0.45),
-                              color: categoryColor,
-                              bgcolor: alpha(categoryColor, 0.08),
-                              '&:hover': {
-                                bgcolor: alpha(categoryColor, 0.16),
-                                borderColor: categoryColor,
-                              },
-                            }),
-                      }}
-                    >
-                      Open {btn.label}
-                    </Button>
-                  );
-                })}
-              </Box>
-            )}
-          {loading && <CircularProgress size={16} sx={{ color: T.accent }} />}
-          {open ? (
-            <ExpandLess sx={{ fontSize: 20, color: T.accent }} />
-          ) : (
-            <ExpandMore sx={{ fontSize: 20, color: T.accent }} />
-          )}
-        </Box>
-      </Box>
-      <Collapse in={open && saved}>
-        {saved && row ? (
-        <Box sx={{ px: 1.75, py: 1.25 }}>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr 1fr',
-                md: 'repeat(4, minmax(0, 1fr))',
-              },
-              gap: 1,
-            }}
-          >
+        <Collapse in={open}>
+          <Box sx={{ px: 1.75, py: 1.25 }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: '1fr 1fr',
+                  md: 'repeat(4, minmax(0, 1fr))',
+                },
+                gap: 1,
+              }}
+            >
               {[
                 {
                   label: 'Overall rendered',
@@ -277,10 +217,10 @@ const DtrSavedSummaryPanel = ({
                   </Typography>
                 </Box>
               ))}
+            </Box>
           </Box>
-        </Box>
-        ) : null}
-      </Collapse>
+        </Collapse>
+      </Box>
     </Box>
   );
 };

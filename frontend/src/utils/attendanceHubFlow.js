@@ -50,7 +50,6 @@ export const HUB_COMPUTATION_BUTTONS = [
     moduleType: MODULE_TYPES.NON_TEACHING,
     label: 'Non-Teaching',
     categoryColor: HUB_COMPUTATION_CATEGORY_COLORS.nonTeaching,
-    applyTip: 'Apply Non-Teaching late/undertime to DTR columns',
     openTip: 'Open Non-Teaching computation module (sliding panel)',
   },
   {
@@ -58,7 +57,6 @@ export const HUB_COMPUTATION_BUTTONS = [
     moduleType: MODULE_TYPES.FACULTY_30HRS,
     label: '30 Hours',
     categoryColor: HUB_COMPUTATION_CATEGORY_COLORS.faculty30,
-    applyTip: 'Apply Faculty 30hrs late/undertime to DTR columns',
     openTip: 'Open Faculty 30hrs computation module (sliding panel)',
   },
   {
@@ -66,7 +64,6 @@ export const HUB_COMPUTATION_BUTTONS = [
     moduleType: MODULE_TYPES.DESIGNATED_40HRS,
     label: 'Designated',
     categoryColor: HUB_COMPUTATION_CATEGORY_COLORS.facultyDesignated,
-    applyTip: 'Apply Designated late/undertime to DTR columns',
     openTip: 'Open Designated computation module (sliding panel)',
   },
 ];

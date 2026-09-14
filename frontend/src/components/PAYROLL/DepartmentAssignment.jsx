@@ -24,6 +24,7 @@ import usePageAccess from '../../hooks/usePageAccess';
 import { styled, alpha } from '@mui/material/styles';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
+import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 
 const T = {
   accent:       '#6d2323',
@@ -247,8 +248,7 @@ const scrollbarSx = {
   '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
 };
 
-const getSurname = (name = '') => { const p = name.trim().split(/\s+/); return p[p.length - 1].toLowerCase(); };
-const sortByLastName = (arr) => [...arr].sort((a, b) => getSurname(a.name || '').localeCompare(getSurname(b.name || '')));
+const sortByLastName = (arr) => sortEmployeesByLastName(arr, (a) => a.name || a);
 
 // ── Dept Code Autocomplete ────────────────────────────────────
 const DeptCodeAutocomplete = ({ value, onChange, departmentList = [], placeholder = 'Type or select department code…', disabled = false }) => {

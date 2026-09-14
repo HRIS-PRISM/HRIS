@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../../utils/auth';
+import { compareEmployeesByLastName, sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import {
   decimalToLeaveDeductionHours,
   leaveDeductionHoursToDecimal,
@@ -1898,7 +1899,7 @@ const LeaveRequest = () => {
                 _searchKey: `${buildDisplayName(row)} ${empNum}`.toLowerCase(),
               };
             })
-            .sort((a, b) => (a._displayName || '').localeCompare(b._displayName || ''));
+            .sort((a, b) => compareEmployeesByLastName(a, b, (o) => o._displayName || o));
           setEmployeeOptions(options);
         } catch (e) { console.error('Failed to fetch employee list', e); }
       }
@@ -2117,7 +2118,7 @@ const LeaveRequest = () => {
     if (leaveTypeFilter !== 'all') data = data.filter((r) => r.leave_code         === leaveTypeFilter);
     const s = (deferredSearch || '').toLowerCase().trim();
     if (s) data = data.filter((r) => (employeeNames[r.employeeNumber] || '').toLowerCase().includes(s) || (r.employeeNumber || '').toLowerCase().includes(s));
-    return data;
+    return sortEmployeesByLastName(data, (r) => employeeNames[r.employeeNumber] || r);
   }, [leaveRequests, deferredSearch, employeeNames, statusFilter, leaveTypeFilter, dateRangeFilter, dateFiledFilter]);
 
   const paged  = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);

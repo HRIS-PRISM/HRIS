@@ -18,6 +18,7 @@ const {
   grantSupervisorLeavePageAccess,
   revokeSupervisorLeavePageAccessIfUnassigned,
   DTR_SUPERVISOR_IDENTIFIER,
+  hasSupervisorAssignment
 } = require('../utils/supervisorPageAccess');
 
 const sanitizeAssignmentTitle = (role) => {
@@ -26,29 +27,69 @@ const sanitizeAssignmentTitle = (role) => {
   return title.slice(0, 100);
 };
 
-const respondSupervisorContext = async (res, supervisorEmployeeNumber) => {
+const respondSupervisorContext = async (
+  res,
+  supervisorEmployeeNumber,
+) => {
   try {
-    const { supervisorEmployeeNumber: resolvedEmp, departments } =
-      await fetchSupervisorDepartments(supervisorEmployeeNumber);
+    const {
+      supervisorEmployeeNumber: resolvedEmp,
+      departments,
+    } = await fetchSupervisorDepartments(
+      supervisorEmployeeNumber,
+    );
 
-    if (!departments.length) {
-      return res.json({ isSupervisor: false, departments: [] });
+    // Check whether the employee has EVER had a
+    // supervisor assignment, including expired ones.
+    const hasAssignment =
+      await hasSupervisorAssignment(
+        supervisorEmployeeNumber,
+      );
+
+    // No assignment at all.
+    if (!hasAssignment) {
+      return res.json({
+        isSupervisor: false,
+        departments: [],
+      });
     }
 
-    try {
-      await grantSupervisorLeavePageAccess(resolvedEmp);
-    } catch (e) {
-      console.error('[supervisor-leave] context page access grant error:', e.message);
+    // Only grant supervisor page access when there are
+    // currently active assignments.
+    if (departments.length > 0) {
+      try {
+        await grantSupervisorLeavePageAccess(
+          resolvedEmp,
+        );
+      } catch (e) {
+        console.error(
+          "[supervisor-leave] context page access grant error:",
+          e.message,
+        );
+      }
     }
 
+    // IMPORTANT:
+    // Even if the assignment has expired and departments=[]
+    // the employee is still recognized as a supervisor.
     return res.json({
       isSupervisor: true,
-      supervisorEmployeeNumber: String(resolvedEmp).trim(),
-      departments,
+      supervisorEmployeeNumber: String(
+        resolvedEmp || supervisorEmployeeNumber,
+      ).trim(),
+      departments: Array.isArray(departments)
+        ? departments
+        : [],
     });
   } catch (err) {
-    console.error('[supervisor-leave] context fetch error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch supervisor context' });
+    console.error(
+      "[supervisor] context fetch error:",
+      err.message,
+    );
+
+    return res.status(500).json({
+      error: "Failed to fetch supervisor context",
+    });
   }
 };
 
@@ -183,14 +224,14 @@ router.get('/api/supervisor-assignment/by-supervisor/:employeeNumber', authentic
     SELECT sa.*, dt.description AS departmentDescription
     FROM supervisor_assignment sa
     LEFT JOIN department_table dt ON dt.code = sa.departmentCode
-    WHERE sa.supervisorEmployeeNumber = ?
+    WHERE sa.supervisorEmployeeNumber = ? AND status = 0
     ORDER BY sa.departmentCode
   `;
   db.query(
     sql.replace('sa.supervisorEmployeeNumber = ?', supervisorEmpMatchSql('sa.supervisorEmployeeNumber')),
     bindEmpMatchParams(req.params.employeeNumber),
     (err, rows) => {
-      if (err) return res.status(500).json({ error: 'Failed to fetch assignments' });
+      if (err) return res.status(500).json({ error: err.message });
       res.json(Array.isArray(rows) ? rows : []);
     },
   );
@@ -445,7 +486,7 @@ const respondSupervisorLeaveRequests = (res, supervisorEmployeeNumber, query = {
   const { status, departmentCode } = query;
 
   db.query(
-    `SELECT departmentCode, role FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}`,
+    `SELECT departmentCode, role FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')} AND status = 0`,
     bindEmpMatchParams(supervisorEmployeeNumber),
     (err, depts) => {
       if (err) return res.status(500).json({ error: 'Failed to resolve supervisor departments' });
@@ -719,7 +760,7 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, requireSuperv
               const supDisplay = formatUserDisplayName(actingSupervisor, supName);
               const [supRole]  = await new Promise((resolve) =>
                 db.query(
-                  `SELECT role FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')} LIMIT 1`,
+                  `SELECT role FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')} AND status = 0 LIMIT 1`,
                   bindEmpMatchParams(actingSupervisor),
                   (e, r) => resolve([r && r[0] && r[0].role ? r[0].role : 'Supervisor']),
                 ),
@@ -766,7 +807,7 @@ router.put('/api/supervisor-leave/bulk-action', authenticateToken, requireSuperv
 router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenticateToken, requireSupervisorSelfOrAdmin('supervisorEmployeeNumber'), (req, res) => {
   const { supervisorEmployeeNumber } = req.params;
   const deptSql = `
-    SELECT departmentCode FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}
+    SELECT departmentCode FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')} AND status = 0
   `;
   db.query(deptSql, bindEmpMatchParams(supervisorEmployeeNumber), (err, depts) => {
     if (err) return res.status(500).json({ error: 'Failed to resolve supervisor departments' });
@@ -801,7 +842,7 @@ router.get('/api/supervisor-leave/employees/:supervisorEmployeeNumber', authenti
 
 const respondSupervisorTransactions = (res, supervisorEmployeeNumber) => {
   db.query(
-    `SELECT departmentCode FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}`,
+    `SELECT departmentCode FROM supervisor_assignment WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')} AND status = 0`,
     bindEmpMatchParams(supervisorEmployeeNumber),
     (err, depts) => {
       if (err) return res.status(500).json({ error: 'Failed to resolve departments' });
@@ -874,6 +915,16 @@ router.get('/api/supervisor-dtr/context/me', authenticateToken, async (req, res)
  * GET /api/supervisor-dtr/employees/me
  * All employees in the supervisor's assigned department(s) (department_assignment).
  * startDate/endDate are accepted for client compatibility; attendance is loaded separately.
+ *
+ * [CHANGE] READ-ONLY VIEWING AFTER EXPIRY: this route now passes
+ * { includeExpired: true } to fetchSupervisorDepartments(), so a supervisor
+ * whose supervisor_assignment window has lapsed (status flipped to 1 by the
+ * expireSupervisorAssignments() cron job) can still see their former
+ * department's employee list here. This endpoint is GET-only and never
+ * mutates data, so surfacing it after expiry does not grant any write
+ * capability — official time create/edit/upload endpoints separately call
+ * ensureActiveSupervisorAssignment() and will still reject an expired
+ * supervisor with a 403, regardless of what this endpoint returns.
  */
 router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervisorModuleAccess(DTR_SUPERVISOR_IDENTIFIER), async (req, res) => {
   const { departmentCode } = req.query;
@@ -882,7 +933,9 @@ router.get('/api/supervisor-dtr/employees/me', authenticateToken, requireSupervi
     const actorEmployeeNumber = await resolveActorEmployeeNumber(req);
     if (!actorEmployeeNumber) return res.json([]);
 
-    const { departments } = await fetchSupervisorDepartments(actorEmployeeNumber);
+    // [CHANGE] includeExpired: true — view-only list stays populated even
+    // after the assignment's end date has passed.
+    const { departments } = await fetchSupervisorDepartments(actorEmployeeNumber, { includeExpired: true });
     if (!departments.length) return res.json([]);
 
     let codes = departments.map((d) => d.code);

@@ -30,6 +30,7 @@ const Payroll = require('./payrollRoutes/Payroll');
 const PayrollReleased = require('./payrollRoutes/PayrollReleased');
 const PayrollJO = require('./payrollRoutes/PayrollJO');
 const PayrollFormulas = require('./payrollRoutes/PayrollFormulas');
+const PayrollExport = require('./payrollRoutes/PayrollExport');
 const UploadPayroll = require('./payrollRoutes/UploadPayroll');
 const EmployeeCategory = require('./dashboardRoutes/EmployeeCategory');
 const dashboardAuditRoute = require('./dashboardRoutes/DashboardAuditRoute');
@@ -54,6 +55,7 @@ const profileRoutes = require('./routes/profile');
 const announcementsRoutes = require('./routes/announcements');
 const suspensionsRoutes = require('./routes/suspensions');
 const auditRoutes = require('./routes/audit');
+const adminActionTrailRoutes = require('./routes/adminActionTrail');
 const tasksRoutes = require('./routes/tasks');
 const dashboardRoutes = require('./routes/dashboard');
 const notesRoutes = require('./routes/notes');
@@ -89,7 +91,7 @@ const allowedOrigins = [
   'http://192.168.50.97:5137',
   'http://192.168.50.86:5173',
   'http://192.168.50.62:5173',
-  'http://192.168.50.55:5173'
+  'http://192.168.50.49:5173'
 ];
 
 function isOriginAllowed(origin) {
@@ -116,7 +118,14 @@ app.use(
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Content-Disposition',
+      'X-Appendix33-Template',
+      'X-Appendix33-Template-Id',
+      'X-Appendix33-Employees',
+    ],
   }),
 );
 
@@ -150,6 +159,50 @@ db.query(ensureAuditLogTableSQL, (err) => {
     console.log('Audit log table ready');
   }
 });
+
+// Admin Action Trail — superadmin / administrator / admin actors only
+const ensureAdminActionTrailTableSQL = `
+  CREATE TABLE IF NOT EXISTS admin_action_trail (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employeeNumber VARCHAR(64) NULL,
+    actor_role VARCHAR(64) NULL,
+    action VARCHAR(512) NOT NULL,
+    table_name VARCHAR(128) NULL,
+    record_id INT NULL,
+    targetEmployeeNumber VARCHAR(64) NULL,
+    details_json LONGTEXT NULL,
+    timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_admin_action_trail_timestamp (timestamp),
+    KEY idx_admin_action_trail_employee (employeeNumber),
+    KEY idx_admin_action_trail_actor_role (actor_role)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`;
+
+db.query(ensureAdminActionTrailTableSQL, (err) => {
+  if (err) {
+    console.error('Failed to ensure admin_action_trail table exists:', err);
+  } else {
+    console.log('Admin action trail table ready');
+  }
+});
+
+db.query(
+  `INSERT INTO pages (page_name, page_description, page_url, page_group, component_identifier)
+   SELECT
+     'Admin Action Trail',
+     'Trail of superadmin and administrator actions across the system',
+     '/admin-action-trail',
+     'superadmin,technical',
+     'admin-action-trail'
+   WHERE NOT EXISTS (
+     SELECT 1 FROM pages WHERE component_identifier = 'admin-action-trail'
+   )`,
+  (seedErr) => {
+    if (seedErr && seedErr.code !== 'ER_NO_SUCH_TABLE') {
+      console.error('admin-action-trail page seed:', seedErr.message);
+    }
+  },
+);
 
 // Dedicated earnings / payroll-audit trail (used by earningsRoutes, leave half-day, salary shortfall mirror)
 const ensureEarningsAuditLogTableSQL = `
@@ -279,6 +332,10 @@ db.query(ensureHolidayTableSQL, (err) => {
       if (e && e.code !== 'ER_DUP_FIELDNAME')
         console.error('Holiday migration image:', e.message);
     });
+    db.query('ALTER TABLE holiday ADD COLUMN branch TINYINT NULL DEFAULT NULL', (e) => {
+      if (e && e.code !== 'ER_DUP_FIELDNAME')
+        console.error('Holiday migration branch:', e.message);
+    });
   }
 });
 
@@ -314,6 +371,19 @@ db.query(ensureSuspensionsTableSQL, (err) => {
   if (err)
     console.error('Failed to ensure suspensions table exists:', err.message);
   else console.log('Suspensions table ready');
+});
+
+// Suspension scope / type columns (Announcement → DTR / attendance modules)
+[
+  "ALTER TABLE suspensions ADD COLUMN personnel_scope VARCHAR(32) NOT NULL DEFAULT 'all'",
+  "ALTER TABLE suspensions ADD COLUMN suspension_type VARCHAR(32) NOT NULL DEFAULT 'whole_day'",
+  'ALTER TABLE suspensions ADD COLUMN effective_time TIME NULL',
+  'ALTER TABLE suspensions ADD COLUMN branch TINYINT NULL DEFAULT NULL',
+].forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME')
+      console.error('Suspensions migration:', err.message);
+  });
 });
 
 // Ensure contact messages table exists (threaded replies)
@@ -439,6 +509,7 @@ app.use('/leaveRoute', leaveRoutes);
 app.use('/SendPayslipRoute', SendPayslip);
 app.use('/PayrollRoute', Payroll);
 app.use('/PayrollReleasedRoute', PayrollReleased);
+app.use('/PayrollExportRoute', PayrollExport);
 app.use('/PayrollJORoutes', PayrollJO);
 app.use('/EmploymentCategoryRoutes', EmployeeCategory);
 app.use('/dashboard-audit', dashboardAuditRoute);
@@ -463,6 +534,7 @@ app.use('/', leaveRoutes);
 app.use('/', philhealthRoutes);
 app.use('/', profileRoutes);
 app.use('/', auditRoutes);
+app.use('/', adminActionTrailRoutes);
 app.use('/', tasksRoutes);
 app.use('/', dashboardRoutes);
 app.use('/', notesRoutes);
@@ -612,7 +684,7 @@ startAttendanceRecordInfoSocketApi(io);
 // Wire up Socket.IO to route files that use it for real-time events
 leaveRoutes.setSocketIO(io);
 commutationRoute.setSocketIO(io);
-expireSupervisorAssignments();
+
 setInterval(expireSupervisorAssignments, 60 * 1000);
 
 // Make io accessible to routes via app.locals

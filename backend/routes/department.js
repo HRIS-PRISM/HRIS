@@ -98,8 +98,8 @@ router.delete('/api/department-table/:id', (req, res) => {
 router.get('/api/department-assignment', (req, res) => {
   db.query('SELECT * FROM department_assignment', (err, results) => {
     if (err) return res.status(500).send(err);
-    res.json(results);
-  });
+  res.json(results);
+});
 });
 
 // GET a single department assignment by ID
