@@ -145,6 +145,8 @@ const T = {
   faint: "#a0a0a0",
   surface: "#ffffff",
   divider: "rgba(0,0,0,0.08)",
+  // Opaque equivalent of alpha(accent, 0.03) — required for sticky table headers
+  tableHeadBg: "#fbf8f8",
 };
 
 // ─── Styled Primitives ─────────────────────────────────────────────────────────
@@ -271,21 +273,29 @@ const OfflineBanner = ({ visible, retryIn }) => (
 );
 
 // ─── Wireframe Skeleton ────────────────────────────────────────────────────────
+const PAGE_SHELL_SX = {
+  py: { xs: 1, md: 2 },
+  mt: { xs: 0, md: -2 },
+  mb: { xs: 1, md: 2 },
+  // Slightly wider than attendance default (63/-61); still respects sidebar
+  width: "100vw",
+  maxWidth: "100%",
+  position: "relative",
+  left: "64%",
+  transform: "translateX(-63%)",
+  px: { xs: 2, sm: 2.5, md: 4 },
+  boxSizing: "border-box",
+};
+
+const PAGE_SHELL_CSS = `
+${shimmerKf}
+html { overflow-y: scroll; scrollbar-gutter: stable; }
+`;
+
 const UsersListWireframe = () => (
   <>
-    <style>{shimmerKf}</style>
-    <Box
-      sx={{
-        py: { xs: 1, md: 2 },
-        mt: { xs: 0, md: -2 },
-        width: "100vw",
-        maxWidth: "100%",
-        position: "relative",
-        left: "63%",
-        transform: "translateX(-61%)",
-        px: { xs: 2, sm: 3, md: 6 },
-      }}
-    >
+    <style>{PAGE_SHELL_CSS}</style>
+    <Box sx={PAGE_SHELL_SX}>
       <Box
         sx={{
           mb: 2,
@@ -622,6 +632,8 @@ const ModalHeader = ({ icon: Icon, title, subtitle, onClose }) => (
   </Box>
 );
 
+const fmtCount = (n) => Number(n || 0).toLocaleString();
+
 const DialogAccentBar = () => (
   <Box
     sx={{
@@ -820,7 +832,6 @@ const UsersList = () => {
       styled(TableContainer)(() => ({
         borderRadius: 0,
         overflowX: "auto",
-        overflowY: "visible",
         border: "none",
       })),
     [p],
@@ -837,6 +848,42 @@ const UsersList = () => {
     return Array.from(seen.entries())
       .map(([code, description]) => ({ code, description }))
       .sort((a, b) => a.description.localeCompare(b.description));
+  }, [users]);
+
+  const userStats = useMemo(() => {
+    const stats = {
+      total: users.length,
+      manila: 0,
+      cavite: 0,
+      unassignedBranch: 0,
+      superadmin: 0,
+      administrator: 0,
+      staff: 0,
+      Active: 0,
+      Inactive: 0,
+      Default: 0,
+      Resigned: 0,
+      Terminated: 0,
+      Retired: 0,
+    };
+    users.forEach((u) => {
+      const branch =
+        u.branch === null || u.branch === undefined ? null : Number(u.branch);
+      if (branch === 0) stats.manila += 1;
+      else if (branch === 1) stats.cavite += 1;
+      else stats.unassignedBranch += 1;
+
+      const role = (u.role || "").toLowerCase();
+      if (role === "superadmin") stats.superadmin += 1;
+      else if (role === "administrator") stats.administrator += 1;
+      else if (role === "staff") stats.staff += 1;
+
+      const status = u.status || "Default";
+      if (Object.prototype.hasOwnProperty.call(stats, status)) {
+        stats[status] += 1;
+      }
+    });
+    return stats;
   }, [users]);
 
   const properUsers = useMemo(
@@ -1100,36 +1147,6 @@ const UsersList = () => {
     if (countdownRef.current) clearInterval(countdownRef.current);
   }, []);
 
-  const fetchEmpCatMap = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const r = await axios.get(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-      const map = {};
-      (Array.isArray(r.data) ? r.data : []).forEach((item) => {
-        if (!item.employeeNumber) return;
-        let label = "";
-        let colorHex = "#757575";
-        if (item.parentGroup && item.typeName) {
-          label = `${item.parentGroup} | ${item.typeName}`;
-          colorHex = item.colorHex || "#757575";
-        } else if (item.customCategory && item.customCategory.trim()) {
-          label = `Other (${item.customCategory.trim()})`;
-        } else if (item.categoryLabel && item.categoryLabel !== "Unassigned") {
-          label = item.categoryLabel;
-        }
-        if (label) {
-          map[String(item.employeeNumber)] = { label, colorHex };
-        }
-      });
-      setEmpCatMap(map);
-    } catch {}
-  }, []);
-
   const fetchTypeConfigs = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
@@ -1144,28 +1161,17 @@ const UsersList = () => {
     } catch {}
   }, []);
 
-   const doFetchUsers = useCallback(async () => {
+  const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
-    const [usersResp, personsResp, empCatsResp, deptAssignResp, deptTableResp] =
-      await Promise.all([
-        fetch(`${API_BASE_URL}/users`, { method: "GET", ...authHeaders }),
-        fetch(`${API_BASE_URL}/personalinfo/person_table`, {
-          method: "GET",
-          ...authHeaders,
-        }),
-        fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
-          method: "GET",
-          ...authHeaders,
-        }),
-        fetch(`${API_BASE_URL}/api/department-assignment`, {
-          method: "GET",
-          ...authHeaders,
-        }),
-        fetch(`${API_BASE_URL}/api/department-table`, {
-          method: "GET",
-          ...authHeaders,
-        }),
-      ]);
+    // /users already returns names, department, and profile picture —
+    // only employment-category is needed for labels/colors/customCategory.
+    const [usersResp, empCatsResp] = await Promise.all([
+      fetch(`${API_BASE_URL}/users`, { method: "GET", ...authHeaders }),
+      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
+        method: "GET",
+        ...authHeaders,
+      }),
+    ]);
 
     if (!usersResp.ok) {
       const err = await usersResp.json().catch(() => ({}));
@@ -1173,36 +1179,22 @@ const UsersList = () => {
     }
 
     const usersDataRaw = await usersResp.json();
-    const personsDataRaw = await personsResp.json().catch(() => []);
     const empCatsDataRaw = empCatsResp?.ok
       ? await empCatsResp.json().catch(() => [])
-      : [];
-    
-    const deptAssignDataRaw = deptAssignResp?.ok
-      ? await deptAssignResp.json().catch(() => [])
-      : [];
-    const deptTableDataRaw = deptTableResp?.ok
-      ? await deptTableResp.json().catch(() => [])
       : [];
     const usersArray = Array.isArray(usersDataRaw)
       ? usersDataRaw
       : usersDataRaw.users || usersDataRaw.data || [];
-    const personsArray = Array.isArray(personsDataRaw)
-      ? personsDataRaw
-      : personsDataRaw.persons || personsDataRaw.data || [];
     const empCatsArray = Array.isArray(empCatsDataRaw)
       ? empCatsDataRaw
       : empCatsDataRaw.data || empCatsDataRaw.records || [];
-    const deptAssignArray = Array.isArray(deptAssignDataRaw)
-      ? deptAssignDataRaw
-      : deptAssignDataRaw.data || [];
-    const deptTableArray = Array.isArray(deptTableDataRaw)
-      ? deptTableDataRaw
-      : deptTableDataRaw.data || [];
 
     const newEmpCatMap = {};
+    const empCatsMap = {};
     (empCatsArray || []).forEach((item) => {
       if (!item.employeeNumber) return;
+      const key = String(item.employeeNumber);
+      empCatsMap[key] = item;
       let label = "";
       let colorHex = "#757575";
       if (item.parentGroup && item.typeName) {
@@ -1214,49 +1206,24 @@ const UsersList = () => {
         label = item.categoryLabel;
       }
       if (label) {
-        newEmpCatMap[String(item.employeeNumber)] = { label, colorHex };
+        newEmpCatMap[key] = { label, colorHex };
       }
     });
     setEmpCatMap(newEmpCatMap);
 
-    const empCatsMap = (empCatsArray || []).reduce((acc, row) => {
-      const key = String(row.employeeNumber ?? row.employee_number ?? "");
-      if (key) acc[key] = row;
-      return acc;
-    }, {});
-
-       const deptTableMap = {};
-    (deptTableArray || []).forEach((d) => {
-      if (d.code === undefined || d.code === null) return;
-      deptTableMap[String(d.code)] = d.description;
-    });
-
-    const deptAssignMap = {};
-    (deptAssignArray || []).forEach((a) => {
-      if (!a.employeeNumber) return;
-      deptAssignMap[String(a.employeeNumber)] = {
-        code: a.code || null,
-        description: deptTableMap[String(a.code)] || null,
-        assignedName: a.name || null,
-      };
-    });
-
-    
     return (usersArray || []).map((user) => {
-      const person = (personsArray || []).find(
-        (p) => String(p.agencyEmployeeNum) === String(user.employeeNumber),
-      );
       const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
-      const deptAssign = deptAssignMap[String(user.employeeNumber)] || null;
+      const profilePic = user.profilePicture || user.profile_picture || null;
 
-      const fullName = person
-        ? `${person.firstName || ""} ${person.middleName || ""} ${person.lastName || ""} ${person.nameExtension || ""}`.trim()
-        : user.fullName ||
-          user.username ||
-          `${user.firstName || ""} ${user.lastName || ""}`.trim();
+      const fullName =
+        user.fullName ||
+        user.username ||
+        `${user.firstName || ""} ${user.lastName || ""}`.trim();
 
-      const avatar = person?.profile_picture
-        ? `${API_BASE_URL}${person.profile_picture}`
+      const avatar = profilePic
+        ? String(profilePic).startsWith("http")
+          ? profilePic
+          : `${API_BASE_URL}${profilePic}`
         : user.avatar
           ? String(user.avatar).startsWith("http")
             ? user.avatar
@@ -1267,7 +1234,6 @@ const UsersList = () => {
         ...user,
         fullName: fullName || "Username",
         avatar: avatar || null,
-        personData: person || {},
         employmentCategory:
           empCatRow?.employmentCategory !== undefined &&
           empCatRow?.employmentCategory !== null
@@ -1287,9 +1253,8 @@ const UsersList = () => {
             : empCatRow.categoryLabel || null
           : null,
         empCatColor: empCatRow?.colorHex || null,
-        departmentCode: deptAssign?.code ?? user.departmentCode ?? null,
-        departmentDescription:
-          deptAssign?.description ?? user.departmentDescription ?? null,
+        departmentCode: user.departmentCode ?? null,
+        departmentDescription: user.departmentDescription ?? null,
       };
     });
   }, []);
@@ -2607,20 +2572,8 @@ const UsersList = () => {
      MAIN RENDER
   ═══════════════════════════════════════════════════════════════ */
   return (
-    <Box
-      sx={{
-        py: { xs: 1, md: 2 },
-        mt: { xs: 0, md: -2 },
-        mb: { xs: 1, md: 2 },
-        width: "100%",
-        maxWidth: "100%",
-        position: "relative",
-        left: "63%",
-        transform: "translateX(-61%)",
-        px: { xs: 2, sm: 3, md: 6 },
-      }}
-    >
-      <style>{shimmerKf}</style>
+    <Box sx={PAGE_SHELL_SX}>
+      <style>{PAGE_SHELL_CSS}</style>
       <Portal>
         <SuccessfulOverlay
           open={successOpen}
@@ -2630,11 +2583,11 @@ const UsersList = () => {
       </Portal>
 
       {/* ── Page Header ── */}
-      <SectionCard sx={{ mb: 2 }}>
+      <SectionCard sx={{ mb: 1.25 }}>
         <Box
           sx={{
-            px: 4,
-            py: 3,
+            px: 3,
+            py: 1.5,
             background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
             display: "flex",
             alignItems: "center",
@@ -2671,27 +2624,27 @@ const UsersList = () => {
             sx={{
               display: "flex",
               alignItems: "center",
-              gap: 3,
+              gap: 2,
               position: "relative",
               zIndex: 1,
             }}
           >
-            <People sx={{ fontSize: 32, color: T.accent }} />
+            <People sx={{ fontSize: 24, color: T.accent }} />
             <Box>
               <Typography
                 sx={{
-                  fontSize: "1.25rem",
+                  fontSize: "1.02rem",
                   fontWeight: 900,
                   color: T.accent,
                   lineHeight: 1.2,
-                  mb: 0.3,
+                  mb: 0.1,
                 }}
               >
                 Users Management
               </Typography>
               <Typography
                 sx={{
-                  fontSize: "0.82rem",
+                  fontSize: "0.72rem",
                   color: T.accentMid,
                   fontWeight: 700,
                   opacity: 0.9,
@@ -2747,34 +2700,38 @@ const UsersList = () => {
       {/* ── Stats Strip ── */}
       <Box
         sx={{
-          mb: 2,
+          mb: 1.25,
           display: "grid",
-          gridTemplateColumns: "repeat(5,1fr)",
-          gap: 1.5,
+          gridTemplateColumns: {
+            xs: "1fr 1fr",
+            md: "repeat(5,1fr)",
+          },
+          gap: 1.25,
         }}
       >
         {[
           {
             icon: AccountCircle,
-            value: users.length,
-            label: "Total Users",
+            value: userStats.total,
+            label: "Total Employees",
             accent: T.accent,
+            sub: `Manila ${fmtCount(userStats.manila)}  ·  Cavite ${fmtCount(userStats.cavite)}`,
           },
           {
             icon: SupervisorAccount,
-            value: users.filter((u) => u.role === "superadmin").length,
+            value: userStats.superadmin,
             label: "Superadmins",
             accent: T.accent,
           },
           {
             icon: AdminPanelSettings,
-            value: users.filter((u) => u.role === "administrator").length,
+            value: userStats.administrator,
             label: "Admins",
             accent: T.accentMid,
           },
           {
             icon: Work,
-            value: users.filter((u) => u.role === "staff").length,
+            value: userStats.staff,
             label: "Staff Members",
             accent: T.muted,
           },
@@ -2790,17 +2747,17 @@ const UsersList = () => {
             <SectionCard key={i}>
               <Box
                 sx={{
-                  px: 2.5,
-                  py: 2,
+                  px: 2.25,
+                  py: 1.6,
                   display: "flex",
                   alignItems: "center",
-                  gap: 1.75,
+                  gap: 1.5,
                 }}
               >
                 <Box
                   sx={{
-                    width: 38,
-                    height: 38,
+                    width: 36,
+                    height: 36,
                     borderRadius: 2,
                     bgcolor: alpha(stat.accent, 0.1),
                     display: "flex",
@@ -2809,24 +2766,24 @@ const UsersList = () => {
                     flexShrink: 0,
                   }}
                 >
-                  <Icon sx={{ fontSize: 18, color: stat.accent }} />
+                  <Icon sx={{ fontSize: 17, color: stat.accent }} />
                 </Box>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography
                     sx={{
                       fontWeight: 900,
-                      fontSize: "1.35rem",
+                      fontSize: "1.25rem",
                       color: T.text,
                       lineHeight: 1,
                     }}
                   >
-                    {stat.value}
+                    {fmtCount(stat.value)}
                   </Typography>
                   <Typography
                     sx={{
                       fontSize: "0.7rem",
                       color: T.muted,
-                      mt: 0.3,
+                      mt: 0.25,
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -2834,33 +2791,70 @@ const UsersList = () => {
                   >
                     {stat.label}
                   </Typography>
+                  {stat.sub && (
+                    <Typography
+                      sx={{
+                        fontSize: "0.62rem",
+                        color: T.faint,
+                        mt: 0.2,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {stat.sub}
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             </SectionCard>
           );
         })}
       </Box>
+      <Typography
+        sx={{
+          mt: -0.5,
+          mb: 1.25,
+          px: 0.25,
+          fontSize: "0.7rem",
+          color: T.muted,
+        }}
+      >
+        Active {fmtCount(userStats.Active)}
+        <Box component="span" sx={{ color: T.faint, mx: 0.9 }}>
+          ·
+        </Box>
+        Inactive {fmtCount(userStats.Inactive)}
+        <Box component="span" sx={{ color: T.faint, mx: 0.9 }}>
+          ·
+        </Box>
+        Default {fmtCount(userStats.Default)}
+        <Box component="span" sx={{ color: T.faint, mx: 0.9 }}>
+          ·
+        </Box>
+        Resigned {fmtCount(userStats.Resigned)}
+        <Box component="span" sx={{ color: T.faint, mx: 0.9 }}>
+          ·
+        </Box>
+        Terminated {fmtCount(userStats.Terminated)}
+        <Box component="span" sx={{ color: T.faint, mx: 0.9 }}>
+          ·
+        </Box>
+        Retired {fmtCount(userStats.Retired)}
+      </Typography>
 
-      {/* ── Search & Filter ── */}
-{/* ── Search & Filter ── */}
-<SectionCard sx={{ mb: 2 }}>
+      {/* ── Registered Users — filters + table share one card ── */}
+      <SectionCard sx={{ overflow: "hidden", width: "100%" }}>
   <Box
     sx={{
-      px: 3.5,
-      py: 1.5,
-      borderBottom: `1px solid ${T.divider}`,
-      bgcolor: T.accentFaint,
+      px: 2.5,
+      pt: categoryFilter ? 1.5 : 0,
       display: "flex",
       alignItems: "center",
       gap: 1.25,
+      flexWrap: "wrap",
     }}
   >
-    <FilterList sx={{ fontSize: 14, color: T.accent }} />
-    <Typography
-      sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}
-    >
-      Search & Filter
-    </Typography>
     {categoryFilter &&
       (() => {
         const [filterType, filterValue] = categoryFilter.split("||");
@@ -2917,9 +2911,17 @@ const UsersList = () => {
         );
       })()}
   </Box>
-  <Box sx={{ px: 3.5, py: 3 }}>
-    <Grid container spacing={2} alignItems="flex-end">
-      <Grid item xs={12} md={2.5}>
+  <Box
+    sx={{
+      px: 2.5,
+      py: 1.5,
+      width: "100%",
+      boxSizing: "border-box",
+      borderBottom: `1px solid ${T.divider}`,
+    }}
+  >
+    <Grid container spacing={1.5} alignItems="flex-end" sx={{ width: "100%", m: 0 }}>
+      <Grid item xs={12} sm={6} md={2.5} sx={{ minWidth: 0 }}>
         <FieldInput
           fullWidth
           label="Search Users"
@@ -3237,14 +3239,11 @@ const UsersList = () => {
       </Grid>
     </Grid>
   </Box>
-</SectionCard>
 
-      {/* ── Users Table ── */}
-      <SectionCard sx={{ overflow: "hidden" }}>
         <Box
           sx={{
-            px: 3.5,
-            py: 2,
+            px: 2.5,
+            py: 1.25,
             borderBottom: `1px solid ${T.divider}`,
             bgcolor: T.accentFaint,
             display: "flex",
@@ -3473,17 +3472,27 @@ const UsersList = () => {
 
         <OfflineBanner visible={offline} retryIn={retryIn} />
 
-        <SharpTableContainer component={Paper} elevation={0}>
-          <Table sx={{ minWidth: 800 }}>
-            <TableHead sx={{ position: "sticky", top: 0, zIndex: 2 }}>
+        <SharpTableContainer
+          component={Paper}
+          elevation={0}
+          sx={{
+            // Table owns the remaining viewport so the list is the focus.
+            // Offset accounts for header + stats + filter row + tabs + pagination.
+            maxHeight: { xs: "60vh", md: "calc(100vh - 400px)" },
+            minHeight: { md: 300 },
+            overflowY: "auto",
+          }}
+        >
+          <Table sx={{ minWidth: 800 }} stickyHeader>
+            <TableHead>
               <TableRow>
                 <TableCell
                   sx={{
                     borderBottom: `2px solid ${T.accentBorder}`,
-                    py: 1.5,
+                    py: 1.25,
                     px: 2,
                     width: 48,
-                    bgcolor: alpha(T.accent, 0.03),
+                    bgcolor: T.tableHeadBg,
                   }}
                 >
                   <Checkbox
@@ -3515,7 +3524,7 @@ const UsersList = () => {
                     key={h}
                     sx={{
                       borderBottom: `2px solid ${T.accentBorder}`,
-                      py: 1.5,
+                      py: 1.25,
                       px: 2,
                       fontSize: "0.62rem",
                       fontWeight: 700,
@@ -3523,7 +3532,7 @@ const UsersList = () => {
                       textTransform: "uppercase",
                       letterSpacing: "0.08em",
                       whiteSpace: "nowrap",
-                      bgcolor: alpha(T.accent, 0.03),
+                      bgcolor: T.tableHeadBg,
                       textAlign: ["Page Access", "Actions"].includes(h)
                         ? "center"
                         : "left",

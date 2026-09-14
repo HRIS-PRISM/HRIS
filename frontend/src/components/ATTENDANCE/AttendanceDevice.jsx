@@ -727,14 +727,19 @@ const TimeCell = ({ time, isUncategorized, missingLabel }) => {
 // ─── Utility functions ─────────────────────────────────────────────────────
 const formatTime = (time) => {
   if (!time) return null;
-  if (time.includes('AM') || time.includes('PM')) {
-    const [hour, minute, second] = time.split(/[: ]/);
-    return `${hour.padStart(2, '0')}:${minute}:${second} ${time.slice(-2)}`;
+  const str = String(time).trim();
+  if (/am|pm/i.test(str)) {
+    const parts = str.split(/[:\s]+/).filter(Boolean);
+    const hour = parts[0] || '00';
+    const minute = parts[1] || '00';
+    const second = (parts[2] || '00').replace(/am|pm/i, '') || '00';
+    const ampm = /pm/i.test(str) ? 'PM' : 'AM';
+    return `${hour.padStart(2, '0')}:${minute}:${second} ${ampm}`;
   }
-  const [hour, minute, second] = time.split(':');
+  const [hour, minute, second] = str.split(':');
   const hour24 = parseInt(hour, 10);
   const hour12 = hour24 % 12 || 12;
-  return `${String(hour12).padStart(2, '0')}:${minute}:${second} ${hour24 < 12 ? 'AM' : 'PM'}`;
+  return `${String(hour12).padStart(2, '0')}:${minute}:${second || '00'} ${hour24 < 12 ? 'AM' : 'PM'}`;
 };
 
 const getDayOfWeek = (dateString) =>

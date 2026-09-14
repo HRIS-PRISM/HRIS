@@ -41,6 +41,25 @@
     return m ? m[1] : null;
   }
 
+  /**
+   * Device punches are unix-ms (UTC). HRIS calendar days are Asia/Manila (UTC+8).
+   * Time IN is usually 06:00–07:59 Manila = still the previous UTC calendar day,
+   * so UTC midnight bounds drop it from Device/DTR while Attendance State shows it.
+   */
+  function manilaDayRangeMs(startDate, endDate) {
+    const sd = String(startDate || '').slice(0, 10);
+    const ed = String(endDate || startDate || '').slice(0, 10);
+    return {
+      startTimestamp: Date.parse(`${sd}T00:00:00+08:00`),
+      endTimestamp: Date.parse(`${ed}T23:59:59.999+08:00`),
+    };
+  }
+
+  /** Manila YYYY-MM-DD from a millis column — session-TZ independent (epoch + 8h). */
+  function manilaYmdSql(column = 'AttendanceDateTime') {
+    return `DATE_FORMAT(DATE_ADD('1970-01-01 00:00:00', INTERVAL FLOOR(${column}/1000) + 28800 SECOND), '%Y-%m-%d')`;
+  }
+
   /** Inclusive UTC calendar-day walk — avoids toISOString/local getDate mismatches. */
   function forEachYmdInRange(startYmd, endYmd, fn) {
     if (!startYmd || !endYmd) return;
@@ -949,12 +968,11 @@
       LEFT JOIN (
         SELECT
           PersonID,
-          DATE(FROM_UNIXTIME(AttendanceDateTime / 1000)) AS attDate
+          ${manilaYmdSql()} AS attDate
         FROM AttendanceRecordInfo
         WHERE PersonID = ?
-          AND AttendanceDateTime >= UNIX_TIMESTAMP(?) * 1000
-          AND AttendanceDateTime < UNIX_TIMESTAMP(DATE_ADD(?, INTERVAL 1 DAY)) * 1000
-        GROUP BY PersonID, DATE(FROM_UNIXTIME(AttendanceDateTime / 1000))
+          AND AttendanceDateTime BETWEEN ? AND ?
+        GROUP BY PersonID, attDate
       ) ari_daily ON ari_daily.PersonID = ar.personID AND ari_daily.attDate = ar.date             
       ${MODIFIER_NAME_JOINS}
       LEFT JOIN officialtime ot ON DAYNAME(ar.date) = ot.day
@@ -964,7 +982,8 @@
       ORDER BY ar.date ASC;
     `;
 
-    db.query(query, [personID, startDate, endDate, personID, startDate, endDate], (err, results) => {
+    const { startTimestamp: ariStartMs, endTimestamp: ariEndMs } = manilaDayRangeMs(startDate, endDate);
+    db.query(query, [personID, ariStartMs, ariEndMs, personID, startDate, endDate], (err, results) => {
       if (err) {
         console.error('view-attendance error:', err.message || err);
         return res.status(500).json({ error: err.message || 'Failed to fetch attendance records' });
@@ -2330,8 +2349,9 @@
     let startTimestamp;
     let endTimestamp;
     if (hasRange) {
-      startTimestamp = new Date(`${String(startDate).slice(0, 10)}T00:00:00Z`).getTime();
-      endTimestamp = new Date(`${String(endDate).slice(0, 10)}T23:59:59Z`).getTime();
+      const range = manilaDayRangeMs(startDate, endDate);
+      startTimestamp = range.startTimestamp;
+      endTimestamp = range.endTimestamp;
     }
 
     const query = hasRange
@@ -2376,8 +2396,7 @@
 
     const sd = String(startDate).slice(0, 10);
     const ed = String(endDate).slice(0, 10);
-    const startTimestamp = new Date(`${sd}T00:00:00Z`).getTime();
-    const endTimestamp = new Date(`${ed}T23:59:59Z`).getTime();
+    const { startTimestamp, endTimestamp } = manilaDayRangeMs(sd, ed);
 
     const usersSql = `
       SELECT
@@ -2399,7 +2418,7 @@
       FROM (
         SELECT
           PersonID,
-          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt
+          ${manilaYmdSql()} AS dt
         FROM AttendanceRecordInfo
         WHERE AttendanceDateTime BETWEEN ? AND ?
         GROUP BY PersonID, dt
@@ -2433,7 +2452,7 @@
         SELECT
           PersonID,
           PersonName,
-          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt,
+          ${manilaYmdSql()} AS dt,
           MAX(CASE WHEN AttendanceState = 1 THEN 1 ELSE 0 END) AS has_t1,
           MAX(CASE WHEN AttendanceState = 2 THEN 1 ELSE 0 END) AS has_t2,
           MAX(CASE WHEN AttendanceState = 3 THEN 1 ELSE 0 END) AS has_t3,
@@ -2474,8 +2493,7 @@
       return res.status(400).json({ error: 'startDate and endDate are required' });
     }
 
-    const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime();
-    const endTimestamp = new Date(`${endDate}T23:59:59Z`).getTime();
+    const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
 
     const sql = `
       SELECT
@@ -2485,7 +2503,7 @@
       FROM (
         SELECT
           PersonID,
-          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt
+          ${manilaYmdSql()} AS dt
         FROM AttendanceRecordInfo
         WHERE AttendanceDateTime BETWEEN ? AND ?
         GROUP BY PersonID, dt
@@ -2544,8 +2562,7 @@
       return res.status(400).json({ error: 'startDate and endDate are required' });
     }
 
-    const startTimestamp = new Date(`${startDate}T00:00:00Z`).getTime();
-    const endTimestamp = new Date(`${endDate}T23:59:59Z`).getTime();
+    const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
 
     const sql = `
       SELECT
@@ -2560,7 +2577,7 @@
         SELECT
           PersonID,
           PersonName,
-          DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS dt,
+          ${manilaYmdSql()} AS dt,
           MAX(CASE WHEN AttendanceState = 1 THEN 1 ELSE 0 END) AS has_t1,
           MAX(CASE WHEN AttendanceState = 2 THEN 1 ELSE 0 END) AS has_t2,
           MAX(CASE WHEN AttendanceState = 3 THEN 1 ELSE 0 END) AS has_t3,
@@ -2592,14 +2609,15 @@
     const hasRange = Boolean(startDate && endDate);
     const sd = hasRange ? String(startDate).slice(0, 10) : null;
     const ed = hasRange ? String(endDate).slice(0, 10) : null;
-    const startTimestamp = hasRange ? new Date(`${sd}T00:00:00Z`).getTime() : null;
-    const endTimestamp = hasRange ? new Date(`${ed}T23:59:59Z`).getTime() : null;
+    const { startTimestamp, endTimestamp } = hasRange
+      ? manilaDayRangeMs(sd, ed)
+      : { startTimestamp: null, endTimestamp: null };
 
     const baseDailySql = `
       SELECT
         ari.PersonID,
         MAX(ari.PersonName) AS PersonName,
-        DATE_FORMAT(FROM_UNIXTIME(ari.AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+        ${manilaYmdSql('ari.AttendanceDateTime')} AS Date,
         MIN(CASE WHEN ari.AttendanceState = 1 THEN ari.AttendanceDateTime END) AS Time1,
         MIN(CASE WHEN ari.AttendanceState = 2 THEN ari.AttendanceDateTime END) AS Time2,
         MIN(CASE WHEN ari.AttendanceState = 3 THEN ari.AttendanceDateTime END) AS Time3,
@@ -2694,13 +2712,12 @@
     const { personID, startDate, endDate } = req.body;
     const syncDeviceToRecords = req.body.syncDeviceToRecords !== false;
 
-    const startTimestamp = new Date(startDate + 'T00:00:00Z').getTime();
-    const endTimestamp = new Date(endDate + 'T23:59:59Z').getTime();
+    const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
 
     const query = `
       SELECT
         PersonID, PersonName,
-        DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+        ${manilaYmdSql()} AS Date,
         MIN(CASE WHEN AttendanceState = 1 THEN AttendanceDateTime END) AS Time1,
         MIN(CASE WHEN AttendanceState = 2 THEN AttendanceDateTime END) AS Time2,
         MIN(CASE WHEN AttendanceState = 3 THEN AttendanceDateTime END) AS Time3,
@@ -2901,15 +2918,14 @@
     }
 
     try {
-      const startTimestamp = new Date(startDate + 'T00:00:00Z').getTime();
-      const endTimestamp = new Date(endDate + 'T23:59:59Z').getTime();
+      const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
 
       const records = await new Promise((resolve, reject) => {
         db.query(
           `
             SELECT
               PersonID, PersonName,
-              DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+              ${manilaYmdSql()} AS Date,
               MIN(CASE WHEN AttendanceState = 1 THEN AttendanceDateTime END) AS Time1,
               MIN(CASE WHEN AttendanceState = 2 THEN AttendanceDateTime END) AS Time2,
               MIN(CASE WHEN AttendanceState = 3 THEN AttendanceDateTime END) AS Time3,
@@ -3657,13 +3673,12 @@
       return { success: false, personID: personKey, date: dateYmd, error: 'Invalid personID or date' };
     }
 
-    const startTimestamp = new Date(`${dateYmd}T00:00:00Z`).getTime();
-    const endTimestamp = new Date(`${dateYmd}T23:59:59Z`).getTime();
+    const { startTimestamp, endTimestamp } = manilaDayRangeMs(dateYmd, dateYmd);
 
     const deviceQuery = `
       SELECT
         PersonID, PersonName,
-        DATE_FORMAT(FROM_UNIXTIME(AttendanceDateTime/1000), '%Y-%m-%d') AS Date,
+        ${manilaYmdSql()} AS Date,
         MIN(CASE WHEN AttendanceState = 1 THEN AttendanceDateTime END) AS Time1,
         MIN(CASE WHEN AttendanceState = 2 THEN AttendanceDateTime END) AS Time2,
         MIN(CASE WHEN AttendanceState = 3 THEN AttendanceDateTime END) AS Time3,
@@ -3673,11 +3688,12 @@
       FROM AttendanceRecordInfo
       WHERE PersonID = ? AND AttendanceDateTime BETWEEN ? AND ?
       GROUP BY Date, PersonID, PersonName
+      HAVING Date = ?
       LIMIT 1
     `;
 
     const deviceRows = await new Promise((resolve, reject) => {
-      db.query(deviceQuery, [personKey, startTimestamp, endTimestamp], (err, rows) => {
+      db.query(deviceQuery, [personKey, startTimestamp, endTimestamp, dateYmd], (err, rows) => {
         if (err) reject(err);
         else resolve(rows || []);
       });
