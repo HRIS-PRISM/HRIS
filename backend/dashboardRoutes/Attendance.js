@@ -60,6 +60,13 @@
     return `DATE_FORMAT(DATE_ADD('1970-01-01 00:00:00', INTERVAL FLOOR(${column}/1000) + 28800 SECOND), '%Y-%m-%d')`;
   }
 
+  function ymdInInclusiveRange(dateValue, startDate, endDate) {
+    const d = calendarYmd(dateValue) || String(dateValue || '').slice(0, 10);
+    const sd = String(startDate || '').slice(0, 10);
+    const ed = String(endDate || startDate || '').slice(0, 10);
+    return Boolean(d && sd && ed && d >= sd && d <= ed);
+  }
+
   /** Inclusive UTC calendar-day walk — avoids toISOString/local getDate mismatches. */
   function forEachYmdInRange(startYmd, endYmd, fn) {
     if (!startYmd || !endYmd) return;
@@ -2727,12 +2734,16 @@
       FROM AttendanceRecordInfo
       WHERE PersonID = ? AND AttendanceDateTime BETWEEN ? AND ?
       GROUP BY Date, PersonID, PersonName
+      HAVING Date BETWEEN ? AND ?
       ORDER BY Date ASC
     `;
 
+    const rangeStart = String(startDate || '').slice(0, 10);
+    const rangeEnd = String(endDate || startDate || '').slice(0, 10);
+
     db.query(
       query,
-      [personID, startTimestamp, endTimestamp],
+      [personID, startTimestamp, endTimestamp, rangeStart, rangeEnd],
       async (err, results) => {
         if (err) {
           console.error('Error fetching attendance:', err);
@@ -2751,7 +2762,11 @@
           });
         };
 
-        const records = results.map((record) => ({
+        const inRangeRows = (results || []).filter((row) =>
+          ymdInInclusiveRange(row.Date, rangeStart, rangeEnd),
+        );
+
+        const records = inRangeRows.map((record) => ({
           PersonID: record.PersonID,
           PersonName: record.PersonName,
           Date: record.Date,
@@ -2770,7 +2785,7 @@
 
         if (syncDeviceToRecords) {
           try {
-            const syncStats = await syncAggregatedDeviceDays(results, {
+            const syncStats = await syncAggregatedDeviceDays(inRangeRows, {
               formatTime,
               getDayOfWeek,
               determineSpecialType,
@@ -2783,7 +2798,7 @@
             syncErrors.push(...(syncStats.errors || []));
           } catch (syncErr) {
             console.error('Device sync batch failed:', syncErr);
-            syncFailedCount = results.length;
+            syncFailedCount = inRangeRows.length;
             syncErrors.push({ error: syncErr?.message || String(syncErr) });
           }
 
@@ -2801,7 +2816,7 @@
           saved: savedCount,
           updated: updatedCount,
           failed: syncFailedCount,
-          attempted: results.length,
+          attempted: inRangeRows.length,
           errors: syncErrors,
         };
 
@@ -2935,8 +2950,9 @@
             FROM AttendanceRecordInfo
             WHERE AttendanceDateTime BETWEEN ? AND ?
             GROUP BY Date, PersonID, PersonName
+            HAVING Date BETWEEN ? AND ?
           `,
-          [startTimestamp, endTimestamp],
+          [startTimestamp, endTimestamp, startDate, endDate],
           (err, result) => {
             if (err) reject(err);
             else resolve(result || []);

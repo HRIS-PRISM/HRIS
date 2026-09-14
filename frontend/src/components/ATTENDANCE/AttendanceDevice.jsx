@@ -1632,13 +1632,17 @@ const ViewAttendanceRecord = () => {
           ? payload.records
           : [];
       const sync = payload?.sync;
+      const inPeriodRecs = recs.filter((r) => {
+        const d = String(r?.Date || r?.date || '').slice(0, 10);
+        return d >= startDate && d <= endDate;
+      });
       // Keep only punches that belong to a Users-list employee
       const matchedRecs =
         registeredEmployeeSet.size > 0
-          ? recs.filter((r) =>
+          ? inPeriodRecs.filter((r) =>
               registeredEmployeeSet.has(String(r?.PersonID ?? r?.personID ?? pid).trim()),
             )
-          : recs;
+          : inPeriodRecs;
       setRecords(matchedRecs);
       if (matchedRecs.length > 0) {
         const apiName = matchedRecs[0].PersonName || '';
