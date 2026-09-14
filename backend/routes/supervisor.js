@@ -221,47 +221,74 @@ router.post('/api/supervisor-assignment', authenticateToken, requireAdmin, async
     return res.status(400).json({ error: 'Supervisor employee not found in users table.' });
   }
 
-  const sql = `
-    INSERT INTO supervisor_assignment (supervisorEmployeeNumber, departmentCode, role, start, end)
-    VALUES (?, ?, ?, ?, ?)
+  // ── Guard: block ANY duplicate active (status = 0) assignment for this
+  // employee, whether it's the same department or a different one. ──
+  const dupCheckSql = `
+    SELECT id, departmentCode
+    FROM supervisor_assignment
+    WHERE ${supervisorEmpMatchSql('supervisorEmployeeNumber')}
+      AND status = 0
+    LIMIT 1
   `;
-  db.query(sql, [canonicalSupervisor, departmentCode, assignedRole, start, end], async (err, result) => {
-    if (err) {
-      if (err.code === 'ER_DUP_ENTRY') {
-        try {
-          await grantSupervisorLeavePageAccess(canonicalSupervisor);
-        } catch (grantErr) {
-          console.error('[supervisor-leave] duplicate assign page access grant error:', grantErr.message);
-        }
-        return res.status(409).json({ error: 'This supervisor is already assigned to this department.' });
+  db.query(dupCheckSql, bindEmpMatchParams(canonicalSupervisor), async (dupErr, dupRows) => {
+    if (dupErr) {
+      console.error('[supervisor-leave] duplicate check error:', dupErr.message);
+      return res.status(500).json({ error: 'Failed to verify existing supervisor assignment' });
+    }
+    if (dupRows && dupRows.length) {
+      try {
+        await grantSupervisorLeavePageAccess(canonicalSupervisor);
+      } catch (grantErr) {
+        console.error('[supervisor-leave] duplicate guard page access grant error:', grantErr.message);
       }
-      logAudit({ employeeNumber: actorEmpNum }, 'Insert Failed', 'supervisor_assignment', null, canonicalSupervisor);
-      return res.status(500).json({ error: 'Failed to create supervisor assignment' });
-    }
-    const insertedId = result.insertId;
-    try {
-      const [supName, actorName] = await Promise.all([
-        getEmployeeFullName(canonicalSupervisor),
-        getEmployeeFullName(actorEmpNum),
-      ]);
-      const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-      const supDisplay   = formatUserDisplayName(canonicalSupervisor, supName);
-      logAudit({ employeeNumber: actorEmpNum }, `Assign Supervisor - ${assignedRole} for dept ${departmentCode}`, 'supervisor_assignment', insertedId, canonicalSupervisor);
-      await insertTransactionLog(
-        String(canonicalSupervisor),
-        `${actorDisplay} assigned ${supDisplay} as ${assignedRole} for department ${departmentCode}.`,
-        actorEmpNum,
-        { action: 'supervisor_assigned', departmentCode, role: assignedRole, assignment_id: insertedId },
-      );
-    } catch (e) { console.error('[supervisor-leave] post-insert log error:', e.message); }
-
-    try {
-      await grantSupervisorLeavePageAccess(canonicalSupervisor);
-    } catch (e) {
-      console.error('[supervisor-leave] page access grant error:', e.message);
+      return res.status(409).json({
+        error: `This employee already has an active supervisor assignment (department ${dupRows[0].departmentCode}). Remove or archive it before assigning a new one.`,
+      });
     }
 
-    res.status(201).json({ id: insertedId, supervisorEmployeeNumber: canonicalSupervisor, departmentCode, role: assignedRole });
+    // ── Original insert logic continues here, unchanged ──
+    const sql = `
+      INSERT INTO supervisor_assignment (supervisorEmployeeNumber, departmentCode, role, start, end)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    db.query(sql, [canonicalSupervisor, departmentCode, assignedRole, start, end], async (err, result) => {
+      if (err) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          try {
+            await grantSupervisorLeavePageAccess(canonicalSupervisor);
+          } catch (grantErr) {
+            console.error('[supervisor-leave] duplicate assign page access grant error:', grantErr.message);
+          }
+          return res.status(409).json({ error: 'This supervisor is already assigned to this department.' });
+        }
+        logAudit({ employeeNumber: actorEmpNum }, 'Insert Failed', 'supervisor_assignment', null, canonicalSupervisor);
+        return res.status(500).json({ error: 'Failed to create supervisor assignment' });
+      }
+      const insertedId = result.insertId;
+      try {
+        const [supName, actorName] = await Promise.all([
+          getEmployeeFullName(canonicalSupervisor),
+          getEmployeeFullName(actorEmpNum),
+        ]);
+        const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+        const supDisplay   = formatUserDisplayName(canonicalSupervisor, supName);
+        logAudit({ employeeNumber: actorEmpNum }, `Assign Supervisor - ${assignedRole} for dept ${departmentCode}`, 'supervisor_assignment', insertedId, canonicalSupervisor);
+        await insertTransactionLog(
+          String(canonicalSupervisor),
+          `${actorDisplay} assigned ${supDisplay} as ${assignedRole} for department ${departmentCode}.`,
+          actorEmpNum,
+          { action: 'supervisor_assigned', departmentCode, role: assignedRole, assignment_id: insertedId },
+        );
+      } catch (e) { console.error('[supervisor-leave] post-insert log error:', e.message); }
+
+      try {
+        await grantSupervisorLeavePageAccess(canonicalSupervisor);
+      } catch (e) {
+        console.error('[supervisor-leave] page access grant error:', e.message);
+      }
+
+      res.status(201).json({ id: insertedId, supervisorEmployeeNumber: canonicalSupervisor, departmentCode, role: assignedRole });
+    });
   });
 });
 
@@ -271,10 +298,14 @@ router.post('/api/supervisor-assignment', authenticateToken, requireAdmin, async
  * Body: { role }
  */
 router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, async (req, res) => {
-  const { id }  = req.params;
-  const { role } = req.body;
+  const { id } = req.params;
+  const { role, start, end } = req.body;
   const actorEmpNum = getActorEmployeeNumber(req);
   const assignedRole = sanitizeAssignmentTitle(role);
+
+  if (start && end && new Date(start) >= new Date(end)) {
+    return res.status(400).json({ error: 'Start time must be before end time.' });
+  }
 
   db.query(
     'SELECT * FROM supervisor_assignment WHERE id = ?',
@@ -282,9 +313,14 @@ router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, as
     async (fetchErr, rows) => {
       if (fetchErr || !rows.length) return res.status(404).json({ error: 'Assignment not found' });
       const current = rows[0];
+
+      // Keep existing values if the client didn't send new ones.
+      const newStart = start !== undefined && start !== null && start !== '' ? start : current.start;
+      const newEnd   = end   !== undefined && end   !== null && end   !== '' ? end   : current.end;
+
       db.query(
-        'UPDATE supervisor_assignment SET role = ? WHERE id = ?',
-        [assignedRole, id],
+        'UPDATE supervisor_assignment SET role = ?, start = ?, end = ? WHERE id = ?',
+        [assignedRole, newStart, newEnd, id],
         async (updateErr) => {
           if (updateErr) {
             logAudit({ employeeNumber: actorEmpNum }, 'Update Failed', 'supervisor_assignment', id, current.supervisorEmployeeNumber);
@@ -297,15 +333,36 @@ router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, as
             ]);
             const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
             const supDisplay   = formatUserDisplayName(current.supervisorEmployeeNumber, supName);
-            logAudit({ employeeNumber: actorEmpNum }, `Update Supervisor Role to ${assignedRole}`, 'supervisor_assignment', id, current.supervisorEmployeeNumber);
+
+            const changeParts = [];
+            if (assignedRole !== current.role) changeParts.push(`role to ${assignedRole}`);
+            if (String(newStart) !== String(current.start)) changeParts.push(`start to ${newStart}`);
+            if (String(newEnd) !== String(current.end)) changeParts.push(`end to ${newEnd}`);
+            const changeSummary = changeParts.length ? changeParts.join(', ') : 'no changes';
+
+            logAudit({ employeeNumber: actorEmpNum }, `Update Supervisor Assignment - ${changeSummary}`, 'supervisor_assignment', id, current.supervisorEmployeeNumber);
             await insertTransactionLog(
               String(current.supervisorEmployeeNumber),
-              `${actorDisplay} updated ${supDisplay}'s role to ${assignedRole} for department ${current.departmentCode}.`,
+              `${actorDisplay} updated ${supDisplay}'s assignment (${changeSummary}) for department ${current.departmentCode}.`,
               actorEmpNum,
-              { action: 'supervisor_role_updated', departmentCode: current.departmentCode, old_role: current.role, new_role: assignedRole },
+              {
+                action: 'supervisor_assignment_updated',
+                departmentCode: current.departmentCode,
+                old_role: current.role, new_role: assignedRole,
+                old_start: current.start, new_start: newStart,
+                old_end: current.end, new_end: newEnd,
+              },
             );
           } catch (e) { console.error('[supervisor-leave] update log error:', e.message); }
-          res.json({ id, supervisorEmployeeNumber: current.supervisorEmployeeNumber, departmentCode: current.departmentCode, role: assignedRole });
+
+          res.json({
+            id,
+            supervisorEmployeeNumber: current.supervisorEmployeeNumber,
+            departmentCode: current.departmentCode,
+            role: assignedRole,
+            start: newStart,
+            end: newEnd,
+          });
         },
       );
     },
