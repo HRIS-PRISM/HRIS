@@ -256,7 +256,7 @@ const PayrollProcessed = () => {
   const [exportYear, setExportYear] = useState('');
   // '' = all | `dept:CODE` | `emp:TYPE_NAME`
   const [exportInclude, setExportInclude] = useState('');
-  const [exportEmpTypeOptions, setExportEmpTypeOptions] = useState([]);
+  const [exportScopes, setExportScopes] = useState({ departments: [], employmentTypes: [] });
   const [exportAvailability, setExportAvailability] = useState({
     loading: false,
     count: null,
@@ -276,9 +276,10 @@ const PayrollProcessed = () => {
     const { department, employmentType } = parseExportInclude(value);
     if (employmentType) return employmentType;
     if (department) {
-      return departments.find((d) => d.code === department)?.description || department;
+      const match = exportScopes.departments.find((d) => d.code === department);
+      return match?.description || department;
     }
-    return 'All departments & categories';
+    return 'All enabled departments & categories';
   };
 
   // ── Payroll Month Filter State ──────────────────────────────────────────────
@@ -482,28 +483,6 @@ const PayrollProcessed = () => {
     } catch (err) { console.error('Error fetching departments:', err); }
   };
 
-  const fetchExportEmploymentTypes = async () => {
-    try {
-      const res = await axios.get(
-        `${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`,
-        getAuthHeaders(),
-      );
-      const flat = Array.isArray(res.data?.flat) ? res.data.flat : [];
-      const unique = [];
-      const seen = new Set();
-      flat.filter((row) => row.isActive !== 0 && row.isActive !== false).forEach((row) => {
-        const name = String(row.typeName || '').trim();
-        if (!name || seen.has(name)) return;
-        seen.add(name);
-        unique.push({ typeName: name, parentGroup: row.parentGroup || '' });
-      });
-      unique.sort((a, b) => a.typeName.localeCompare(b.typeName));
-      setExportEmpTypeOptions(unique);
-    } catch (err) {
-      console.error('Error fetching employment categories for export:', err);
-    }
-  };
-
   usePayrollRealtimeRefresh(() => {
     fetchDepartments();
     fetchEmpCatMap();
@@ -512,7 +491,7 @@ const PayrollProcessed = () => {
     fetchPayrollFormulasData();
   });
 
-  useEffect(() => { fetchDepartments(); fetchExportEmploymentTypes(); }, []);
+  useEffect(() => { fetchDepartments(); }, []);
   useEffect(() => { fetchEmpCatMap(); }, []);
   useEffect(() => { fetchFinalizedPayroll(); }, [selectedEmpCat, empCatMap]);
   useEffect(() => { fetchReleasedPayroll(); }, []);
@@ -944,13 +923,30 @@ const PayrollProcessed = () => {
     return data?.error || err?.message || 'Export failed.';
   };
 
-  const openAppendix33ExportModal = () => {
+  const openAppendix33ExportModal = async () => {
     const now = new Date();
     setExportMonth(selectedMonth || String(now.getMonth() + 1).padStart(2, '0'));
     setExportYear(selectedYear || String(now.getFullYear()));
-    setExportInclude(selectedDepartment ? `dept:${selectedDepartment}` : '');
+    setExportInclude('');
     setExportAvailability({ loading: true, count: null, available: false, error: '' });
     setOpenExportAppendix33(true);
+    try {
+      const res = await axios.get(
+        `${API_BASE_URL}/PayrollExportRoute/export-appendix33/scopes`,
+        getAuthHeaders(),
+      );
+      const scopes = {
+        departments: Array.isArray(res.data?.departments) ? res.data.departments : [],
+        employmentTypes: Array.isArray(res.data?.employmentTypes) ? res.data.employmentTypes : [],
+      };
+      setExportScopes(scopes);
+      if (selectedDepartment && scopes.departments.some((d) => d.code === selectedDepartment)) {
+        setExportInclude(`dept:${selectedDepartment}`);
+      }
+    } catch (err) {
+      console.error('Error fetching Appendix 33 download scopes:', err);
+      setExportScopes({ departments: [], employmentTypes: [] });
+    }
   };
 
   // Fills the EARIST Appendix 33 template on the server and downloads it for the
@@ -2001,7 +1997,7 @@ const PayrollProcessed = () => {
           </Box>
           <Box sx={{ p: 3 }}>
             <Typography sx={{ fontSize: '0.82rem', color: T.muted, mb: 2, fontFamily: T.font }}>
-              What month and year should the workbook cover? Include one department, one employment category (for example General Administration), or everything.
+              Choose month and year. Include only shows departments and employment categories enabled in Appendix 33 settings.
             </Typography>
             <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
               <FormControl size="small" fullWidth>
@@ -2029,19 +2025,23 @@ const PayrollProcessed = () => {
                 label="Include"
                 sx={filterSelectSx}
               >
-                <MenuItem value="" sx={{ fontSize: '0.82rem', fontFamily: T.font }}>All departments & categories</MenuItem>
-                <ListSubheader sx={{ fontFamily: T.font, fontSize: '0.7rem', fontWeight: 700, color: T.accent, lineHeight: '28px' }}>
-                  Departments
-                </ListSubheader>
-                {departments.map((dept) => (
-                  <MenuItem key={`dept-${dept.id || dept.code}`} value={`dept:${dept.code}`} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
+                <MenuItem value="" sx={{ fontSize: '0.82rem', fontFamily: T.font }}>All enabled departments & categories</MenuItem>
+                {exportScopes.departments.length > 0 && (
+                  <ListSubheader sx={{ fontFamily: T.font, fontSize: '0.7rem', fontWeight: 700, color: T.accent, lineHeight: '28px' }}>
+                    Departments
+                  </ListSubheader>
+                )}
+                {exportScopes.departments.map((dept) => (
+                  <MenuItem key={`dept-${dept.code}`} value={`dept:${dept.code}`} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
                     {dept.description || dept.code}
                   </MenuItem>
                 ))}
-                <ListSubheader sx={{ fontFamily: T.font, fontSize: '0.7rem', fontWeight: 700, color: T.accent, lineHeight: '28px' }}>
-                  Employment categories
-                </ListSubheader>
-                {exportEmpTypeOptions.map((row) => (
+                {exportScopes.employmentTypes.length > 0 && (
+                  <ListSubheader sx={{ fontFamily: T.font, fontSize: '0.7rem', fontWeight: 700, color: T.accent, lineHeight: '28px' }}>
+                    Employment categories
+                  </ListSubheader>
+                )}
+                {exportScopes.employmentTypes.map((row) => (
                   <MenuItem key={`emp-${row.typeName}`} value={`emp:${row.typeName}`} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
                     {row.typeName}
                     {row.parentGroup ? ` (${row.parentGroup})` : ''}
@@ -2049,6 +2049,11 @@ const PayrollProcessed = () => {
                 ))}
               </Select>
             </FormControl>
+            {!exportScopes.departments.length && !exportScopes.employmentTypes.length && (
+              <Alert severity="warning" sx={{ mb: 2, borderRadius: 2, fontFamily: T.font }}>
+                No departments or employment categories are enabled yet. A technical user must map them under Appendix 33 layout first.
+              </Alert>
+            )}
             {exportAvailability.loading && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2.5 }}>
                 <CircularProgress size={14} sx={{ color: T.accent }} />
