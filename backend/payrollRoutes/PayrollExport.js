@@ -26,9 +26,7 @@ const {
   removeTemplate,
   readTemplateBuffer,
 } = require('../services/payrollTemplate/templateStore');
-const { getResolved } = require('../services/payrollTemplate/positionOverrides');
-const M = require('../services/payrollTemplate/appendix33Map');
-
+const { getResolved, resolveScopeTemplate } = require('../services/payrollTemplate/positionOverrides');
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
@@ -73,17 +71,40 @@ function parseExportPeriod(source = {}) {
     return { error: 'Choose either a department or an employment category, not both' };
   }
 
+  const maps = getResolved();
+  const allowedDepartments = Object.keys(maps.departments || {});
+  const allowedEmploymentTypes = Object.keys(maps.employmentTypes || {});
+
+  if (includeAll && !allowedDepartments.length && !allowedEmploymentTypes.length) {
+    return {
+      error: 'No departments or employment categories are enabled for Appendix 33 download. '
+        + 'Configure them under Appendix 33 layout first.',
+    };
+  }
+
   const periodPrefix = `${year}-${String(month).padStart(2, '0')}`;
   const periodName = `${MONTH_NAMES[month - 1]} ${year}`;
   const params = [periodPrefix];
   let where = 'LEFT(pp.startDate, 7) = ?';
+
   if (department && department.toLowerCase() !== 'all') {
     where += ' AND pp.department = ?';
     params.push(department);
-  }
-  if (employmentType) {
+  } else if (employmentType) {
     where += ' AND etc.typeName = ?';
     params.push(employmentType);
+  } else if (includeAll) {
+    // Only employees under an enabled department or employment category.
+    const parts = [];
+    if (allowedDepartments.length) {
+      parts.push(`pp.department IN (${allowedDepartments.map(() => '?').join(',')})`);
+      params.push(...allowedDepartments);
+    }
+    if (allowedEmploymentTypes.length) {
+      parts.push(`etc.typeName IN (${allowedEmploymentTypes.map(() => '?').join(',')})`);
+      params.push(...allowedEmploymentTypes);
+    }
+    where += ` AND (${parts.join(' OR ')})`;
   }
 
   return {
@@ -110,6 +131,90 @@ function emptyFilterMessage(parsed) {
 }
 
 /**
+ * Departments / employment categories must be mapped in Appendix 33 settings
+ * before they can be downloaded. Unmapped scopes are refused.
+ */
+function assertExportScopeAllowed(parsed) {
+  const maps = getResolved();
+  if (parsed.department) {
+    if (!maps.departments?.[parsed.department]) {
+      return {
+        error: `Department ${parsed.department} is not enabled for Appendix 33 download. `
+          + 'Map it under Appendix 33 layout → Departments first.',
+      };
+    }
+  }
+  if (parsed.employmentType) {
+    if (!maps.employmentTypes?.[parsed.employmentType]) {
+      return {
+        error: `Employment category "${parsed.employmentType}" is not enabled for Appendix 33 download. `
+          + 'Map it under Appendix 33 layout → Employment categories first.',
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * GET /PayrollExportRoute/export-appendix33/scopes
+ * Departments and employment categories enabled for download (mapped in settings).
+ */
+router.get('/export-appendix33/scopes', authenticateToken, requireAdmin, (req, res) => {
+  const maps = getResolved();
+  const deptCodes = Object.keys(maps.departments || {}).sort();
+  const empNames = Object.keys(maps.employmentTypes || {}).sort((a, b) => a.localeCompare(b));
+
+  db.query('SELECT code, description FROM department_table ORDER BY code', (err, deptRows) => {
+    if (err) {
+      console.error('Appendix 33 scopes: department_table query failed', err);
+      return res.status(500).json({ error: 'Could not read departments' });
+    }
+
+    const deptMeta = new Map((deptRows || []).map((d) => [d.code, d.description || d.code]));
+    const departments = deptCodes.map((code) => {
+      const scope = resolveScopeTemplate(maps.departments[code], code);
+      return {
+        code,
+        description: deptMeta.get(code) || code,
+        templateKey: scope?.key || '',
+        generated: Boolean(scope?.blueprintKey),
+      };
+    });
+
+    db.query(
+      `SELECT id, parentGroup, typeName, isActive
+       FROM employment_type_config
+       ORDER BY sortOrder ASC, parentGroup ASC, typeName ASC`,
+      (empErr, empRows) => {
+        if (empErr) {
+          console.error('Appendix 33 scopes: employment_type_config query failed', empErr);
+          return res.status(500).json({ error: 'Could not read employment categories' });
+        }
+
+        const empMeta = new Map();
+        (empRows || []).forEach((row) => {
+          if (!empMeta.has(row.typeName)) {
+            empMeta.set(row.typeName, row.parentGroup || '');
+          }
+        });
+
+        const employmentTypes = empNames.map((typeName) => {
+          const scope = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);
+          return {
+            typeName,
+            parentGroup: empMeta.get(typeName) || '',
+            templateKey: scope?.key || '',
+            generated: Boolean(scope?.blueprintKey),
+          };
+        });
+
+        res.json({ departments, employmentTypes });
+      },
+    );
+  });
+});
+
+/**
  * GET /PayrollExportRoute/export-appendix33/availability
  * Query: month, year, department?, employmentType?
  */
@@ -117,6 +222,11 @@ router.get('/export-appendix33/availability', authenticateToken, requireAdmin, (
   const parsed = parseExportPeriod(req.query);
   if (parsed.error) {
     return res.status(400).json({ error: parsed.error, available: false, count: 0 });
+  }
+
+  const scopeError = assertExportScopeAllowed(parsed);
+  if (scopeError) {
+    return res.status(403).json({ error: scopeError.error, available: false, count: 0 });
   }
 
   db.query(
@@ -158,10 +268,31 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
   const parsed = parseExportPeriod(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
 
+  const scopeError = assertExportScopeAllowed(parsed);
+  if (scopeError) return res.status(403).json({ error: scopeError.error });
+
   const {
     month, year, department, employmentType, includeAll, periodName, params, where,
   } = parsed;
   const query = `${PAYROLL_SELECT} WHERE ${where}`;
+
+  // Scopes with no tab set of their own are exported onto sheets copied from a
+  // blueprint block, so allowing a department is enough — no tab mapping needed.
+  let scope = null;
+  if (!includeAll) {
+    const maps = getResolved();
+    scope = employmentType
+      ? resolveScopeTemplate(maps.employmentTypes?.[employmentType], employmentType)
+      : resolveScopeTemplate(maps.departments?.[department], department);
+
+    if (!scope) {
+      return res.status(422).json({
+        error: employmentType
+          ? `Employment category "${employmentType}" is not enabled for Appendix 33 download.`
+          : `Department ${department} is not enabled for Appendix 33 download.`,
+      });
+    }
+  }
 
   db.query(query, params, (err, rows) => {
     if (err) {
@@ -180,6 +311,7 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
         year,
         payrollNoSeed: req.body?.payrollNoSeed,
         quincena: req.body?.quincena,
+        forceScope: scope,
       });
     } catch (buildErr) {
       console.error('Appendix 33 export: could not build run', buildErr);
@@ -195,36 +327,14 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
       });
     }
 
-    let onlyDepartmentKey = null;
-    if (!includeAll) {
-      const maps = getResolved();
-      if (employmentType) {
-        onlyDepartmentKey = maps.employmentTypes?.[employmentType] || null;
-      } else if (department) {
-        onlyDepartmentKey = maps.departments?.[department] || null;
-      }
-      if (!onlyDepartmentKey) {
-        const withData = Object.entries(built.counts || {})
-          .filter(([, count]) => Number(count) > 0)
-          .map(([key]) => key);
-        onlyDepartmentKey = withData.length === 1 ? withData[0] : null;
-      }
-      if (!onlyDepartmentKey || !M.DEPARTMENT_KEYS.includes(onlyDepartmentKey)) {
-        return res.status(422).json({
-          error: employmentType
-            ? `Employment category "${employmentType}" is not mapped to an Appendix 33 sheet group.`
-            : `Department ${department} is not mapped to an Appendix 33 sheet group.`,
-          unmapped: [{
-            department: employmentType ? `emp:${employmentType}` : department,
-            count: rows.length,
-          }],
-        });
-      }
-    }
+    const blueprints = { ...(built.blueprints || {}) };
+    const onlyDepartmentKey = scope ? scope.key : null;
+    const onlyDepartmentTitle = scope ? String(employmentType || department).toUpperCase() : '';
+    if (scope?.blueprintKey) blueprints[scope.key] = scope.blueprintKey;
 
     let buffer;
     try {
-      buffer = fillAppendix33(built.run, { onlyDepartmentKey });
+      buffer = fillAppendix33(built.run, { onlyDepartmentKey, onlyDepartmentTitle, blueprints });
     } catch (fillErr) {
       if (fillErr instanceof Appendix33CapacityError) {
         return res.status(422).json({ error: fillErr.message, overflows: fillErr.overflows });

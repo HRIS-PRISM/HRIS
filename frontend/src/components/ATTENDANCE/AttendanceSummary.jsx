@@ -568,10 +568,13 @@ const OverallAttendance = () => {
     return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
   };
 
-  // Restore inputs from workflow navigation only (not logged-in user localStorage).
+  // Restore inputs from workflow / Earnings navigation only (not logged-in user localStorage).
   useEffect(() => {
     const st = location.state;
-    const inWorkflow = st?.fromAttendanceWorkflow === true || st?.fromDevice === true;
+    const inWorkflow =
+      st?.fromAttendanceWorkflow === true ||
+      st?.fromDevice === true ||
+      st?.fromEarnings === true;
     if (!inWorkflow) return;
 
     const en = st?.employeeNumber != null ? String(st.employeeNumber).trim() : '';
@@ -580,6 +583,12 @@ const OverallAttendance = () => {
     setEmployeeNumber(en);
     if (st.startDate) setStartDate(String(st.startDate).slice(0, 10));
     if (st.endDate) setEndDate(String(st.endDate).slice(0, 10));
+    if (st.selectedYear != null) setSelectedYear(Number(st.selectedYear));
+    if (st.selectedMonth != null) {
+      const m = Number(st.selectedMonth);
+      // Earnings uses 1–12; Attendance Summary month picker uses 0–11
+      setSelectedMonth(m >= 1 && m <= 12 ? m - 1 : m);
+    }
   }, [location.key]);
 
   // ── Month picker ──────────────────────────────────────────────────────────

@@ -18,6 +18,106 @@ const TECHNICAL_ROLES = ['technical'];
 /** Roles whose actions are written to admin_action_trail (excludes technical). */
 const TRAILED_ADMIN_ROLES = ['superadmin', 'administrator', 'admin'];
 
+/**
+ * Admin Action Trail should only capture consequential admin work — not browsing.
+ * Routine VIEW / SEARCH / LOAD noise stays in audit_log only.
+ */
+const ADMIN_TRAIL_EXCLUDE = [
+  'view',
+  'open',
+  'read',
+  'search',
+  'fetch',
+  'load',
+  'list',
+  'get',
+  'browse',
+  'preview',
+  'check',
+  'verify',
+  'access granted',
+  'access denied',
+  'login',
+  'logout',
+  'session',
+  'refresh',
+];
+
+const ADMIN_TRAIL_INCLUDE = [
+  'create',
+  'add',
+  'insert',
+  'register',
+  'update',
+  'edit',
+  'modify',
+  'change',
+  'delete',
+  'remove',
+  'destroy',
+  'reset',
+  'grant',
+  'revoke',
+  'assign',
+  'unassign',
+  'approve',
+  'reject',
+  'bulk',
+  'import',
+  'upload',
+  'excel',
+  'password',
+  'role',
+  'status',
+  'branch',
+  'privilege',
+  'permission',
+  'page access',
+  'disable',
+  'enable',
+  'activate',
+  'deactivate',
+  'terminate',
+  'process',
+  'finalize',
+  'release',
+  'post',
+  'generate',
+  'send',
+];
+
+function shouldTrailAdminAction(action, tableName = '') {
+  const a = String(action || '').toLowerCase().trim();
+  const t = String(tableName || '').toLowerCase().trim();
+  if (!a) return false;
+
+  // Never trail browsing of the audit / trail modules themselves
+  if (
+    t.includes('audit') ||
+    t.includes('admin_action') ||
+    t.includes('admin action')
+  ) {
+    return false;
+  }
+
+  if (ADMIN_TRAIL_EXCLUDE.some((k) => a === k || a.startsWith(`${k} `) || a.includes(` ${k}`))) {
+    // Still allow if the action is clearly a security/mutation phrase
+    // e.g. "change role", "reset password" must stay
+    const isSecurityMutation = ADMIN_TRAIL_INCLUDE.some((k) => a.includes(k));
+    if (!isSecurityMutation) return false;
+    // "view users" / "search users" style — exclude wins unless include is stronger
+    if (
+      ['view', 'open', 'read', 'search', 'fetch', 'load', 'list', 'get', 'browse'].some(
+        (k) => a === k || a.startsWith(`${k} `),
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return ADMIN_TRAIL_INCLUDE.some((k) => a.includes(k));
+}
+
 /** Short TTL cache so every API call does not re-hit users + canonical emp lookup. */
 const ENRICH_TTL_MS = Math.max(
   5_000,
@@ -443,6 +543,11 @@ function logAudit(
   );
 
   if (actorRole && TRAILED_ADMIN_ROLES.includes(actorRole)) {
+    // Skip views/searches/loads — trail only consequential admin work
+    if (!shouldTrailAdminAction(action, tableName)) {
+      return;
+    }
+
     const trailQuery = `
       INSERT INTO admin_action_trail
         (employeeNumber, actor_role, action, table_name, record_id, targetEmployeeNumber, details_json, timestamp)
@@ -508,6 +613,7 @@ module.exports = {
   employeeNumbersMatch,
   logAudit,
   insertAuditLog,
+  shouldTrailAdminAction,
   ADMIN_ROLES,
   SUPERADMIN_ROLES,
   TRAILED_ADMIN_ROLES,

@@ -115,9 +115,61 @@ function dailyRateFormula(paySheet, payRow, daysInPeriod) {
   return `'${paySheet}'!I${payRow}/${divisor}`;
 }
 
+/** Blueprint sheet name -> generated sheet name, for rewriting cross-sheet formulas. */
+function sheetRenameMap(fromKey, toKey) {
+  const from = M.sheetNames(fromKey);
+  const to = M.sheetNames(toKey);
+  return { [from.wtax]: to.wtax, [from.pay]: to.pay, [from.deds]: to.deds };
+}
+
+function renameSheetRefs(formula, renames) {
+  let out = formula;
+  for (const [from, to] of Object.entries(renames)) {
+    out = out.split(`'${from}'!`).join(`'${to}'!`);
+    if (!/[\s'![\]]/.test(from)) out = out.split(`${from}!`).join(`${to}!`);
+  }
+  return out;
+}
+
+/**
+ * Creates a department's three tabs by copying a blueprint block.
+ *
+ * This is what lets an admin allow a department the template was never drawn for:
+ * the copy carries the blueprint's columns, formulas, styles and merges, and its
+ * formulas are repointed at the new trio so the block totals itself.
+ */
+function generateDepartmentSheets(pkg, key, blueprintKey) {
+  const source = M.sheetNames(blueprintKey);
+  const target = M.sheetNames(key);
+  const renames = sheetRenameMap(blueprintKey, key);
+  for (const kind of ['wtax', 'pay', 'deds']) {
+    pkg.cloneSheet(source[kind], target[kind], renames);
+  }
+}
+
+/**
+ * The department blocks this run has to touch: the template's own 13, plus one
+ * entry per generated department. Generated blocks borrow their blueprint's
+ * geometry, because they are a byte-for-byte copy of it.
+ */
+function describeDepartments(layout, blueprints) {
+  const all = M.DEPARTMENTS.map((dept) => ({
+    ...dept,
+    blueprintKey: null,
+    geometry: layout.departments[dept.key],
+  }));
+  for (const [key, blueprintKey] of Object.entries(blueprints || {})) {
+    if (all.some((d) => d.key === key)) continue;
+    const geometry = layout.departments[blueprintKey];
+    if (!geometry) continue;
+    all.push({ key, title: key, summaryRow: null, blueprintKey, geometry });
+  }
+  return all;
+}
+
 function fillDepartment(pkg, dept, employees, layout, map, daysInPeriod) {
   const names = M.sheetNames(dept.key);
-  const geometry = layout.departments[dept.key];
+  const geometry = dept.geometry || layout.departments[dept.key];
   const sheets = {
     wtax: pkg.sheet(names.wtax),
     pay: pkg.sheet(names.pay),
@@ -228,8 +280,37 @@ function blankInactiveSummaryRows(pkg, onlyDepartmentKey) {
 }
 
 /**
+ * Gives a generated department a SUMMARY line by taking over its blueprint's row.
+ *
+ * SUMMARY has exactly 13 hand-drawn department rows, so a generated block cannot
+ * get one of its own. On a single-department download every other row is blanked
+ * anyway, which frees the blueprint's row to be repointed at the generated tabs.
+ */
+function pointSummaryRowAt(pkg, dept, title) {
+  const summary = pkg.sheet('SUMMARY');
+  const blueprint = M.DEPARTMENTS.find((d) => d.key === dept.blueprintKey);
+  if (!blueprint) return;
+
+  const row = blueprint.summaryRow;
+  const captured = {};
+  for (const col of SUMMARY_AMOUNT_COLS) captured[col] = summary.formulaAt(col + row);
+
+  blankInactiveSummaryRows(pkg, null);
+
+  const renames = sheetRenameMap(dept.blueprintKey, dept.key);
+  for (const [col, formula] of Object.entries(captured)) {
+    if (formula === null) continue;
+    summary.setFormula(col + row, renameSheetRefs(formula, renames));
+  }
+  summary.setText(`C${row}`, title || dept.key);
+}
+
+/**
  * @param {import('./contract').Appendix33Run} run
- * @param {{templatePath?: string, onlyDepartmentKey?: string|null}} [options]
+ * @param {{templatePath?: string, onlyDepartmentKey?: string|null,
+ *          onlyDepartmentTitle?: string, blueprints?: Object.<string,string>}} [options]
+ *        `blueprints` maps a department key the template has no tabs for to the block
+ *        whose three sheets should be copied for it.
  * @returns {Buffer} the filled .xlsm
  */
 function fillAppendix33(run, options = {}) {
@@ -241,16 +322,22 @@ function fillAppendix33(run, options = {}) {
   const layout = loadLayout();
   const map = getResolved();
 
+  const blueprints = {};
+  for (const [key, blueprintKey] of Object.entries(options.blueprints || {})) {
+    if (layout.departments[blueprintKey]) blueprints[key] = blueprintKey;
+  }
+
+  const allDepts = describeDepartments(layout, blueprints);
   const activeDepts = onlyDepartmentKey
-    ? M.DEPARTMENTS.filter((dept) => dept.key === onlyDepartmentKey)
-    : M.DEPARTMENTS;
+    ? allDepts.filter((dept) => dept.key === onlyDepartmentKey)
+    : allDepts;
 
   if (onlyDepartmentKey && !activeDepts.length) {
     throw new Appendix33MappingError([{ department: onlyDepartmentKey, count: 0 }]);
   }
 
   const unmapped = Object.keys(departments)
-    .filter((key) => !layout.departments[key])
+    .filter((key) => !allDepts.some((dept) => dept.key === key))
     .map((key) => ({ department: key, count: departments[key].length }));
   if (unmapped.length) throw new Appendix33MappingError(unmapped);
 
@@ -258,12 +345,18 @@ function fillAppendix33(run, options = {}) {
     .map((dept) => ({
       department: dept.key,
       needed: (departments[dept.key] || []).length,
-      capacity: layout.departments[dept.key].capacity,
+      capacity: dept.geometry.capacity,
     }))
     .filter((o) => o.needed > o.capacity);
   if (overflows.length) throw new Appendix33CapacityError(overflows);
 
   const pkg = XlsmPackage.load(fs.readFileSync(templatePath));
+
+  // Copy the blueprint trio for every generated department before anything else is
+  // parsed or filled, so the new tabs behave like template ones from here on.
+  for (const dept of activeDepts) {
+    if (dept.blueprintKey) generateDepartmentSheets(pkg, dept.key, dept.blueprintKey);
+  }
 
   // Expand shared formulas and drop every cached result across the whole workbook, so
   // no figure from a previous period can be printed before Excel recalculates.
@@ -271,10 +364,10 @@ function fillAppendix33(run, options = {}) {
 
   // Always walk every department block: the selected one gets employees, the rest
   // are cleared so hidden sheets never keep leftover template sample rows.
-  for (const dept of M.DEPARTMENTS) {
-    const employees = activeDepts.some((d) => d.key === dept.key)
-      ? (departments[dept.key] || [])
-      : [];
+  for (const dept of allDepts) {
+    const isActive = activeDepts.some((d) => d.key === dept.key);
+    if (!isActive && dept.blueprintKey) continue; // its tabs were never created
+    const employees = isActive ? (departments[dept.key] || []) : [];
     fillDepartment(pkg, dept, employees, layout, map, run.daysInPeriod);
   }
   writePeriodCells(pkg, run, activeDepts);
@@ -282,7 +375,9 @@ function fillAppendix33(run, options = {}) {
   // Single-department downloads: only four tabs visible, and other SUMMARY rows
   // show "-" instead of live cross-sheet formulas / #REF!.
   if (onlyDepartmentKey) {
-    blankInactiveSummaryRows(pkg, onlyDepartmentKey);
+    const dept = activeDepts[0];
+    if (dept.blueprintKey) pointSummaryRowAt(pkg, dept, options.onlyDepartmentTitle);
+    else blankInactiveSummaryRows(pkg, onlyDepartmentKey);
     const names = M.sheetNames(onlyDepartmentKey);
     pkg.showOnlySheets(['SUMMARY', names.wtax, names.pay, names.deds]);
   }

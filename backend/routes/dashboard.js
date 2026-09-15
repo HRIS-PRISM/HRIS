@@ -35,11 +35,11 @@ router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
       );
     stats.presentToday = attendanceToday[0].total;
 
-    // Pending Leave Requests (checking both 'pending' and 'Pending')
+    // Pending leave requests needing action (0 = pending review, 1 = awaiting HR)
     const [pendingLeaves] = await db
       .promise()
       .query(
-        'SELECT COUNT(*) as total FROM leave_request WHERE LOWER(status) = "pending"'
+        `SELECT COUNT(*) as total FROM leave_request WHERE CAST(status AS CHAR) IN ('0', '1')`
       );
     stats.pendingLeaves = pendingLeaves[0]?.total || 0;
 
@@ -72,6 +72,7 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
+      const { days } = req.query;
       const dayCount = Math.min(Math.max(parseInt(days, 10) || 7, 1), 90);
       const end = new Date();
       end.setHours(23, 59, 59, 999);
@@ -150,41 +151,130 @@ router.get(
   }
 );
 
-// Get Leave Statistics
+// Get Leave Statistics (numeric: 0 pending, 1 supervisor, 2 HR approved, 3 denied)
 router.get('/api/dashboard/leave-stats', authenticateToken, async (req, res) => {
   try {
-    const [pending] = await db
-      .promise()
-      .query(
-        'SELECT COUNT(*) as count FROM leave_request WHERE LOWER(status) = "pending"'
-      );
-
-    const [approved] = await db
-      .promise()
-      .query(
-        'SELECT COUNT(*) as count FROM leave_request WHERE LOWER(status) = "approved"'
-      );
-
-    const [rejected] = await db
-      .promise()
-      .query(
-        'SELECT COUNT(*) as count FROM leave_request WHERE LOWER(status) = "rejected"'
-      );
-
-    const stats = {
-      pending: pending[0]?.count || 0,
-      approved: approved[0]?.count || 0,
-      rejected: rejected[0]?.count || 0,
-      total:
-        (pending[0]?.count || 0) +
-        (approved[0]?.count || 0) +
-        (rejected[0]?.count || 0),
-    };
-
-    res.json(stats);
+    const [rows] = await db.promise().query(`
+      SELECT
+        SUM(CASE WHEN CAST(status AS CHAR) = '0' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN CAST(status AS CHAR) = '1' THEN 1 ELSE 0 END) AS supervisor,
+        SUM(CASE WHEN CAST(status AS CHAR) = '2' THEN 1 ELSE 0 END) AS approved,
+        SUM(CASE WHEN CAST(status AS CHAR) = '3' THEN 1 ELSE 0 END) AS rejected
+      FROM leave_request
+    `);
+    const r = rows[0] || {};
+    const pending = Number(r.pending) || 0;
+    const supervisor = Number(r.supervisor) || 0;
+    const approved = Number(r.approved) || 0;
+    const rejected = Number(r.rejected) || 0;
+    res.json({
+      pending,
+      supervisor,
+      approved,
+      rejected,
+      needsAction: pending + supervisor,
+      total: pending + supervisor + approved + rejected,
+    });
   } catch (error) {
     console.error('Error fetching leave stats:', error);
     res.status(500).json({ error: 'Failed to fetch leave statistics' });
+  }
+});
+
+/** Admin home: actionable queue counts + recent pending leave rows. */
+router.get('/api/dashboard/admin-queue', authenticateToken, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 20);
+
+    const [leaveCounts] = await db.promise().query(`
+      SELECT
+        SUM(CASE WHEN CAST(status AS CHAR) = '0' THEN 1 ELSE 0 END) AS pendingReview,
+        SUM(CASE WHEN CAST(status AS CHAR) = '1' THEN 1 ELSE 0 END) AS awaitingHr
+      FROM leave_request
+    `);
+
+    const [pendingLeaves] = await db.promise().query(
+      `
+      SELECT lr.id, lr.employeeNumber, lr.leave_code, lr.status,
+        lt.leave_description,
+        CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS fullName,
+        DATE_FORMAT(lr.leave_date, '%Y-%m-%d') AS leave_date,
+        DATE_FORMAT(lr.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+      FROM leave_request lr
+      LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code
+      LEFT JOIN person_table p ON lr.employeeNumber = p.agencyEmployeeNum
+      WHERE CAST(lr.status AS CHAR) IN ('0', '1')
+      ORDER BY lr.created_at DESC
+      LIMIT ?
+    `,
+      [limit],
+    );
+
+    let openTickets = 0;
+    let recentTickets = [];
+    try {
+      const [ticketCount] = await db.promise().query(`
+        SELECT COUNT(*) AS total FROM contact_us
+        WHERE status IN ('new', 'on_process', 'read')
+      `);
+      openTickets = Number(ticketCount[0]?.total) || 0;
+      const [tickets] = await db.promise().query(`
+        SELECT id, name, subject, status, created_at, employee_number
+        FROM contact_us
+        WHERE status IN ('new', 'on_process', 'read')
+        ORDER BY created_at DESC
+        LIMIT 5
+      `);
+      recentTickets = tickets || [];
+    } catch (ticketErr) {
+      console.warn('admin-queue tickets:', ticketErr?.message);
+    }
+
+    let pendingPayroll = 0;
+    let processedPayroll = 0;
+    let latestPeriod = null;
+    try {
+      const [pending] = await db
+        .promise()
+        .query(
+          'SELECT COUNT(*) AS count FROM payroll_processing WHERE status = 0',
+        );
+      const [processed] = await db
+        .promise()
+        .query(
+          'SELECT COUNT(*) AS count FROM payroll_processing WHERE status = 1',
+        );
+      const [period] = await db.promise().query(`
+        SELECT startDate, endDate, COUNT(*) AS employeeCount
+        FROM payroll_processing
+        GROUP BY startDate, endDate
+        ORDER BY startDate DESC
+        LIMIT 1
+      `);
+      pendingPayroll = Number(pending[0]?.count) || 0;
+      processedPayroll = Number(processed[0]?.count) || 0;
+      latestPeriod = period[0] || null;
+    } catch (payErr) {
+      console.warn('admin-queue payroll:', payErr?.message);
+    }
+
+    const pendingReview = Number(leaveCounts[0]?.pendingReview) || 0;
+    const awaitingHr = Number(leaveCounts[0]?.awaitingHr) || 0;
+
+    res.json({
+      pendingReview,
+      awaitingHr,
+      leaveNeedsAction: pendingReview + awaitingHr,
+      openTickets,
+      pendingPayroll,
+      processedPayroll,
+      latestPeriod,
+      pendingLeaves: pendingLeaves || [],
+      recentTickets,
+    });
+  } catch (error) {
+    console.error('Error fetching admin queue:', error);
+    res.status(500).json({ error: 'Failed to fetch admin queue' });
   }
 });
 

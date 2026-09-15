@@ -9,6 +9,76 @@ import {
 } from '../../utils/dtrFormatHelpers';
 
 const MM_TO_PX = 96 / 25.4;
+const PX_TO_MM = 25.4 / 96;
+
+const parseBorderPx = (value) => {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const isBoxedDtrCell = (cell, win) => {
+  const cs = win.getComputedStyle(cell);
+  return ['Top', 'Right', 'Bottom', 'Left'].every(
+    (side) => parseBorderPx(cs[`border${side}Width`]) > 0,
+  );
+};
+
+/**
+ * html2canvas does not collapse adjacent 1px table borders the way browsers
+ * do in print, so each shared edge is painted twice and the DTR grid looks
+ * about twice as thick as Print. Convert boxed cells to one-sided borders
+ * (right + bottom, plus outer top/left) so the snapshot matches print.
+ */
+const prepareDtrGridForHtml2Canvas = (clonedDoc) => {
+  const win = clonedDoc.defaultView;
+  if (!win) return;
+
+  clonedDoc.querySelectorAll('.dtr-table').forEach((table) => {
+    const boxed = [];
+    const occupied = [];
+
+    const mark = (r, c, rowSpan, colSpan) => {
+      for (let i = 0; i < rowSpan; i += 1) {
+        occupied[r + i] ||= [];
+        for (let j = 0; j < colSpan; j += 1) occupied[r + i][c + j] = true;
+      }
+    };
+
+    const firstFreeCol = (r) => {
+      occupied[r] ||= [];
+      let c = 0;
+      while (occupied[r][c]) c += 1;
+      return c;
+    };
+
+    Array.from(table.rows).forEach((tr, r) => {
+      Array.from(tr.cells).forEach((cell) => {
+        const c = firstFreeCol(r);
+        const rowSpan = Number(cell.rowSpan) || 1;
+        const colSpan = Number(cell.colSpan) || 1;
+        mark(r, c, rowSpan, colSpan);
+        if (isBoxedDtrCell(cell, win)) boxed.push({ cell, r, c });
+      });
+    });
+
+    if (!boxed.length) return;
+
+    table.style.setProperty('border-collapse', 'separate', 'important');
+    table.style.setProperty('border-spacing', '0', 'important');
+
+    const minR = Math.min(...boxed.map((b) => b.r));
+    const minC = Math.min(...boxed.map((b) => b.c));
+
+    boxed.forEach(({ cell, r, c }) => {
+      const color = win.getComputedStyle(cell).borderTopColor || '#000';
+      const top = r === minR ? '1px' : '0';
+      const left = c === minC ? '1px' : '0';
+      cell.style.setProperty('border-style', 'solid', 'important');
+      cell.style.setProperty('border-color', color, 'important');
+      cell.style.setProperty('border-width', `${top} 1px 1px ${left}`, 'important');
+    });
+  });
+};
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -333,21 +403,24 @@ export async function downloadDtrHtmlPages(
     for (let i = 0; i < areas.length; i++) {
       onProgress?.(i + 1, areas.length);
       const canvas = await html2canvas(areas[i], {
-        scale: areas.length >= 30 ? 1.1 : areas.length >= 15 ? 1.35 : 1.6,
+        // Integer scale keeps 1px grid lines on pixel boundaries.
+        scale: areas.length >= 30 ? 1 : 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
+        onclone: prepareDtrGridForHtml2Canvas,
       });
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
-      const imgW = canvas.width;
-      const imgH = canvas.height;
-      const scale = Math.min(maxW / (imgW * 0.264583), maxH / (imgH * 0.264583));
-      const drawW = imgW * 0.264583 * scale;
-      const drawH = imgH * 0.264583 * scale;
+      // PNG keeps hairline grid strokes; JPEG smears 1px rules into thicker bars.
+      const imgData = canvas.toDataURL('image/png');
+      const srcW = (areas[i].offsetWidth || canvas.width) * PX_TO_MM;
+      const srcH = (areas[i].offsetHeight || canvas.height) * PX_TO_MM;
+      const fit = Math.min(maxW / srcW, maxH / srcH, 1);
+      const drawW = srcW * fit;
+      const drawH = srcH * fit;
       const x = (pageW - drawW) / 2;
       const y = (pageH - drawH) / 2;
       if (i > 0) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', x, y, drawW, drawH);
+      pdf.addImage(imgData, 'PNG', x, y, drawW, drawH);
     }
 
     const blob = pdf.output('blob');
