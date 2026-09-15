@@ -89,19 +89,36 @@ function normalizeFirstRow(value, fallback, label) {
   return n;
 }
 
+/**
+ * Value meaning "allowed to download, work the tab set out yourself".
+ *
+ * An entry in these maps is the allow-list: a department or employment category
+ * that is absent cannot be exported at all. AUTO lets the admin allow a scope
+ * without knowing or caring which tabs back it — the export reuses a matching
+ * tab set when the template has one and generates a new one when it does not.
+ */
+const AUTO = 'auto';
+
+function normalizeTemplateValue(value, subject) {
+  const raw = value == null ? '' : String(value).trim();
+  if (!raw) return '';
+  if (raw.toLowerCase() === AUTO) return AUTO;
+  if (!M.DEPARTMENT_KEYS.includes(raw)) {
+    throw new Error(`${subject} is mapped to unknown sheet "${raw}"`);
+  }
+  return raw;
+}
+
 function normalizeDeptMap(incoming) {
   const out = { ...M.DB_DEPT_TO_TEMPLATE };
   if (!incoming || typeof incoming !== 'object') return out;
   for (const [code, key] of Object.entries(incoming)) {
     const deptCode = String(code).trim();
     if (!deptCode) continue;
-    const templateKey = key == null ? '' : String(key).trim();
+    const templateKey = normalizeTemplateValue(key, deptCode);
     if (!templateKey) {
       delete out[deptCode];
       continue;
-    }
-    if (!M.DEPARTMENT_KEYS.includes(templateKey)) {
-      throw new Error(`${deptCode} is mapped to unknown sheet "${templateKey}"`);
     }
     out[deptCode] = templateKey;
   }
@@ -115,17 +132,40 @@ function normalizeEmpTypeMap(incoming) {
   for (const [typeName, key] of Object.entries(incoming)) {
     const name = String(typeName).trim();
     if (!name) continue;
-    const templateKey = key == null ? '' : String(key).trim();
+    const templateKey = normalizeTemplateValue(key, `Employment category "${name}"`);
     if (!templateKey) {
       delete out[name];
       continue;
     }
-    if (!M.DEPARTMENT_KEYS.includes(templateKey)) {
-      throw new Error(`Employment category "${name}" is mapped to unknown sheet "${templateKey}"`);
-    }
     out[name] = templateKey;
   }
   return out;
+}
+
+/**
+ * Works out which tab set backs an allowed department / employment category.
+ *
+ * Explicit mappings win, so an admin can still pin "Job Order" onto the JO block.
+ * With AUTO we look for a tab set already named after the scope and, failing that,
+ * declare a generated one: the caller copies `blueprintKey`'s three sheets under
+ * the new key instead of refusing the export.
+ *
+ * @param {string} mapValue stored value ('' / AUTO / template key)
+ * @param {string} scopeLabel department code or employment category name
+ * @returns {{key:string, blueprintKey:string|null}|null} null when not allowed
+ */
+function resolveScopeTemplate(mapValue, scopeLabel) {
+  const value = mapValue == null ? '' : String(mapValue).trim();
+  if (!value) return null;
+  if (value.toLowerCase() !== AUTO) return { key: value, blueprintKey: null };
+
+  const candidate = M.sanitizeDepartmentKey(scopeLabel);
+  if (!candidate) return null;
+
+  const existing = M.DEPARTMENT_KEYS.find((k) => k.toUpperCase() === candidate);
+  if (existing) return { key: existing, blueprintKey: null };
+
+  return { key: candidate, blueprintKey: M.DEFAULT_BLUEPRINT_KEY };
 }
 
 function ownedFrom(inputCols) {
@@ -206,6 +246,8 @@ function describeLayout() {
 module.exports = {
   FILE,
   FIELD_META,
+  AUTO,
+  resolveScopeTemplate,
   loadOverrides,
   getResolved,
   saveOverrides,

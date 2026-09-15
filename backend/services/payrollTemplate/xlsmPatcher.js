@@ -33,6 +33,21 @@ function getAttr(attrs, name) {
   return m ? m[1] : null;
 }
 
+/**
+ * Resolves an OPC relationship Target against the folder holding the source part.
+ * e.g. ('xl/worksheets', '../drawings/drawing2.xml') -> 'xl/drawings/drawing2.xml'
+ */
+function resolvePartPath(baseDir, target) {
+  if (target.startsWith('/')) return target.slice(1);
+  const out = [];
+  for (const segment of `${baseDir}/${target}`.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') out.pop();
+    else out.push(segment);
+  }
+  return out.join('/');
+}
+
 function setAttr(attrs, name, value) {
   const re = new RegExp(`\\s${name}="[^"]*"`);
   if (value === null) return attrs.replace(re, '');
@@ -332,6 +347,171 @@ class XlsmPackage {
 
   sheetNames() {
     return [...this.sheetPaths.keys()];
+  }
+
+  /** Next free part path of the form dir/a33genN.ext. */
+  nextGeneratedPath(dir, ext) {
+    let i = 1;
+    let candidate = `${dir}/a33gen${i}.${ext}`;
+    while (this.entries[candidate]) {
+      i += 1;
+      candidate = `${dir}/a33gen${i}.${ext}`;
+    }
+    return candidate;
+  }
+
+  /** Duplicates a part's `<Override>` in [Content_Types].xml under a new part name. */
+  copyContentTypeOverride(fromPath, toPath) {
+    const ctPath = '[Content_Types].xml';
+    if (!this.entries[ctPath]) return;
+    const ct = this.text(ctPath);
+    const existing = new RegExp(`<Override\\b[^>]*PartName="/${fromPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*/>`).exec(ct);
+    if (!existing) return; // covered by a Default extension rule
+    this.writeText(ctPath, ct.replace('</Types>', `${existing[0].replace(`/${fromPath}`, `/${toPath}`)}</Types>`));
+  }
+
+  /**
+   * Deep-copies a part and its relationship file.
+   *
+   * Used for drawings: a drawing part belongs to exactly one sheet, so a copied
+   * sheet needs its own. The drawing's own relationships (to xl/media images)
+   * are carried over untouched, because image parts are shared safely and that
+   * is what keeps the EARIST logo on a generated tab.
+   *
+   * @returns {string} path of the new part
+   */
+  copyPart(sourcePath, dir, ext) {
+    const newPath = this.nextGeneratedPath(dir, ext);
+    this.entries[newPath] = this.entries[sourcePath];
+
+    const relsOf = (p) => p.replace(/([^/]+)$/, '_rels/$1.rels');
+    if (this.entries[relsOf(sourcePath)]) {
+      this.entries[relsOf(newPath)] = this.entries[relsOf(sourcePath)];
+    }
+    this.copyContentTypeOverride(sourcePath, newPath);
+    return newPath;
+  }
+
+  /**
+   * Copies a worksheet's relationship file for a generated sheet.
+   *
+   * Drawings and printer settings belong to one sheet each, so the copy gets its
+   * own; that is what keeps the logo and the print setup on a generated tab.
+   * Relationships that must stay unique but have no meaning on a copy — comments,
+   * VML, tables, OLE objects, form controls — are dropped, matching the elements
+   * stripped from the sheet XML. Everything else (external links, images) is
+   * shared, which is safe for those part types.
+   */
+  cloneSheetRels(sourcePath, newPath) {
+    const relsOf = (p) => p.replace(/([^/]+)$/, '_rels/$1.rels');
+    const sourceRels = relsOf(sourcePath);
+    if (!this.entries[sourceRels]) return;
+
+    const OWNED = {
+      drawing: { dir: 'xl/drawings', ext: 'xml' },
+      printerSettings: { dir: 'xl/printerSettings', ext: 'bin' },
+    };
+
+    const rels = this.text(sourceRels).replace(
+      /<Relationship\b[^>]*?\/>|<Relationship\b[\s\S]*?<\/Relationship>/g,
+      (tag) => {
+        const type = getAttr(tag, 'Type') || '';
+        if (/\/(comments|table|oleObject|control|ctrlProp|vmlDrawing)$/.test(type)) return '';
+
+        const owned = OWNED[type.split('/').pop()];
+        if (!owned) return tag;
+
+        const target = getAttr(tag, 'Target') || '';
+        if (!target || getAttr(tag, 'TargetMode') === 'External') return tag;
+
+        const absolute = resolvePartPath('xl/worksheets', target);
+        if (!this.entries[absolute]) return '';
+        const copied = this.copyPart(absolute, owned.dir, owned.ext);
+        return tag.replace(/Target="[^"]*"/, `Target="../${copied.replace(/^xl\//, '')}"`);
+      },
+    );
+    this.writeText(relsOf(newPath), rels);
+  }
+
+  /**
+   * Copies an existing worksheet into a brand new tab.
+   *
+   * The copy keeps the blueprint's columns, formulas, styles, merges, row geometry,
+   * print setup and drawings, which is what makes a generated department block look
+   * and print exactly like a hand-made one.
+   *
+   * @param {string} sourceName sheet to copy
+   * @param {string} newName tab name for the copy
+   * @param {Object.<string,string>} [renameRefs] old sheet name -> new sheet name,
+   *        applied to formulas inside the copy so it points at its own trio
+   * @returns {boolean} false when a sheet with that name already exists
+   */
+  cloneSheet(sourceName, newName, renameRefs) {
+    if (this.sheetPaths.has(newName)) return false;
+    const sourcePath = this.sheetPaths.get(sourceName);
+    if (!sourcePath) throw new Error(`No such sheet: ${sourceName}`);
+
+    let xml = this.text(sourcePath);
+    xml = xml
+      .replace(/<legacyDrawing\b[^>]*\/>/g, '')
+      .replace(/<legacyDrawingHF\b[^>]*\/>/g, '')
+      .replace(/<oleObjects\b[\s\S]*?<\/oleObjects>/g, '')
+      .replace(/<controls\b[\s\S]*?<\/controls>/g, '')
+      .replace(/<tableParts\b[\s\S]*?<\/tableParts>/g, '')
+      .replace(/<tableParts\b[^>]*\/>/g, '');
+
+    for (const [from, to] of Object.entries(renameRefs || {})) {
+      if (!from || !to || from === to) continue;
+      xml = xml.split(`'${escapeXml(from)}'!`).join(`'${escapeXml(to)}'!`);
+      xml = xml.split(`'${from}'!`).join(`'${to}'!`);
+      if (!/[\s'![\]]/.test(from)) {
+        xml = xml.split(`${escapeXml(from)}!`).join(`${escapeXml(to)}!`);
+      }
+    }
+
+    const newPath = this.nextGeneratedPath('xl/worksheets', 'xml');
+    this.writeText(newPath, xml);
+    this.cloneSheetRels(sourcePath, newPath);
+
+    const wbPath = 'xl/workbook.xml';
+    let wb = this.text(wbPath);
+    let maxSheetId = 0;
+    for (const m of wb.matchAll(/<sheet\b[^>]*\bsheetId="(\d+)"/g)) {
+      maxSheetId = Math.max(maxSheetId, Number(m[1]));
+    }
+
+    const relsPath = 'xl/_rels/workbook.xml.rels';
+    let rels = this.text(relsPath);
+    let ridIndex = 1;
+    let rid = `rIdA33Gen${ridIndex}`;
+    while (rels.includes(`"${rid}"`)) {
+      ridIndex += 1;
+      rid = `rIdA33Gen${ridIndex}`;
+    }
+
+    rels = rels.replace(
+      '</Relationships>',
+      `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="${newPath.replace(/^xl\//, '')}"/></Relationships>`,
+    );
+    this.writeText(relsPath, rels);
+
+    wb = wb.replace(
+      '</sheets>',
+      `<sheet name="${escapeXml(newName)}" sheetId="${maxSheetId + 1}" r:id="${rid}"/></sheets>`,
+    );
+    this.writeText(wbPath, wb);
+
+    const ctPath = '[Content_Types].xml';
+    if (this.entries[ctPath]) {
+      const ct = this.text(ctPath).replace(
+        '</Types>',
+        `<Override PartName="/${newPath}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+      );
+      this.writeText(ctPath, ct);
+    }
+
+    this.sheetPaths = this.readSheetIndex();
+    return true;
   }
 
   /**

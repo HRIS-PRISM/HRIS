@@ -47,6 +47,32 @@ function sheetNames(key) {
   return { wtax: `WTAX-${key}`, pay: `${key} - PAY`, deds: `${key} - DEDS` };
 }
 
+/**
+ * Block whose three sheets are copied when an allowed department has no tab set
+ * of its own. GEN.AD is the largest block, so its geometry fits any other one.
+ */
+const DEFAULT_BLUEPRINT_KEY = 'GEN.AD';
+
+/** Excel caps tab names at 31 chars; " - DEDS" is the longest suffix we append. */
+const MAX_DEPARTMENT_KEY_LENGTH = 31 - ' - DEDS'.length;
+
+/**
+ * Turns a department code or employment category name into a template key that is
+ * legal as part of an Excel tab name.
+ *
+ * @param {string} label
+ * @returns {string} '' when nothing usable is left
+ */
+function sanitizeDepartmentKey(label) {
+  return String(label == null ? '' : label)
+    .toUpperCase()
+    .replace(/[[\]:*?/\\']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_DEPARTMENT_KEY_LENGTH)
+    .trim();
+}
+
 /** Contract field -> WTAX column. These are the only WTAX cells the export writes. */
 const WTAX_INPUT_COLS = {
   name: 'C',
@@ -305,6 +331,9 @@ module.exports = {
   DEPARTMENTS,
   DEPARTMENT_KEYS,
   sheetNames,
+  DEFAULT_BLUEPRINT_KEY,
+  MAX_DEPARTMENT_KEY_LENGTH,
+  sanitizeDepartmentKey,
   WTAX_INPUT_COLS,
   PAY_INPUT_COLS,
   DEDS_INPUT_COLS,

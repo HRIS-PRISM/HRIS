@@ -66,6 +66,12 @@ const FieldInput = styled(TextField)({
   '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
 });
 
+/**
+ * Stored value that means "allowed to download, work the tabs out on export".
+ * Matches AUTO in backend/services/payrollTemplate/positionOverrides.js.
+ */
+const AUTO_TEMPLATE = 'auto';
+
 const emptyMaps = () => ({
   wtax: {},
   pay: {},
@@ -288,6 +294,15 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
     </Box>
   );
 
+  const renderScopeValue = (selected) => {
+    if (!selected) {
+      return <em style={{ color: T.faint, fontStyle: 'italic' }}>Not allowed for download</em>;
+    }
+    if (selected === AUTO_TEMPLATE) return 'Allowed (tabs automatic)';
+    const match = templateDepartments.find((t) => t.key === selected);
+    return match ? `${match.key} — ${match.title}` : selected;
+  };
+
   const knownCodes = new Set((dbDepartments || []).map((d) => d.code));
   const extraMapped = Object.keys(draft.departments || {}).filter((code) => !knownCodes.has(code));
 
@@ -313,15 +328,6 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
   extraEmpMapped.forEach((typeName) => {
     uniqueEmpTypes.push({ id: `extra-${typeName}`, parentGroup: 'Mapped only', typeName });
   });
-
-  const templateSelectItems = (
-    <>
-      <MenuItem value=""><em>Not mapped</em></MenuItem>
-      {templateDepartments.map((t) => (
-        <MenuItem key={t.key} value={t.key}>{t.key} — {t.title}</MenuItem>
-      ))}
-    </>
-  );
 
   return (
     <Modal open={open} onClose={onClose} closeAfterTransition>
@@ -402,7 +408,11 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
             {tab === 1 && !loading && (
               <>
                 <Alert severity="info" sx={{ mb: 2, fontSize: '0.75rem', fontFamily: T.font }}>
-                  College / office codes from the department table. Blocks like GEN.AD and TEMPO are mapped under Employment categories instead.
+                  Choose which departments are allowed to download Appendix 33. &quot;Allowed (tabs automatic)&quot; is
+                  enough on its own: the export reuses the department&apos;s own sheet block when the template has one,
+                  and otherwise creates WTAX / PAY / DEDS tabs for it by copying an existing block. Pick a specific
+                  block only when you want that department written onto it. Leave as &quot;Not allowed for download&quot;
+                  to hide it from the download menu and block export for that code.
                 </Alert>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {[...dbDepartments, ...extraMapped.map((code) => ({ code, description: 'Not in department table' }))].map((dept) => (
@@ -416,9 +426,14 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
                           value={draft.departments?.[dept.code] || ''}
                           onChange={(e) => setDept(dept.code, e.target.value)}
                           displayEmpty
+                          renderValue={(selected) => renderScopeValue(selected)}
                           sx={{ fontSize: '0.78rem', fontFamily: T.font, borderRadius: 2 }}
                         >
-                          {templateSelectItems}
+                          <MenuItem value=""><em>Not allowed for download</em></MenuItem>
+                          <MenuItem value={AUTO_TEMPLATE}>Allowed (tabs automatic)</MenuItem>
+                          {templateDepartments.map((t) => (
+                            <MenuItem key={t.key} value={t.key}>{t.key} — {t.title}</MenuItem>
+                          ))}
                         </Select>
                       </FormControl>
                     </Box>
@@ -430,7 +445,10 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
             {tab === 2 && !loading && (
               <>
                 <Alert severity="info" sx={{ mb: 2, fontSize: '0.75rem', fontFamily: T.font }}>
-                  Map Employment Category subcategories (for example General Administration, Temporary, Contractual) to Appendix 33 blocks. These are not department codes — export uses the employee&apos;s employment category first when mapped.
+                  Choose which employment category subcategories (for example General Administration, Temporary, Contractual) are allowed to download.
+                  &quot;Allowed (tabs automatic)&quot; reuses a matching Appendix 33 block when one exists and otherwise creates
+                  tabs for the category by copying an existing block. Anything left as &quot;Not allowed for download&quot; will
+                  not appear in the download menu.
                 </Alert>
                 {uniqueEmpTypes.length === 0 ? (
                   <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontFamily: T.font }}>
@@ -452,9 +470,14 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
                             value={draft.employmentTypes?.[row.typeName] || ''}
                             onChange={(e) => setEmpType(row.typeName, e.target.value)}
                             displayEmpty
+                            renderValue={(selected) => renderScopeValue(selected)}
                             sx={{ fontSize: '0.78rem', fontFamily: T.font, borderRadius: 2 }}
                           >
-                            {templateSelectItems}
+                            <MenuItem value=""><em>Not allowed for download</em></MenuItem>
+                            <MenuItem value={AUTO_TEMPLATE}>Allowed (tabs automatic)</MenuItem>
+                            {templateDepartments.map((t) => (
+                              <MenuItem key={t.key} value={t.key}>{t.key} — {t.title}</MenuItem>
+                            ))}
                           </Select>
                         </FormControl>
                       </Box>
@@ -552,7 +575,7 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
           </Box>
 
           <Box sx={{ px: 2.5, py: 1.5, borderTop: `1px solid ${T.divider}`, display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-            <Tooltip title="Restore the original column letters and department map">
+            <Tooltip title="Restore the original column letters and clear custom download allow-list mappings">
               <span>
                 <AccentButton startIcon={<RestartAlt />} onClick={handleReset} sx={{ color: T.muted }}>
                   Reset defaults
