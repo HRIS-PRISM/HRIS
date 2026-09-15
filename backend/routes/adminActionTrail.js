@@ -4,6 +4,7 @@ const db = require('../db');
 const {
   authenticateToken,
   requireSuperAdmin,
+  shouldTrailAdminAction,
 } = require('../middleware/auth');
 
 /**
@@ -83,7 +84,11 @@ router.get(
           .status(500)
           .json({ error: 'Failed to fetch admin action trail' });
       }
-      res.json(result);
+      // Hide legacy noise (views/searches) that was trailed before the filter existed
+      const crucial = (Array.isArray(result) ? result : []).filter((row) =>
+        shouldTrailAdminAction(row.action, row.table_name),
+      );
+      res.json(crucial);
     });
   },
 );

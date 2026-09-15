@@ -21,7 +21,7 @@ import {
   TableHead,
   TableRow,
   TablePagination,
-  Backdrop,
+  Snackbar,
   InputAdornment,
   Dialog,
   DialogContent,
@@ -46,6 +46,11 @@ import usePageAccess from '../hooks/usePageAccess';
 import AccessDenied from './AccessDenied';
 import { useSocket } from '../contexts/SocketContext';
 import { buildDashboardAuditSentence } from '../utils/dashboardAuditFormat';
+import {
+  downloadStyledExcel,
+  excelTimestamp,
+  excelExporterName,
+} from '../utils/styledExcelExport';
 
 /* ── Design tokens (aligned with PagesList / AdminActionTrail) ── */
 const T = {
@@ -70,6 +75,7 @@ const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  html { overflow-y: scroll; scrollbar-gutter: stable; }
 `;
 
 const SectionCard = styled(Card)({
@@ -286,18 +292,26 @@ const normalizeAction = (action) => {
   return null;
 };
 
-const formatTimestamp = (ts) => {
-  if (!ts) return '—';
+const formatTimestampParts = (ts) => {
+  if (!ts) return { date: '—', time: '' };
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return String(ts);
-  return `${d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })} · ${d.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })}`;
+  if (Number.isNaN(d.getTime())) return { date: String(ts), time: '' };
+  return {
+    date: d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }),
+    time: d.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+  };
+};
+
+const formatTimestamp = (ts) => {
+  const { date, time } = formatTimestampParts(ts);
+  return time ? `${date} · ${time}` : date;
 };
 
 const formatModuleName = (tableName) => {
@@ -306,6 +320,26 @@ const formatModuleName = (tableName) => {
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
 };
+
+/** Short badge label — full detail belongs in Description. */
+const shortActionLabel = (action) => {
+  const raw = String(action || '').trim();
+  if (!raw) return '—';
+  const head = raw.split('|')[0].trim();
+  const words = head.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '—';
+  const first = words[0].toUpperCase();
+  if (
+    words.length >= 2 &&
+    ['SAVED', 'BULK', 'RESET', 'GRANT', 'CHANGE', 'UPDATE'].includes(first)
+  ) {
+    return `${first} ${words[1].toUpperCase()}`.slice(0, 28);
+  }
+  return first.slice(0, 22);
+};
+
+const formatDetailText = (text) =>
+  String(text || '—').replace(/\s*\|\s*/g, '\n');
 
 const parseAuditDetailsSafe = (raw) => {
   if (!raw) return null;
@@ -368,14 +402,17 @@ const headCellSx = {
   fontFamily: "'JetBrains Mono', monospace",
   fontSize: '0.6rem',
   fontWeight: 700,
-  color: alpha(T.accent, 0.5),
+  color: '#fff',
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
-  borderBottom: `2px solid ${alpha(T.accent, 0.12)}`,
-  bgcolor: '#fafafa',
+  borderBottom: 'none',
+  bgcolor: T.accent,
   py: 0.75,
   px: 2,
   whiteSpace: 'nowrap',
+  position: 'sticky',
+  top: 0,
+  zIndex: 1,
 };
 
 const AuditLogs = () => {
@@ -738,28 +775,46 @@ const AuditLogs = () => {
   };
 
   const handleExport = () => {
-    let csv =
-      'Timestamp,Employee Number,Action,Table Name,Record ID,Target Employee\n';
+    try {
+      const filterParts = [];
+      if (employeeFilter) filterParts.push(`Employee: ${employeeFilter}`);
+      if (actionFilter) filterParts.push(`Action: ${actionFilter}`);
+      if (moduleFilter) filterParts.push(`Module: ${formatModuleName(moduleFilter)}`);
+      if (dateFilter) filterParts.push(`Date: ${dateFilter}`);
 
-    filteredLogs.forEach((log) => {
-      const timestamp = new Date(
-        log.timestamp || log.created_at,
-      ).toLocaleString();
-      csv += `"${timestamp}","${log.employeeNumber || 'Unknown'}","${
-        log.action || 'N/A'
-      }","${log.table_name || 'N/A'}","${log.record_id || 'N/A'}","${
-        log.targetEmployeeNumber || 'N/A'
-      }"\n`;
-    });
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit-trail-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    setToast({ message: 'Export downloaded', type: 'success' });
+      downloadStyledExcel({
+        filename: `audit-trail-${new Date().toISOString().split('T')[0]}.xls`,
+        sheetName: 'Audit Trail',
+        title: pageTitle,
+        subtitle: isAdmin
+          ? 'System-wide activity tracking'
+          : 'Personal activity history',
+        generatedAt: excelTimestamp(),
+        exportedBy: excelExporterName(getUserInfo()),
+        recordCount: filteredLogs.length,
+        filtersLabel: filterParts.length ? filterParts.join(' | ') : 'None',
+        columns: [
+          { key: 'when', header: 'When', width: 130, kind: 'mono' },
+          { key: 'employeeNumber', header: 'Employee No.', width: 110, kind: 'mono' },
+          { key: 'action', header: 'Action', width: 120, kind: 'action' },
+          { key: 'module', header: 'Module', width: 150 },
+          { key: 'target', header: 'Target', width: 110, kind: 'mono' },
+          { key: 'description', header: 'Description', width: 460, kind: 'wrap' },
+        ],
+        rows: filteredLogs.map((log) => ({
+          when: formatTimestamp(log.timestamp || log.created_at),
+          employeeNumber: log.employeeNumber || '—',
+          action: shortActionLabel(log.action),
+          module: formatModuleName(log.table_name),
+          target: log.targetEmployeeNumber || '—',
+          description: formatDetailText(buildLogDescription(log)),
+        })),
+      });
+      setToast({ message: 'Export downloaded', type: 'success' });
+    } catch (err) {
+      console.error('Audit trail export failed:', err);
+      setToast({ message: 'Failed to generate export', type: 'error' });
+    }
   };
 
   const handleRefresh = () => {
@@ -928,48 +983,47 @@ const AuditLogs = () => {
   return (
     <Box
       sx={{
-        // UsersList shell, with a bit more right inset so it isn't edge-flush
+        // Match UsersList page width
         py: { xs: 1, md: 2 },
         mt: { xs: 0, md: -2 },
         mb: { xs: 1, md: 2 },
         width: '100vw',
-        maxWidth: 'none',
+        maxWidth: '100%',
         position: 'relative',
-        left: '63%',
-        transform: 'translateX(-61%)',
-        pl: { xs: 2, sm: 3, md: 5 },
-        pr: { xs: 3, sm: 5, md: 10 },
+        left: '64%',
+        transform: 'translateX(-63%)',
+        px: { xs: 2, sm: 2.5, md: 4 },
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        minHeight: 'calc(100vh - 160px)',
+        height: { xs: 'auto', md: 'calc(100vh - 130px)' },
+        minHeight: { md: 'calc(100vh - 150px)' },
+        overflow: { md: 'hidden' },
       }}
     >
       <style>{GLOBAL_CSS}</style>
 
-      <Backdrop
+      <Snackbar
         open={!!toast}
-        sx={{ zIndex: 9999, backdropFilter: 'blur(8px)', bgcolor: 'rgba(0,0,0,0.5)' }}
-        onClick={() => setToast(null)}
+        autoHideDuration={3000}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Box onClick={(e) => e.stopPropagation()} sx={{ minWidth: 360, maxWidth: 520 }}>
-          {toast && (
-            <Alert
-              severity={toast.type === 'error' ? 'error' : 'success'}
-              sx={{
-                borderRadius: 3,
-                boxShadow: '0 12px 48px rgba(0,0,0,0.4)',
-                fontSize: '1rem',
-                p: 2.5,
-                '& .MuiAlert-message': { fontWeight: 600 },
-              }}
-              onClose={() => setToast(null)}
-            >
-              {toast.message}
-            </Alert>
-          )}
-        </Box>
-      </Backdrop>
+        {toast ? (
+          <Alert
+            severity={toast.type === 'error' ? 'error' : 'success'}
+            variant="filled"
+            onClose={() => setToast(null)}
+            sx={{
+              borderRadius: 2,
+              fontWeight: 600,
+              minWidth: 280,
+            }}
+          >
+            {toast.message}
+          </Alert>
+        ) : null}
+      </Snackbar>
 
       <Dialog
         open={sessionWarningOpen}
@@ -1236,14 +1290,17 @@ const AuditLogs = () => {
           <Box
             sx={{
               px: 2.5,
-              py: 1.25,
-              borderBottom: `1px solid ${BD}`,
+              pt: 1.25,
+              pb: 1.5,
+              borderBottom: 'none',
               display: 'flex',
               alignItems: 'center',
               gap: 1.5,
-              bgcolor: SUBTLE,
+              bgcolor: T.surface,
               flexShrink: 0,
               flexWrap: 'wrap',
+              position: 'relative',
+              zIndex: 3,
             }}
           >
             <SearchIcon
@@ -1303,7 +1360,7 @@ const AuditLogs = () => {
             />
           </Box>
 
-          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', position: 'relative' }}>
             {loading && !auditLogs.length ? (
               <Box sx={{ py: 8, textAlign: 'center' }}>
                 <Box
@@ -1325,16 +1382,29 @@ const AuditLogs = () => {
                 </Typography>
               </Box>
             ) : (
-              <Table stickyHeader size="small" sx={{ width: '100%', minWidth: 960 }}>
+              <Table
+                stickyHeader
+                size="small"
+                sx={{
+                  width: '100%',
+                  tableLayout: 'fixed',
+                  minWidth: 900,
+                }}
+              >
                 <TableHead>
                   <TableRow>
-                    {['When', 'Employee', 'Action', 'Module', 'Target', 'Description'].map(
-                      (h) => (
-                        <TableCell key={h} sx={headCellSx}>
-                          {h}
-                        </TableCell>
-                      ),
-                    )}
+                    {[
+                      { label: 'When', w: '12%' },
+                      { label: 'Employee', w: '12%' },
+                      { label: 'Action', w: '13%' },
+                      { label: 'Module', w: '15%' },
+                      { label: 'Target', w: '12%' },
+                      { label: 'Description', w: '36%' },
+                    ].map((h) => (
+                      <TableCell key={h.label} sx={{ ...headCellSx, width: h.w }}>
+                        {h.label}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1370,6 +1440,10 @@ const AuditLogs = () => {
                     pagedLogs.map((log) => {
                       const actionColor = getActionColor(log.action);
                       const description = buildLogDescription(log);
+                      const actionLabel = shortActionLabel(log.action);
+                      const { date, time } = formatTimestampParts(
+                        log.timestamp || log.created_at,
+                      );
                       return (
                         <TableRow
                           key={log.id || `${log.timestamp}-${log.employeeNumber}`}
@@ -1380,19 +1454,33 @@ const AuditLogs = () => {
                             borderBottom: `1px solid ${alpha(T.accent, 0.06)}`,
                           }}
                         >
-                          <TableCell sx={{ px: 2, py: 1.1, whiteSpace: 'nowrap' }}>
+                          <TableCell sx={{ px: 1.5, py: 1.1, verticalAlign: 'top' }}>
                             <Typography
                               sx={{
                                 fontFamily: "'JetBrains Mono', monospace",
-                                fontSize: '0.7rem',
-                                color: T.muted,
-                                fontWeight: 500,
+                                fontSize: '0.72rem',
+                                color: T.text,
+                                fontWeight: 600,
+                                lineHeight: 1.2,
                               }}
                             >
-                              {formatTimestamp(log.timestamp)}
+                              {date}
                             </Typography>
+                            {time ? (
+                              <Typography
+                                sx={{
+                                  fontFamily: "'JetBrains Mono', monospace",
+                                  fontSize: '0.65rem',
+                                  color: T.faint,
+                                  mt: 0.2,
+                                  lineHeight: 1.2,
+                                }}
+                              >
+                                {time}
+                              </Typography>
+                            ) : null}
                           </TableCell>
-                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                          <TableCell sx={{ px: 1.5, py: 1.1, verticalAlign: 'top' }}>
                             <Typography
                               sx={{
                                 fontFamily: "'JetBrains Mono', monospace",
@@ -1404,59 +1492,75 @@ const AuditLogs = () => {
                               #{log.employeeNumber || '—'}
                             </Typography>
                           </TableCell>
-                          <TableCell sx={{ px: 2, py: 1.1 }}>
-                            <Box
-                              sx={{
-                                display: 'inline-flex',
-                                px: 1,
-                                py: 0.2,
-                                borderRadius: '20px',
-                                bgcolor: alpha(actionColor, 0.08),
-                                border: `1px solid ${alpha(actionColor, 0.2)}`,
-                              }}
-                            >
-                              <Typography
+                          <TableCell sx={{ px: 1.5, py: 1.1, verticalAlign: 'top' }}>
+                            <Tooltip title={String(log.action || '')} placement="top">
+                              <Box
                                 sx={{
-                                  fontSize: '0.65rem',
-                                  fontWeight: 700,
-                                  color: actionColor,
-                                  whiteSpace: 'nowrap',
+                                  display: 'inline-flex',
+                                  maxWidth: '100%',
+                                  px: 1,
+                                  py: 0.2,
+                                  borderRadius: '20px',
+                                  bgcolor: alpha(actionColor, 0.08),
+                                  border: `1px solid ${alpha(actionColor, 0.2)}`,
                                 }}
                               >
-                                {String(log.action || '—').toUpperCase()}
-                              </Typography>
-                            </Box>
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                    color: actionColor,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {actionLabel}
+                                </Typography>
+                              </Box>
+                            </Tooltip>
                           </TableCell>
-                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                          <TableCell sx={{ px: 1.5, py: 1.1, verticalAlign: 'top' }}>
                             <Typography
-                              sx={{ fontSize: '0.78rem', color: T.text, fontWeight: 500 }}
+                              sx={{
+                                fontSize: '0.78rem',
+                                color: T.text,
+                                fontWeight: 500,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={formatModuleName(log.table_name)}
                             >
                               {formatModuleName(log.table_name)}
                             </Typography>
                           </TableCell>
-                          <TableCell sx={{ px: 2, py: 1.1 }}>
+                          <TableCell sx={{ px: 1.5, py: 1.1, verticalAlign: 'top' }}>
                             <Typography
                               sx={{
                                 fontFamily: "'JetBrains Mono', monospace",
                                 fontSize: '0.72rem',
                                 color: T.muted,
-                              }}
-                            >
-                              {log.targetEmployeeNumber || '—'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ px: 2, py: 1.1, maxWidth: 320 }}>
-                            <Typography
-                              sx={{
-                                fontSize: '0.75rem',
-                                color: T.muted,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
                               }}
-                              title={description}
+                              title={log.targetEmployeeNumber || ''}
                             >
-                              {description}
+                              {log.targetEmployeeNumber || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ px: 1.5, py: 1.1, verticalAlign: 'top' }}>
+                            <Typography
+                              sx={{
+                                fontSize: '0.75rem',
+                                color: T.muted,
+                                lineHeight: 1.45,
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                              }}
+                            >
+                              {formatDetailText(description)}
                             </Typography>
                           </TableCell>
                         </TableRow>

@@ -12,7 +12,6 @@ import axios from "axios";
 import { useSocket } from "../contexts/SocketContext";
 import useAttendanceRecordInfoSocket from "../hooks/useAttendanceRecordInfoSocket";
 import {
-  Container,
   Box,
   Grid,
   Dialog,
@@ -23,7 +22,6 @@ import {
   Tooltip,
   Modal,
   Badge,
-  Paper,
   Card,
   CardContent,
   LinearProgress,
@@ -34,42 +32,17 @@ import {
   Menu,
   MenuItem,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Checkbox,
-  TextField,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
   CircularProgress,
-  alpha,
   styled,
 } from "@mui/material";
 import {
   Notifications as NotificationsIcon,
-  ArrowDropDown as ArrowDropDownIcon,
-  AccessTime,
   Receipt,
   ContactPage,
-  UploadFile,
-  Person,
-  GroupAdd,
-  TransferWithinAStation,
   Group,
-  Pages,
-  ReceiptLong,
-  AcUnit,
-  TrendingUp,
-  TrendingDown,
   ArrowForward,
   PlayArrow,
   Pause,
-  MoreVert,
   AccountCircle,
   Settings,
   HelpOutline,
@@ -77,71 +50,35 @@ import {
   Logout,
   Login,
   Event,
-  Schedule,
-  Lock,
-  Star,
-  Upgrade,
   Add,
   Close,
-  Money,
-  Work,
   Assessment,
-  Timeline,
   Delete,
   Edit,
   Build,
   PersonAdd,
-  Save,
   Flag,
-  Category as CategoryIcon,
   CalendarMonth,
-  Note,
   Refresh,
   Face,
   FiberManualRecord,
+  ArrowDropDown as ArrowDropDownIcon,
 } from "@mui/icons-material";
 import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
 import PeopleIcon from "@mui/icons-material/People";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
-import BeachAccessIcon from "@mui/icons-material/BeachAccess";
-import PaymentIcon from "@mui/icons-material/Payment";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import DescriptionIcon from "@mui/icons-material/Description";
 import CampaignIcon from "@mui/icons-material/Campaign";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
-import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import CloseIcon from "@mui/icons-material/Close";
-import AutorenewIcon from "@mui/icons-material/Autorenew";
 import {
   WorkHistory as WorkHistoryIcon,
   ReceiptLong as ReceiptLongIcon,
-  HourglassBottom as HourglassBottomIcon,
   History,
 } from "@mui/icons-material";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip as RechartTooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  Cell,
-  PieChart,
-  Pie,
-  Legend,
-  LineChart,
-  Line,
-  Area,
-  AreaChart,
-  RadialBarChart,
-  RadialBar,
-} from "recharts";
 import logo from "../assets/logo.PNG";
-import SuccessfulOverlay from "./SuccessfulOverlay";
 
 // ─── Design tokens (mirroring AttendanceUserState) ───────────────────────────
 const T = {
@@ -654,13 +591,6 @@ const QUICK_ACTIONS = (settings) => [
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
   },
   {
-    label: "Category",
-    link: "/employee-category",
-    icon: <CategoryIcon />,
-    tooltip: "Employment Category",
-    gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
-  },
-  {
     label: "O-DTRs",
     link: "/daily_time_record_faculty",
     icon: <AccessTimeIcon />,
@@ -787,7 +717,6 @@ const useDashboardData = (settings) => {
     processedPayroll: 0,
     payslipCount: 0,
   });
-  const [weeklyAttendanceData, setWeeklyAttendanceData] = useState([]);
   const [departmentAttendanceData, setDepartmentAttendanceData] = useState([]);
   const [payrollStatusData, setPayrollStatusData] = useState([
     { status: "Processed", value: 0, fill: "#800020" },
@@ -994,22 +923,6 @@ const useDashboardData = (settings) => {
       .catch((err) => console.error("payslip count failed:", err?.message));
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/attendance-overview?days=5`, auth)
-      .then((res) => {
-        setWeeklyAttendanceData(
-          Array.isArray(res.data)
-            ? res.data.map((item) => ({
-                day: item.day,
-                present: item.present,
-                absent: 0,
-                late: 0,
-              }))
-            : [],
-        );
-      })
-      .catch((err) => console.error("weekly attendance failed:", err?.message));
-
-    axios
       .get(`${API_BASE_URL}/api/dashboard/department-distribution`, auth)
       .then((res) => {
         setDepartmentAttendanceData(
@@ -1110,7 +1023,6 @@ const useDashboardData = (settings) => {
 
   return {
     stats,
-    weeklyAttendanceData,
     departmentAttendanceData,
     payrollStatusData,
     monthlyAttendanceTrend,
@@ -1478,12 +1390,23 @@ function formatFrDate(timestamp) {
 const MAX_FR_ROWS = 50;
 const NEW_ROW_HIGHLIGHT_MS = 4000;
 
-const FacialRecognitionFeed = () => {
+const FacialRecognitionFeed = ({ stats, statsLoading }) => {
   const navigate = useNavigate();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newKeys, setNewKeys] = useState(() => new Set());
   const highlightTimersRef = useRef(new Map());
+
+  const totalEmp = Number(stats?.employees) || 0;
+  const present = Number(stats?.todayAttendance) || 0;
+  const absent = Math.max(totalEmp - present, 0);
+  const attendanceRate =
+    totalEmp > 0 ? Math.round((present / totalEmp) * 100) : 0;
+
+  const openDeviceAttendance = () =>
+    navigate("/view_attendance", {
+      state: { activeTab: "device-list", viewMode: "multiple" },
+    });
 
   const flagAsNew = useCallback((keys) => {
     if (!keys.length) return;
@@ -1579,6 +1502,74 @@ const FacialRecognitionFeed = () => {
           </Box>
         }
       />
+
+      <Box
+        onClick={openDeviceAttendance}
+        sx={{
+          flexShrink: 0,
+          mx: 1.25,
+          mt: 1,
+          mb: 0.5,
+          p: 1.1,
+          borderRadius: 1.5,
+          border: `1px solid ${T.accentBorder}`,
+          background: `linear-gradient(135deg, ${T.accentFaint}, #fff)`,
+          cursor: "pointer",
+          transition: "border-color 0.15s",
+          "&:hover": { borderColor: T.accent },
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            mb: 0.6,
+          }}
+        >
+          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.muted }}>
+            Today's attendance
+          </Typography>
+          {statsLoading ? (
+            <Bone w={48} h={20} />
+          ) : (
+            <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: T.accent }}>
+              {attendanceRate}%
+            </Typography>
+          )}
+        </Box>
+        <LinearProgress
+          variant="determinate"
+          value={Math.min(attendanceRate, 100)}
+          sx={{
+            height: 6,
+            borderRadius: 4,
+            bgcolor: "rgba(109,35,35,0.12)",
+            mb: 0.7,
+            ".MuiLinearProgress-bar": {
+              bgcolor: T.accent,
+              borderRadius: 4,
+            },
+          }}
+        />
+        <Box sx={{ display: "flex", gap: 1.25 }}>
+          <Typography sx={{ fontSize: "0.6rem", color: T.text, fontWeight: 600 }}>
+            Present{" "}
+            <Box component="span" sx={{ color: "#2E7D32", fontWeight: 800 }}>
+              {present}
+            </Box>
+          </Typography>
+          <Typography sx={{ fontSize: "0.6rem", color: T.text, fontWeight: 600 }}>
+            Away{" "}
+            <Box component="span" sx={{ color: "#C62828", fontWeight: 800 }}>
+              {absent}
+            </Box>
+          </Typography>
+          <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontWeight: 600 }}>
+            of {totalEmp}
+          </Typography>
+        </Box>
+      </Box>
 
       <Box
         sx={{
@@ -1707,11 +1698,7 @@ const FacialRecognitionFeed = () => {
       </Box>
 
       <Box
-        onClick={() =>
-          navigate("/view_attendance", {
-            state: { activeTab: "device-list", viewMode: "multiple" },
-          })
-        }
+        onClick={openDeviceAttendance}
         sx={{
           flexShrink: 0,
           display: "flex",
@@ -2311,844 +2298,100 @@ const QuickActions = ({ settings, userRole }) => {
   );
 };
 
-// ─── ModalCard ────────────────────────────────────────────────────────────────
-const ModalCard = ({
-  open,
-  onClose,
-  title,
-  icon,
-  primaryColor,
-  secondaryColor,
-  children,
-  actions,
-}) => {
-  if (!open) return null;
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      closeAfterTransition
-      BackdropProps={{
-        sx: { background: "rgba(0,0,0,0.52)", backdropFilter: "blur(4px)" },
-      }}
-    >
-      <Box
-        sx={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 1400,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          px: 1.5,
-        }}
-      >
-        <Grow in={open} timeout={220}>
-          <Box
-            sx={{
-              width: { xs: "92%", sm: 420 },
-              bgcolor: "#fff",
-              borderRadius: "12px",
-              boxShadow: "0 28px 64px rgba(0,0,0,0.18)",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              border: "0.5px solid rgba(0,0,0,0.09)",
-            }}
-          >
-            <Box
-              sx={{
-                px: 2.5,
-                py: 1.5,
-                background: T.accent,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                {icon && (
-                  <Box sx={{ color: "#fff", display: "flex" }}>{icon}</Box>
-                )}
-                <Typography
-                  sx={{
-                    fontWeight: 700,
-                    fontSize: "0.9rem",
-                    color: "#fff",
-                    letterSpacing: "0.01em",
-                  }}
-                >
-                  {title}
-                </Typography>
-              </Box>
-              <IconButton
-                size="small"
-                onClick={onClose}
-                sx={{
-                  color: "rgba(255,255,255,0.85)",
-                  p: 0.5,
-                  "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
-                  borderRadius: "6px",
-                }}
-              >
-                <Close sx={{ fontSize: 15 }} />
-              </IconButton>
-            </Box>
-            <Box sx={{ px: 2.5, pt: 2.25, pb: 0.5 }}>{children}</Box>
-            {actions && (
-              <Box
-                sx={{
-                  px: 2.5,
-                  py: 1.75,
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: 1,
-                }}
-              >
-                {actions}
-              </Box>
-            )}
-          </Box>
-        </Grow>
-      </Box>
-    </Modal>
-  );
+// ─── NeedsAttention (admin action queue) ──────────────────────────────────────
+const LEAVE_STATUS_META = {
+  "0": { label: "Pending", color: "#F57C00", bg: "#FFF8E1" },
+  "1": { label: "Awaiting HR", color: "#1565C0", bg: "#E3F2FD" },
 };
 
-// ─── TasksAndEvents ───────────────────────────────────────────────────────────
-const TasksAndEvents = ({ settings, employeeNumber }) => {
+const TICKET_QUEUE_META = {
+  new: { label: "New", color: "#C62828", bg: "#FFEBEE" },
+  on_process: { label: "In progress", color: "#F57C00", bg: "#FFF8E1" },
+  read: { label: "Read", color: "#546E7A", bg: "#ECEFF1" },
+};
+
+const NeedsAttention = () => {
+  const navigate = useNavigate();
+  const { socket, connected } = useSocket();
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [tasks, setTasks] = useState([]);
-  const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [newTask, setNewTask] = useState({ title: "", priority: "medium" });
-  const [events, setEvents] = useState([]);
-  const [addEventOpen, setAddEventOpen] = useState(false);
-  const [newEvent, setNewEvent] = useState({
-    date: new Date().toISOString().split("T")[0],
-    title: "",
-    description: "",
+  const [queue, setQueue] = useState({
+    pendingReview: 0,
+    awaitingHr: 0,
+    leaveNeedsAction: 0,
+    openTickets: 0,
+    pendingPayroll: 0,
+    processedPayroll: 0,
+    latestPeriod: null,
+    pendingLeaves: [],
+    recentTickets: [],
   });
 
-  useEffect(() => {
+  const fetchQueue = useCallback(() => {
     axios
-      .get(`${API_BASE_URL}/tasks`, getAuthHeaders())
-      .then((res) => {
-        if (Array.isArray(res.data)) setTasks(res.data);
-      })
-      .catch(() => setTasks([]));
+      .get(`${API_BASE_URL}/api/dashboard/admin-queue?limit=8`, getAuthHeaders())
+      .then((res) => setQueue((prev) => ({ ...prev, ...(res.data || {}) })))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    if (!employeeNumber) return;
-    axios
-      .get(`${API_BASE_URL}/api/events/${employeeNumber}`, getAuthHeaders())
-      .then((res) => setEvents(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setEvents([]));
-  }, [employeeNumber]);
+    fetchQueue();
+  }, [fetchQueue]);
 
-  const handleToggleTask = async (id) => {
-    try {
-      await axios.put(`${API_BASE_URL}/tasks/${id}/toggle`, {}, getAuthHeaders());
-      setTasks(
-        tasks.map((task) =>
-          task.id === id ? { ...task, completed: !task.completed } : task,
-        ),
-      );
-    } catch (err) {
-      console.error("Error toggling task:", err);
-    }
-  };
-  const handleAddTask = async () => {
-    if (!newTask.title.trim()) return;
-    try {
-      const res = await axios.post(`${API_BASE_URL}/tasks`, newTask, getAuthHeaders());
-      setTasks([res.data, ...tasks]);
-      setNewTask({ title: "", priority: "medium" });
-      setAddTaskOpen(false);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 2000);
-    } catch (err) {
-      console.error("Error adding task:", err);
-    }
-  };
-  const handleDeleteTask = async (id) => {
-    try {
-      await axios.delete(`${API_BASE_URL}/tasks/${id}`, getAuthHeaders());
-      setTasks(tasks.filter((task) => task.id !== id));
-    } catch (err) {
-      console.error("Error deleting task:", err);
-    }
-  };
-  const handleAddEvent = async () => {
-    if (!newEvent.title.trim() || !newEvent.date) return;
-    try {
-      const res = await axios.post(`${API_BASE_URL}/api/events`, {
-        employee_number: employeeNumber,
-        date: newEvent.date,
-        title: newEvent.title,
-        description: newEvent.description || "",
-      }, getAuthHeaders());
-      setEvents([res.data, ...events]);
-      setNewEvent({
-        date: new Date().toISOString().split("T")[0],
-        title: "",
-        description: "",
-      });
-      setAddEventOpen(false);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 2000);
-    } catch (err) {
-      console.error("Error adding event:", err);
-    }
-  };
-  const handleDeleteEvent = async (id) => {
-    try {
-      await axios.delete(`${API_BASE_URL}/api/events/${id}`, getAuthHeaders());
-      setEvents(events.filter((e) => e.id !== id));
-    } catch (err) {
-      console.error("Error deleting event:", err);
-    }
-  };
+  useEffect(() => {
+    if (!socket || !connected) return;
+    const refresh = () => fetchQueue();
+    socket.on("adminDashboardUpdated", refresh);
+    socket.on("notificationCreated", refresh);
+    return () => {
+      socket.off("adminDashboardUpdated", refresh);
+      socket.off("notificationCreated", refresh);
+    };
+  }, [socket, connected, fetchQueue]);
 
-  const getPriorityLabel = (priority) =>
-    priority === "high" ? "Urgent" : priority === "medium" ? "Soon" : "Later";
-  const formatDate = (dateStr) =>
-    dateStr
-      ? new Date(dateStr).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "";
-  const getEventStatus = (dateStr) => {
-    if (!dateStr) return "past";
-    const eventDate = new Date(dateStr);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    eventDate.setHours(0, 0, 0, 0);
-    if (eventDate.getTime() === today.getTime()) return "today";
-    return eventDate > today ? "upcoming" : "past";
-  };
-  const getStatusLabel = (status) =>
-    status === "upcoming" ? "Upcoming" : status === "today" ? "Today" : "Past";
-
-  return (
-    <>
-      <SectionCard
-        sx={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0,
-          overflow: "hidden",
-        }}
-      >
-        <SuccessfulOverlay
-          open={showSuccess}
-          action="create"
-          onClose={() => setShowSuccess(false)}
-        />
-
-        {/* Professional flat tab bar */}
-        <TabBar
-          right={
-            <Tooltip title={activeTab === 0 ? "Add task" : "Add event"} arrow>
-              <IconButton
-                size="small"
-                onClick={() =>
-                  activeTab === 0 ? setAddTaskOpen(true) : setAddEventOpen(true)
-                }
-                sx={{
-                  width: 26,
-                  height: 26,
-                  border: `1px solid ${T.accentBorder}`,
-                  color: T.accent,
-                  borderRadius: "6px",
-                  "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
-                  "&:active": { transform: "scale(0.9)" },
-                }}
-              >
-                <Add sx={{ fontSize: 14 }} />
-              </IconButton>
-            </Tooltip>
-          }
-        >
-          <FlatTab
-            label="Tasks"
-            icon={AssignmentTurnedInIcon}
-            badge={tasks.length}
-            active={activeTab === 0}
-            onClick={() => setActiveTab(0)}
-          />
-          <FlatTab
-            label="Events"
-            icon={Event}
-            badge={events.length}
-            active={activeTab === 1}
-            onClick={() => setActiveTab(1)}
-          />
-        </TabBar>
-
-        <CardContent
-          sx={{
-            p: 1.25,
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-            overflow: "hidden",
-          }}
-        >
-          <Box
-            sx={{
-              flex: 1,
-              overflowY: "auto",
-              overflowX: "hidden",
-              pr: 0.5,
-              minHeight: 0,
-              "&::-webkit-scrollbar": { width: "3px" },
-              "&::-webkit-scrollbar-track": { background: T.accentFaint },
-              "&::-webkit-scrollbar-thumb": {
-                background: T.accentBorder,
-                borderRadius: "2px",
-              },
-            }}
-          >
-            {activeTab === 0 && (
-              <List dense sx={{ p: 0 }}>
-                {Array.isArray(tasks) && tasks.length > 0 ? (
-                  tasks.map((task) => (
-                    <ListItem
-                      key={task.id}
-                      sx={{
-                        p: 0,
-                        mb: 0.75,
-                        display: "flex",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Checkbox
-                        checked={task.completed}
-                        onChange={() => handleToggleTask(task.id)}
-                        size="small"
-                        sx={{
-                          p: 0.5,
-                          color: T.accentBorder,
-                          "&.Mui-checked": { color: T.accent },
-                        }}
-                      />
-                      <ListItemText
-                        primary={task.title}
-                        primaryTypographyProps={{
-                          sx: {
-                            fontSize: "0.78rem",
-                            color: T.text,
-                            textDecoration: task.completed
-                              ? "line-through"
-                              : "none",
-                            lineHeight: 1.3,
-                          },
-                        }}
-                      />
-                      <Chip
-                        label={getPriorityLabel(task.priority)}
-                        size="small"
-                        sx={{
-                          fontSize: "0.6rem",
-                          height: 18,
-                          mr: 0.5,
-                          bgcolor:
-                            task.priority === "high"
-                              ? "#f4433610"
-                              : task.priority === "medium"
-                                ? "#ff980010"
-                                : "#4caf5010",
-                          color:
-                            task.priority === "high"
-                              ? "#f44336"
-                              : task.priority === "medium"
-                                ? "#ff9800"
-                                : "#4caf50",
-                        }}
-                      />
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDeleteTask(task.id)}
-                        sx={{
-                          color: T.faint,
-                          p: 0.25,
-                          borderRadius: "4px",
-                          "&:hover": { bgcolor: "#FCEBEB", color: T.accent },
-                          "&:active": { transform: "scale(0.88)" },
-                        }}
-                      >
-                        <Delete sx={{ fontSize: 13 }} />
-                      </IconButton>
-                    </ListItem>
-                  ))
-                ) : (
-                  <Typography
-                    sx={{
-                      fontSize: "0.75rem",
-                      color: T.faint,
-                      textAlign: "center",
-                      py: 3,
-                    }}
-                  >
-                    No tasks yet
-                  </Typography>
-                )}
-              </List>
-            )}
-            {activeTab === 1 && (
-              <List dense sx={{ p: 0 }}>
-                {Array.isArray(events) && events.length > 0 ? (
-                  events.map((event) => {
-                    const status = getEventStatus(event.date);
-                    return (
-                      <ListItem
-                        key={event.id}
-                        sx={{
-                          p: 0,
-                          mb: 0.75,
-                          display: "flex",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Event
-                          sx={{
-                            fontSize: 15,
-                            color:
-                              status === "upcoming"
-                                ? "#4caf50"
-                                : status === "today"
-                                  ? "#ff9800"
-                                  : T.faint,
-                            mr: 0.75,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <ListItemText
-                          primary={event.title}
-                          secondary={formatDate(event.date)}
-                          primaryTypographyProps={{
-                            sx: {
-                              fontSize: "0.78rem",
-                              color: T.text,
-                              lineHeight: 1.3,
-                            },
-                          }}
-                          secondaryTypographyProps={{
-                            sx: { fontSize: "0.65rem", color: T.faint },
-                          }}
-                        />
-                        <Chip
-                          label={getStatusLabel(status)}
-                          size="small"
-                          sx={{
-                            fontSize: "0.6rem",
-                            height: 18,
-                            mr: 0.5,
-                            bgcolor:
-                              status === "upcoming"
-                                ? "#4caf5010"
-                                : status === "today"
-                                  ? "#ff980010"
-                                  : "#f4433610",
-                            color:
-                              status === "upcoming"
-                                ? "#4caf50"
-                                : status === "today"
-                                  ? "#ff9800"
-                                  : "#f44336",
-                          }}
-                        />
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeleteEvent(event.id)}
-                          sx={{
-                            color: T.faint,
-                            p: 0.25,
-                            borderRadius: "4px",
-                            "&:hover": { bgcolor: "#FCEBEB", color: T.accent },
-                            "&:active": { transform: "scale(0.88)" },
-                          }}
-                        >
-                          <Delete sx={{ fontSize: 13 }} />
-                        </IconButton>
-                      </ListItem>
-                    );
-                  })
-                ) : (
-                  <Typography
-                    sx={{
-                      fontSize: "0.75rem",
-                      color: T.faint,
-                      textAlign: "center",
-                      py: 3,
-                    }}
-                  >
-                    No events yet
-                  </Typography>
-                )}
-              </List>
-            )}
-          </Box>
-        </CardContent>
-      </SectionCard>
-
-      <ModalCard
-        open={addTaskOpen}
-        onClose={() => {
-          setAddTaskOpen(false);
-          setNewTask({ title: "", priority: "medium" });
-        }}
-        title="Add New Task"
-        icon={<Note sx={{ fontSize: 16 }} />}
-        primaryColor={T.accent}
-        secondaryColor={T.accentDark}
-        actions={
-          <>
-            <Button
-              onClick={() => {
-                setAddTaskOpen(false);
-                setNewTask({ title: "", priority: "medium" });
-              }}
-              size="small"
-              sx={{
-                borderRadius: 2,
-                textTransform: "none",
-                fontWeight: 600,
-                fontSize: "0.8rem",
-                color: T.muted,
-                border: `1px solid ${T.divider}`,
-                "&:hover": { bgcolor: T.accentFaint },
-                px: 2,
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAddTask}
-              variant="contained"
-              size="small"
-              disabled={!newTask.title.trim()}
-              sx={{
-                borderRadius: 2,
-                fontWeight: 700,
-                textTransform: "none",
-                bgcolor: T.accent,
-                color: "#fff",
-                px: 2.5,
-                "&:hover": { bgcolor: T.accentDark },
-              }}
-            >
-              Add Task
-            </Button>
-          </>
-        }
-      >
-        <TextField
-          autoFocus
-          fullWidth
-          label="Task Title"
-          variant="outlined"
-          size="small"
-          value={newTask.title}
-          onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-          onKeyDown={(e) => e.key === "Enter" && handleAddTask()}
-          sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-        />
-        <Typography
-          sx={{
-            fontWeight: 700,
-            fontSize: "0.72rem",
-            color: T.muted,
-            mb: 1,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-          }}
-        >
-          Priority
-        </Typography>
-        <Box sx={{ display: "flex", gap: 1, mb: 0.5 }}>
-          {["low", "medium", "high"].map((p) => {
-            const col =
-              p === "high" ? "#f44336" : p === "medium" ? "#ff9800" : "#4caf50";
-            const selected = newTask.priority === p;
-            return (
-              <Button
-                key={p}
-                size="small"
-                onClick={() => setNewTask({ ...newTask, priority: p })}
-                sx={{
-                  flex: 1,
-                  textTransform: "capitalize",
-                  borderRadius: 2,
-                  fontWeight: 600,
-                  fontSize: "0.75rem",
-                  border: `1.5px solid ${col}`,
-                  bgcolor: selected ? col : "transparent",
-                  color: selected ? "#fff" : col,
-                  "&:hover": { bgcolor: selected ? col : `${col}14` },
-                }}
-              >
-                {p === "high" ? "Urgent" : p === "medium" ? "Soon" : "Later"}
-              </Button>
-            );
-          })}
-        </Box>
-      </ModalCard>
-
-      <ModalCard
-        open={addEventOpen}
-        onClose={() => {
-          setAddEventOpen(false);
-          setNewEvent({
-            date: new Date().toISOString().split("T")[0],
-            title: "",
-            description: "",
-          });
-        }}
-        title="Add New Event"
-        icon={<Event sx={{ fontSize: 16 }} />}
-        primaryColor={T.accent}
-        secondaryColor={T.accentDark}
-        actions={
-          <>
-            <Button
-              onClick={() => {
-                setAddEventOpen(false);
-                setNewEvent({
-                  date: new Date().toISOString().split("T")[0],
-                  title: "",
-                  description: "",
-                });
-              }}
-              size="small"
-              sx={{
-                borderRadius: 2,
-                textTransform: "none",
-                fontWeight: 600,
-                fontSize: "0.8rem",
-                color: T.muted,
-                border: `1px solid ${T.divider}`,
-                "&:hover": { bgcolor: T.accentFaint },
-                px: 2,
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAddEvent}
-              variant="contained"
-              size="small"
-              disabled={!newEvent.title.trim() || !newEvent.date}
-              startIcon={<Save sx={{ fontSize: 14 }} />}
-              sx={{
-                borderRadius: 2,
-                fontWeight: 700,
-                textTransform: "none",
-                bgcolor: T.accent,
-                color: "#fff",
-                px: 2.5,
-                "&:hover": { bgcolor: T.accentDark },
-              }}
-            >
-              Save Event
-            </Button>
-          </>
-        }
-      >
-        <TextField
-          autoFocus
-          fullWidth
-          label="Event Title"
-          variant="outlined"
-          size="small"
-          value={newEvent.title}
-          onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
-          sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-        />
-        <TextField
-          fullWidth
-          label="Event Date"
-          type="date"
-          variant="outlined"
-          size="small"
-          value={newEvent.date}
-          onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
-          InputLabelProps={{ shrink: true }}
-          sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-        />
-        <TextField
-          fullWidth
-          label="Description (Optional)"
-          multiline
-          rows={2}
-          variant="outlined"
-          size="small"
-          value={newEvent.description}
-          onChange={(e) =>
-            setNewEvent({ ...newEvent, description: e.target.value })
-          }
-          sx={{ mb: 0.5, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-        />
-      </ModalCard>
-    </>
-  );
-};
-
-// ─── AdminPayslipAndLeave ─────────────────────────────────────────────────────
-const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
-  const [activeTab, setActiveTab] = useState(0);
-  const navigate = useNavigate();
-  const [allPayroll, setAllPayroll] = useState([]);
-  const [payslipMonth, setPayslipMonth] = useState(new Date().getMonth());
-  const [payslipYear] = useState(new Date().getFullYear());
-  const [leaveCredits, setLeaveCredits] = useState([]);
-  const [leaveLoading, setLeaveLoading] = useState(false);
-
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
+  const summaryTiles = [
+    {
+      key: "leaves",
+      label: "Leave queue",
+      value: queue.leaveNeedsAction,
+      hint: `${queue.pendingReview} pending · ${queue.awaitingHr} HR`,
+      color: "#F57C00",
+      onClick: () => navigate("/leave-request"),
+    },
+    {
+      key: "tickets",
+      label: "Open tickets",
+      value: queue.openTickets,
+      hint: "Contact us",
+      color: "#C62828",
+      onClick: () => navigate("/settings?tab=contactus"),
+    },
+    {
+      key: "payroll",
+      label: "Pending payroll",
+      value: queue.pendingPayroll,
+      hint: queue.latestPeriod?.startDate
+        ? `Period ${String(queue.latestPeriod.startDate).slice(0, 10)}`
+        : "Payroll processing",
+      color: T.accent,
+      onClick: () => navigate("/payroll-table"),
+    },
   ];
 
-  useEffect(() => {
-    if (!employeeNumber) return;
-    const fetchPayroll = async () => {
-      try {
-        const res = await axios.get(
-          `${API_BASE_URL}/PayrollReleasedRoute/released-payroll-detailed`,
-          getAuthHeaders(),
-        );
-        setAllPayroll(Array.isArray(res.data) ? res.data : []);
-      } catch {}
-    };
-    fetchPayroll();
-  }, [employeeNumber]);
-
-  useEffect(() => {
-    const fetchLeaveCredits = async () => {
-      if (!employeeNumber) return;
-      setLeaveLoading(true);
-      try {
-        const [typesRes, assignmentsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders()),
-          axios.get(`${API_BASE_URL}/leaveRoute/leave_assignment`, getAuthHeaders()),
-        ]);
-        const userAssignments = assignmentsRes.data.filter(
-          (a) => a.employeeNumber?.toString() === employeeNumber?.toString(),
-        );
-        const byCode = {};
-        userAssignments.forEach((a) => {
-          if (!byCode[a.leave_code]) byCode[a.leave_code] = [];
-          byCode[a.leave_code].push(a);
-        });
-        const grouped = Object.entries(byCode).map(([code, entries]) => {
-          const leaveType = typesRes.data.find((lt) => lt.leave_code === code);
-          const sorted = entries.sort((a, b) => {
-            const yearDiff = (b.period_year || 0) - (a.period_year || 0);
-            if (yearDiff !== 0) return yearDiff;
-            const semVal = (s) =>
-              s?.includes("2nd") ? 2 : s?.includes("1st") ? 1 : 0;
-            return semVal(b.period_semester) - semVal(a.period_semester);
-          });
-          const current = sorted[0];
-          const previous = sorted.slice(1);
-          const currRemaining = (parseFloat(current?.remaining_hours) || 0) / 8;
-          const currTotal = (parseFloat(current?.total_hours) || 0) / 8;
-          const currAllocated =
-            (parseFloat(current?.allocated_hours) ||
-              parseFloat(current?.total_hours) ||
-              0) / 8;
-          const prevRemaining = previous.reduce(
-            (s, e) => s + (parseFloat(e.remaining_hours) || 0) / 8,
-            0,
-          );
-          return {
-            code,
-            name: leaveType?.leave_description || code,
-            currRemaining,
-            currTotal,
-            currAllocated,
-            prevRemaining,
-          };
-        });
-        setLeaveCredits(grouped);
-      } catch {
-        setLeaveCredits([]);
-      } finally {
-        setLeaveLoading(false);
-      }
-    };
-    fetchLeaveCredits();
-  }, [employeeNumber]);
-
-  const payrollData = useMemo(() => {
-    if (!allPayroll.length || !employeeNumber) return null;
-    const resolveDate = (p) => {
-      const raw =
-        p.startDate ??
-        p.start_date ??
-        p.payroll_date ??
-        p.period_start ??
-        p.date ??
-        null;
-      if (!raw) return null;
-      const d = new Date(raw);
-      return isNaN(d.getTime()) ? null : d;
-    };
-    const resolveEmpNum = (p) =>
-      String(
-        p.employeeNumber ?? p.employee_number ?? p.agencyEmployeeNum ?? "",
-      ).trim();
-    const matches = allPayroll.filter((p) => {
-      const d = resolveDate(p);
-      if (!d) return false;
-      return (
-        resolveEmpNum(p) === String(employeeNumber).trim() &&
-        d.getMonth() === payslipMonth &&
-        d.getFullYear() === payslipYear
-      );
-    });
-    if (matches.length === 0) return null;
-    if (matches.length === 1) return matches[0];
-    return matches.reduce((acc, curr) => ({
-      ...acc,
-      pay1st: acc.pay1st ?? curr.pay1st ?? null,
-      pay2nd: acc.pay2nd ?? curr.pay2nd ?? null,
-    }));
-  }, [allPayroll, employeeNumber, payslipMonth, payslipYear]);
-
-  const getLeaveStatusColor = (remaining, total) => {
-    if (total === 0 || remaining === 0) return "#B71C1C";
-    const pct = (remaining / total) * 100;
-    if (pct > 50) return "#2E7D32";
-    if (pct > 20) return "#EF6C00";
-    return "#B71C1C";
+  const fmtDate = (raw) => {
+    if (!raw) return "—";
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
-  const totalLeave = leaveCredits.reduce(
-    (s, g) => s + g.currRemaining + g.prevRemaining,
-    0,
-  );
-  const fmt = (val) => {
-    const n = parseFloat(val);
-    return !isNaN(n) && n !== 0
-      ? `₱${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : "₱0.00";
-  };
+
+  const personName = (row) =>
+    (row.fullName || "").trim() ||
+    row.name ||
+    row.employeeNumber ||
+    row.employee_number ||
+    "Employee";
 
   return (
     <SectionCard
@@ -3160,413 +2403,531 @@ const AdminPayslipAndLeave = ({ settings, employeeNumber }) => {
         overflow: "hidden",
       }}
     >
-      {/* Professional flat tab bar */}
+      <PanelHeader
+        icon={PendingActionsIcon}
+        title="Needs Attention"
+        right={
+          <Tooltip title="Refresh" arrow>
+            <IconButton
+              size="small"
+              onClick={fetchQueue}
+              sx={{
+                color: T.accent,
+                p: 0.4,
+                borderRadius: "6px",
+                "&:hover": { bgcolor: T.accentFaint },
+              }}
+            >
+              <Refresh sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+        }
+      />
+
+      <Box sx={{ px: 1.5, pt: 1.25, display: "flex", gap: 0.75, flexShrink: 0 }}>
+        {summaryTiles.map((tile) => (
+          <Box
+            key={tile.key}
+            onClick={tile.onClick}
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              p: 1,
+              borderRadius: 1.5,
+              border: `1px solid ${T.accentBorder}`,
+              bgcolor: T.accentFaint,
+              cursor: "pointer",
+              transition: "all 0.15s",
+              "&:hover": { bgcolor: T.accentHover, borderColor: T.accent },
+            }}
+          >
+            {loading ? (
+              <Bone w="40%" h={18} />
+            ) : (
+              <Typography
+                sx={{
+                  fontWeight: 800,
+                  fontSize: "1.05rem",
+                  color: tile.color,
+                  lineHeight: 1.1,
+                }}
+              >
+                {tile.value}
+              </Typography>
+            )}
+            <Typography
+              sx={{
+                fontWeight: 700,
+                fontSize: "0.62rem",
+                color: T.text,
+                mt: 0.35,
+                lineHeight: 1.2,
+              }}
+            >
+              {tile.label}
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "0.52rem",
+                color: T.muted,
+                mt: 0.15,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {tile.hint}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+
       <TabBar>
         <FlatTab
-          label="Payslip"
-          icon={Receipt}
-          badge={monthNames[payslipMonth]?.slice(0, 3)}
+          label="Leaves"
+          icon={EventAvailableIcon}
+          badge={queue.leaveNeedsAction}
           active={activeTab === 0}
           onClick={() => setActiveTab(0)}
         />
         <FlatTab
-          label="Leave"
-          icon={CalendarMonth}
-          badge={`${totalLeave.toFixed(1)}d`}
+          label="Tickets"
+          icon={ContactPage}
+          badge={queue.openTickets}
           active={activeTab === 1}
           onClick={() => setActiveTab(1)}
         />
       </TabBar>
 
-      {activeTab === 0 && (
-        <Box
-          onClick={() =>
-            navigate("/payslip", {
-              state: { selectedMonth: payslipMonth, selectedYear: payslipYear },
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          px: 1.25,
+          pb: 1.25,
+          "&::-webkit-scrollbar": { width: "3px" },
+          "&::-webkit-scrollbar-thumb": {
+            background: T.accentBorder,
+            borderRadius: "2px",
+          },
+        }}
+      >
+        {loading ? (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pt: 0.5 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <Bone key={i} h={42} r={8} />
+            ))}
+          </Box>
+        ) : activeTab === 0 ? (
+          (queue.pendingLeaves || []).length === 0 ? (
+            <Box
+              sx={{
+                py: 3,
+                textAlign: "center",
+                color: T.muted,
+                fontSize: "0.75rem",
+              }}
+            >
+              No leave requests waiting.
+            </Box>
+          ) : (
+            (queue.pendingLeaves || []).map((row) => {
+              const meta =
+                LEAVE_STATUS_META[String(row.status)] || LEAVE_STATUS_META["0"];
+              return (
+                <Box
+                  key={row.id}
+                  onClick={() => navigate("/leave-request")}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    py: 0.9,
+                    px: 0.75,
+                    borderBottom: `1px solid ${T.divider}`,
+                    cursor: "pointer",
+                    borderRadius: 1,
+                    "&:hover": { bgcolor: T.accentFaint },
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      fontSize: "0.65rem",
+                      bgcolor: T.accent,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {personName(row)
+                      .split(" ")
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((p) => p[0])
+                      .join("")
+                      .toUpperCase()}
+                  </Avatar>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography
+                      sx={{
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        color: T.text,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {personName(row)}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: "0.58rem",
+                        color: T.muted,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {row.leave_description || row.leave_code || "Leave"} ·{" "}
+                      {fmtDate(row.leave_date || row.created_at)}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small"
+                    label={meta.label}
+                    sx={{
+                      height: 20,
+                      fontSize: "0.55rem",
+                      fontWeight: 700,
+                      bgcolor: meta.bg,
+                      color: meta.color,
+                      flexShrink: 0,
+                    }}
+                  />
+                </Box>
+              );
             })
-          }
-          sx={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            p: 1.25,
-            minHeight: 0,
-            gap: 1,
-            cursor: "pointer",
-            transition: "background 0.15s",
-            "&:hover": { background: T.accentFaint },
-          }}
-        >
+          )
+        ) : (queue.recentTickets || []).length === 0 ? (
+          <Box
+            sx={{
+              py: 3,
+              textAlign: "center",
+              color: T.muted,
+              fontSize: "0.75rem",
+            }}
+          >
+            No open tickets.
+          </Box>
+        ) : (
+          (queue.recentTickets || []).map((t) => {
+            const meta =
+              TICKET_QUEUE_META[t.status] || TICKET_QUEUE_META.new;
+            return (
+              <Box
+                key={t.id}
+                onClick={() => navigate("/settings?tab=contactus")}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  py: 0.9,
+                  px: 0.75,
+                  borderBottom: `1px solid ${T.divider}`,
+                  cursor: "pointer",
+                  borderRadius: 1,
+                  "&:hover": { bgcolor: T.accentFaint },
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    bgcolor: meta.color,
+                    flexShrink: 0,
+                  }}
+                />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      color: T.text,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {t.subject || "Contact message"}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: "0.58rem",
+                      color: T.muted,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {t.name || "Employee"} · {fmtDate(t.created_at)}
+                  </Typography>
+                </Box>
+                <Chip
+                  size="small"
+                  label={meta.label}
+                  sx={{
+                    height: 20,
+                    fontSize: "0.55rem",
+                    fontWeight: 700,
+                    bgcolor: meta.bg,
+                    color: meta.color,
+                    flexShrink: 0,
+                  }}
+                />
+              </Box>
+            );
+          })
+        )}
+      </Box>
+    </SectionCard>
+  );
+};
+
+// ─── WorkforcePulse (org attendance + leave/payroll snapshot) ─────────────────
+const WorkforcePulse = ({
+  stats,
+  departmentAttendanceData,
+}) => {
+  const navigate = useNavigate();
+  const [leaveStats, setLeaveStats] = useState({
+    pending: 0,
+    supervisor: 0,
+    approved: 0,
+    rejected: 0,
+    needsAction: 0,
+  });
+  const [leaveLoading, setLeaveLoading] = useState(true);
+
+  useEffect(() => {
+    axios
+      .get(`${API_BASE_URL}/api/dashboard/leave-stats`, getAuthHeaders())
+      .then((res) => setLeaveStats((prev) => ({ ...prev, ...(res.data || {}) })))
+      .catch(() => {})
+      .finally(() => setLeaveLoading(false));
+  }, []);
+
+  const totalEmp = Number(stats?.employees) || 0;
+
+  const topDepts = (departmentAttendanceData || []).slice(0, 4);
+
+  const leaveBreakdown = [
+    { key: "pending", label: "Pending", value: leaveStats.pending, color: "#F57C00" },
+    {
+      key: "supervisor",
+      label: "Supervisor",
+      value: leaveStats.supervisor,
+      color: "#1565C0",
+    },
+    { key: "approved", label: "Approved", value: leaveStats.approved, color: "#2E7D32" },
+    { key: "denied", label: "Denied", value: leaveStats.rejected, color: "#C62828" },
+  ];
+
+  return (
+    <SectionCard
+      sx={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
+      <PanelHeader icon={Assessment} title="Workforce Pulse" />
+
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          p: 1.5,
+          display: "flex",
+          flexDirection: "column",
+          gap: 1.25,
+          "&::-webkit-scrollbar": { width: "3px" },
+          "&::-webkit-scrollbar-thumb": {
+            background: T.accentBorder,
+            borderRadius: "2px",
+          },
+        }}
+      >
+        {/* Leave status snapshot */}
+        <Box>
           <Box
             sx={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              flexShrink: 0,
+              mb: 0.65,
             }}
-            onClick={(e) => e.stopPropagation()}
           >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <Receipt sx={{ color: T.accent, fontSize: 13 }} />
-              <Typography
-                sx={{ fontWeight: 700, color: T.text, fontSize: "0.75rem" }}
-              >
-                My Payslip
-              </Typography>
-            </Box>
-            <FormControl
-              size="small"
-              variant="outlined"
+            <Typography
               sx={{
-                minWidth: 100,
-                "& .MuiOutlinedInput-root": {
-                  fontSize: "0.7rem",
-                  borderRadius: 2,
-                  height: 26,
-                  color: T.text,
-                  "& fieldset": { borderColor: T.accentBorder },
-                  "&:hover fieldset": { borderColor: T.accent },
-                  "&.Mui-focused fieldset": { borderColor: T.accent },
-                },
-                "& .MuiSelect-icon": { color: T.accent, fontSize: 16 },
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                color: T.muted,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
               }}
             >
-              <Select
-                value={payslipMonth}
-                onChange={(e) => setPayslipMonth(e.target.value)}
-                MenuProps={{
-                  PaperProps: {
-                    sx: {
-                      borderRadius: 2,
-                      mt: 0.5,
-                      bgcolor: "#fff",
-                      border: `1px solid ${T.accentBorder}`,
-                      boxShadow: `0 8px 24px rgba(0,0,0,0.1)`,
-                      maxHeight: 220,
-                    },
-                  },
-                }}
-              >
-                {monthNames.map((name, i) => (
-                  <MenuItem
-                    key={i}
-                    value={i}
-                    sx={{
-                      fontSize: "0.72rem",
-                      color: T.text,
-                      py: 0.5,
-                      fontWeight: payslipMonth === i ? 700 : 400,
-                      bgcolor:
-                        payslipMonth === i ? T.accentFaint : "transparent",
-                      "&:hover": { bgcolor: T.accentHover },
-                    }}
-                  >
-                    {name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+              Leave requests
+            </Typography>
+            <Button
+              size="small"
+              onClick={() => navigate("/leave-request")}
+              sx={{
+                minWidth: 0,
+                px: 0.75,
+                py: 0,
+                fontSize: "0.58rem",
+                fontWeight: 700,
+                color: T.accent,
+                textTransform: "none",
+              }}
+            >
+              Open
+            </Button>
           </Box>
-
-          <Grid container spacing={0.75} sx={{ flexShrink: 0 }}>
-            {[
-              { label: "1st Quinceña", key: "pay1st" },
-              { label: "2nd Quinceña", key: "pay2nd" },
-            ].map(({ label, key }) => (
-              <Grid item xs={6} key={key}>
+          <Grid container spacing={0.75}>
+            {leaveBreakdown.map((item) => (
+              <Grid item xs={6} key={item.key}>
                 <Box
                   sx={{
-                    bgcolor: T.accentFaint,
-                    border: `1px solid ${T.accentBorder}`,
-                    borderRadius: 2,
-                    p: 1.25,
+                    p: 0.85,
+                    borderRadius: 1.25,
+                    border: `1px solid ${T.divider}`,
+                    bgcolor: "#fff",
                   }}
                 >
-                  <Typography
-                    sx={{
-                      color: T.faint,
-                      fontSize: "0.6rem",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                      mb: 0.3,
-                    }}
-                  >
-                    {label}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      color: payrollData ? T.accent : T.muted,
-                      fontWeight: 800,
-                      fontSize: "0.95rem",
-                      lineHeight: 1,
-                    }}
-                  >
-                    {payrollData ? fmt(payrollData[key]) : "₱-.--"}
-                  </Typography>
-                  {payrollData && (
+                  {leaveLoading ? (
+                    <Bone w="50%" h={16} />
+                  ) : (
                     <Typography
-                      sx={{ color: T.faint, fontSize: "0.55rem", mt: 0.2 }}
+                      sx={{
+                        fontSize: "0.95rem",
+                        fontWeight: 800,
+                        color: item.color,
+                        lineHeight: 1.1,
+                      }}
                     >
-                      {monthNames[payslipMonth]} {payslipYear}
+                      {item.value}
                     </Typography>
                   )}
+                  <Typography
+                    sx={{ fontSize: "0.55rem", fontWeight: 600, color: T.muted, mt: 0.2 }}
+                  >
+                    {item.label}
+                  </Typography>
                 </Box>
               </Grid>
             ))}
           </Grid>
+        </Box>
 
-          {!payrollData && (
-            <Box
+        {/* Top departments */}
+        {topDepts.length > 0 && (
+          <Box>
+            <Typography
               sx={{
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                py: 0.75,
-                borderRadius: "8px",
-                bgcolor: T.accentFaint,
-                border: `1px dashed ${T.accentBorder}`,
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                color: T.muted,
+                mb: 0.65,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
               }}
             >
-              <Typography sx={{ fontSize: "0.62rem", color: T.muted }}>
-                No payslip for {monthNames[payslipMonth]}
-              </Typography>
-            </Box>
-          )}
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 0.5,
-              opacity: 0.4,
-              flexShrink: 0,
-            }}
-          >
-            <ArrowForward sx={{ fontSize: 11, color: T.muted }} />
-            <Typography
-              sx={{ fontSize: "0.6rem", color: T.muted, fontWeight: 600 }}
-            >
-              Tap to view full payslip
+              Largest departments
             </Typography>
+            {topDepts.map((d) => {
+              const count = Number(d.employeeCount) || 0;
+              const pct =
+                totalEmp > 0 ? Math.min(100, Math.round((count / totalEmp) * 100)) : 0;
+              return (
+                <Box key={d.code || d.department} sx={{ mb: 0.7 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mb: 0.25,
+                      gap: 1,
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: "0.62rem",
+                        fontWeight: 600,
+                        color: T.text,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {d.department || d.code || "Department"}
+                    </Typography>
+                    <Typography
+                      sx={{ fontSize: "0.58rem", fontWeight: 700, color: T.accent, flexShrink: 0 }}
+                    >
+                      {count}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={pct}
+                    sx={{
+                      height: 4,
+                      borderRadius: 2,
+                      bgcolor: "rgba(109,35,35,0.08)",
+                      ".MuiLinearProgress-bar": { bgcolor: T.accentMid, borderRadius: 2 },
+                    }}
+                  />
+                </Box>
+              );
+            })}
           </Box>
-        </Box>
-      )}
+        )}
 
-      {activeTab === 1 && (
+        {/* Payroll shortcut row */}
         <Box
+          onClick={() => navigate("/payroll-table")}
           sx={{
-            flex: 1,
+            mt: "auto",
             display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-            p: 1.25,
-            gap: 1,
+            alignItems: "center",
+            justifyContent: "space-between",
+            p: 1,
+            borderRadius: 1.25,
+            border: `1px solid ${T.accentBorder}`,
+            cursor: "pointer",
+            "&:hover": { bgcolor: T.accentFaint },
           }}
         >
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexShrink: 0,
-            }}
-          >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <CalendarMonth sx={{ color: T.accent, fontSize: 13 }} />
-              <Typography
-                sx={{ fontWeight: 700, color: T.text, fontSize: "0.75rem" }}
-              >
-                Leave Credits
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+            <PaymentsIcon sx={{ fontSize: 16, color: T.accent }} />
+            <Box>
+              <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.text }}>
+                Payroll status
+              </Typography>
+              <Typography sx={{ fontSize: "0.55rem", color: T.muted }}>
+                {stats?.pendingPayroll || 0} pending · {stats?.processedPayroll || 0} processed
               </Typography>
             </Box>
-            {!leaveLoading && leaveCredits.length > 0 && (
-              <Box
-                sx={{
-                  px: 1.25,
-                  py: 0.2,
-                  borderRadius: "20px",
-                  bgcolor: T.accentFaint,
-                  border: `1px solid ${T.accentBorder}`,
-                }}
-              >
-                <Typography
-                  sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.accent }}
-                >
-                  {totalLeave.toFixed(1)} Days
-                </Typography>
-              </Box>
-            )}
           </Box>
-          <Box
-            sx={{
-              flex: 1,
-              overflowY: "auto",
-              minHeight: 0,
-              pr: 0.25,
-              "&::-webkit-scrollbar": { width: 3 },
-              "&::-webkit-scrollbar-thumb": {
-                background: T.accentBorder,
-                borderRadius: 2,
-              },
-            }}
-          >
-            {leaveLoading ? (
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 1,
-                  py: 3,
-                }}
-              >
-                <CircularProgress size={14} sx={{ color: T.accent }} />
-                <Typography sx={{ color: T.muted, fontSize: "0.72rem" }}>
-                  Loading...
-                </Typography>
-              </Box>
-            ) : leaveCredits.length === 0 ? (
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: "100%",
-                }}
-              >
-                <Typography
-                  sx={{
-                    color: T.faint,
-                    textAlign: "center",
-                    fontSize: "0.7rem",
-                  }}
-                >
-                  No leave credits assigned
-                </Typography>
-              </Box>
-      ) : (
-              <Grid container spacing={1}>
-                {leaveCredits.map((leave, idx) => {
-                  const pct =
-                    leave.currTotal > 0
-                      ? (leave.currRemaining / leave.currTotal) * 100
-                      : 0;
-                  const statusColor = getLeaveStatusColor(
-                    leave.currRemaining,
-                    leave.currTotal,
-                  );
-                  const usedDays = leave.currAllocated - leave.currRemaining;
-                  return (
-<Grid item xs={4} key={idx}>
-                      <Box
-                        sx={{
-                          borderRadius: "10px",
-                          border: `1px solid ${T.accentBorder}`,
-                          bgcolor: "#fff",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 0.4,
-                          p: 0.9,
-                          transition: "all 0.15s",
-                          "&:hover": {
-                            boxShadow: `0 4px 14px ${statusColor}22`,
-                            borderColor: `${statusColor}50`,
-                          },
-                        }}
-                      >
-                        {/* Header: name */}
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            color: T.text,
-                            fontSize: "0.55rem",
-                            lineHeight: 1.25,
-                            overflow: "hidden",
-                            display: "-webkit-box",
-                            WebkitLineClamp: 1,
-                            WebkitBoxOrient: "vertical",
-                          }}
-                        >
-                          {leave.name}
-                        </Typography>
-
-                        {/* Big number */}
-                        <Box sx={{ textAlign: "center" }}>
-                          <Typography
-                            sx={{
-                              color: statusColor,
-                              fontWeight: 800,
-                              fontSize: "1.25rem",
-                              lineHeight: 1,
-                            }}
-                          >
-                            {leave.currRemaining.toFixed(1)}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              color: T.faint,
-                              fontSize: "0.5rem",
-                              fontWeight: 600,
-                              mt: 0.1,
-                            }}
-                          >
-                            days left
-                          </Typography>
-                        </Box>
-
-                        {/* Footer: progress + meta */}
-                        <Box>
-                          <LinearProgress
-                            variant="determinate"
-                            value={Math.min(pct, 100)}
-                            sx={{
-                              height: 3.5,
-                              borderRadius: 2,
-                              bgcolor: `${statusColor}18`,
-                              mb: 0.3,
-                              ".MuiLinearProgress-bar": {
-                                bgcolor: statusColor,
-                                borderRadius: 2,
-                              },
-                            }}
-                          />
-                          <Typography
-                            sx={{
-                              color: T.faint,
-                              fontSize: "0.48rem",
-                              fontWeight: 500,
-                              textAlign: "center",
-                              lineHeight: 1.2,
-                            }}
-                          >
-                            {usedDays < 0 ? 0 : usedDays.toFixed(1)} /{" "}
-                            {leave.currAllocated.toFixed(1)} used
-                          </Typography>
-                          {leave.prevRemaining > 0 && (
-                            <Typography
-                              sx={{
-                                color: "#E65100",
-                                fontWeight: 700,
-                                fontSize: "0.46rem",
-                                textAlign: "center",
-                                mt: 0.15,
-                                lineHeight: 1.2,
-                              }}
-                            >
-                            </Typography>
-                          )}
-                        </Box>
-                      </Box>
-                    </Grid>
-                  );
-                })}
-              </Grid>
-            )}
-          </Box>
+          <ArrowForward sx={{ fontSize: 14, color: T.accent }} />
         </Box>
-      )}
+      </Box>
     </SectionCard>
   );
 };
@@ -3682,7 +3043,6 @@ const AdminHome = () => {
 
   const {
     stats,
-    weeklyAttendanceData,
     departmentAttendanceData,
     payrollStatusData,
     monthlyAttendanceTrend,
@@ -4396,7 +3756,7 @@ const AdminHome = () => {
                 minHeight: 0,
               }}
             >
-              <FacialRecognitionFeed />
+              <FacialRecognitionFeed stats={stats} statsLoading={loading} />
             </Grid>
 
             {/* CENTER — Carousel & Audit*/}
@@ -4748,10 +4108,7 @@ const AdminHome = () => {
                       flexDirection: "column",
                     }}
                   >
-                    <TasksAndEvents
-                      settings={settings}
-                      employeeNumber={employeeNumber}
-                    />
+                    <NeedsAttention />
                   </Box>
                 </Box>
                 <Box
@@ -4774,9 +4131,9 @@ const AdminHome = () => {
                       flexDirection: "column",
                     }}
                   >
-                    <AdminPayslipAndLeave
-                      settings={settings}
-                      employeeNumber={employeeNumber}
+                    <WorkforcePulse
+                      stats={stats}
+                      departmentAttendanceData={departmentAttendanceData}
                     />
                   </Box>
                 </Box>

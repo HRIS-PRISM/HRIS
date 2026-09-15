@@ -57,10 +57,7 @@ import {
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowRight as KeyboardArrowRightIcon,
 } from "@mui/icons-material";
-import {
-  useOfficialAttendanceMetrics,
-  listHalfDayDatesFromDailyRows,
-} from "./useOfficialAttendanceMetrics";
+import { useOfficialAttendanceMetrics } from "./useOfficialAttendanceMetrics";
 import { listEarningsHalfDayDatesForDisplay } from "../../../utils/halfDayReview";
 import { fetchDeductionCreditSnapshots } from "../../../utils/deductionSourceBalances";
 import OverallAttendanceCompareModal from "../../ATTENDANCE/OverallAttendanceCompareModal";
@@ -878,12 +875,7 @@ const AttendanceSummary = ({
   const officialEnd = raw?.endDate;
 
   const {
-    absentDays: absentDaysOfficial,
-    halfDayDatesOfficial,
-    rows: officialRows,
     calendarMaps: officialCalendarMaps,
-    absentTimeHrs: absentTimeHrsOfficial,
-    halfDayShortfallHrs: halfDayShortfallHrsOfficial,
     renderedHrs: renderedHrsOfficial,
     loading: officialMetricsLoading,
   } = useOfficialAttendanceMetrics({
@@ -892,10 +884,12 @@ const AttendanceSummary = ({
     endDate: officialEnd,
   });
 
+  /** Live daily recompute is only used as a tertiary compare option when editing — metrics display uses the saved Attendance Summary row. */
   const canTrustOfficialMetrics =
     !officialMetricsLoading &&
     Boolean(officialStart && officialEnd && employee?.employeeNumber);
 
+  /** Same as ATTENDANCE/AttendanceSummary: prefer saved lateTotalTime, else injected late-only. Do not invent from live daily recalculation. */
   const tardHrs = useMemo(() => {
     if (!raw) return 0;
     const fromDbLate =
@@ -908,12 +902,8 @@ const AttendanceSummary = ({
         ? parseHHMM(raw._lateTotal)
         : null;
     if (fromInjected != null) return fromInjected;
-    const savedOverall = parseHHMM(raw.overallRenderedOfficialTimeTardiness);
-    if (!canTrustOfficialMetrics) return savedOverall;
-    const absentH = toNum(absentTimeHrsOfficial);
-    const halfH = toNum(halfDayShortfallHrsOfficial);
-    return Math.max(0, savedOverall - absentH - halfH);
-  }, [raw, canTrustOfficialMetrics, absentTimeHrsOfficial, halfDayShortfallHrsOfficial]);
+    return 0;
+  }, [raw]);
 
   const buildFieldsFromRaw = useCallback(() => {
     if (!raw) return {};
@@ -1068,17 +1058,14 @@ const AttendanceSummary = ({
 
   const lateDays = toNum(stats.late_days);
 
-  /** Mirrors OverallAttendance.jsx `_absentTotalDays`: trust the saved record first.
-   *  Only fall back to the live official-metrics recalculation (or stats) when the
-   *  record itself has no saved absentDays — keeps this card in sync with Attendance. */
+  /** Saved overall_attendance_record only (Attendance Summary source of truth). */
   const absentDays = useMemo(() => {
     if (raw?.absentDays != null && String(raw.absentDays).trim() !== "") {
       const stored = toNum(raw.absentDays);
       if (Number.isFinite(stored)) return stored;
     }
-    if (canTrustOfficialMetrics) return absentDaysOfficial;
-    return toNum(stats.absent_days);
-  }, [raw, canTrustOfficialMetrics, absentDaysOfficial, stats.absent_days]);
+    return 0;
+  }, [raw]);
 
   const totalAbsentDays = absentDays;
 
@@ -1091,103 +1078,41 @@ const AttendanceSummary = ({
 
   const presentDays = toNum(stats.present_days);
 
-  /** Same source as ATTENDANCE/AttendanceSummary: saved overall_attendance_record buckets only. */
+  /** Saved overall_attendance_record half-day buckets only — never invent from daily rows. */
   const halfDayDates = useMemo(() => {
-    if (raw) {
-      const fromStoredField = [
-        ...new Set(
-          (String(raw.halfDayDates || "").match(/\d{4}-\d{2}-\d{2}/g) || [])
-            .map(normalizeHalfDayDateKey)
-            .filter(Boolean),
-        ),
-      ].sort();
-      if (fromStoredField.length) return fromStoredField;
-      const fromRecord = listEarningsHalfDayDatesForDisplay(raw);
-      return [
-        ...new Set(
-          (Array.isArray(fromRecord) ? fromRecord : [])
-            .map(normalizeHalfDayDateKey)
-            .filter(Boolean),
-        ),
-      ].sort();
-    }
-    const merge = new Set();
-    if (canTrustOfficialMetrics) {
-      (Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial : []).forEach((d) => {
-        const n = normalizeHalfDayDateKey(d);
-        if (n) merge.add(n);
-      });
-    }
-    if (!merge.size) {
-      let dates = listHalfDayDatesFromDailyRows(officialRows, null);
-      if (!dates.length) {
-        dates = listHalfDayDatesFromDailyRows(
-          Array.isArray(attendanceData?.dailyRecords) ? attendanceData.dailyRecords : [],
-          null,
-        );
-      }
-      dates.forEach((d) => merge.add(normalizeHalfDayDateKey(d)));
-      const statsHalf = toNum(attendanceData?.stats?.half_days ?? attendanceData?.stats?.halfDays);
-      if (!merge.size && statsHalf > 0.0001) {
-        const fallback =
-          (officialStart && String(officialStart).slice(0, 10)) ||
-          `${year}-${String(month).padStart(2, "0")}-01`;
-        if (fallback) merge.add(normalizeHalfDayDateKey(fallback));
-      }
-    }
-    return [...merge].filter(Boolean).sort();
-  }, [
-    raw,
-    canTrustOfficialMetrics,
-    halfDayDatesOfficial,
-    officialRows,
-    attendanceData?.dailyRecords,
-    attendanceData?.stats,
-    officialStart,
-    year,
-    month,
-  ]);
+    if (!raw) return [];
+    const fromStoredField = [
+      ...new Set(
+        (String(raw.halfDayDates || "").match(/\d{4}-\d{2}-\d{2}/g) || [])
+          .map(normalizeHalfDayDateKey)
+          .filter(Boolean),
+      ),
+    ].sort();
+    if (fromStoredField.length) return fromStoredField;
+    const fromRecord = listEarningsHalfDayDatesForDisplay(raw);
+    return [
+      ...new Set(
+        (Array.isArray(fromRecord) ? fromRecord : [])
+          .map(normalizeHalfDayDateKey)
+          .filter(Boolean),
+      ),
+    ].sort();
+  }, [raw]);
 
   const halfDays = useMemo(() => {
     if (raw?.halfDays != null && String(raw.halfDays).trim() !== "") {
       const stored = toNum(raw.halfDays);
       if (Number.isFinite(stored)) return stored;
     }
-    if (halfDayDates.length) return halfDayDates.length;
-    if (!raw) {
-      if (canTrustOfficialMetrics) {
-        return Array.isArray(halfDayDatesOfficial) ? halfDayDatesOfficial.length : 0;
-      }
-      return toNum(stats.half_days ?? stats.halfDays);
-    }
-    return 0;
-  }, [
-    raw,
-    halfDayDates.length,
-    canTrustOfficialMetrics,
-    halfDayDatesOfficial,
-    stats.half_days,
-    stats.halfDays,
-  ]);
+    return halfDayDates.length;
+  }, [raw, halfDayDates.length]);
 
   const halfDayHrs = useMemo(() => {
     if (raw?.halfDayShortfallTime != null && String(raw.halfDayShortfallTime).trim() !== "") {
       return parseHHMM(raw.halfDayShortfallTime);
     }
-    if (halfDayDates.length) {
-      return canTrustOfficialMetrics
-        ? toNum(halfDayShortfallHrsOfficial)
-        : halfDays * 4;
-    }
-    if (!raw && canTrustOfficialMetrics) return toNum(halfDayShortfallHrsOfficial);
     return halfDays * 4;
-  }, [
-    raw,
-    halfDayDates.length,
-    halfDays,
-    canTrustOfficialMetrics,
-    halfDayShortfallHrsOfficial,
-  ]);
+  }, [raw, halfDays]);
 
   const deductedNormSet = useMemo(
     () => new Set((deductedVlHalfDates || []).map(normalizeHalfDayDateKey).filter(Boolean)),
@@ -1265,23 +1190,54 @@ const AttendanceSummary = ({
         )}
 
         {!raw ? (
-          /* ── Empty state — no attendance record ── */
+          /* ── Empty state — must save in Attendance Summary first ── */
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
             <Box
               sx={{
                 px: 1.5, py: 2, borderRadius: 2, bgcolor: "rgba(0,0,0,0.03)",
                 border: "1px dashed rgba(0,0,0,0.15)",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 0.75,
               }}
             >
               <DateRangeIcon sx={{ fontSize: 20, color: T.faint, opacity: 0.5 }} />
               <Typography sx={{ fontSize: "0.73rem", fontWeight: 700, color: "#333", fontFamily: T.poppins }}>
                 {monthName(month)} {year}
               </Typography>
-              <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, textAlign: "center" }}>
-                {calDays} cal. days · No attendance record found
+              <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontFamily: T.poppins, textAlign: "center", maxWidth: 260 }}>
+                {calDays} cal. days · No saved Attendance Summary for this period.
+                Save the overall attendance record in Attendance Summary first — Earnings only reads that source of truth.
               </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                endIcon={<OpenInNewIcon sx={{ fontSize: "12px !important" }} />}
+                onClick={() => {
+                  const en = String(employee?.employeeNumber || "");
+                  const sd = `${year}-${String(month).padStart(2, "0")}-01`;
+                  const last = new Date(year, month, 0).getDate();
+                  const ed = `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+                  navigate("/attendance_summary", {
+                    state: {
+                      fromEarnings: true,
+                      employeeNumber: en,
+                      startDate: sd,
+                      endDate: ed,
+                      selectedYear: year,
+                      selectedMonth: month,
+                    },
+                  });
+                }}
+                sx={{
+                  ...btnOutlineSx,
+                  mt: 0.5,
+                  borderColor: alpha(T.accent, 0.35),
+                  color: T.accent,
+                  "&:hover": { bgcolor: alpha(T.accent, 0.05), borderColor: T.accent },
+                }}
+              >
+                Open Attendance Summary
+              </Button>
             </Box>
           </Box>
         ) : (

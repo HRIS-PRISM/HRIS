@@ -107,15 +107,16 @@ import {
   formatOfficialAttendanceSeconds,
   parseOfficialTimeToSeconds,
 } from "../../utils/officialAttendanceFromDailyRows";
-import { sumHmsDurationStrings } from "../../utils/attendanceLateTotals";
 import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 import { fetchOverallAttendanceRow } from "./EARNINGS/SalaryShortfallRegistry";
 import { aggregateAttendanceResultsForAbstract } from "./EARNINGS/aggregateAttendanceResultsForAbstract";
 
 /**
- * Normalize summary: Late Total = late-only; Overall Tardiness = Absent + Half + Late.
+ * Align with ATTENDANCE/AttendanceSummary: keep saved overall tardiness as-is;
+ * expose late-only on `_lateTotal` (from lateTotalTime, else overall − absent − half).
+ * Never rewrite overallRenderedOfficialTimeTardiness — that belongs to Attendance Summary.
  */
-async function mergeSummaryLateOnlyTardiness(summary, employeeNumber, headers) {
+async function mergeSummaryLateOnlyTardiness(summary) {
   if (!summary) return summary;
   const absentStr =
     summary?.absentTime != null ? String(summary.absentTime).trim() : "";
@@ -142,16 +143,9 @@ async function mergeSummaryLateOnlyTardiness(summary, employeeNumber, headers) {
       );
     }
   }
-  const overallFromBuckets = sumHmsDurationStrings([
-    absentStr,
-    halfStr,
-    lateStr,
-  ]);
   return {
     ...summary,
-    _lateTotal: lateStr || "00:00:00",
-    overallRenderedOfficialTimeTardiness:
-      overallFromBuckets || lateStr || "00:00:00",
+    _lateTotal: lateStr || "",
   };
 }
 
@@ -1955,6 +1949,11 @@ const MonthYearNavigator = ({ year, month, onChange }) => {
   );
 };
 
+/**
+ * Earnings must consume the Attendance Summary source of truth only:
+ * GET /attendance/api/overall_attendance_record (same as ATTENDANCE/AttendanceSummary).
+ * Supplemental daily/stats may come from /api/earnings/attendance, but never invent a summary.
+ */
 const fetchAttendanceForEmployee = async (
   employeeNumber,
   year,
@@ -1965,6 +1964,7 @@ const fetchAttendanceForEmployee = async (
   const lastDay = new Date(year, month, 0).getDate();
   const endOfMonth = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   const headers = { Authorization: `Bearer ${token}` };
+
   let earningsData = null;
   try {
     const r = await axios.get(
@@ -1972,51 +1972,77 @@ const fetchAttendanceForEmployee = async (
       { headers },
     );
     earningsData = r.data;
-  } catch {}
-  if (earningsData?.summary) {
-    const summary = await mergeSummaryLateOnlyTardiness(
-      earningsData.summary,
-      employeeNumber,
-      headers,
-    );
-    return { ...earningsData, summary };
+  } catch {
+    /* optional enrichment only */
   }
-  const attempts = [
-    { s: startOfMonth, e: endOfMonth },
-    {
-      s: `${year}-${String(month).padStart(2, "0")}-01`,
-      e: (() => {
-        const d = new Date(year, month, 5);
-        return d.toISOString().split("T")[0];
-      })(),
-    },
-  ];
-  for (const { s, e } of attempts) {
-    try {
-      const r2 = await axios.get(
-        `${API_BASE_URL}/attendance/api/overall_attendance_record`,
-        {
-          params: { personID: employeeNumber, startDate: s, endDate: e },
-          headers,
+
+  let summaryRow = null;
+  try {
+    const r2 = await axios.get(
+      `${API_BASE_URL}/attendance/api/overall_attendance_record`,
+      {
+        params: {
+          personID: employeeNumber,
+          startDate: startOfMonth,
+          endDate: endOfMonth,
         },
+        headers,
+      },
+    );
+    const rows = r2.data?.data || (Array.isArray(r2.data) ? r2.data : []);
+    if (rows.length > 0) {
+      // Prefer exact calendar-month window when multiple overlap; else closest start.
+      const exact = rows.find(
+        (row) =>
+          String(row.startDate || "").slice(0, 10) === startOfMonth &&
+          String(row.endDate || "").slice(0, 10) === endOfMonth,
       );
-      const rows = r2.data?.data || (Array.isArray(r2.data) ? r2.data : []);
-      if (rows.length > 0) {
-        const summary = await mergeSummaryLateOnlyTardiness(
-          rows[0],
-          employeeNumber,
-          headers,
-        );
-        return {
-          ...(earningsData || {}),
-          summary,
-          stats: earningsData?.stats || {},
-          dailyRecords: earningsData?.dailyRecords || [],
-        };
-      }
-    } catch {}
+      summaryRow =
+        exact ||
+        [...rows].sort(
+          (a, b) =>
+            Math.abs(
+              new Date(String(a.startDate).slice(0, 10)) -
+                new Date(startOfMonth),
+            ) -
+            Math.abs(
+              new Date(String(b.startDate).slice(0, 10)) -
+                new Date(startOfMonth),
+            ),
+        )[0];
+    }
+  } catch {
+    /* no saved Attendance Summary for this period */
   }
-  return earningsData;
+
+  // Last resort: earnings overlap query also reads overall_attendance_record
+  if (!summaryRow && earningsData?.summary) {
+    summaryRow = earningsData.summary;
+  }
+
+  if (!summaryRow) {
+    return earningsData
+      ? { ...earningsData, summary: null }
+      : {
+          employeeNumber,
+          year,
+          month,
+          summary: null,
+          stats: {},
+          dailyRecords: [],
+        };
+  }
+
+  const summary = await mergeSummaryLateOnlyTardiness(summaryRow);
+  return {
+    ...(earningsData || {}),
+    employeeNumber,
+    year,
+    month,
+    summary,
+    stats: earningsData?.stats || {},
+    dailyRecords: earningsData?.dailyRecords || [],
+  };
 };
 
 // ─── Leave Input Column ────────────────────────────────────────────────────────
