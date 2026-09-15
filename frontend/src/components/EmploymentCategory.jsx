@@ -574,11 +574,48 @@ const EMPLOYMENT_CATEGORIES = [
 
 const JOB_ORDER_SUBCATEGORIES = ["Graduate", "Undergraduate"];
 
+const BUILTIN_CATEGORY_KEYS = new Set(
+  EMPLOYMENT_CATEGORIES.map((c) => c.toLowerCase())
+);
+
 // Builds the string actually saved into typeName. Existing DB columns only — no new fields.
 const computeTypeName = (category, jobOrderSubcategory, othersText) => {
   if (category === "Job Order") return `Job Order - ${jobOrderSubcategory || ""}`.trim();
   if (category === "Others") return (othersText || "").trim();
   return category || "";
+};
+
+const isJobOrderTypeName = (typeName) =>
+  /^(job\s*order|jo)\b/i.test(String(typeName || "").trim());
+
+// Reuse a previously saved custom name when the user types the same value via Others.
+const canonicalizeCustomCategory = (name, customCategories = []) => {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return "";
+  const key = trimmed.toLowerCase();
+  const builtin = EMPLOYMENT_CATEGORIES.find(
+    (c) => c !== "Others" && c.toLowerCase() === key
+  );
+  if (builtin) return builtin;
+  const saved = customCategories.find((c) => c.toLowerCase() === key);
+  return saved || trimmed;
+};
+
+const collectCustomCategories = (typeConfigs = [], extras = []) => {
+  const seen = new Set();
+  const names = [];
+  const consider = (raw) => {
+    const name = String(raw || "").trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (BUILTIN_CATEGORY_KEYS.has(key) || isJobOrderTypeName(name) || seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  };
+  extras.forEach(consider);
+  typeConfigs.forEach((t) => consider(t?.typeName));
+  names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  return names;
 };
 
 // Tolerant match for existing Job Order rows saved with slightly different wording/punctuation.
@@ -592,7 +629,7 @@ const parseJobOrderSubcategory = (typeName) => {
 
 // Derives structured (classification/category/subcategory) state from the existing
 // parentGroup/typeName columns, purely for pre-filling the edit form. Never writes anything.
-const classifyExistingType = (type) => {
+const classifyExistingType = (type, extraCategories = []) => {
   const classification = EMPLOYMENT_CLASSIFICATIONS.find(
     (c) => c.toLowerCase() === String(type.parentGroup || "").trim().toLowerCase()
   );
@@ -609,11 +646,12 @@ const classifyExistingType = (type) => {
     };
   }
 
-  const exactCategory = EMPLOYMENT_CATEGORIES.find(
-    (c) =>
-      c !== "Job Order" &&
-      c !== "Others" &&
-      c.toLowerCase() === String(type.typeName || "").trim().toLowerCase()
+  const knownCategories = [
+    ...EMPLOYMENT_CATEGORIES.filter((c) => c !== "Job Order" && c !== "Others"),
+    ...extraCategories,
+  ];
+  const exactCategory = knownCategories.find(
+    (c) => c.toLowerCase() === String(type.typeName || "").trim().toLowerCase()
   );
   if (exactCategory) {
     return {
@@ -642,7 +680,24 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [typeSearch, setTypeSearch] = useState("");
+  const [extraCustomCategories, setExtraCustomCategories] = useState([]);
   const deferredTypeSearch = useDeferredValue(typeSearch);
+
+  const customCategories = useMemo(
+    () => collectCustomCategories(typeConfigs, extraCustomCategories),
+    [typeConfigs, extraCustomCategories]
+  );
+
+  const rememberCustomCategory = (name) => {
+    const trimmed = String(name || "").trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (BUILTIN_CATEGORY_KEYS.has(key) || isJobOrderTypeName(trimmed)) return;
+    setExtraCustomCategories((prev) => {
+      if (prev.some((c) => c.toLowerCase() === key)) return prev;
+      return [...prev, trimmed];
+    });
+  };
 
   const grouped = useMemo(() => {
     const q = deferredTypeSearch.trim().toLowerCase();
@@ -680,8 +735,9 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
     if (category === "Others" && !othersText.trim())
       return showSnackbar("Please specify the category name", "error");
 
+    const resolvedOthers = canonicalizeCustomCategory(othersText, customCategories);
     const parentGroup = classification;
-    const typeName = computeTypeName(category, jobOrderSubcategory, othersText);
+    const typeName = computeTypeName(category, jobOrderSubcategory, resolvedOthers);
 
     setSubmitting(true);
     try {
@@ -690,6 +746,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
         { parentGroup, typeName, colorHex },
         getAuthHeaders()
       );
+      if (category === "Others") rememberCustomCategory(resolvedOthers);
       resetNewType();
       onRefresh();
       showSnackbar("Employment type created successfully", "success");
@@ -702,7 +759,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
 
   const startEdit = (type) => {
     setDeleteConfirm(null);
-    const classified = classifyExistingType(type);
+    const classified = classifyExistingType(type, customCategories);
     setEditingId(type.id);
     if (classified.mode === "structured") {
       setEditData({
@@ -729,6 +786,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
 
   const handleUpdate = async (id) => {
     let parentGroup, typeName;
+    let customNameToRemember = "";
 
     if (editData.isLegacy) {
       if (!editData.parentGroup?.trim()) return showSnackbar("Parent group is required", "error");
@@ -743,7 +801,9 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
       if (editData.category === "Others" && !editData.othersText.trim())
         return showSnackbar("Please specify the category name", "error");
       parentGroup = editData.classification;
-      typeName = computeTypeName(editData.category, editData.jobOrderSubcategory, editData.othersText);
+      const resolvedOthers = canonicalizeCustomCategory(editData.othersText, customCategories);
+      typeName = computeTypeName(editData.category, editData.jobOrderSubcategory, resolvedOthers);
+      if (editData.category === "Others") customNameToRemember = resolvedOthers;
     }
 
     setSubmitting(true);
@@ -759,6 +819,7 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
         },
         getAuthHeaders()
       );
+      if (customNameToRemember) rememberCustomCategory(customNameToRemember);
       cancelEdit();
       onRefresh();
       showSnackbar("Employment type updated successfully", "success");
@@ -972,11 +1033,34 @@ const ManageTypesTab = ({ typeConfigs, onRefresh, showSnackbar }) => {
                           {form.classification ? "Select category…" : "Select classification first"}
                         </Typography>
                       </MenuItem>
-                      {EMPLOYMENT_CATEGORIES.map((c) => (
+                      {EMPLOYMENT_CATEGORIES.filter((c) => c !== "Others").map((c) => (
                         <MenuItem key={c} value={c}>
                           <Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography>
                         </MenuItem>
                       ))}
+                      {customCategories.length > 0 && (
+                        <ListSubheader
+                          sx={{
+                            fontSize: "0.68rem",
+                            fontWeight: 700,
+                            letterSpacing: "0.07em",
+                            textTransform: "uppercase",
+                            color: alpha(T.accent, 0.55),
+                            lineHeight: "2em",
+                            bgcolor: T.accentFaint,
+                          }}
+                        >
+                          Previously added
+                        </ListSubheader>
+                      )}
+                      {customCategories.map((c) => (
+                        <MenuItem key={`custom-${c}`} value={c}>
+                          <Typography sx={{ fontSize: "0.85rem" }}>{c}</Typography>
+                        </MenuItem>
+                      ))}
+                      <MenuItem value="Others">
+                        <Typography sx={{ fontSize: "0.85rem" }}>Others</Typography>
+                      </MenuItem>
                     </Select>
                   </FormControl>
                 </Box>
