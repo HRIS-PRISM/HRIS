@@ -2044,18 +2044,26 @@ router.put(
                           });
                         }
 
-                        // Update page_access
-                        const updatePageAccessQuery =
-                          'UPDATE page_access SET employeeNumber = ? WHERE employeeNumber = ?';
+                        // Clear orphaned page_access for the new number that would
+                        // collide on unique_user_page (employeeNumber + page_id)
+                        // when renaming. New number is not a live user (checked above).
+                        const deleteConflictPageAccessQuery = `
+                          DELETE pa_conflict
+                          FROM page_access pa_conflict
+                          INNER JOIN page_access pa_old
+                            ON pa_conflict.page_id = pa_old.page_id
+                          WHERE pa_conflict.employeeNumber = ?
+                            AND pa_old.employeeNumber = ?
+                        `;
                         connection.query(
-                          updatePageAccessQuery,
+                          deleteConflictPageAccessQuery,
                           [newEmployeeNumber, employeeNumber],
                           (err) => {
                             if (err) {
                               return connection.rollback(() => {
                                 connection.release();
                                 console.error(
-                                  'Error updating page_access:',
+                                  'Error clearing conflicting page_access:',
                                   err,
                                 );
                                 res.status(500).json({
@@ -2065,42 +2073,66 @@ router.put(
                               });
                             }
 
-                            // Commit transaction
-                            connection.commit((err) => {
-                              if (err) {
-                                return connection.rollback(() => {
+                            // Update page_access
+                            const updatePageAccessQuery =
+                              'UPDATE page_access SET employeeNumber = ? WHERE employeeNumber = ?';
+                            connection.query(
+                              updatePageAccessQuery,
+                              [newEmployeeNumber, employeeNumber],
+                              (err) => {
+                                if (err) {
+                                  return connection.rollback(() => {
+                                    connection.release();
+                                    console.error(
+                                      'Error updating page_access:',
+                                      err,
+                                    );
+                                    res.status(500).json({
+                                      error:
+                                        'Failed to update employee number in page access',
+                                    });
+                                  });
+                                }
+
+                                // Commit transaction
+                                connection.commit((err) => {
+                                  if (err) {
+                                    return connection.rollback(() => {
+                                      connection.release();
+                                      console.error(
+                                        'Error committing transaction:',
+                                        err,
+                                      );
+                                      res.status(500).json({
+                                        error: 'Failed to commit transaction',
+                                      });
+                                    });
+                                  }
+
                                   connection.release();
-                                  console.error(
-                                    'Error committing transaction:',
-                                    err,
-                                  );
-                                  res.status(500).json({
-                                    error: 'Failed to commit transaction',
+
+                                  // Log audit
+                                  try {
+                                    logAudit(
+                                      req.user,
+                                      'Update',
+                                      'users',
+                                      newEmployeeNumber,
+                                      newEmployeeNumber,
+                                    );
+                                  } catch (e) {
+                                    console.error('Audit log error:', e);
+                                  }
+
+                                  res.status(200).json({
+                                    message:
+                                      'Employee number updated successfully',
+                                    oldEmployeeNumber: employeeNumber,
+                                    newEmployeeNumber: newEmployeeNumber,
                                   });
                                 });
-                              }
-
-                              connection.release();
-
-                              // Log audit
-                              try {
-                                logAudit(
-                                  req.user,
-                                  'Update',
-                                  'users',
-                                  newEmployeeNumber,
-                                  newEmployeeNumber,
-                                );
-                              } catch (e) {
-                                console.error('Audit log error:', e);
-                              }
-
-                              res.status(200).json({
-                                message: 'Employee number updated successfully',
-                                oldEmployeeNumber: employeeNumber,
-                                newEmployeeNumber: newEmployeeNumber,
-                              });
-                            });
+                              },
+                            );
                           },
                         );
                       },
