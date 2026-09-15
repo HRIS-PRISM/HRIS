@@ -63,6 +63,8 @@ import {
   Face,
   FiberManualRecord,
   ArrowDropDown as ArrowDropDownIcon,
+  SupervisorAccount,
+  CheckCircle,
 } from "@mui/icons-material";
 import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
@@ -74,8 +76,6 @@ import PaymentsIcon from "@mui/icons-material/Payments";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CloseIcon from "@mui/icons-material/Close";
 import {
-  WorkHistory as WorkHistoryIcon,
-  ReceiptLong as ReceiptLongIcon,
   History,
 } from "@mui/icons-material";
 import logo from "../assets/logo.PNG";
@@ -527,50 +527,59 @@ const useSystemSettings = () => {
 };
 
 // ─── static config ────────────────────────────────────────────────────────────
-const STAT_CARDS = (settings) => [
+const STAT_CARDS = (settings, stats = {}) => [
   {
-    label: "Total Employees",
     valueKey: "employees",
     defaultValue: 0,
     textValue: "Total Employees",
+    sideMeta: [
+      { label: "Manila", value: stats.manila || 0 },
+      { label: "Cavite", value: stats.cavite || 0 },
+    ],
     icon: <PeopleIcon />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
   },
   {
-    label: "Present Today",
-    valueKey: "todayAttendance",
+    valueKey: "pendingPayroll",
     defaultValue: 0,
-    textValue: "Today's Attendance",
-    icon: <EventAvailableIcon />,
+    textValue: "Pending Payroll",
+    icon: <PendingActionsIcon />,
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
   },
   {
-    label: "Pending Payroll",
-    valueKey: "pendingPayroll",
+    valueKey: "activeStatus",
     defaultValue: 0,
-    textValue: "Payroll Processing",
-    icon: <PendingActionsIcon />,
+    textValue: "Active",
+    layout: "split",
+    splitPeers: [
+      { valueKey: "inactiveStatus", textValue: "Inactive" },
+      { valueKey: "defaultStatus", textValue: "Default" },
+    ],
+    icon: <CheckCircle />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
   },
   {
-    label: "Processed Payroll",
-    valueKey: "processedPayroll",
+    valueKey: "pendingLeaves",
     defaultValue: 0,
-    textValue: "Payroll Processed",
-    icon: <WorkHistoryIcon />,
+    textValue: "Leave Queue",
+    icon: <EventAvailableIcon />,
     gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
   },
   {
-    label: "Released Payslips",
-    valueKey: "payslipCount",
+    valueKey: "superadmin",
     defaultValue: 0,
-    textValue: "Payslip Released",
-    icon: <ReceiptLongIcon />,
-    gradient: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
+    textValue: "Superadmin",
+    layout: "split",
+    splitPeers: [
+      { valueKey: "administrator", textValue: "Admin" },
+      { valueKey: "staff", textValue: "Staff" },
+    ],
+    icon: <SupervisorAccount />,
+    gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
     shadow: `0 15px 40px ${settings.primaryColor}33`,
   },
 ];
@@ -709,15 +718,28 @@ const useDashboardData = (settings) => {
 
   const [stats, setStats] = useState({
     employees: 0,
+    manila: 0,
+    cavite: 0,
+    unassignedBranch: 0,
+    superadmin: 0,
+    administrator: 0,
+    staff: 0,
+    activeStatus: 0,
+    inactiveStatus: 0,
+    defaultStatus: 0,
+    resignedStatus: 0,
+    terminatedStatus: 0,
+    retiredStatus: 0,
     turnoverRate: 32,
     happinessRate: 78,
     teamKPI: 84.45,
     todayAttendance: 0,
+    pendingLeaves: 0,
+    openTickets: 0,
     pendingPayroll: 0,
     processedPayroll: 0,
     payslipCount: 0,
   });
-  const [departmentAttendanceData, setDepartmentAttendanceData] = useState([]);
   const [payrollStatusData, setPayrollStatusData] = useState([
     { status: "Processed", value: 0, fill: "#800020" },
     { status: "Pending", value: 0, fill: "#A52A2A" },
@@ -790,12 +812,27 @@ const useDashboardData = (settings) => {
       .get(`${API_BASE_URL}/api/dashboard/stats`, auth)
       .then((res) => {
         const dashStats = res.data;
-        const totalEmp = dashStats.totalEmployees || 0;
+        const totalEmp =
+          dashStats.totalUsers || dashStats.totalEmployees || 0;
         const presentToday = dashStats.presentToday || 0;
         setStats((prev) => ({
           ...prev,
           employees: totalEmp,
+          manila: dashStats.manila || 0,
+          cavite: dashStats.cavite || 0,
+          unassignedBranch: dashStats.unassignedBranch || 0,
+          superadmin: dashStats.superadmin || 0,
+          administrator: dashStats.administrator || 0,
+          staff: dashStats.staff || 0,
+          activeStatus: dashStats.activeStatus || 0,
+          inactiveStatus: dashStats.inactiveStatus || 0,
+          defaultStatus: dashStats.defaultStatus || 0,
+          resignedStatus: dashStats.resignedStatus || 0,
+          terminatedStatus: dashStats.terminatedStatus || 0,
+          retiredStatus: dashStats.retiredStatus || 0,
           todayAttendance: presentToday,
+          pendingLeaves: dashStats.pendingLeaves || 0,
+          openTickets: dashStats.openTickets || 0,
         }));
         setAttendanceChartData([
           { name: "Present", value: presentToday, fill: s.primaryColor },
@@ -923,22 +960,6 @@ const useDashboardData = (settings) => {
       .catch((err) => console.error("payslip count failed:", err?.message));
 
     axios
-      .get(`${API_BASE_URL}/api/dashboard/department-distribution`, auth)
-      .then((res) => {
-        setDepartmentAttendanceData(
-          Array.isArray(res.data)
-            ? res.data.map((item) => ({
-                department: item.department,
-                present: item.employeeCount,
-                absent: 0,
-                rate: item.employeeCount > 0 ? 100 : 0,
-              }))
-            : [],
-        );
-      })
-      .catch((err) => console.error("dept distribution failed:", err?.message));
-
-    axios
       .get(`${API_BASE_URL}/api/dashboard/monthly-attendance`, auth)
       .then((res) => {
         const monthlyData = res.data;
@@ -1023,7 +1044,6 @@ const useDashboardData = (settings) => {
 
   return {
     stats,
-    departmentAttendanceData,
     payrollStatusData,
     monthlyAttendanceTrend,
     payrollTrendData,
@@ -1246,82 +1266,315 @@ const CompactStatCard = ({
   loading,
   hoveredCard,
   setHoveredCard,
-}) => (
-  <Grow in timeout={300 + index * 50}>
-    <SectionCard
-      onMouseEnter={() => setHoveredCard(index)}
-      onMouseLeave={() => setHoveredCard(null)}
-      sx={{
-        height: { xs: 70, sm: 80, md: 90 },
-        transition: "all 0.2s ease",
-        transform: hoveredCard === index ? "translateY(-3px)" : "translateY(0)",
-        boxShadow:
-          hoveredCard === index
-            ? `0 8px 24px ${T.accent}22`
-            : "0 1px 4px rgba(0,0,0,0.07)",
-        cursor: "default",
-      }}
+}) => {
+  const hasSideMeta = Array.isArray(card.sideMeta) && card.sideMeta.length > 0;
+  const splitSections = (() => {
+    if (card.layout !== "split") return [];
+    const peers = Array.isArray(card.splitPeers)
+      ? card.splitPeers
+      : card.splitPeer
+        ? [card.splitPeer]
+        : [];
+    return [
+      {
+        valueKey: card.valueKey,
+        textValue: card.textValue,
+        defaultValue: card.defaultValue,
+      },
+      ...peers,
+    ];
+  })();
+  const isSplit = splitSections.length > 1;
+  const fmtVal = (key, fallback = 0) =>
+    loading ? null : stats[key] !== undefined
+      ? Number(stats[key]).toLocaleString()
+      : fallback;
+
+  return (
+    <Grow
+      in
+      timeout={300 + index * 50}
+      style={{ width: "100%", display: "block" }}
     >
-      <CardContent
+      <SectionCard
+        onMouseEnter={() => setHoveredCard(index)}
+        onMouseLeave={() => setHoveredCard(null)}
         sx={{
-          p: { xs: 1.25, md: 1.75 },
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-          "&:last-child": { pb: { xs: 1.25, md: 1.75 } },
+          height: { xs: 70, sm: 80, md: 90 },
+          width: "100%",
+          overflow: "hidden",
+          transition: "all 0.2s ease",
+          transform:
+            hoveredCard === index ? "translateY(-3px)" : "translateY(0)",
+          boxShadow:
+            hoveredCard === index
+              ? `0 8px 24px ${T.accent}22`
+              : "0 1px 4px rgba(0,0,0,0.07)",
+          cursor: "default",
         }}
       >
-<Box
-          sx={{
-            width: 30,
-            height: 30,
-            borderRadius: "8px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            bgcolor: T.accentFaint,
-            color: T.accent,
-          }}
-        >
-          {React.cloneElement(card.icon, { sx: { fontSize: 16 } })}
-        </Box>
-        <Box>
-          <Typography
+        {isSplit ? (
+          <CardContent
             sx={{
-              fontWeight: 700,
-              color: T.text,
-              lineHeight: 1,
-              fontSize: { xs: "1.1rem", sm: "1.3rem", md: "1.6rem" },
-              mb: 0.25,
+              p: { xs: 0.75, md: 0.9 },
+              height: "100%",
+              display: "flex",
+              alignItems: "stretch",
+              position: "relative",
+              boxSizing: "border-box",
+              overflow: "hidden",
+              "&:last-child": { pb: { xs: 0.75, md: 0.9 } },
             }}
           >
-            {loading ? (
-              <Skeleton variant="text" width={50} height={28} />
-            ) : stats[card.valueKey] !== undefined ? (
-              stats[card.valueKey]
-            ) : (
-              card.defaultValue
+            <Box
+              sx={{
+                position: "absolute",
+                top: { xs: 5, md: 7 },
+                left: { xs: 5, md: 7 },
+                width: 18,
+                height: 18,
+                borderRadius: "6px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                bgcolor: T.accentFaint,
+                color: T.accent,
+                zIndex: 1,
+              }}
+            >
+              {React.cloneElement(card.icon, { sx: { fontSize: 11 } })}
+            </Box>
+
+            {splitSections.map((section, i) => (
+              <React.Fragment key={section.valueKey}>
+                {i > 0 && (
+                  <Box
+                    sx={{
+                      width: "1.5px",
+                      alignSelf: "stretch",
+                      my: 0.35,
+                      bgcolor: T.accent,
+                      borderRadius: 1,
+                      flexShrink: 0,
+                      opacity: 0.85,
+                    }}
+                  />
+                )}
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    px: 0.35,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontWeight: 800,
+                      color: T.text,
+                      lineHeight: 1,
+                      fontSize: {
+                        xs: "0.95rem",
+                        sm: "1.05rem",
+                        md: "1.2rem",
+                      },
+                      mb: 0.25,
+                    }}
+                  >
+                    {loading ? (
+                      <Skeleton variant="text" width={32} height={22} />
+                    ) : (
+                      fmtVal(section.valueKey, section.defaultValue ?? 0)
+                    )}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: T.text,
+                      fontSize: {
+                        xs: "0.48rem",
+                        sm: "0.52rem",
+                        md: "0.58rem",
+                      },
+                      fontWeight: 700,
+                      lineHeight: 1.15,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {section.textValue}
+                  </Typography>
+                </Box>
+              </React.Fragment>
+            ))}
+          </CardContent>
+        ) : (
+          <CardContent
+            sx={{
+              p: { xs: 1, md: 1.25 },
+              height: "100%",
+              display: "flex",
+              flexDirection: hasSideMeta ? "row" : "column",
+              alignItems: "stretch",
+              gap: hasSideMeta ? 0.75 : 0.5,
+              boxSizing: "border-box",
+              overflow: "hidden",
+              "&:last-child": { pb: { xs: 1, md: 1.25 } },
+            }}
+          >
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                minWidth: 0,
+                flex: 1,
+                gap: hasSideMeta ? 0.4 : 0.5,
+              }}
+            >
+              <Box
+                sx={{
+                  width: hasSideMeta ? 22 : 28,
+                  height: hasSideMeta ? 22 : 28,
+                  borderRadius: "7px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  bgcolor: T.accentFaint,
+                  color: T.accent,
+                  flexShrink: 0,
+                }}
+              >
+                {React.cloneElement(card.icon, {
+                  sx: { fontSize: hasSideMeta ? 13 : 15 },
+                })}
+              </Box>
+              <Box sx={{ minWidth: 0, mt: "auto", overflow: "hidden" }}>
+                <Typography
+                  sx={{
+                    fontWeight: 700,
+                    color: T.text,
+                    lineHeight: 1,
+                    fontSize: hasSideMeta
+                      ? { xs: "0.95rem", sm: "1.1rem", md: "1.25rem" }
+                      : { xs: "1.05rem", sm: "1.25rem", md: "1.45rem" },
+                    mb: 0.2,
+                  }}
+                >
+                  {loading ? (
+                    <Skeleton variant="text" width={50} height={28} />
+                  ) : (
+                    fmtVal(card.valueKey, card.defaultValue)
+                  )}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: T.muted,
+                    fontSize: hasSideMeta ? "0.62rem" : "0.7rem",
+                    fontWeight: 600,
+                    lineHeight: 1.2,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {card.textValue}
+                </Typography>
+                {!hasSideMeta && card.sub ? (
+                  <Typography
+                    sx={{
+                      color: T.faint,
+                      fontSize: "0.58rem",
+                      lineHeight: 1.2,
+                      mt: 0.15,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {card.sub}
+                  </Typography>
+                ) : null}
+              </Box>
+            </Box>
+
+            {hasSideMeta && (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "stretch",
+                  gap: 0.4,
+                  flexShrink: 0,
+                  pl: 0.6,
+                  ml: 0.1,
+                  borderLeft: `1px solid ${T.divider}`,
+                  alignSelf: "stretch",
+                }}
+              >
+                {card.sideMeta.map((item) => (
+                  <Box
+                    key={item.label}
+                    sx={{
+                      width:
+                        card.sideMeta.length >= 3
+                          ? { xs: 42, sm: 48, md: 52 }
+                          : { xs: 54, sm: 62, md: 68 },
+                      px: 0.35,
+                      borderRadius: "8px",
+                      border: `1px solid ${T.accentBorder}`,
+                      bgcolor: T.accentFaint,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      textAlign: "center",
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontWeight: 800,
+                        color: T.text,
+                        fontSize:
+                          card.sideMeta.length >= 3
+                            ? { xs: "0.78rem", sm: "0.88rem", md: "0.95rem" }
+                            : {
+                                xs: "0.95rem",
+                                sm: "1.05rem",
+                                md: "1.15rem",
+                              },
+                        lineHeight: 1,
+                        mb: 0.25,
+                      }}
+                    >
+                      {loading
+                        ? "—"
+                        : Number(item.value || 0).toLocaleString()}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize:
+                          card.sideMeta.length >= 3 ? "0.48rem" : "0.58rem",
+                        fontWeight: 600,
+                        color: T.muted,
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {item.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
             )}
-          </Typography>
-          <Typography
-            sx={{
-              color: T.muted,
-              fontSize: "0.7rem",
-              fontWeight: 500,
-              display: { xs: "none", sm: "block" },
-            }}
-          >
-            {card.textValue}
-          </Typography>
-          <Typography sx={{ color: T.faint, fontSize: "0.62rem" }}>
-            {card.label}
-          </Typography>
-        </Box>
-      </CardContent>
-    </SectionCard>
-  </Grow>
-);
+          </CardContent>
+        )}
+      </SectionCard>
+    </Grow>
+  );
+};
 
 // ─── Facial Recognition live feed ─────────────────────────────────────────────
 // AttendanceState codes (from AttendanceUserState):
@@ -1397,7 +1650,7 @@ const FacialRecognitionFeed = ({ stats, statsLoading }) => {
   const [newKeys, setNewKeys] = useState(() => new Set());
   const highlightTimersRef = useRef(new Map());
 
-  const totalEmp = Number(stats?.employees) || 0;
+  const totalEmp = Number(stats?.activeStatus) || 0;
   const present = Number(stats?.todayAttendance) || 0;
   const absent = Math.max(totalEmp - present, 0);
   const attendanceRate =
@@ -1559,13 +1812,13 @@ const FacialRecognitionFeed = ({ stats, statsLoading }) => {
               {present}
             </Box>
           </Typography>
-          <Typography sx={{ fontSize: "0.6rem", color: T.text, fontWeight: 600 }}>
-            Away{" "}
+          {/* <Typography sx={{ fontSize: "0.6rem", color: T.text, fontWeight: 600 }}>
+            Off{" "}
             <Box component="span" sx={{ color: "#C62828", fontWeight: 800 }}>
               {absent}
             </Box>
-          </Typography>
-          <Typography sx={{ fontSize: "0.6rem", color: T.muted, fontWeight: 600 }}>
+          </Typography> */}
+          <Typography sx={{ fontSize: "0.6rem", color: "#C62828", fontWeight: 800 }}>
             of {totalEmp}
           </Typography>
         </Box>
@@ -2697,10 +2950,7 @@ const NeedsAttention = () => {
 };
 
 // ─── WorkforcePulse (org attendance + leave/payroll snapshot) ─────────────────
-const WorkforcePulse = ({
-  stats,
-  departmentAttendanceData,
-}) => {
+const WorkforcePulse = ({ stats, holidays = [], suspensions = [] }) => {
   const navigate = useNavigate();
   const [leaveStats, setLeaveStats] = useState({
     pending: 0,
@@ -2719,10 +2969,6 @@ const WorkforcePulse = ({
       .finally(() => setLeaveLoading(false));
   }, []);
 
-  const totalEmp = Number(stats?.employees) || 0;
-
-  const topDepts = (departmentAttendanceData || []).slice(0, 4);
-
   const leaveBreakdown = [
     { key: "pending", label: "Pending", value: leaveStats.pending, color: "#F57C00" },
     {
@@ -2734,6 +2980,63 @@ const WorkforcePulse = ({
     { key: "approved", label: "Approved", value: leaveStats.approved, color: "#2E7D32" },
     { key: "denied", label: "Denied", value: leaveStats.rejected, color: "#C62828" },
   ];
+
+  const upcomingEvents = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startOfToday = today.getTime();
+
+    const parseStart = (item) => {
+      const raw = item.date_start || item.date || item.startDate;
+      if (!raw) return null;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return null;
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
+    const holidayItems = (holidays || [])
+      .filter((h) => (h.status || "").toLowerCase() !== "inactive")
+      .map((h) => {
+        const start = parseStart(h);
+        if (!start || start.getTime() < startOfToday) return null;
+        return {
+          id: `h-${h.date || h.date_start || h.name}`,
+          type: "Holiday",
+          title: h.name || h.title || h.description || "Holiday",
+          date: start,
+          color: "#FB8C00",
+          bg: "#FFF3E0",
+        };
+      })
+      .filter(Boolean);
+
+    const suspensionItems = (suspensions || [])
+      .map((s) => {
+        const start = parseStart(s);
+        if (!start || start.getTime() < startOfToday) return null;
+        return {
+          id: `s-${s.id || s.date_start || s.title}`,
+          type: "Suspension",
+          title: s.title || s.name || "Suspension",
+          date: start,
+          color: "#C62828",
+          bg: "#FFEBEE",
+        };
+      })
+      .filter(Boolean);
+
+    const seen = new Set();
+    return [...holidayItems, ...suspensionItems]
+      .sort((a, b) => a.date - b.date)
+      .filter((item) => {
+        const key = `${item.type}-${item.title}-${item.date.toISOString().slice(0, 10)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 4);
+  }, [holidays, suspensions]);
 
   return (
     <SectionCard
@@ -2836,68 +3139,112 @@ const WorkforcePulse = ({
           </Grid>
         </Box>
 
-        {/* Top departments */}
-        {topDepts.length > 0 && (
-          <Box>
+        {/* Upcoming holidays & suspensions */}
+        <Box>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              mb: 0.65,
+            }}
+          >
             <Typography
               sx={{
                 fontSize: "0.62rem",
                 fontWeight: 700,
                 color: T.muted,
-                mb: 0.65,
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
               }}
             >
-              Largest departments
+              Upcoming calendar
             </Typography>
-            {topDepts.map((d) => {
-              const count = Number(d.employeeCount) || 0;
-              const pct =
-                totalEmp > 0 ? Math.min(100, Math.round((count / totalEmp) * 100)) : 0;
-              return (
-                <Box key={d.code || d.department} sx={{ mb: 0.7 }}>
-                  <Box
+            <Button
+              size="small"
+              onClick={() => navigate("/announcement")}
+              sx={{
+                minWidth: 0,
+                px: 0.75,
+                py: 0,
+                fontSize: "0.58rem",
+                fontWeight: 700,
+                color: T.accent,
+                textTransform: "none",
+              }}
+            >
+              Open
+            </Button>
+          </Box>
+          {upcomingEvents.length === 0 ? (
+            <Box
+              sx={{
+                py: 1.5,
+                textAlign: "center",
+                color: T.faint,
+                fontSize: "0.7rem",
+                border: `1px dashed ${T.divider}`,
+                borderRadius: 1.25,
+              }}
+            >
+              No upcoming holidays or suspensions
+            </Box>
+          ) : (
+            upcomingEvents.map((ev) => (
+              <Box
+                key={ev.id}
+                onClick={() => navigate("/announcement")}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  py: 0.75,
+                  px: 0.75,
+                  mb: 0.5,
+                  borderRadius: 1.25,
+                  border: `1px solid ${T.divider}`,
+                  cursor: "pointer",
+                  "&:hover": { bgcolor: T.accentFaint },
+                  "&:last-child": { mb: 0 },
+                }}
+              >
+                <Chip
+                  size="small"
+                  label={ev.type}
+                  sx={{
+                    height: 18,
+                    fontSize: "0.52rem",
+                    fontWeight: 700,
+                    bgcolor: ev.bg,
+                    color: ev.color,
+                    flexShrink: 0,
+                  }}
+                />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography
                     sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      mb: 0.25,
-                      gap: 1,
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      color: T.text,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
                     }}
                   >
-                    <Typography
-                      sx={{
-                        fontSize: "0.62rem",
-                        fontWeight: 600,
-                        color: T.text,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {d.department || d.code || "Department"}
-                    </Typography>
-                    <Typography
-                      sx={{ fontSize: "0.58rem", fontWeight: 700, color: T.accent, flexShrink: 0 }}
-                    >
-                      {count}
-                    </Typography>
-                  </Box>
-                  <LinearProgress
-                    variant="determinate"
-                    value={pct}
-                    sx={{
-                      height: 4,
-                      borderRadius: 2,
-                      bgcolor: "rgba(109,35,35,0.08)",
-                      ".MuiLinearProgress-bar": { bgcolor: T.accentMid, borderRadius: 2 },
-                    }}
-                  />
+                    {ev.title}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.55rem", color: T.muted }}>
+                    {ev.date.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </Typography>
                 </Box>
-              );
-            })}
-          </Box>
-        )}
+              </Box>
+            ))
+          )}
+        </Box>
 
         {/* Payroll shortcut row */}
         <Box
@@ -3043,7 +3390,6 @@ const AdminHome = () => {
 
   const {
     stats,
-    departmentAttendanceData,
     payrollStatusData,
     monthlyAttendanceTrend,
     payrollTrendData,
@@ -3722,21 +4068,13 @@ const AdminHome = () => {
 
           {/* ── STAT CARDS ── */}
           <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "nowrap" }}>
-            {STAT_CARDS(settings).map((card, index) => (
-              <Box key={card.label} sx={{ flex: "1 1 0", minWidth: 0 }}>
+            {STAT_CARDS(settings, stats).map((card, index) => (
+              <Box key={card.valueKey} sx={{ flex: "1 1 0", minWidth: 0 }}>
                 <CompactStatCard
                   card={card}
                   index={index}
                   stats={stats}
-                  loading={
-                    [
-                      "pendingPayroll",
-                      "processedPayroll",
-                      "payslipCount",
-                    ].includes(card.valueKey)
-                      ? loadingPayroll
-                      : loading
-                  }
+                  loading={loading}
                   hoveredCard={hoveredCard}
                   setHoveredCard={setHoveredCard}
                 />
@@ -4133,7 +4471,8 @@ const AdminHome = () => {
                   >
                     <WorkforcePulse
                       stats={stats}
-                      departmentAttendanceData={departmentAttendanceData}
+                      holidays={holidays}
+                      suspensions={suspensions}
                     />
                   </Box>
                 </Box>

@@ -2106,7 +2106,9 @@ const DailyTimeRecordFaculty = ({
   };
 
   const handleBulkPrint = () => {
-    const toPrint = filteredUsers.filter((u) =>
+    // Use full batch list so search/filters only affect the table view,
+    // not which checked employees get printed.
+    const toPrint = allUsersDTR.filter((u) =>
       selectedUsers.has(u.employeeNumber),
     );
     if (!toPrint.length) {

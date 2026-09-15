@@ -405,9 +405,19 @@ const Sidebar = ({
             if (person.profile_picture) {
               setProfilePicture(`${API_BASE_URL}${person.profile_picture}`);
             }
-            const fullNameFromPerson = `${person.firstName || ""} ${
-              person.middleName || ""
-            } ${person.lastName || ""} ${person.nameExtension || ""}`.trim();
+            const last = (person.lastName || "").trim();
+            const first = (person.firstName || "").trim();
+            const mid = (person.middleName || "").trim();
+            const ext = (person.nameExtension || "").trim();
+            const given = [first, mid].filter(Boolean).join(" ");
+            const fullNameFromPerson = (
+              last
+                ? `${last}${given ? `, ${given}` : ""}${ext ? ` ${ext}` : ""}`
+                : [given, ext].filter(Boolean).join(" ")
+            )
+              .replace(/\s+/g, " ")
+              .trim()
+              .toUpperCase();
             if (fullNameFromPerson) {
               setFullName(fullNameFromPerson);
             }
@@ -435,10 +445,7 @@ const Sidebar = ({
 
         if (userRes.status === "fulfilled") {
           const user = userRes.value.data?.user || userRes.value.data;
-          const dept =
-            user?.departmentDescription ||
-            user?.departmentCode ||
-            "";
+          const dept = user?.departmentCode || "";
           setDepartmentLabel(dept);
         } else {
           setDepartmentLabel("");
@@ -842,184 +849,251 @@ const Sidebar = ({
           <List>
             {userRole !== "" && (
               <>
-                <List component="div" disablePadding sx={{ pl: 1.75, pr: 1 }}>
+                <List component="div" disablePadding sx={{ pl: 1.5, pr: 1 }}>
                   <Box
                     sx={{
+                      position: "relative",
                       display: "flex",
-                      alignItems: "flex-start",
-                      justifyContent: "space-between",
-                      gap: 0.75,
+                      flexDirection: "column",
+                      gap: drawerOpen ? 1.1 : 0,
+                      px: drawerOpen ? 1.25 : 0,
+                      py: drawerOpen ? 1.25 : 0.5,
+                      borderRadius: drawerOpen ? "10px" : 0,
+                      bgcolor: drawerOpen
+                        ? alpha("#FFFFFF", 0.08)
+                        : "transparent",
+                      border: drawerOpen
+                        ? `1px solid ${alpha("#FFFFFF", 0.12)}`
+                        : "1px solid transparent",
+                      boxShadow: drawerOpen
+                        ? `inset 0 1px 0 ${alpha("#FFFFFF", 0.06)}`
+                        : "none",
+                      transition:
+                        "background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, padding 0.25s ease, border-radius 0.25s ease, gap 0.25s ease",
                     }}
                   >
-                    <Tooltip
-                      title={
-                        [
-                          fullName || username,
-                          employeeNumber ? `EMP NO.: ${employeeNumber}` : "",
-                          departmentLabel ? `DEPT: ${departmentLabel}` : "",
-                          employmentCategoryLabel || "",
-                        ]
-                          .filter(Boolean)
-                          .join("\n")
-                      }
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "space-between",
+                        gap: 0.75,
+                      }}
                     >
-                      <Box
-                        onClick={() => {
-                          setSelectedItem(null);
-                          navigate("/profile");
-                        }}
-                        sx={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: 1,
-                          cursor: "pointer",
-                          minWidth: 0,
-                          flex: 1,
-                        }}
+                      <Tooltip
+                        title={
+                          [
+                            fullName || username,
+                            employeeNumber ? `EMP NO.: ${employeeNumber}` : "",
+                            departmentLabel ? `DEPT: ${departmentLabel}` : "",
+                            employmentCategoryLabel || "",
+                          ]
+                            .filter(Boolean)
+                            .join("\n")
+                        }
                       >
-                        <Avatar
-                          alt={fullName || username}
-                          src={profilePicture}
-                          sx={{
-                            width: 35,
-                            height: 35,
-                            flexShrink: 0,
-                            marginTop: 0.25,
-                            color: settings.textSecondaryColor,
-                            bgcolor: "inherit",
+                        <Box
+                          onClick={() => {
+                            setSelectedItem(null);
+                            navigate("/profile");
                           }}
-                        />
-                        <Box sx={{ minWidth: 0, flex: 1, pr: 0.25 }}>
-                          <Typography
-                            variant="body2"
-                            fontWeight="bold"
+                          sx={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 1.25,
+                            cursor: "pointer",
+                            minWidth: 0,
+                            flex: 1,
+                            transition: "opacity 0.2s ease",
+                            "&:hover": { opacity: 0.92 },
+                          }}
+                        >
+                          <Avatar
+                            alt={fullName || username}
+                            src={profilePicture}
+                            variant="rounded"
                             sx={{
-                              fontFamily: "Poppins, sans-serif",
+                              width: 44,
+                              height: 44,
+                              flexShrink: 0,
+                              borderRadius: "8px",
                               color: settings.textSecondaryColor,
-                              lineHeight: 1.3,
-                              whiteSpace: "normal",
-                              wordBreak: "break-word",
-                              overflowWrap: "anywhere",
+                              bgcolor: alpha("#FFFFFF", 0.12),
+                              border: `1.5px solid ${alpha(
+                                settings.accentColor || "#FEF9E1",
+                                0.45,
+                              )}`,
+                              boxShadow: `0 2px 8px ${alpha("#000000", 0.18)}`,
+                              // Match collapsed menu icon column (ListItem ~16px inset)
+                              ...(drawerOpen
+                                ? {}
+                                : {
+                                    width: 32,
+                                    height: 32,
+                                    ml: "2px",
+                                    boxShadow: "none",
+                                  }),
                             }}
-                          >
-                            {fullName || username}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              fontFamily: "Poppins, sans-serif",
-                              color: settings.textSecondaryColor,
-                              display: "block",
-                              opacity: 0.92,
-                              lineHeight: 1.4,
-                              mt: 0.15,
-                            }}
-                          >
-                            EMP NO.: <b>{employeeNumber}</b>
-                          </Typography>
-                          {(departmentLabel || employmentCategoryLabel) && (
-                            <Box
+                          />
+                          <Box sx={{ minWidth: 0, flex: 1, pt: 0.1 }}>
+                            <Typography
+                              variant="body2"
                               sx={{
-                                mt: 0.45,
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "flex-start",
-                                gap: 0.45,
-                                minWidth: 0,
-                                width: "100%",
+                                fontFamily: "Poppins, sans-serif",
+                                fontWeight: 600,
+                                fontSize: "0.82rem",
+                                color: settings.textSecondaryColor,
+                                lineHeight: 1.35,
+                                letterSpacing: "0.01em",
+                                whiteSpace: "normal",
+                                wordBreak: "break-word",
+                                overflowWrap: "anywhere",
                               }}
                             >
-                              {departmentLabel && (
-                                <Typography
-                                  variant="caption"
+                              {fullName || username}
+                            </Typography>
+                            {employeeNumber && (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontFamily: "Poppins, sans-serif",
+                                  color: alpha(
+                                    settings.textSecondaryColor || "#FFFFFF",
+                                    0.72,
+                                  ),
+                                  display: "block",
+                                  lineHeight: 1.4,
+                                  mt: 0.35,
+                                  fontSize: "0.68rem",
+                                  letterSpacing: "0.02em",
+                                }}
+                              >
+                                EMP NO.{" "}
+                                <Box
+                                  component="span"
                                   sx={{
-                                    fontFamily: "Poppins, sans-serif",
-                                    color: settings.textSecondaryColor,
-                                    opacity: 0.9,
-                                    lineHeight: 1.35,
-                                    fontSize: "0.68rem",
-                                    width: "100%",
+                                    fontWeight: 600,
+                                    color:
+                                      settings.textSecondaryColor || "#FFFFFF",
+                                  }}
+                                >
+                                  {employeeNumber}
+                                </Box>
+                              </Typography>
+                            )}
+                            {departmentLabel && (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontFamily: "Poppins, sans-serif",
+                                  color: alpha(
+                                    settings.textSecondaryColor || "#FFFFFF",
+                                    0.72,
+                                  ),
+                                  display: "block",
+                                  lineHeight: 1.4,
+                                  mt: 0.2,
+                                  fontSize: "0.68rem",
+                                  letterSpacing: "0.02em",
+                                  whiteSpace: "normal",
+                                  wordBreak: "break-word",
+                                  overflowWrap: "anywhere",
+                                }}
+                              >
+                                DEPT{" "}
+                                <Box
+                                  component="span"
+                                  sx={{
+                                    fontWeight: 600,
+                                    color:
+                                      settings.textSecondaryColor || "#FFFFFF",
+                                  }}
+                                >
+                                  {departmentLabel}
+                                </Box>
+                              </Typography>
+                            )}
+                            {employmentCategoryLabel && (
+                              <Chip
+                                size="small"
+                                label={employmentCategoryLabel}
+                                sx={{
+                                  mt: 0.65,
+                                  height: "auto",
+                                  maxWidth: "100%",
+                                  borderRadius: "5px",
+                                  fontFamily: "Poppins, sans-serif",
+                                  fontSize: "0.62rem",
+                                  fontWeight: 600,
+                                  letterSpacing: "0.02em",
+                                  color:
+                                    employmentCategoryColor ||
+                                    settings.secondaryColor ||
+                                    "#6d2323",
+                                  bgcolor: alpha(
+                                    settings.accentColor || "#FEF9E1",
+                                    0.95,
+                                  ),
+                                  border: `1px solid ${alpha(
+                                    employmentCategoryColor ||
+                                      settings.accentColor ||
+                                      "#FEF9E1",
+                                    employmentCategoryColor ? 0.4 : 0.25,
+                                  )}`,
+                                  boxShadow: `0 1px 2px ${alpha("#000000", 0.12)}`,
+                                  "& .MuiChip-label": {
+                                    px: 1,
+                                    py: 0.4,
                                     whiteSpace: "normal",
                                     wordBreak: "break-word",
                                     overflowWrap: "anywhere",
-                                  }}
-                                >
-                                  DEPT: <b>{departmentLabel}</b>
-                                </Typography>
-                              )}
-                              {employmentCategoryLabel && (
-                                <Chip
-                                  size="small"
-                                  label={employmentCategoryLabel}
-                                  sx={{
-                                    height: "auto",
-                                    maxWidth: "100%",
-                                    fontFamily: "Poppins, sans-serif",
-                                    fontSize: "0.62rem",
-                                    fontWeight: 600,
-                                    letterSpacing: "0.01em",
-                                    color:
-                                      employmentCategoryColor ||
-                                      settings.secondaryColor ||
-                                      "#6d2323",
-                                    bgcolor: alpha(
-                                      settings.accentColor || "#FEF9E1",
-                                      0.92,
-                                    ),
-                                    border: `1px solid ${alpha(
-                                      employmentCategoryColor ||
-                                        settings.accentColor ||
-                                        "#FEF9E1",
-                                      employmentCategoryColor ? 0.55 : 0.35,
-                                    )}`,
-                                    "& .MuiChip-label": {
-                                      px: 0.85,
-                                      py: 0.35,
-                                      whiteSpace: "normal",
-                                      wordBreak: "break-word",
-                                      overflowWrap: "anywhere",
-                                      lineHeight: 1.3,
-                                      textAlign: "left",
-                                    },
-                                  }}
-                                />
-                              )}
-                            </Box>
-                          )}
+                                    lineHeight: 1.3,
+                                    textAlign: "left",
+                                  },
+                                }}
+                              />
+                            )}
+                          </Box>
                         </Box>
-                      </Box>
-                    </Tooltip>
+                      </Tooltip>
 
-                    <Tooltip
-                      title={
-                        isLocked
-                          ? "Click to auto-close sidebar"
-                          : "Click to keep sidebar open"
-                      }
-                    >
-                      <IconButton
-                        onClick={handleToggleLock}
-                        size="small"
-                        sx={{
-                          flexShrink: 0,
-                          mt: 0.15,
-                          color: isLocked
-                            ? settings.accentColor || "#FEF9E1"
-                            : settings.textSecondaryColor || "#FFFFFF",
-                          transition: "all 0.3s ease",
-                          "&:hover": {
-                            bgcolor: "rgba(255, 255, 255, 0.1)",
-                            transform: "scale(1.1)",
-                          },
-                        }}
+                      <Tooltip
+                        title={
+                          isLocked
+                            ? "Click to auto-close sidebar"
+                            : "Click to keep sidebar open"
+                        }
                       >
-                        {isLocked ? (
-                          <Lock fontSize="small" />
-                        ) : (
-                          <LockOpen fontSize="small" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
+                        <IconButton
+                          onClick={handleToggleLock}
+                          size="small"
+                          sx={{
+                            flexShrink: 0,
+                            width: 28,
+                            height: 28,
+                            borderRadius: "6px",
+                            color: isLocked
+                              ? settings.accentColor || "#FEF9E1"
+                              : alpha(
+                                  settings.textSecondaryColor || "#FFFFFF",
+                                  0.85,
+                                ),
+                            bgcolor: alpha("#FFFFFF", 0.06),
+                            border: `1px solid ${alpha("#FFFFFF", 0.1)}`,
+                            transition: "all 0.2s ease",
+                            "&:hover": {
+                              bgcolor: alpha("#FFFFFF", 0.14),
+                            },
+                          }}
+                        >
+                          {isLocked ? (
+                            <Lock sx={{ fontSize: 15 }} />
+                          ) : (
+                            <LockOpen sx={{ fontSize: 15 }} />
+                          )}
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   </Box>
 
                   <Dialog
