@@ -1163,15 +1163,11 @@ const UsersList = () => {
 
   const doFetchUsers = useCallback(async () => {
     const authHeaders = getAuthHeaders();
-    // /users already returns names, department, and profile picture —
-    // only employment-category is needed for labels/colors/customCategory.
-    const [usersResp, empCatsResp] = await Promise.all([
-      fetch(`${API_BASE_URL}/users`, { method: "GET", ...authHeaders }),
-      fetch(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, {
-        method: "GET",
-        ...authHeaders,
-      }),
-    ]);
+    // Single lean /users call — category labels/colors come with the list.
+    const usersResp = await fetch(`${API_BASE_URL}/users`, {
+      method: "GET",
+      ...authHeaders,
+    });
 
     if (!usersResp.ok) {
       const err = await usersResp.json().catch(() => ({}));
@@ -1179,40 +1175,12 @@ const UsersList = () => {
     }
 
     const usersDataRaw = await usersResp.json();
-    const empCatsDataRaw = empCatsResp?.ok
-      ? await empCatsResp.json().catch(() => [])
-      : [];
     const usersArray = Array.isArray(usersDataRaw)
       ? usersDataRaw
       : usersDataRaw.users || usersDataRaw.data || [];
-    const empCatsArray = Array.isArray(empCatsDataRaw)
-      ? empCatsDataRaw
-      : empCatsDataRaw.data || empCatsDataRaw.records || [];
 
     const newEmpCatMap = {};
-    const empCatsMap = {};
-    (empCatsArray || []).forEach((item) => {
-      if (!item.employeeNumber) return;
-      const key = String(item.employeeNumber);
-      empCatsMap[key] = item;
-      let label = "";
-      let colorHex = "#757575";
-      if (item.parentGroup && item.typeName) {
-        label = `${item.parentGroup} | ${item.typeName}`;
-        colorHex = item.colorHex || "#757575";
-      } else if (item.customCategory && item.customCategory.trim()) {
-        label = `Other (${item.customCategory.trim()})`;
-      } else if (item.categoryLabel && item.categoryLabel !== "Unassigned") {
-        label = item.categoryLabel;
-      }
-      if (label) {
-        newEmpCatMap[key] = { label, colorHex };
-      }
-    });
-    setEmpCatMap(newEmpCatMap);
-
-    return (usersArray || []).map((user) => {
-      const empCatRow = empCatsMap[String(user.employeeNumber)] || null;
+    const mapped = (usersArray || []).map((user) => {
       const profilePic = user.profilePicture || user.profile_picture || null;
 
       const fullName =
@@ -1230,33 +1198,45 @@ const UsersList = () => {
             : `${API_BASE_URL}${user.avatar}`
           : null;
 
+      const customCategory =
+        user.customCategory ?? user.custom_category ?? null;
+      let empCatLabel = null;
+      let empCatColor = user.colorHex || null;
+      if (user.parentGroup && user.typeName) {
+        empCatLabel = `${user.parentGroup} | ${user.typeName}`;
+        empCatColor = user.colorHex || "#757575";
+      } else if (customCategory && String(customCategory).trim()) {
+        empCatLabel = `Other (${String(customCategory).trim()})`;
+        empCatColor = empCatColor || "#757575";
+      } else if (user.categoryLabel && user.categoryLabel !== "Unassigned") {
+        empCatLabel = user.categoryLabel;
+        empCatColor = empCatColor || "#757575";
+      }
+      if (empCatLabel) {
+        newEmpCatMap[String(user.employeeNumber)] = {
+          label: empCatLabel,
+          colorHex: empCatColor || "#757575",
+        };
+      }
+
       return {
         ...user,
         fullName: fullName || "Username",
         avatar: avatar || null,
         employmentCategory:
-          empCatRow?.employmentCategory !== undefined &&
-          empCatRow?.employmentCategory !== null
-            ? empCatRow.employmentCategory
-            : user.employmentCategory !== undefined
-              ? user.employmentCategory
-              : null,
-        customCategory:
-          empCatRow?.customCategory ??
-          empCatRow?.custom_category ??
-          user.customCategory ??
-          user.custom_category ??
-          null,
-        empCatLabel: empCatRow
-          ? empCatRow.parentGroup && empCatRow.typeName
-            ? `${empCatRow.parentGroup} | ${empCatRow.typeName}`
-            : empCatRow.categoryLabel || null
-          : null,
-        empCatColor: empCatRow?.colorHex || null,
+          user.employmentCategory !== undefined
+            ? user.employmentCategory
+            : null,
+        customCategory,
+        empCatLabel,
+        empCatColor,
         departmentCode: user.departmentCode ?? null,
         departmentDescription: user.departmentDescription ?? null,
       };
     });
+
+    setEmpCatMap(newEmpCatMap);
+    return mapped;
   }, []);
 
   const fetchUsers = useCallback(
@@ -1327,16 +1307,46 @@ const UsersList = () => {
     }
   }, [moduleAuthorized]); // eslint-disable-line
 
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearchTerm(searchTerm.trim()), 200);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  const categoryFilterLabels = useMemo(() => {
+    if (!categoryFilter) return null;
+    const [filterType, filterValue] = categoryFilter.split("||");
+    if (filterType === "group") {
+      const labels = new Set();
+      typeConfigs.forEach((t) => {
+        if (t.parentGroup !== filterValue) return;
+        labels.add(
+          t.parentGroup && t.typeName
+            ? `${t.parentGroup} | ${t.typeName}`
+            : t.typeName || "",
+        );
+      });
+      return labels;
+    }
+    const matched = typeConfigs.find((t) => String(t.id) === filterValue);
+    if (!matched) return new Set();
+    return new Set([
+      matched.parentGroup && matched.typeName
+        ? `${matched.parentGroup} | ${matched.typeName}`
+        : matched.typeName || "",
+    ]);
+  }, [categoryFilter, typeConfigs]);
+
   useEffect(() => {
     const sourceUsers = tableTab === 0 ? properUsers : incompleteUsers;
+    const searchLower = debouncedSearchTerm.toLowerCase();
     const filtered = sourceUsers.filter((user) => {
       const matchesSearch =
-        (user.fullName || "")
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase()) ||
-        (user.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(user.employeeNumber || "").includes(searchTerm) ||
-        (user.role || "").toLowerCase().includes(searchTerm.toLowerCase());
+        !searchLower ||
+        (user.fullName || "").toLowerCase().includes(searchLower) ||
+        (user.email || "").toLowerCase().includes(searchLower) ||
+        String(user.employeeNumber || "").includes(debouncedSearchTerm) ||
+        (user.role || "").toLowerCase().includes(searchLower);
 
       const matchesRole = roleFilter
         ? (user.role || "").toLowerCase() === roleFilter.toLowerCase()
@@ -1346,48 +1356,25 @@ const UsersList = () => {
         ? (user.status || "").toLowerCase() === statusFilter.toLowerCase()
         : true;
 
-       const matchesBranch =
-      branchFilter !== ""
-        ? String(
-            user.branch === null || user.branch === undefined
-              ? ""
-              : Number(user.branch),
-          ) === String(branchFilter)
-        : true;
-
-      const matchesCategory =
-        categoryFilter !== ""
-          ? (() => {
-              const [filterType, filterValue] = categoryFilter.split("||");
-              const entry = empCatMap[String(user.employeeNumber)];
-              if (!entry) return false;
-
-              if (filterType === "group") {
-                const groupItems = typeConfigs.filter(
-                  (t) => t.parentGroup === filterValue,
-                );
-                return groupItems.some((t) => {
-                  const label =
-                    t.parentGroup && t.typeName
-                      ? `${t.parentGroup} | ${t.typeName}`
-                      : t.typeName || "";
-                  return entry.label === label;
-                });
-              }
-
-              const matched = typeConfigs.find(
-                (t) => String(t.id) === filterValue,
-              );
-              if (!matched) return false;
-              const matchLabel =
-                matched.parentGroup && matched.typeName
-                  ? `${matched.parentGroup} | ${matched.typeName}`
-                  : matched.typeName || "";
-              return entry.label === matchLabel;
-            })()
+      const matchesBranch =
+        branchFilter !== ""
+          ? String(
+              user.branch === null || user.branch === undefined
+                ? ""
+                : Number(user.branch),
+            ) === String(branchFilter)
           : true;
 
-      // ─── Filter still uses departmentCode as key ───────────────────────────
+      const matchesCategory = !categoryFilterLabels
+        ? true
+        : (() => {
+            const label =
+              empCatMap[String(user.employeeNumber)]?.label ||
+              user.empCatLabel ||
+              "";
+            return Boolean(label) && categoryFilterLabels.has(label);
+          })();
+
       const matchesDepartment =
         departmentFilter !== ""
           ? (user.departmentCode || "") === departmentFilter
@@ -1404,25 +1391,34 @@ const UsersList = () => {
     });
     setFilteredUsers(
       sortEmployeesByLastName(filtered, (user) => {
-        // Prefer real surname fields when present; else parse fullName
         if (user?.lastName) return user;
         return user?.fullName || user;
       }),
     );
-    setPage(0);
   }, [
-    searchTerm,
+    debouncedSearchTerm,
     roleFilter,
     statusFilter,
     branchFilter,
-    categoryFilter,
+    categoryFilterLabels,
     departmentFilter,
     users,
     tableTab,
     properUsers,
     incompleteUsers,
     empCatMap,
-    typeConfigs,
+  ]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [
+    debouncedSearchTerm,
+    roleFilter,
+    statusFilter,
+    branchFilter,
+    categoryFilter,
+    departmentFilter,
+    tableTab,
   ]);
 
   // ─── Page access handlers ──────────────────────────────────────────────────

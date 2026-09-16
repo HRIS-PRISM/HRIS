@@ -1112,7 +1112,7 @@ router.post('/excel-register', authenticateToken, requireAdmin, async (req, res)
   }
 });
 
-// GET ALL REGISTERED USERS WITH PAGE ACCESS AND DEPARTMENT
+// GET ALL REGISTERED USERS (lean list — page access fetched per-user on demand)
 router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     // Statuses that are considered "manually set" — once a user has one of
@@ -1124,16 +1124,24 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
       'Terminated',
       'Retired',
     ];
-    const currentYear = new Date().getFullYear();
-    const yearStartMs = Date.UTC(currentYear, 0, 1);
-    const yearEndMs = Date.UTC(currentYear + 1, 0, 1);
 
+    // One row per user: no page_access join (was exploding payload), latest
+    // department only, employment category labels joined for the list UI.
     const baseQuery = `
       SELECT 
         u.employeeNumber,
         u.email,
         u.role,
-        u.employmentCategory,
+        COALESCE(ec.employmentCategory, u.employmentCategory) AS employmentCategory,
+        ec.customCategory,
+        etc.parentGroup,
+        etc.typeName,
+        etc.colorHex,
+        CASE
+          WHEN etc.id IS NOT NULL THEN CONCAT(etc.parentGroup, ' | ', etc.typeName)
+          WHEN ec.customCategory IS NOT NULL AND ec.customCategory != '' THEN CONCAT('Other (', ec.customCategory, ')')
+          ELSE NULL
+        END AS categoryLabel,
         u.access_level,
         u.branch,
         p.firstName,
@@ -1143,158 +1151,147 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
         p.profile_picture AS profilePicture,
         u.created_at,
         u.status AS dbStatus,
-        pa.page_id,
-        pa.page_privilege,
         da.code AS departmentCode,
         dt.description AS departmentDescription
       FROM users u
       LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
-      LEFT JOIN page_access pa ON u.employeeNumber = pa.employeeNumber
-      LEFT JOIN department_assignment da ON u.employeeNumber = da.employeeNumber
+      LEFT JOIN employment_category ec ON ec.employeeNumber = u.employeeNumber
+      LEFT JOIN employment_type_config etc
+        ON etc.id = COALESCE(ec.employmentCategory, u.employmentCategory)
+      LEFT JOIN (
+        SELECT employeeNumber, MAX(id) AS max_id
+        FROM department_assignment
+        GROUP BY employeeNumber
+      ) da_max ON da_max.employeeNumber = u.employeeNumber
+      LEFT JOIN department_assignment da
+        ON da.employeeNumber = da_max.employeeNumber AND da.id = da_max.max_id
       LEFT JOIN department_table dt ON da.code = dt.code
       ORDER BY u.created_at DESC
     `;
 
     const [baseRows] = await db.promise().query(baseQuery);
 
-    // Only Default (unlocked) users need attendance scans for status.
-    const defaultEmpNos = [];
-    const seenEmp = new Set();
-    for (const row of baseRows) {
-      if (seenEmp.has(row.employeeNumber)) continue;
-      seenEmp.add(row.employeeNumber);
+    const users = (baseRows || []).map((row) => {
       const currentStatus = row.dbStatus || 'Default';
-      if (!LOCKED_STATUSES.includes(currentStatus)) {
-        defaultEmpNos.push(row.employeeNumber);
-      }
-    }
-
-    const currentYearEmpNumbers = new Set();
-    const anyYearEmpNumbers = new Set();
-
-    if (defaultEmpNos.length > 0) {
-      const placeholders = defaultEmpNos.map(() => '?').join(', ');
-
-      // Aggregated lookups scoped to Default users only — avoids shipping
-      // every attendance row and scanning locked users.
-      const arQuery = `
-        SELECT personID,
-          MAX(CASE WHEN LEFT(date, 4) = ? THEN 1 ELSE 0 END) AS hasCurrentYear
-        FROM attendancerecord
-        WHERE personID IN (${placeholders})
-          AND date IS NOT NULL AND date != ''
-        GROUP BY personID
-      `;
-      const ariQuery = `
-        SELECT PersonID,
-          MAX(CASE WHEN AttendanceDateTime >= ? AND AttendanceDateTime < ? THEN 1 ELSE 0 END) AS hasCurrentYear
-        FROM attendancerecordinfo
-        WHERE PersonID IN (${placeholders})
-          AND AttendanceDateTime IS NOT NULL
-        GROUP BY PersonID
-      `;
-
-      const [[arRows], [ariRows]] = await Promise.all([
-        db.promise().query(arQuery, [String(currentYear), ...defaultEmpNos]),
-        db.promise().query(ariQuery, [yearStartMs, yearEndMs, ...defaultEmpNos]),
-      ]);
-
-      (arRows || []).forEach((row) => {
-        const key = String(row.personID);
-        anyYearEmpNumbers.add(key);
-        if (Number(row.hasCurrentYear) === 1) currentYearEmpNumbers.add(key);
-      });
-      (ariRows || []).forEach((row) => {
-        const key = String(row.PersonID);
-        anyYearEmpNumbers.add(key);
-        if (Number(row.hasCurrentYear) === 1) currentYearEmpNumbers.add(key);
-      });
-    }
-
-    const usersMap = {};
-    const statusUpdates = {};
-
-    baseRows.forEach((row) => {
-      if (!usersMap[row.employeeNumber]) {
-        const empKey =
-          row.employeeNumber != null ? String(row.employeeNumber) : null;
-        const currentStatus = row.dbStatus || 'Default';
-        const isLocked = LOCKED_STATUSES.includes(currentStatus);
-
-        let attendanceStatus;
-        if (isLocked) {
-          attendanceStatus = currentStatus;
-        } else if (empKey && currentYearEmpNumbers.has(empKey)) {
-          attendanceStatus = 'Active';
-        } else if (empKey && anyYearEmpNumbers.has(empKey)) {
-          attendanceStatus = 'Inactive';
-        } else {
-          attendanceStatus = 'Default';
-        }
-
-        // Only persist when status actually changes
-        if (!isLocked && attendanceStatus !== currentStatus) {
-          statusUpdates[row.employeeNumber] = attendanceStatus;
-        }
-
-        usersMap[row.employeeNumber] = {
-          employeeNumber: row.employeeNumber,
-          fullName: `${row.firstName || ''} ${
-            row.middleName ? row.middleName + ' ' : ''
-          }${row.lastName || ''}${
-            row.nameExtension ? ' ' + row.nameExtension : ''
-          }`.trim(),
-          firstName: row.firstName,
-          middleName: row.middleName,
-          lastName: row.lastName,
-          nameExtension: row.nameExtension,
-          profilePicture: row.profilePicture || null,
-          email: row.email,
-          role: row.role,
-          status: attendanceStatus,
-          employmentCategory: row.employmentCategory,
-          branch: row.branch !== null && row.branch !== undefined ? Number(row.branch) : null,
-          accessLevel: row.access_level,
-          createdAt: row.created_at,
-          pageAccess: [],
-          departmentCode: row.departmentCode || null,
-          departmentDescription: row.departmentDescription || null,
-        };
-      }
-
-      if (row.page_id) {
-        usersMap[row.employeeNumber].pageAccess.push({
-          page_id: row.page_id,
-          page_privilege: row.page_privilege,
-        });
-      }
+      return {
+        employeeNumber: row.employeeNumber,
+        fullName: `${row.firstName || ''} ${
+          row.middleName ? row.middleName + ' ' : ''
+        }${row.lastName || ''}${
+          row.nameExtension ? ' ' + row.nameExtension : ''
+        }`.trim(),
+        firstName: row.firstName,
+        middleName: row.middleName,
+        lastName: row.lastName,
+        nameExtension: row.nameExtension,
+        profilePicture: row.profilePicture || null,
+        email: row.email,
+        role: row.role,
+        status: currentStatus,
+        employmentCategory: row.employmentCategory,
+        customCategory: row.customCategory || null,
+        parentGroup: row.parentGroup || null,
+        typeName: row.typeName || null,
+        colorHex: row.colorHex || null,
+        categoryLabel: row.categoryLabel || null,
+        branch:
+          row.branch !== null && row.branch !== undefined
+            ? Number(row.branch)
+            : null,
+        accessLevel: row.access_level,
+        createdAt: row.created_at,
+        pageAccess: [],
+        departmentCode: row.departmentCode || null,
+        departmentDescription: row.departmentDescription || null,
+      };
     });
 
-    // Respond immediately — persist status updates in the background
-    res.status(200).json(Object.values(usersMap));
+    // Respond with stored status first — attendance reconcile runs after.
+    res.status(200).json(users);
 
-    const employeeNumbers = Object.keys(statusUpdates);
-    if (employeeNumbers.length === 0) return;
+    // Background: reconcile Default (unlocked) statuses from attendance.
+    setImmediate(async () => {
+      try {
+        const defaultEmpNos = users
+          .filter((u) => !LOCKED_STATUSES.includes(u.status || 'Default'))
+          .map((u) => u.employeeNumber);
+        if (defaultEmpNos.length === 0) return;
 
-    const caseClauses = employeeNumbers.map(() => 'WHEN ? THEN ?').join(' ');
-    const caseParams = employeeNumbers.flatMap((empNo) => [
-      empNo,
-      statusUpdates[empNo],
-    ]);
-    const inPlaceholders = employeeNumbers.map(() => '?').join(', ');
-    const updateQuery = `
-      UPDATE users
-      SET status = CASE employeeNumber
-        ${caseClauses}
-        ELSE status
-      END
-      WHERE employeeNumber IN (${inPlaceholders})
-    `;
-    const updateParams = [...caseParams, ...employeeNumbers];
+        const currentYear = new Date().getFullYear();
+        const yearStartMs = Date.UTC(currentYear, 0, 1);
+        const yearEndMs = Date.UTC(currentYear + 1, 0, 1);
+        const placeholders = defaultEmpNos.map(() => '?').join(', ');
 
-    db.query(updateQuery, updateParams, (updateErr) => {
-      if (updateErr) {
-        console.error('Error updating user statuses (background):', updateErr);
+        const arQuery = `
+          SELECT personID,
+            MAX(CASE WHEN LEFT(date, 4) = ? THEN 1 ELSE 0 END) AS hasCurrentYear
+          FROM attendancerecord
+          WHERE personID IN (${placeholders})
+            AND date IS NOT NULL AND date != ''
+          GROUP BY personID
+        `;
+        const ariQuery = `
+          SELECT PersonID,
+            MAX(CASE WHEN AttendanceDateTime >= ? AND AttendanceDateTime < ? THEN 1 ELSE 0 END) AS hasCurrentYear
+          FROM attendancerecordinfo
+          WHERE PersonID IN (${placeholders})
+            AND AttendanceDateTime IS NOT NULL
+          GROUP BY PersonID
+        `;
+
+        const [[arRows], [ariRows]] = await Promise.all([
+          db.promise().query(arQuery, [String(currentYear), ...defaultEmpNos]),
+          db
+            .promise()
+            .query(ariQuery, [yearStartMs, yearEndMs, ...defaultEmpNos]),
+        ]);
+
+        const currentYearEmpNumbers = new Set();
+        const anyYearEmpNumbers = new Set();
+        (arRows || []).forEach((row) => {
+          const key = String(row.personID);
+          anyYearEmpNumbers.add(key);
+          if (Number(row.hasCurrentYear) === 1) currentYearEmpNumbers.add(key);
+        });
+        (ariRows || []).forEach((row) => {
+          const key = String(row.PersonID);
+          anyYearEmpNumbers.add(key);
+          if (Number(row.hasCurrentYear) === 1) currentYearEmpNumbers.add(key);
+        });
+
+        const statusUpdates = {};
+        for (const u of users) {
+          const currentStatus = u.status || 'Default';
+          if (LOCKED_STATUSES.includes(currentStatus)) continue;
+          const empKey = u.employeeNumber != null ? String(u.employeeNumber) : null;
+          let next = 'Default';
+          if (empKey && currentYearEmpNumbers.has(empKey)) next = 'Active';
+          else if (empKey && anyYearEmpNumbers.has(empKey)) next = 'Inactive';
+          if (next !== currentStatus) statusUpdates[u.employeeNumber] = next;
+        }
+
+        const employeeNumbers = Object.keys(statusUpdates);
+        if (employeeNumbers.length === 0) return;
+
+        const caseClauses = employeeNumbers.map(() => 'WHEN ? THEN ?').join(' ');
+        const caseParams = employeeNumbers.flatMap((empNo) => [
+          empNo,
+          statusUpdates[empNo],
+        ]);
+        const inPlaceholders = employeeNumbers.map(() => '?').join(', ');
+        await db.promise().query(
+          `
+          UPDATE users
+          SET status = CASE employeeNumber
+            ${caseClauses}
+            ELSE status
+          END
+          WHERE employeeNumber IN (${inPlaceholders})
+        `,
+          [...caseParams, ...employeeNumbers],
+        );
+      } catch (bgErr) {
+        console.error('Error reconciling user statuses (background):', bgErr);
       }
     });
   } catch (err) {

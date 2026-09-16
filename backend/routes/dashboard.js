@@ -8,13 +8,67 @@ router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
     const stats = {};
 
-    // Total Employees
+    // Total Employees (person records with employee numbers)
     const [employeeCount] = await db
       .promise()
       .query(
         'SELECT COUNT(DISTINCT agencyEmployeeNum) as total FROM person_table WHERE agencyEmployeeNum IS NOT NULL'
       );
     stats.totalEmployees = employeeCount[0].total;
+
+    // Registered users by role / branch / employment status (UsersList parity)
+    try {
+      const [userRows] = await db.promise().query(`
+        SELECT
+          COUNT(*) AS totalUsers,
+          SUM(CASE WHEN branch = 0 THEN 1 ELSE 0 END) AS manila,
+          SUM(CASE WHEN branch = 1 THEN 1 ELSE 0 END) AS cavite,
+          SUM(CASE WHEN branch IS NULL OR (branch <> 0 AND branch <> 1) THEN 1 ELSE 0 END) AS unassignedBranch,
+          SUM(CASE WHEN LOWER(role) = 'superadmin' THEN 1 ELSE 0 END) AS superadmin,
+          SUM(CASE WHEN LOWER(role) = 'administrator' THEN 1 ELSE 0 END) AS administrator,
+          SUM(CASE WHEN LOWER(role) = 'staff' THEN 1 ELSE 0 END) AS staff,
+          SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) AS activeStatus,
+          SUM(CASE WHEN status = 'Inactive' THEN 1 ELSE 0 END) AS inactiveStatus,
+          SUM(CASE WHEN status = 'Default' OR status IS NULL OR status = '' THEN 1 ELSE 0 END) AS defaultStatus,
+          SUM(CASE WHEN status = 'Resigned' THEN 1 ELSE 0 END) AS resignedStatus,
+          SUM(CASE WHEN status = 'Terminated' THEN 1 ELSE 0 END) AS terminatedStatus,
+          SUM(CASE WHEN status = 'Retired' THEN 1 ELSE 0 END) AS retiredStatus
+        FROM users
+      `);
+      const u = userRows[0] || {};
+      stats.totalUsers = Number(u.totalUsers) || 0;
+      stats.manila = Number(u.manila) || 0;
+      stats.cavite = Number(u.cavite) || 0;
+      stats.unassignedBranch = Number(u.unassignedBranch) || 0;
+      stats.superadmin = Number(u.superadmin) || 0;
+      stats.administrator = Number(u.administrator) || 0;
+      stats.staff = Number(u.staff) || 0;
+      stats.activeStatus = Number(u.activeStatus) || 0;
+      stats.inactiveStatus = Number(u.inactiveStatus) || 0;
+      stats.defaultStatus = Number(u.defaultStatus) || 0;
+      stats.resignedStatus = Number(u.resignedStatus) || 0;
+      stats.terminatedStatus = Number(u.terminatedStatus) || 0;
+      stats.retiredStatus = Number(u.retiredStatus) || 0;
+      // Prefer registered users count for the Total Employees KPI when available
+      if (stats.totalUsers > 0) {
+        stats.totalEmployees = stats.totalUsers;
+      }
+    } catch (userStatsErr) {
+      console.warn('dashboard user stats:', userStatsErr?.message);
+      stats.totalUsers = stats.totalEmployees;
+      stats.manila = 0;
+      stats.cavite = 0;
+      stats.unassignedBranch = 0;
+      stats.superadmin = 0;
+      stats.administrator = 0;
+      stats.staff = 0;
+      stats.activeStatus = 0;
+      stats.inactiveStatus = 0;
+      stats.defaultStatus = 0;
+      stats.resignedStatus = 0;
+      stats.terminatedStatus = 0;
+      stats.retiredStatus = 0;
+    }
 
     // Active Users (those who have logged in)
     const [activeUsers] = await db
@@ -58,6 +112,18 @@ router.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
         thirtyDaysAgo.toISOString().split('T')[0],
       ]);
     stats.recentAnnouncements = announcements[0].total;
+
+    // Open contact tickets (new / in progress / read)
+    try {
+      const [ticketCount] = await db.promise().query(`
+        SELECT COUNT(*) AS total FROM contact_us
+        WHERE status IN ('new', 'on_process', 'read')
+      `);
+      stats.openTickets = Number(ticketCount[0]?.total) || 0;
+    } catch (ticketErr) {
+      console.warn('dashboard open tickets:', ticketErr?.message);
+      stats.openTickets = 0;
+    }
 
     res.json(stats);
   } catch (error) {
