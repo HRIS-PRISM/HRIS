@@ -32,6 +32,12 @@ import { useSystemSettings } from "../../hooks/useSystemSettings";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
 import usePayrollRealtimeRefresh from "../../hooks/usePayrollRealtimeRefresh";
+import {
+  AttendanceFilterMonthHeader,
+  AttendanceFilterMonthGrid,
+  AttendanceFilterSummaryBox,
+  MONTHS_SHORT,
+} from "../ATTENDANCE/attendanceFilterLayout";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -1023,43 +1029,32 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                     </Box>
 
                     <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-                    <Box sx={{ mb: 2.5 }}>
+                    <Box sx={{ mb: 1.25 }}>
                       <FieldInput fullWidth size="small" select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}
                         sx={{ "& .MuiOutlinedInput-root": { fontSize: "0.82rem" } }}>
                         {years.map((y) => <MenuItem key={y} value={y} sx={{ fontSize: "0.82rem" }}>{y}</MenuItem>)}
                       </FieldInput>
                     </Box>
 
-                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                        <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: alpha(T.accent, 0.45) }}>Month</Typography>
-                      </Box>
-                      {selectedMonth && (
-                        <Box onClick={() => setSelectedMonth("")} sx={{ fontSize: "0.65rem", color: T.accent, cursor: "pointer", fontWeight: 700, "&:hover": { textDecoration: "underline" } }}>Clear</Box>
-                      )}
-                    </Box>
-                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", mb: 1.25 }}>
-                      {months.map((m) => (
-                        <Box key={m} onClick={() => setSelectedMonth(m === selectedMonth ? "" : m)} sx={{
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          minHeight: 42, px: 1, py: 0.65, borderRadius: "6px", cursor: "pointer",
-                          border: `1px solid ${selectedMonth === m ? T.accent : "transparent"}`,
-                          bgcolor: selectedMonth === m ? T.accent : "transparent",
-                          transition: "all 0.14s ease",
-                          "&:hover": selectedMonth === m ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
-                        }}>
-                          <Typography sx={{ fontSize: "0.78rem", fontWeight: selectedMonth === m ? 700 : 600, color: selectedMonth === m ? "#fff" : T.text, lineHeight: 1, letterSpacing: "0.03em", textAlign: "center", width: "100%" }}>{m}</Typography>
-                        </Box>
-                      ))}
-                    </Box>
+                    <AttendanceFilterMonthHeader
+                      showClear={!!selectedMonth}
+                      onClear={() => setSelectedMonth("")}
+                    />
+                    <AttendanceFilterMonthGrid
+                      months={MONTHS_SHORT}
+                      selectedMonth={selectedMonth ? months.indexOf(selectedMonth) : null}
+                      onMonthClick={(idx) => {
+                        const m = months[idx];
+                        setSelectedMonth(m === selectedMonth ? "" : m);
+                      }}
+                    />
 
-                    <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: alpha(T.accent, 0.6), mb: 0.5 }}>Total Records</Typography>
-                      <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
-                        {selectedMonth ? filteredPayroll.length : 0} {(selectedMonth ? filteredPayroll.length : 0) === 1 ? "record" : "records"} found
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.75rem", color: T.muted, mt: 0.4 }}>Counts loaded payroll entries for the selected filters.</Typography>
+                    <Box sx={{ mt: 1.5 }}>
+                      <AttendanceFilterSummaryBox
+                        title="Total Records"
+                        primary={`${selectedMonth ? filteredPayroll.length : 0} ${(selectedMonth ? filteredPayroll.length : 0) === 1 ? "record" : "records"} found`}
+                        secondary="Counts loaded payroll entries for the selected filters."
+                      />
                     </Box>
                   </Box>
                 </SectionCard>
@@ -1210,7 +1205,7 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                     {indivHasSearched && (
                       <>
                         <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-                        <Box sx={{ mb: 2.5 }}>
+                        <Box sx={{ mb: 1.25 }}>
                           <FieldInput fullWidth size="small" select value={indivYear}
                             onChange={(e) => {
                               setIndivYear(Number(e.target.value));
@@ -1223,33 +1218,25 @@ const PayslipDistribution = forwardRef(({ employee }, ref) => {
                           </FieldInput>
                         </Box>
 
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1.5 }}>
-                          <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-                          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: alpha(T.accent, 0.45) }}>Pay Period</Typography>
-                        </Box>
-                        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", mb: 1.25 }}>
-                          {months.map((m) => (
-                            <Box key={m} onClick={() => handleIndivMonthSelect(m)} sx={{
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              minHeight: 42, px: 1, py: 0.65, borderRadius: "6px", cursor: "pointer",
-                              border: `1px solid ${indivMonth === m ? T.accent : "transparent"}`,
-                              bgcolor: indivMonth === m ? T.accent : "transparent",
-                              transition: "all 0.14s ease",
-                              "&:hover": indivMonth === m ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
-                            }}>
-                              <Typography sx={{ fontSize: "0.78rem", fontWeight: indivMonth === m ? 700 : 600, color: indivMonth === m ? "#fff" : T.text, lineHeight: 1, letterSpacing: "0.03em", textAlign: "center", width: "100%" }}>{m}</Typography>
-                            </Box>
-                          ))}
-                        </Box>
+                        <AttendanceFilterMonthHeader
+                          showClear={!!indivMonth}
+                          onClear={() => {
+                            setIndivMonth("");
+                            setDisplayEmployee(null);
+                          }}
+                        />
+                        <AttendanceFilterMonthGrid
+                          months={MONTHS_SHORT}
+                          selectedMonth={indivMonth ? months.indexOf(indivMonth) : null}
+                          onMonthClick={(idx) => handleIndivMonthSelect(months[idx])}
+                        />
 
-                        <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: alpha(T.accent, 0.6), mb: 0.5 }}>Total Records</Typography>
-                          <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
-                            {individualMatches.length} {individualMatches.length === 1 ? "record" : "records"} found
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.75rem", color: T.muted, mt: 0.4 }}>
-                            Counts payroll entries for the selected employee, year, and month.
-                          </Typography>
+                        <Box sx={{ mt: 1.5 }}>
+                          <AttendanceFilterSummaryBox
+                            title="Total Records"
+                            primary={`${individualMatches.length} ${individualMatches.length === 1 ? "record" : "records"} found`}
+                            secondary="Counts payroll entries for the selected employee, year, and month."
+                          />
                         </Box>
                       </>
                     )}

@@ -183,15 +183,15 @@ router.post('/api/announcements', authenticateToken, requireAdmin, upload.single
               db.query(
                 `INSERT INTO notifications
                    (employeeNumber, description, read_status, notification_type, action_link, announcement_id)
-                 VALUES (?, ?, 0, 'announcement', NULL, ?)`,
-                [empNum, notificationDescription, announcementId],
+                 VALUES (?, ?, 0, 'announcement', ?, ?)`,
+                [empNum, notificationDescription, `/announcement/${announcementId}`, announcementId],
                 (notifErr) => {
                   if (notifErr) {
                     db.query(
                       `INSERT INTO notifications
                          (employeeNumber, description, read_status, notification_type, action_link)
-                       VALUES (?, ?, 0, 'announcement', NULL)`,
-                      [empNum, notificationDescription],
+                       VALUES (?, ?, 0, 'announcement', ?)`,
+                      [empNum, notificationDescription, `/announcement/${announcementId}`],
                       (fallbackErr) => {
                         if (fallbackErr) {
                           db.query(

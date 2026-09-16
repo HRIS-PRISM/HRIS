@@ -677,6 +677,8 @@ const UsersList = () => {
   const countdownRef = useRef(null);
   const retryAttemptRef = useRef(0);
   const mountedRef = useRef(true);
+  const hasLoadedUsersRef = useRef(false);
+  const pageRef = useRef(0);
   const [selectedEmployeeNumbers, setSelectedEmployeeNumbers] = useState([]);
   const [bulkCategoryDialog, setBulkCategoryDialog] = useState(false);
   const [bulkEmploymentCategory, setBulkEmploymentCategory] = useState("");
@@ -1242,11 +1244,17 @@ const UsersList = () => {
   const fetchUsers = useCallback(
     async (isManualRefresh = false, attemptNum = 0) => {
       clearRetryTimers();
-      if (!isManualRefresh && attemptNum === 0) setLoading(true);
-      if (isManualRefresh) setRefreshing(true);
+      // Keep the table mounted after the first load so pagination/scroll stay put.
+      const keepTableMounted = isManualRefresh || hasLoadedUsersRef.current;
+      if (attemptNum === 0) {
+        if (keepTableMounted) setRefreshing(true);
+        else setLoading(true);
+      }
+      const savedPage = pageRef.current;
       try {
         const merged = await doFetchUsers();
         if (!mountedRef.current) return;
+        hasLoadedUsersRef.current = true;
         setUsers(merged);
         setFilteredUsers(merged);
         setLoading(false);
@@ -1255,12 +1263,14 @@ const UsersList = () => {
         setRetryIn(0);
         retryAttemptRef.current = 0;
         setError("");
+        // Keep the user on the same table page after edit/delete refreshes.
+        setPage(savedPage);
       } catch (err) {
         if (!mountedRef.current) return;
         setRefreshing(false);
-        if (users.length === 0) setLoading(true);
+        if (!hasLoadedUsersRef.current) setLoading(true);
         else setLoading(false);
-        if (attemptNum > 0 || users.length === 0) setOffline(true);
+        if (attemptNum > 0 || !hasLoadedUsersRef.current) setOffline(true);
         const delaySeconds =
           RETRY_DELAYS[Math.min(attemptNum, RETRY_DELAYS.length - 1)];
         setRetryIn(delaySeconds);
@@ -1276,7 +1286,7 @@ const UsersList = () => {
         }, delaySeconds * 1000);
       }
     },
-    [doFetchUsers, clearRetryTimers, users.length],
+    [doFetchUsers, clearRetryTimers],
   ); // eslint-disable-line
 
   useEffect(() => {
@@ -1410,6 +1420,10 @@ const UsersList = () => {
   ]);
 
   useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
     setPage(0);
   }, [
     debouncedSearchTerm,
@@ -1420,6 +1434,15 @@ const UsersList = () => {
     departmentFilter,
     tableTab,
   ]);
+
+  // If the filtered list shrinks (e.g. delete), clamp to the last valid page.
+  useEffect(() => {
+    const maxPage = Math.max(
+      0,
+      Math.ceil(filteredUsers.length / rowsPerPage) - 1,
+    );
+    if (page > maxPage) setPage(maxPage);
+  }, [filteredUsers.length, rowsPerPage, page]);
 
   // ─── Page access handlers ──────────────────────────────────────────────────
   const fetchUserPageAccess = async (user) => {

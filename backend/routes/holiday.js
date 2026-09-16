@@ -44,8 +44,8 @@ function notifyEmployeesForHoliday(holidayId, branch, notificationDescription, r
     let completed = 0;
     employeeNumbers.forEach((empNum) => {
       db.query(
-        'INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)',
-        [empNum, notificationDescription, 'holiday'],
+        'INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, ?)',
+        [empNum, notificationDescription, 'holiday', `/holiday/${holidayId}`],
         (notifErr) => {
           if (notifErr) {
             db.query(

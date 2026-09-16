@@ -1,21 +1,86 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticateToken, requireSelfOrAdmin } = require('../middleware/auth');
+const {
+  authenticateToken,
+  requireSelfOrAdmin,
+  employeeNumbersMatch,
+  normalizeEmployeeNumber,
+} = require('../middleware/auth');
 
-// GET notifications by employee number
+function inferNotificationType(row) {
+  const explicit = String(row?.notification_type || '').trim().toLowerCase();
+  if (explicit) return explicit;
+  const desc = String(row?.description || '').toLowerCase();
+  const link = String(row?.action_link || '').toLowerCase();
+  if (row?.announcement_id || desc.includes('announcement') || link.includes('announcement')) {
+    return 'announcement';
+  }
+  if (desc.includes('holiday') || link.includes('holiday')) return 'holiday';
+  if (desc.includes('suspension') || link.includes('suspension')) return 'suspension';
+  if (desc.includes('payslip') || link.includes('payslip')) return 'payslip';
+  if (desc.includes('ticket') || desc.includes('contact') || link.includes('settings')) {
+    return 'contact';
+  }
+  if (desc.includes('leave')) return 'leave';
+  return explicit || 'general';
+}
+
+function readEmployeeNumber(row) {
+  return row?.employeeNumber ?? row?.employee_number ?? row?.employeenumber ?? '';
+}
+
+function normalizeRows(rows, employeeNumber) {
+  const wanted = String(employeeNumber || '').trim();
+  const list = Array.isArray(rows) ? rows : [];
+  const matched = list.filter((row) => employeeNumbersMatch(readEmployeeNumber(row), wanted));
+  const scoped = matched.length > 0 || list.length === 0 ? matched : list;
+  return scoped
+    .sort((a, b) => {
+      const idDiff = Number(b.id || 0) - Number(a.id || 0);
+      if (idDiff) return idDiff;
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    })
+    .slice(0, 50)
+    .map((row) => ({
+      ...row,
+      employeeNumber: readEmployeeNumber(row),
+      notification_type: inferNotificationType(row),
+      read_status: Number(row.read_status) === 1 ? 1 : 0,
+    }));
+}
+
+async function fetchNotificationsForEmployee(employeeNumber) {
+  const raw = String(employeeNumber || '').trim();
+  const normalized = normalizeEmployeeNumber(raw);
+
+  try {
+    const [rows] = await db.promise().query(
+      `SELECT * FROM notifications
+       WHERE CAST(employeeNumber AS CHAR) = ?
+          OR CAST(employeeNumber AS CHAR) = ?
+       ORDER BY id DESC
+       LIMIT 80`,
+      [raw, normalized || raw],
+    );
+    return normalizeRows(rows, raw);
+  } catch (primaryErr) {
+    console.error('Notification query fallback:', primaryErr.message);
+    const [rows] = await db.promise().query(
+      `SELECT * FROM notifications
+       WHERE employeeNumber = ?
+       ORDER BY id DESC
+       LIMIT 80`,
+      [raw],
+    );
+    return normalizeRows(rows, raw);
+  }
+}
+
 router.get('/api/notifications/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), async (req, res) => {
   try {
     const { employeeNumber } = req.params;
-
-    const [rows] = await db.promise().query(
-      `SELECT * FROM notifications 
-       WHERE CAST(employeeNumber AS CHAR) = ? 
-       ORDER BY created_at DESC 
-       LIMIT 50`,
-      [String(employeeNumber)],
-    );
-
+    const rows = await fetchNotificationsForEmployee(employeeNumber);
     res.json(rows);
   } catch (error) {
     console.error('Error fetching notifications:', error);
@@ -23,23 +88,17 @@ router.get('/api/notifications/:employeeNumber', authenticateToken, requireSelfO
   }
 });
 
-// GET unread notifications count by employee number
 router.get('/api/notifications/:employeeNumber/unread-count', authenticateToken, requireSelfOrAdmin('employeeNumber'), async (req, res) => {
   try {
     const { employeeNumber } = req.params;
-    const [rows] = await db.promise().query(
-      `SELECT COUNT(*) as count FROM notifications 
-       WHERE CAST(employeeNumber AS CHAR) = ? AND read_status = 0`,
-      [String(employeeNumber)],
-    );
-    res.json({ count: rows[0].count });
+    const rows = await fetchNotificationsForEmployee(employeeNumber);
+    res.json({ count: rows.filter((row) => Number(row.read_status) === 0).length });
   } catch (error) {
     console.error('Error fetching unread count:', error);
     res.status(500).json({ message: 'Error fetching unread count' });
   }
 });
 
-// PUT: Mark notification as read (must own the notification)
 router.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -56,7 +115,7 @@ router.put('/api/notifications/:id/read', authenticateToken, async (req, res) =>
     }
 
     const owner = String(rows[0].employeeNumber || '').trim();
-    if (!adminRoles.includes(role) && owner !== caller) {
+    if (!adminRoles.includes(role) && !employeeNumbersMatch(owner, caller)) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -76,14 +135,17 @@ router.put('/api/notifications/:id/read', authenticateToken, async (req, res) =>
   }
 });
 
-// PUT: Mark all notifications as read for an employee
 router.put('/api/notifications/:employeeNumber/read-all', authenticateToken, requireSelfOrAdmin('employeeNumber'), async (req, res) => {
   try {
     const { employeeNumber } = req.params;
-    await db.promise().query(
-      'UPDATE notifications SET read_status = 1 WHERE employeeNumber = ?',
-      [employeeNumber],
-    );
+    const rows = await fetchNotificationsForEmployee(employeeNumber);
+    const ids = rows.map((row) => row.id).filter(Boolean);
+    if (ids.length) {
+      await db.promise().query(
+        `UPDATE notifications SET read_status = 1 WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ids,
+      );
+    }
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating notifications:', error);

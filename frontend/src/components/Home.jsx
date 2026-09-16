@@ -11,6 +11,18 @@ import { useSocket } from "../contexts/SocketContext";
 import API_BASE_URL from "../apiConfig";
 import { getAuthHeaders } from "../utils/auth";
 import {
+  employeeNumbersMatch,
+  extractNotificationList,
+  findById,
+  inferNotificationType,
+  latestByDate,
+  normalizeNotification,
+  parseNotificationTargetId,
+  resolveEmployeeNumber,
+  scopeNotificationsToEmployee,
+  sortNotificationsLatestFirst,
+} from "../utils/notifications";
+import {
   IconButton, Modal, Tooltip, Box, Grid, Typography, Avatar, Button,
   Badge, Card, CardContent, Divider, Chip, TextField, Dialog, DialogTitle,
   DialogContent, DialogActions, Grow, Fade, Menu, MenuItem, CircularProgress,
@@ -475,15 +487,16 @@ const Home = () => {
   }, [employeeNumber]);
 
   const fetchNotifications = useCallback(async () => {
-    if (!employeeNumber) return;
-    const empNum = String(employeeNumber).trim();
+    const empNum = String(employeeNumber || resolveEmployeeNumber()).trim();
     if (!empNum) return;
     try {
       const notifRes = await axios.get(
         `${API_BASE_URL}/api/notifications/${empNum}`,
         getAuthHeaders(),
       );
-      const filteredNotifications = Array.isArray(notifRes.data) ? notifRes.data.filter((notif) => String(notif.employeeNumber).trim() === empNum) : [];
+      const filteredNotifications = sortNotificationsLatestFirst(
+        scopeNotificationsToEmployee(extractNotificationList(notifRes.data), empNum).map(normalizeNotification),
+      );
       setNotifications((prev) => {
         const localReadIds = new Set(prev.filter((n) => n.read_status === 1).map((n) => n.id));
         return filteredNotifications.map((n) => localReadIds.has(n.id) ? { ...n, read_status: 1 } : n);
@@ -497,13 +510,12 @@ const Home = () => {
           ticketList.forEach((t) => { ticketIdMap[t.id] = t; });
           const notifStatusMap = {};
           contactNotifs.forEach((notif) => {
-            const contactMatch = (notif.action_link || "").match(/\/settings\/contact\/(\d+)/);
-            const ticketId = contactMatch ? Number(contactMatch[1]) : null;
+            const ticketId = parseNotificationTargetId(notif, "contact");
             const ticket = ticketId ? ticketIdMap[ticketId] : null;
             if (ticket) {
               notifStatusMap[notif.id] = { status: ticket.status, subject: ticket.subject || ticket.title || "", employee_name: ticket.employee_name || ticket.name || "", employee_number: ticket.employee_number || ticket.agencyEmployeeNum || "" };
             } else {
-              const empTickets = ticketList.filter((t) => String(t.employee_number || "").trim() === empNum);
+              const empTickets = ticketList.filter((t) => employeeNumbersMatch(t.employee_number, empNum));
               if (empTickets.length > 0) {
                 const latest = empTickets.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))[0];
                 notifStatusMap[notif.id] = { status: latest.status, subject: latest.subject || latest.title || "", employee_name: latest.employee_name || latest.name || "", employee_number: latest.employee_number || latest.agencyEmployeeNum || "" };
@@ -513,20 +525,23 @@ const Home = () => {
           setContactTicketStatuses(notifStatusMap);
         } catch {}
       }
-      const announcementNotifs = filteredNotifications.filter((n) => n.notification_type === "announcement" && n.announcement_id);
+      const announcementNotifs = filteredNotifications.filter((n) => n.notification_type === "announcement");
       if (announcementNotifs.length > 0) {
         try {
           const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
           const announcementList = Array.isArray(annRes.data) ? annRes.data : [];
           const detailsMap = {};
           announcementNotifs.forEach((notif) => {
-            const announcement = announcementList.find((ann) => ann.id === notif.announcement_id || ann.id === parseInt(notif.announcement_id));
+            const targetId = parseNotificationTargetId(notif, "announcement");
+            const announcement = findById(announcementList, targetId) || latestByDate(announcementList, ["date_start", "date", "id"]);
             if (announcement) detailsMap[notif.id] = announcement;
           });
           setAnnouncementDetails(detailsMap);
         } catch {}
       }
-    } catch { setNotifications([]); }
+    } catch (err) {
+      console.error("Error fetching notifications:", err);
+    }
   }, [employeeNumber]);
 
   const fetchNotificationsRef = useRef(fetchNotifications);
@@ -548,20 +563,69 @@ const Home = () => {
     };
     const handleAdminDashboardUpdated = (payload) => {
       const { source } = payload;
-      if (source === "holiday" || source === "suspensions") { fetchHolidays(); fetchSuspensions(); }
+      if (source === "holiday" || source === "suspensions" || source === "announcements") {
+        fetchHolidays();
+        fetchSuspensions();
+        fetchAnnouncements();
+      }
+      scheduleRefresh();
+    };
+    const handleAnnouncementForNotifs = (payload) => {
+      handleAnnouncementChanged(payload);
+      scheduleRefresh();
     };
     socket.on("notificationCreated", scheduleRefresh);
     socket.on("payrollChanged", scheduleRefresh);
-    socket.on("announcementChanged", handleAnnouncementChanged);
+    socket.on("announcementChanged", handleAnnouncementForNotifs);
     socket.on("adminDashboardUpdated", handleAdminDashboardUpdated);
     return () => {
       socket.off("notificationCreated", scheduleRefresh);
       socket.off("payrollChanged", scheduleRefresh);
-      socket.off("announcementChanged", handleAnnouncementChanged);
+      socket.off("announcementChanged", handleAnnouncementForNotifs);
       socket.off("adminDashboardUpdated", handleAdminDashboardUpdated);
       if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
     };
-  }, [socket, connected, fetchHolidays, fetchSuspensions]);
+  }, [socket, connected, fetchHolidays, fetchSuspensions, fetchAnnouncements]);
+
+  const openDetailFromNotification = (item) => {
+    if (!item) {
+      setNotifModalOpen(false);
+      return;
+    }
+    setNotifModalOpen(false);
+    // Defer so the notifications Modal can unmount before the detail Modal opens
+    // (avoids MUI dual-modal focus/aria-hidden leaving a blank screen).
+    window.setTimeout(() => {
+      setSelectedAnnouncement(item);
+      setOpenModal(true);
+    }, 200);
+  };
+
+  const mapHolidayToDetail = (h) =>
+    h
+      ? {
+          id: `holiday-${h.id}`,
+          title: h.title || h.description || "",
+          about: h.about || "Official holiday.",
+          date: h.date_start || h.date_end || h.date,
+          date_start: h.date_start || h.date,
+          date_end: h.date_end || h.date,
+          image: h.image || null,
+        }
+      : null;
+
+  const mapSuspensionToDetail = (s) =>
+    s
+      ? {
+          id: `suspension-${s.id}`,
+          title: s.title || "",
+          about: s.about || "",
+          date: s.date_start || s.date_end || s.date,
+          date_start: s.date_start || s.date,
+          date_end: s.date_end || s.date,
+          image: s.image || null,
+        }
+      : null;
 
   const handleNotificationClick = async (notification) => {
     if (notification.read_status === 0) {
@@ -574,35 +638,79 @@ const Home = () => {
         setNotifications((prev) => prev.map((n) => (n.id === notification.id ? { ...n, read_status: 1 } : n)));
       } catch {}
     }
-    const type = notification.notification_type;
+    const type = inferNotificationType(notification);
     const link = notification.action_link || "";
     if (type === "payslip" || link.includes("payslip")) {
       setNotifModalOpen(false); navigate("/payslip");
     } else if (type === "contact" || type === "ticket" || link.includes("settings")) {
       setNotifModalOpen(false);
-      const contactMatch = (notification.action_link || "").match(/\/settings\/contact\/(\d+)/);
-      const ticketIdFromLink = contactMatch ? Number(contactMatch[1]) : null;
+      const ticketIdFromLink = parseNotificationTargetId(notification, "contact");
       const statusMatch = (notification.action_link || "").match(/[?&]status=([^&]+)/);
       const ticketStatusFromLink = statusMatch ? statusMatch[1] : null;
       navigate("/settings", { state: { section: "contact", ticketId: ticketIdFromLink, ticketStatus: ticketStatusFromLink } });
     } else if (type === "announcement" || link.includes("announcement")) {
       try {
-        const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
-        const list = Array.isArray(annRes.data) ? annRes.data : [];
-        let match = notification.announcement_id ? list.find((a) => a.id === notification.announcement_id || a.id === parseInt(notification.announcement_id)) : null;
-        if (!match && notification.announcement_id) match = announcementDetails[notification.id];
-        if (!match && list.length > 0) match = list[0];
+        const targetId = parseNotificationTargetId(notification, "announcement");
+        let match =
+          findById(announcements, targetId) ||
+          announcementDetails[notification.id] ||
+          null;
+        if (!match) {
+          const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
+          const list = Array.isArray(annRes.data) ? annRes.data : [];
+          match = findById(list, targetId) || latestByDate(list, ["date_start", "date", "id"]);
+        }
+        openDetailFromNotification(match);
+      } catch {
         setNotifModalOpen(false);
-        if (match) { setSelectedAnnouncement(match); setOpenModal(true); }
-      } catch { setNotifModalOpen(false); }
-    } else if (link) { setNotifModalOpen(false); navigate(link); }
+      }
+    } else if (type === "holiday") {
+      const targetId = parseNotificationTargetId(notification, "holiday");
+      const match =
+        mapHolidayToDetail(findById(rawHolidays, targetId)) ||
+        getCarouselItemForNotif(notification) ||
+        mapHolidayToDetail(latestByDate(rawHolidays, ["date_start", "date", "id"]));
+      openDetailFromNotification(match);
+    } else if (type === "suspension") {
+      const targetId = parseNotificationTargetId(notification, "suspension");
+      const match =
+        mapSuspensionToDetail(findById(suspensions, targetId)) ||
+        getCarouselItemForNotif(notification) ||
+        mapSuspensionToDetail(latestByDate(suspensions, ["date_start", "date", "id"]));
+      openDetailFromNotification(match);
+    } else if (type === "leave") {
+      setNotifModalOpen(false);
+      navigate("/leave-request-user");
+    } else if (link) {
+      setNotifModalOpen(false);
+      if (link.includes("/settings/contact/")) {
+        const contactMatch = link.match(/\/settings\/contact\/(\d+)/);
+        const statusMatch = link.match(/[?&]status=([^&]+)/);
+        navigate("/settings", {
+          state: {
+            section: "contact",
+            ticketId: contactMatch ? Number(contactMatch[1]) : null,
+            ticketStatus: statusMatch ? statusMatch[1] : null,
+          },
+        });
+      } else {
+        navigate(link);
+      }
+    }
   };
 
   const getUserInfo = () => {
     const token = localStorage.getItem("token");
-    if (!token) return {};
-    try { const decoded = JSON.parse(atob(token.split(".")[1])); return { role: decoded.role, employeeNumber: decoded.employeeNumber, username: decoded.username }; }
-    catch { return {}; }
+    if (!token) return { employeeNumber: resolveEmployeeNumber() };
+    try {
+      const decoded = JSON.parse(atob(token.split(".")[1]));
+      return {
+        role: decoded.role,
+        employeeNumber: decoded.employeeNumber || resolveEmployeeNumber(),
+        username: decoded.username,
+      };
+    }
+    catch { return { employeeNumber: resolveEmployeeNumber() }; }
   };
 
   useEffect(() => {
@@ -759,20 +867,33 @@ const Home = () => {
   const totalLeave = leaveCredits.reduce((s, g) => s + g.currRemaining + g.prevRemaining, 0);
 
   const getCarouselItemForNotif = useCallback((notif) => {
-    const type = notif.notification_type;
-    if (type === "announcement") return announcementDetails[notif.id] || null;
-    if (type === "holiday") return scheduledHolidaysForCarousel[0] || null;
-    if (type === "suspension") return suspensionsForCarousel[0] || null;
+    try {
+      const type = inferNotificationType(notif);
+      if (type === "announcement") {
+        return announcementDetails[notif.id] || findById(announcements, parseNotificationTargetId(notif, "announcement")) || null;
+      }
+      if (type === "holiday") {
+        const id = parseNotificationTargetId(notif, "holiday");
+        return mapHolidayToDetail(findById(rawHolidays, id)) || scheduledHolidaysForCarousel[0] || mapHolidayToDetail(latestByDate(rawHolidays));
+      }
+      if (type === "suspension") {
+        const id = parseNotificationTargetId(notif, "suspension");
+        return mapSuspensionToDetail(findById(suspensions, id)) || suspensionsForCarousel[0] || mapSuspensionToDetail(latestByDate(suspensions));
+      }
+    } catch {
+      return null;
+    }
     return null;
-  }, [announcementDetails, scheduledHolidaysForCarousel, suspensionsForCarousel]);
+  }, [announcementDetails, announcements, rawHolidays, suspensions, scheduledHolidaysForCarousel, suspensionsForCarousel]);
 
   const filteredNotifications = useMemo(() => {
     if (!Array.isArray(notifications)) return [];
     return notifications.filter((n) => {
+      const type = inferNotificationType(n);
       if (notifFilter === "all") return true;
       if (notifFilter === "unread") return n.read_status === 0;
-      if (notifFilter === "contact") return n.notification_type === "contact" || n.notification_type === "ticket";
-      return n.notification_type === notifFilter;
+      if (notifFilter === "contact") return type === "contact" || type === "ticket";
+      return type === notifFilter;
     });
   }, [notifications, notifFilter]);
 
@@ -860,7 +981,7 @@ const Home = () => {
                   </button>
                 </Tooltip>
                 <Tooltip title="Notifications">
-                  <IconButton size="small" onClick={async () => { if (!notifications.length) await fetchNotifications(); setNotifModalOpen(true); }}
+                  <IconButton size="small" onClick={async () => { setNotifModalOpen(true); await fetchNotifications(); }}
                     sx={{ bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, color: T.accent, borderRadius: "8px", width: 36, height: 36, "&:hover": { bgcolor: T.accentHover } }}>
                     <Badge badgeContent={derivedUnreadCount} color="error" max={9}><NotificationsIcon sx={{ fontSize: 18 }} /></Badge>
                   </IconButton>
@@ -1267,7 +1388,7 @@ const Home = () => {
           {/* ── NOTIFICATIONS MODAL ── */}
           <Modal open={notifModalOpen} onClose={handleCloseNotifModal}>
             <Fade in={notifModalOpen}>
-              <Box sx={{ position: "absolute", top: { xs: "50%", md: "76px" }, right: { xs: "50%", md: "20px" }, transform: { xs: "translate(50%, -50%)", md: "none" }, width: { xs: "92%", sm: "400px" }, maxHeight: "85vh", display: "flex", flexDirection: "column", bgcolor: "#fff", border: `0.5px solid rgba(0,0,0,0.09)`, boxShadow: "0 16px 48px rgba(0,0,0,0.14)", borderRadius: "12px", overflow: "hidden" }}>
+              <Box sx={{ position: "absolute", top: { xs: "50%", md: "76px" }, right: { xs: "50%", md: "20px" }, transform: { xs: "translate(50%, -50%)", md: "none" }, width: { xs: "92%", sm: "400px" }, height: { xs: "80vh", md: "min(85vh, 640px)" }, maxHeight: "85vh", display: "flex", flexDirection: "column", bgcolor: "#fff", border: `0.5px solid rgba(0,0,0,0.09)`, boxShadow: "0 16px 48px rgba(0,0,0,0.14)", borderRadius: "12px", overflow: "hidden" }}>
                 <Box sx={{ px: 2, py: 1.25, background: T.accent, flexShrink: 0 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box sx={{ width: 28, height: 28, borderRadius: "8px", bgcolor: "rgba(255,255,255,0.12)", border: "0.5px solid rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1288,11 +1409,12 @@ const Home = () => {
                   sx={{ justifyContent: "flex-end", textTransform: "none", borderRadius: 0, py: 0.6, px: 2, fontSize: "0.68rem", fontWeight: 700, color: T.accent, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, "&:hover": { bgcolor: T.accentHover } }}>
                   Mark all as read
                 </Button>
-                <Box sx={{ flex: 1, overflowY: "auto", bgcolor: "#fff", "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                <Box sx={{ flex: 1, minHeight: 280, overflowY: "auto", bgcolor: "#fff", "&::-webkit-scrollbar": { width: 3 }, "&::-webkit-scrollbar-thumb": { bgcolor: T.accentBorder, borderRadius: 2 } }}>
                   {Array.isArray(notifications) && notifications.length > 0 ? (
                     filteredNotifications.length > 0 ? (
-                      filteredNotifications.slice(0, 15).map((notif, idx, arr) => {
-                        const isContact = notif.notification_type === "contact" || notif.notification_type === "ticket";
+                      filteredNotifications.slice(0, 50).map((notif, idx, arr) => {
+                        const notifType = inferNotificationType(notif);
+                        const isContact = notifType === "contact" || notifType === "ticket";
                         const isRead = notif.read_status === 1;
                         const TYPE_CONFIG = {
                           payslip:      { label: "Payroll",       accent: "#2e7d32", iconBg: "#e8f5e9" },
@@ -1301,8 +1423,9 @@ const Home = () => {
                           holiday:      { label: "Holiday",       accent: "#1565c0", iconBg: "#e3f2fd" },
                           suspension:   { label: "Suspension",    accent: "#c62828", iconBg: "#ffebee" },
                           announcement: { label: "Announcement",  accent: T.accent,  iconBg: T.accentFaint },
+                          leave:        { label: "Leave",         accent: "#2e7d32", iconBg: "#e8f5e9" },
                         };
-                        const cfg = TYPE_CONFIG[notif.notification_type] || { label: "Notification", accent: T.accent, iconBg: T.accentFaint };
+                        const cfg = TYPE_CONFIG[notifType] || { label: "Notification", accent: T.accent, iconBg: T.accentFaint };
                         const ICON_MAP = {
                           payslip:      <Receipt sx={{ fontSize: 14, color: cfg.accent }} />,
                           contact:      <ContactPage sx={{ fontSize: 14, color: cfg.accent }} />,
@@ -1310,8 +1433,9 @@ const Home = () => {
                           holiday:      <CalendarMonth sx={{ fontSize: 14, color: cfg.accent }} />,
                           suspension:   <Event sx={{ fontSize: 14, color: cfg.accent }} />,
                           announcement: <NotificationsIcon sx={{ fontSize: 14, color: cfg.accent }} />,
+                          leave:        <Event sx={{ fontSize: 14, color: cfg.accent }} />,
                         };
-                        const icon = ICON_MAP[notif.notification_type] || <NotificationsIcon sx={{ fontSize: 14, color: cfg.accent }} />;
+                        const icon = ICON_MAP[notifType] || <NotificationsIcon sx={{ fontSize: 14, color: cfg.accent }} />;
                         const rawDesc = notif.description || "";
                         const cleanDesc = rawDesc.replace(/\. Click to view details\.?$/i, ".").replace(/\. Click to view response\.?$/i, ".").replace(/submitted a new ticket:\s*/i, "opened a ticket — ").replace(/has responded to your ticket\./i, "responded to your ticket.").replace(/replied to your ticket\./i, "replied to your ticket.").replace(/has been marked as replied by /i, "was marked as replied by ").replace(/has been resolved by /i, "was resolved by ").trim();
                         const timeAgo = (() => {
@@ -1329,8 +1453,8 @@ const Home = () => {
                         const dayLabel = getNotificationDayLabel(notif.created_at);
                         const prevDayLabel = idx > 0 ? getNotificationDayLabel(arr[idx - 1]?.created_at) : null;
                         const showDayLabel = idx === 0 || dayLabel !== prevDayLabel;
-                        const isImageType = notif.notification_type === "announcement" || notif.notification_type === "holiday" || notif.notification_type === "suspension";
-                        const isAnnouncementCard = notif.notification_type === "announcement";
+                        const isImageType = notifType === "announcement" || notifType === "holiday" || notifType === "suspension";
+                        const isAnnouncementCard = notifType === "announcement";
                         const carouselItem = isImageType ? getCarouselItemForNotif(notif) : null;
                         const itemImage = carouselItem?.image ? `${API_BASE_URL}${carouselItem.image}` : null;
                         const itemTitle = carouselItem?.title || notif.title || "";
@@ -1342,7 +1466,7 @@ const Home = () => {
 
                         if (isImageType) {
                           return (
-                            <React.Fragment key={`notif-wrap-${notif.id}`}>
+                            <React.Fragment key={`notif-wrap-${notif.id || idx}`}>
                               {showDayLabel && <Box sx={{ px: 2, pt: idx === 0 ? 0.9 : 1.2, pb: 0.45, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>{dayLabel}</Box>}
                               <Box onClick={() => handleNotificationClick(notif)} sx={{ borderBottom: `1px solid ${T.divider}`, bgcolor: isRead ? "#fff" : T.accentFaint, cursor: "pointer", transition: "background 0.12s", "&:hover": { bgcolor: isRead ? "#fdf8f8" : T.accentHover }, borderLeft: isRead ? "none" : `3px solid ${T.accent}` }}>
                                 {isAnnouncementCard ? (
@@ -1375,7 +1499,7 @@ const Home = () => {
                         }
 
                         return (
-                          <React.Fragment key={`notif-wrap-${notif.id}`}>
+                          <React.Fragment key={`notif-wrap-${notif.id || idx}`}>
                             {showDayLabel && <Box sx={{ px: 2, pt: idx === 0 ? 0.9 : 1.2, pb: 0.45, fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}>{dayLabel}</Box>}
                             <Box onClick={() => handleNotificationClick(notif)} sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, pl: isRead ? 2.25 : 2, pr: 2.25, py: 1.5, borderBottom: `1px solid ${T.divider}`, borderLeft: isRead ? "none" : `3px solid ${T.accent}`, bgcolor: isRead ? "#fff" : T.accentFaint, cursor: "pointer", transition: "background 0.12s", "&:hover": { bgcolor: isRead ? "#fdf8f8" : T.accentHover } }}>
                               <Box sx={{ width: 36, height: 36, borderRadius: "8px", bgcolor: cfg.iconBg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, mt: 0.15 }}>{icon}</Box>
