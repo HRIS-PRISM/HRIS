@@ -10,7 +10,7 @@
  */
 
 const { unzipSync, zipSync, strToU8, strFromU8 } = require('fflate');
-const { colToIndex, indexToCol, parseRef, translateFormula } = require('./formulaTranslate');
+const { colToIndex, indexToCol, parseRef, translateFormula, shiftFormulaRowsFrom } = require('./formulaTranslate');
 
 const CELL_RE = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
 const ROW_RE = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
@@ -53,6 +53,28 @@ function setAttr(attrs, name, value) {
   if (value === null) return attrs.replace(re, '');
   if (re.test(attrs)) return attrs.replace(re, ` ${name}="${value}"`);
   return `${attrs} ${name}="${value}"`;
+}
+
+function quoteSheetName(name) {
+  return `'${String(name).replace(/'/g, "''")}'`;
+}
+
+/**
+ * Rewrites sheet refs from `from` to `to` in a formula, defined-name body, or
+ * worksheet XML. Excel stores Print_Area as PAY!$B$2 when the tab has no spaces
+ * and as 'GEN.AD - PAY'!$B$2 when it does. Cloned department tabs always have
+ * spaces, so the replacement is always quoted.
+ */
+function retargetSheetRef(body, from, to) {
+  if (!from || !to || from === to) return body;
+  const quotedTo = quoteSheetName(to);
+  return String(body).replace(/'(?:[^']|'')+'|[A-Za-z0-9_.]+(?=!)/g, (tok) => {
+    if (tok.startsWith("'")) {
+      const inner = tok.slice(1, -1).replace(/''/g, "'");
+      return inner === from ? quotedTo : tok;
+    }
+    return tok === from ? quotedTo : tok;
+  });
 }
 
 class Cell {
@@ -228,6 +250,72 @@ class Sheet {
       ? (this.byNum.get(donorParsed.row) || { cell: () => null }).cell(donorParsed.col)
       : null;
     return r.ensureCell(col, donorCell);
+  }
+
+  /**
+   * Copies a row's cells onto another row. Formulas are copied as-is (no row
+   * translation) so SUMMARY subtotal refs like PAY!I163 stay on the subtotal.
+   */
+  copyRow(fromNum, toNum) {
+    const src = this.row(fromNum);
+    if (!src) return;
+    const dest = this.ensureRow(toNum, fromNum);
+    dest.cells = [];
+    dest.byCol = new Map();
+    for (const cell of src.cells) {
+      const newRef = indexToCol(cell.col) + toNum;
+      const clone = new Cell(newRef, setAttr(cell.attrs, 'r', newRef), cell.inner);
+      dest.cells.push(clone);
+      dest.byCol.set(cell.col, clone);
+    }
+  }
+
+  /**
+   * Inserts blank row slots by moving every row at/after `fromRow` down `dRow`
+   * positions, including formulas and merge refs that pointed at those rows.
+   */
+  shiftRowsFrom(fromRow, dRow) {
+    if (!dRow) return;
+    const moving = this.rows.filter((r) => r.num >= fromRow).sort((a, b) => b.num - a.num);
+    for (const row of moving) {
+      const newNum = row.num + dRow;
+      this.byNum.delete(row.num);
+      row.num = newNum;
+      row.attrs = setAttr(row.attrs, 'r', String(newNum));
+      for (const cell of row.cells) {
+        const newRef = indexToCol(cell.col) + newNum;
+        cell.ref = newRef;
+        cell.attrs = setAttr(cell.attrs, 'r', newRef);
+        const f = cell.formula;
+        if (f !== null) cell.setFormula(shiftFormulaRowsFrom(f, fromRow, dRow));
+      }
+      this.byNum.set(newNum, row);
+    }
+    this.rows.sort((a, b) => a.num - b.num);
+    this.tail = this.tail.replace(/<mergeCell ref="([^"]+)"\/>/g, (full, ref) => {
+      const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(ref);
+      if (!m) return full;
+      const r1 = Number(m[2]) >= fromRow ? Number(m[2]) + dRow : Number(m[2]);
+      const r2 = Number(m[4]) >= fromRow ? Number(m[4]) + dRow : Number(m[4]);
+      return `<mergeCell ref="${m[1]}${r1}:${m[3]}${r2}"/>`;
+    });
+  }
+
+  addHorizontalMergesFromRow(fromRow, toRow) {
+    const extra = [];
+    for (const m of this.tail.matchAll(/<mergeCell ref="([^"]+)"\/>/g)) {
+      const parsed = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(m[1]);
+      if (!parsed) continue;
+      if (Number(parsed[2]) !== fromRow || Number(parsed[4]) !== fromRow) continue;
+      extra.push(`<mergeCell ref="${parsed[1]}${toRow}:${parsed[3]}${toRow}"/>`);
+    }
+    if (!extra.length) return;
+    if (/<mergeCells\b/.test(this.tail)) {
+      this.tail = this.tail.replace(/<mergeCells count="(\d+)"/, (full, n) => (
+        `<mergeCells count="${Number(n) + extra.length}"`
+      ));
+      this.tail = this.tail.replace('</mergeCells>', `${extra.join('')}</mergeCells>`);
+    }
   }
 
   /**
@@ -461,12 +549,7 @@ class XlsmPackage {
       .replace(/<tableParts\b[^>]*\/>/g, '');
 
     for (const [from, to] of Object.entries(renameRefs || {})) {
-      if (!from || !to || from === to) continue;
-      xml = xml.split(`'${escapeXml(from)}'!`).join(`'${escapeXml(to)}'!`);
-      xml = xml.split(`'${from}'!`).join(`'${to}'!`);
-      if (!/[\s'![\]]/.test(from)) {
-        xml = xml.split(`${escapeXml(from)}!`).join(`${escapeXml(to)}!`);
-      }
+      xml = retargetSheetRef(xml, from, to);
     }
 
     const newPath = this.nextGeneratedPath('xl/worksheets', 'xml');
@@ -511,7 +594,39 @@ class XlsmPackage {
     }
 
     this.sheetPaths = this.readSheetIndex();
+    this.cloneDefinedNames(sourceName, newName);
     return true;
+  }
+
+  /**
+   * Copies Print_Area / Print_Titles (and any other sheet-local defined names)
+   * onto the new tab. Without this the cloned sheet has no print range, so Excel
+   * paginates the whole grid, the "Sheet X of 3 Sheet/s" header counts extra
+   * pages, and the repeating title rows no longer stay put.
+   */
+  cloneDefinedNames(sourceName, newName) {
+    const wbPath = 'xl/workbook.xml';
+    let wb = this.text(wbPath);
+    if (!/<definedNames>/.test(wb)) return;
+
+    const order = [...wb.matchAll(/<sheet\b[^>]*\bname="([^"]+)"/g)].map((m) => m[1]);
+    const fromId = order.indexOf(sourceName);
+    const toId = order.indexOf(newName);
+    if (fromId < 0 || toId < 0) return;
+
+    const extra = [];
+    const re = /<definedName\b([^>]*)>([\s\S]*?)<\/definedName>/g;
+    let m;
+    while ((m = re.exec(wb)) !== null) {
+      const sid = getAttr(m[1], 'localSheetId');
+      if (sid !== String(fromId)) continue;
+      const newAttrs = setAttr(m[1], 'localSheetId', String(toId));
+      const newBody = retargetSheetRef(m[2], sourceName, newName);
+      extra.push(`<definedName${newAttrs}>${newBody}</definedName>`);
+    }
+    if (!extra.length) return;
+    wb = wb.replace('</definedNames>', `${extra.join('')}</definedNames>`);
+    this.writeText(wbPath, wb);
   }
 
   /**

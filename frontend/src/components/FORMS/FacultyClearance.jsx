@@ -4,8 +4,12 @@ import LoadingOverlay from '../LoadingOverlay';
 import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 /* ── Style helpers (mirrors Leave.jsx) ── */
 const tbl = { borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' };
@@ -30,8 +34,7 @@ const b = (...args) => Object.assign({}, ...args);
    FacultyClearance component
 ════════════════════════════════════════════════════════════ */
 const FacultyClearance = () => {
-  const printRef = useRef(null);
-  const captureRef = useRef(null);
+  const formRef = useRef(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -40,86 +43,26 @@ const FacultyClearance = () => {
     setSnackbar({ open: true, message, severity });
   const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-  /* ── Native print (mirrors Leave.jsx) ── */
-  const printPage = () => {
-    const content = document.getElementById('faculty-clearance-content').innerHTML;
-    const printWindow = window.open('', '', 'width=900,height=650');
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Print Faculty Clearance</title>
-          <style>
-            body { font-family: Arial; padding: 20px; }
-            table { width: 100%; border-collapse: collapse; }
-            @page { size: A4; margin: 0.4in; }
-          </style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
-  };
-
-  /* ── PDF download (mirrors Leave.jsx) ── */
-  const downloadPDF = async () => {
-    if (!captureRef.current) return;
+  const printPage = async () => {
     try {
       setIsGenerating(true);
+      await printFormHtml(formRef.current, { title: 'Print Faculty Clearance' });
+    } catch (err) {
+      console.error('Error printing form:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      const el = captureRef.current;
-      el.style.position = 'relative';
-      el.style.top = '0';
-      el.style.left = '0';
-      el.style.visibility = 'visible';
-
-      await new Promise((r) => setTimeout(r, 300));
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 794,
-        allowTaint: true,
-      });
-
-      el.style.position = 'absolute';
-      el.style.top = '-10000px';
-      el.style.left = '-10000px';
-      el.style.visibility = 'hidden';
-
-      if (!canvas) throw new Error('Canvas generation failed');
-
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 8;
-      const imgW = pageW - margin * 2;
-      const imgH = (canvas.height / canvas.width) * imgW;
-      const imgData = canvas.toDataURL('image/png');
-
-      let yPos = margin;
-      let remainingH = imgH;
-      const usableH = pageH - margin * 2;
-
-      while (remainingH > 0) {
-        const sliceH = Math.min(remainingH, usableH);
-        pdf.addImage(imgData, 'PNG', margin, yPos, imgW, imgH);
-        remainingH -= usableH;
-        if (remainingH > 0) {
-          pdf.addPage();
-          yPos = margin - (imgH - sliceH);
-        }
-      }
-
-      pdf.save(`Faculty-Clearance-${new Date().toISOString().split('T')[0]}.pdf`);
+  const downloadPDF = async () => {
+    try {
+      setIsGenerating(true);
+      await downloadFormHtml(
+        formRef.current,
+        `Faculty-Clearance-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Faculty Clearance' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (err) {
       console.error('Error generating PDF:', err);
@@ -432,6 +375,8 @@ const FacultyClearance = () => {
   );
 
   return (
+    <>
+    <FormPrintStyles />
     <Box
       sx={{
         display: 'flex',
@@ -442,33 +387,20 @@ const FacultyClearance = () => {
       }}
     >
       <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
-
-        {/* ══ VISIBLE FORM ══ */}
-        <div
-          ref={printRef}
-          id="faculty-clearance-content"
-          style={{ ...formStyle, marginTop: '30px' }}
-        >
-          {renderFormContent()}
-        </div>
-
-        {/* ══ HIDDEN CAPTURE CONTAINER (A4-optimized) ══ */}
-        <div
-          ref={captureRef}
-          style={{
-            ...formStyle,
-            width: '794px',
-            position: 'absolute',
-            top: '-10000px',
-            left: '-10000px',
-            border: '1px solid #000',
-            padding: '8px',
-            backgroundColor: '#ffffff',
-            margin: '0',
-          }}
-        >
-          {renderFormContent()}
-        </div>
+        <main className="form-print-area" ref={formRef}>
+          <div className="form-print-scale">
+            <div
+              className="form-page"
+              style={{
+                ...formStyle,
+                width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+                marginTop: '30px',
+              }}
+            >
+              {renderFormContent()}
+            </div>
+          </div>
+        </main>
       </Box>
 
       {/* ══ Floating Action Buttons ══ */}
@@ -532,6 +464,7 @@ const FacultyClearance = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

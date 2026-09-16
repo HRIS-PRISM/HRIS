@@ -27,6 +27,7 @@ const {
   readTemplateBuffer,
 } = require('../services/payrollTemplate/templateStore');
 const { getResolved, resolveScopeTemplate } = require('../services/payrollTemplate/positionOverrides');
+const M = require('../services/payrollTemplate/appendix33Map');
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
@@ -329,37 +330,67 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
 
     const blueprints = { ...(built.blueprints || {}) };
     const onlyDepartmentKey = scope ? scope.key : null;
-    const onlyDepartmentTitle = scope ? String(employmentType || department).toUpperCase() : '';
     if (scope?.blueprintKey) blueprints[scope.key] = scope.blueprintKey;
 
-    let buffer;
-    try {
-      buffer = fillAppendix33(built.run, { onlyDepartmentKey, onlyDepartmentTitle, blueprints });
-    } catch (fillErr) {
-      if (fillErr instanceof Appendix33CapacityError) {
-        return res.status(422).json({ error: fillErr.message, overflows: fillErr.overflows });
+    db.query('SELECT code, description FROM department_table', (titleErr, deptRows) => {
+      if (titleErr) {
+        console.error('Appendix 33 export: department titles query failed', titleErr);
+        return res.status(500).json({ error: 'Could not generate the payroll workbook' });
       }
-      if (fillErr instanceof Appendix33MappingError) {
-        return res.status(422).json({ error: fillErr.message, unmapped: fillErr.unmapped });
-      }
-      console.error('Appendix 33 export: fill failed', fillErr);
-      return res.status(500).json({ error: 'Could not generate the payroll workbook' });
-    }
 
-    const scopeSuffix = employmentType
-      ? `_${String(employmentType).replace(/[^\w.-]+/g, '_')}`
-      : (department ? `_${department}` : '');
-    const filename = `EARIST_Payroll_${MONTH_NAMES[month - 1]}_${year}${scopeSuffix}.xlsm`;
-    const active = getActiveTemplate();
-    res.setHeader('Content-Type', XLSM_MIME);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', buffer.length);
-    res.setHeader('X-Appendix33-Employees', String(rows.length));
-    if (active) {
-      res.setHeader('X-Appendix33-Template', encodeURIComponent(active.name));
-      res.setHeader('X-Appendix33-Template-Id', active.id);
-    }
-    res.send(buffer);
+      const departmentTitles = {};
+      for (const row of deptRows || []) {
+        const code = String(row.code || '').trim();
+        if (!code) continue;
+        departmentTitles[code] = String(row.description || code).trim().toUpperCase();
+      }
+      let onlyDepartmentTitle = '';
+      if (scope) {
+        if (department && departmentTitles[department]) {
+          departmentTitles[scope.key] = departmentTitles[department];
+        } else {
+          const known = M.DEPARTMENTS.find((d) => d.key === scope.key);
+          departmentTitles[scope.key] = known
+            ? known.title
+            : String(employmentType || department).toUpperCase();
+        }
+        onlyDepartmentTitle = departmentTitles[scope.key];
+      }
+
+      let buffer;
+      try {
+        buffer = fillAppendix33(built.run, {
+          onlyDepartmentKey,
+          onlyDepartmentTitle,
+          departmentTitles,
+          blueprints,
+        });
+      } catch (fillErr) {
+        if (fillErr instanceof Appendix33CapacityError) {
+          return res.status(422).json({ error: fillErr.message, overflows: fillErr.overflows });
+        }
+        if (fillErr instanceof Appendix33MappingError) {
+          return res.status(422).json({ error: fillErr.message, unmapped: fillErr.unmapped });
+        }
+        console.error('Appendix 33 export: fill failed', fillErr);
+        return res.status(500).json({ error: 'Could not generate the payroll workbook' });
+      }
+
+      const scopeSuffix = employmentType
+        ? `_${String(employmentType).replace(/[^\w.-]+/g, '_')}`
+        : (department ? `_${department}` : '');
+      const filename = `EARIST_Payroll_${MONTH_NAMES[month - 1]}_${year}${scopeSuffix}.xlsm`;
+      const active = getActiveTemplate();
+      res.setHeader('Content-Type', XLSM_MIME);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('X-Appendix33-Employees', String(rows.length));
+      if (active) {
+        res.setHeader('X-Appendix33-Template', encodeURIComponent(active.name));
+        res.setHeader('X-Appendix33-Template-Id', active.id);
+      }
+      res.send(buffer);
+    });
   });
 });
 
@@ -401,6 +432,7 @@ router.get('/appendix33-layout', authenticateToken, requireTechnical, (req, res)
           employmentTypeConfigs: empRows || [],
           capacity: layoutDoc.departments || {},
           totalCapacity: layoutDoc.totalCapacity || 0,
+          templateShape: layoutDoc.shape || 'multi',
           templates: library.templates,
           activeTemplate: library.active,
         });

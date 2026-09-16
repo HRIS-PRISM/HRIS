@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { XlsmPackage } = require('./xlsmPatcher');
+const M = require('./appendix33Map');
 const { inspectAndWriteLayout } = require('../../scripts/inspectAppendix33');
 
 const LEGACY_PATH = path.join(__dirname, '..', '..', 'templates', 'EARIST_Appendix33.xlsm');
@@ -120,8 +121,12 @@ function getActiveTemplatePath() {
 
 function assertAppendix33(buffer) {
   const pkg = XlsmPackage.load(buffer);
-  if (!pkg.sheetPaths.get('SUMMARY') || !pkg.sheetPaths.get('WTAX-GEN.AD')) {
-    const err = new Error('That workbook is missing SUMMARY or WTAX-GEN.AD, so it is not an Appendix 33 template');
+  const shape = M.detectTemplateShape(pkg.sheetNames());
+  if (!shape) {
+    const err = new Error(
+      'That workbook is not an Appendix 33 template. It needs a SUMMARY sheet and either '
+      + 'the 13 department blocks (WTAX-GEN.AD, …) or a single WTAX / PAY / DEDS set of tabs.',
+    );
     err.statusCode = 400;
     throw err;
   }

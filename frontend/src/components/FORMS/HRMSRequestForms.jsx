@@ -4,8 +4,12 @@ import LoadingOverlay from '../LoadingOverlay';
 import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 /* ─────────────────────────────────────────────────────────────
    Constants
@@ -99,36 +103,6 @@ const Spacer = ({ h = '6px' }) => (
     <td colSpan={99} style={b(bL, bR, { padding: 0, height: h })} />
   </tr>
 );
-
-/* ─────────────────────────────────────────────────────────────
-   Print-style injection (same pattern as Leave)
-────────────────────────────────────────────────────────────── */
-const PRINT_STYLE_ID = 'hrms-form-print-style';
-const injectPrintStyles = () => {
-  if (document.getElementById(PRINT_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = PRINT_STYLE_ID;
-  style.textContent = `
-@media print {
-  @page { size: A4 portrait; margin: 10mm; }
-  html, body { width: 210mm; margin: 0; padding: 0; background: white; }
-  .hrms-floating-actions, .MuiSnackbar-root, .MuiBackdrop-root, .no-print {
-    display: none !important;
-  }
-  #hrms-form-content {
-    width: 190mm !important;
-    margin: 0 auto !important;
-    background: white !important;
-    box-sizing: border-box !important;
-    zoom: 1 !important;
-    transform: scale(1) !important;
-  }
-  table { width: 100% !important; border-collapse: collapse !important; }
-  tr { page-break-inside: avoid !important; }
-}
-`;
-  document.head.appendChild(style);
-};
 
 /* ═══════════════════════════════════════════════════════════
    Form Content (rendered once visible, once in capture clone)
@@ -301,8 +275,7 @@ const FormContent = () => (
    Main Component
 ═══════════════════════════════════════════════════════════ */
 const HrmsRequestForms = () => {
-  const printRef   = useRef(null);
-  const captureRef = useRef(null);
+  const formRef = useRef(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
@@ -311,68 +284,26 @@ const HrmsRequestForms = () => {
   const handleCloseSnackbar = () =>
     setSnackbar((s) => ({ ...s, open: false }));
 
-  /* ── Print ── */
-  const printPage = () => {
-    injectPrintStyles();
-    const content = document.getElementById('hrms-form-content').innerHTML;
-    const printWindow = window.open('', '', 'width=900,height=650');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>HRMS Request Form</title>
-          <style>
-            body { font-family: Arial, Helvetica, sans-serif; padding: 20px; }
-            table { width: 100%; border-collapse: collapse; }
-            @page { size: A4; margin: 0.4in; }
-          </style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  };
-
-  /* ── PDF Download ── */
-  const downloadPDF = async () => {
-    if (!captureRef.current) return;
+  const printPage = async () => {
     try {
       setIsGenerating(true);
-      const el = captureRef.current;
+      await printFormHtml(formRef.current, { title: 'HRMS Request Form' });
+    } catch (err) {
+      console.error('Error printing form:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      el.style.position   = 'relative';
-      el.style.top        = '0';
-      el.style.left       = '0';
-      el.style.visibility = 'visible';
-
-      await new Promise((r) => setTimeout(r, 300));
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 794,
-        allowTaint: true,
-      });
-
-      el.style.position   = 'absolute';
-      el.style.top        = '-10000px';
-      el.style.left       = '-10000px';
-      el.style.visibility = 'hidden';
-
-      if (!canvas) throw new Error('Canvas generation failed');
-
-      const pdf    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const pageW  = pdf.internal.pageSize.getWidth();
-      const margin = 8;
-      const imgW   = pageW - margin * 2;
-      const imgH   = (canvas.height / canvas.width) * imgW;
-      const imgData = canvas.toDataURL('image/png');
-
-      pdf.addImage(imgData, 'PNG', margin, margin, imgW, imgH);
-      pdf.save(`HRMS-Request-Form-${new Date().toISOString().split('T')[0]}.pdf`);
+  const downloadPDF = async () => {
+    try {
+      setIsGenerating(true);
+      await downloadFormHtml(
+        formRef.current,
+        `HRMS-Request-Form-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'HRMS Request Form' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (err) {
       console.error('Error generating PDF:', err);
@@ -383,6 +314,8 @@ const HrmsRequestForms = () => {
   };
 
   return (
+    <>
+    <FormPrintStyles />
     <Box
       sx={{
         display: 'flex',
@@ -393,67 +326,39 @@ const HrmsRequestForms = () => {
       }}
     >
       <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
-
-        {/* ══ SINGLE A4 PAGE — 2 forms stacked ══ */}
-        <div
-          ref={printRef}
-          id="hrms-form-content"
-          style={{ ...pageStyle, marginTop: '20px', marginBottom: '20px' }}
-        >
-          <div style={halfStyle}>
-            <FormContent />
+        <main className="form-print-area" ref={formRef}>
+          <div className="form-print-scale">
+            <div
+              className="form-page"
+              style={{
+                ...pageStyle,
+                width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+                marginTop: '20px',
+                marginBottom: '20px',
+              }}
+            >
+              <div style={halfStyle}>
+                <FormContent />
+              </div>
+              <div style={{
+                textAlign: 'center',
+                fontSize: FONT_SIZE_SM,
+                fontFamily: FONT_FAMILY,
+                color: '#555',
+                borderTop: '1px dashed #aaa',
+                borderBottom: '1px dashed #aaa',
+                padding: '1mm 0',
+                margin: '2mm 0',
+                letterSpacing: '2px',
+              }}>
+                ✂ &nbsp; CUT HERE &nbsp; ✂
+              </div>
+              <div style={halfStyle}>
+                <FormContent />
+              </div>
+            </div>
           </div>
-          {/* Scissor cut line between the two copies */}
-          <div style={{
-            textAlign: 'center',
-            fontSize: FONT_SIZE_SM,
-            fontFamily: FONT_FAMILY,
-            color: '#555',
-            borderTop: '1px dashed #aaa',
-            borderBottom: '1px dashed #aaa',
-            padding: '1mm 0',
-            margin: '2mm 0',
-            letterSpacing: '2px',
-          }}>
-            ✂ &nbsp; CUT HERE &nbsp; ✂
-          </div>
-          <div style={halfStyle}>
-            <FormContent />
-          </div>
-        </div>
-
-        {/* ══ HIDDEN CAPTURE CONTAINER (A4 @ 96dpi = 794px) ══ */}
-        <div
-          ref={captureRef}
-          style={{
-            ...pageStyle,
-            width: '794px',
-            position: 'absolute',
-            top: '-10000px',
-            left: '-10000px',
-            visibility: 'hidden',
-            margin: '0',
-          }}
-        >
-          <div style={{ ...halfStyle, border: '2px solid #000' }}>
-            <FormContent />
-          </div>
-          <div style={{
-            textAlign: 'center',
-            fontSize: '8px',
-            color: '#555',
-            borderTop: '1px dashed #aaa',
-            borderBottom: '1px dashed #aaa',
-            padding: '2px 0',
-            margin: '4px 0',
-            letterSpacing: '2px',
-          }}>
-            ✂ &nbsp; CUT HERE &nbsp; ✂
-          </div>
-          <div style={{ ...halfStyle, border: '2px solid #000' }}>
-            <FormContent />
-          </div>
-        </div>
+        </main>
       </Box>
 
       {/* ══ Floating Action Buttons ══ */}
@@ -507,6 +412,7 @@ const HrmsRequestForms = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

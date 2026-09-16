@@ -1,7 +1,5 @@
 import React, { useState, useRef } from 'react';
 import logo from './logo.png';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import {
   Box,
   Fab,
@@ -13,9 +11,15 @@ import {
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import LoadingOverlay from '../LoadingOverlay';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 const SubjectStillToBeTaken = () => {
-  const printRef = useRef(null);
+  const formRef = useRef(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({
@@ -33,96 +37,25 @@ const SubjectStillToBeTaken = () => {
   };
 
   const printPage = async () => {
-    if (!printRef.current) return;
     try {
       setIsGenerating(true);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-      const el = printRef.current;
-      const orig = {
-        position: el.style.position,
-        left: el.style.left,
-        width: el.style.width,
-        backgroundColor: el.style.backgroundColor,
-      };
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.width = '8.5in';
-      el.style.backgroundColor = '#ffffff';
-
-      await new Promise((r) => setTimeout(r, 150));
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
-
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.width = orig.width || '';
-      el.style.backgroundColor = orig.backgroundColor || '';
-
-      const imgData = canvas.toDataURL('image/png');
-      const formWidth = 8.5;
-      const formHeight = 13;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const ratio = Math.min(pageWidth / formWidth, pageHeight / formHeight);
-      const renderWidth = formWidth * ratio;
-      const renderHeight = formHeight * ratio;
-      const xOffset = (pageWidth - renderWidth) / 2;
-      const yOffset = (pageHeight - renderHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, renderWidth, renderHeight);
-      pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
-      showSnackbar('Print view generated', 'success');
+      await printFormHtml(formRef.current, { title: 'Subject Still To Be Taken' });
     } catch (error) {
-      console.error('Error generating print view:', error);
-      showSnackbar('Error generating print view', 'error');
+      console.error('Error printing form:', error);
+      showSnackbar('Error printing form', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
   const downloadPDF = async () => {
-    if (!printRef.current) return;
     try {
       setIsGenerating(true);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-      const el = printRef.current;
-      const orig = {
-        position: el.style.position,
-        left: el.style.left,
-        width: el.style.width,
-        backgroundColor: el.style.backgroundColor,
-      };
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.width = '8.5in';
-      el.style.backgroundColor = '#ffffff';
-
-      await new Promise((r) => setTimeout(r, 150));
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
-
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.width = orig.width || '';
-      el.style.backgroundColor = orig.backgroundColor || '';
-
-      const imgData = canvas.toDataURL('image/png');
-      const formWidth = 8.5;
-      const formHeight = 13;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const ratio = Math.min(pageWidth / formWidth, pageHeight / formHeight);
-      const renderWidth = formWidth * ratio;
-      const renderHeight = formHeight * ratio;
-      const xOffset = (pageWidth - renderWidth) / 2;
-      const yOffset = (pageHeight - renderHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, renderWidth, renderHeight);
-      const fileName = `Subject-Still-To-Be-Taken-${new Date().toISOString().split('T')[0]}.pdf`;
-      pdf.save(fileName);
+      await downloadFormHtml(
+        formRef.current,
+        `Subject-Still-To-Be-Taken-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Subject Still To Be Taken' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -133,19 +66,23 @@ const SubjectStillToBeTaken = () => {
   };
 
   return (
+    <>
+    <FormPrintStyles />
     <Box sx={{ position: 'relative' }}>
-      <div
-        ref={printRef}
-        style={{
-          width: '7.5in',
-          fontFamily: 'Arial, Helvetica, sans-serif',
-          margin: 'auto',
-          marginTop: '40px',
-          backgroundColor: '#ffffff',
-          padding: '0.5in 0.6in',
-          boxSizing: 'border-box',
-        }}
-      >
+      <main className="form-print-area" ref={formRef}>
+        <div className="form-print-scale">
+          <div
+            className="form-page"
+            style={{
+              width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+              margin: '0 auto',
+              marginTop: '40px',
+              fontFamily: 'Arial, Helvetica, sans-serif',
+              backgroundColor: '#ffffff',
+              padding: '0.5in 0.6in',
+              boxSizing: 'border-box',
+            }}
+          >
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
           <img src={logo} height={80} alt="Logo" style={{ marginRight: '20px' }} />
@@ -278,7 +215,9 @@ const SubjectStillToBeTaken = () => {
             </tr>
           </tbody>
         </table>
-      </div>
+          </div>
+        </div>
+      </main>
 
       {/* Floating Action Buttons */}
       <Box className="no-print forms-floating-actions" sx={{position: 'fixed', bottom: 30, right: 30,
@@ -309,6 +248,7 @@ const SubjectStillToBeTaken = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

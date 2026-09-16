@@ -96,7 +96,8 @@ for (const dept of M.DEPARTMENTS) {
       nbcDiffl597: num(pay, 'G' + pRow),
       increment: num(pay, 'H' + pRow),
     };
-    for (const [field, col] of Object.entries(M.DEDS_INPUT_COLS)) {
+    const dedsCols = deds['AH16'] || deds['AH17'] ? M.DEDS_INPUT_COLS_WIDE : M.DEDS_INPUT_COLS_CLASSIC;
+    for (const [field, col] of Object.entries(dedsCols)) {
       e[field] = num(deds, col + dRow);
     }
     employees.push(e);
@@ -177,7 +178,8 @@ for (const dept of M.DEPARTMENTS) {
     check(`${dept.key}#${i} rateNbc594`, outNum(pay, 'F' + pRow) === e.rateNbc594);
     check(`${dept.key}#${i} nbcDiffl597`, outNum(pay, 'G' + pRow) === e.nbcDiffl597);
     cellsChecked += 6;
-    for (const [field, col] of Object.entries(M.DEDS_INPUT_COLS)) {
+    const dedsCols = M.dedsInputCols(M.detectDedsVariant(deds));
+    for (const [field, col] of Object.entries(dedsCols)) {
       check(`${dept.key}#${i} ${field}`, outNum(deds, col + dRow) === e[field],
         `${outNum(deds, col + dRow)} != ${e[field]} at ${col}${dRow}`);
       cellsChecked++;

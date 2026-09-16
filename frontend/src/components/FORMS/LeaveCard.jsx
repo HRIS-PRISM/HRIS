@@ -3,8 +3,12 @@ import LoadingOverlay from '../LoadingOverlay';
 import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  FormPrintStyles,
+  printFormHtmlPages,
+  downloadFormHtmlPages,
+  FORM_LANDSCAPE_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 /* ── Style helpers ── */
 const tbl = { borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' };
@@ -17,11 +21,11 @@ const cellC = (extra = {}) => ({
   ...extra,
 });
 
-/* ── Shared page style (A4 landscape) ── */
+/* ── Shared page style (A4 landscape printable width) ── */
 const pageStyle = {
   fontFamily: 'Arial, Helvetica, sans-serif',
   fontSize: '11px',
-  width: '277mm',
+  width: `${FORM_LANDSCAPE_PRINTABLE_WIDTH_MM}mm`,
   margin: '0 auto',
   backgroundColor: '#fff',
   boxSizing: 'border-box',
@@ -85,7 +89,6 @@ const lineStyle = { borderBottom: '1px solid black', display: 'inline-block', wi
 ════════════════════════════════════════ */
 const FrontContent = () => (
   <>
-    {/* Title */}
     <div style={{
       textAlign: 'center',
       marginBottom: '14px',
@@ -97,7 +100,6 @@ const FrontContent = () => (
       EMPLOYEE'S LEAVE CARD
     </div>
 
-    {/* Personal info — 3 columns */}
     {[
       [{ label: 'Name' }, { label: 'Civil Status' }, { label: 'GSIS Policy No.' }],
       [{ label: 'Position' }, { label: 'Entrance to Duty' }, { label: 'TIN No.' }],
@@ -122,7 +124,6 @@ const FrontContent = () => (
 
     <div style={{ borderBottom: '1px solid black', marginBottom: '10px' }} />
 
-    {/* Main table */}
     <table style={tbl}>
       <tbody>
         <TableHeader />
@@ -148,8 +149,8 @@ const BackContent = () => (
    Main Component
 ════════════════════════════════════════ */
 const LeaveCard = () => {
-  const printRef  = useRef(null);
-  const captureRef = useRef(null);
+  const frontRef = useRef(null);
+  const backRef = useRef(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -158,74 +159,38 @@ const LeaveCard = () => {
     setSnackbar({ open: true, message, severity });
   const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-  /* ── Native print ── */
-  const printPage = () => {
-    const content = document.getElementById('leave-card-content').innerHTML;
-    const printWindow = window.open('', '', 'width=1200,height=800');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Employee's Leave Card</title>
-          <style>
-            body { font-family: Arial; padding: 10px; }
-            table { width: 100%; border-collapse: collapse; }
-            @page { size: A4 landscape; margin: 0.3in; }
-          </style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  };
+  const getPageHtmls = () =>
+    [frontRef.current, backRef.current]
+      .map((el) => el?.querySelector('.form-page')?.outerHTML)
+      .filter(Boolean);
 
-  /* ── PDF download ── */
-  const downloadPDF = async () => {
-    if (!captureRef.current) return;
+  const printPage = async () => {
+    const pages = getPageHtmls();
+    if (!pages.length) return;
     try {
       setIsGenerating(true);
-
-      const el = captureRef.current;
-      el.style.position   = 'relative';
-      el.style.top        = '0';
-      el.style.left       = '0';
-      el.style.visibility = 'visible';
-
-      await new Promise((r) => setTimeout(r, 300));
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 1123,   // A4 landscape @ 96dpi
-        allowTaint: true,
+      await printFormHtmlPages(pages, {
+        title: "Employee's Leave Card",
+        orientation: 'landscape',
       });
+    } catch (err) {
+      console.error('Error printing form:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      el.style.position   = 'absolute';
-      el.style.top        = '-10000px';
-      el.style.left       = '-10000px';
-      el.style.visibility = 'hidden';
-
-      if (!canvas) throw new Error('Canvas generation failed');
-
-      const pdf    = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const pageW  = pdf.internal.pageSize.getWidth();   // 297mm
-      const pageH  = pdf.internal.pageSize.getHeight();  // 210mm
-      const margin = 6;
-      const imgW   = pageW - margin * 2;
-      const imgData = canvas.toDataURL('image/png');
-
-      /* Page 1 — front */
-      const frontH = (canvas.height / 2 / canvas.width) * imgW * 2;
-      pdf.addImage(imgData, 'PNG', margin, margin, imgW, frontH);
-
-      /* Page 2 — back (second half of the canvas) */
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', margin, margin - frontH, imgW, frontH * 2);
-
-      pdf.save(`Leave-Card-${new Date().toISOString().split('T')[0]}.pdf`);
+  const downloadPDF = async () => {
+    const pages = getPageHtmls();
+    if (!pages.length) return;
+    try {
+      setIsGenerating(true);
+      await downloadFormHtmlPages(
+        pages,
+        `Leave-Card-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: "Employee's Leave Card", orientation: 'landscape' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (err) {
       console.error('Error generating PDF:', err);
@@ -235,75 +200,60 @@ const LeaveCard = () => {
     }
   };
 
-  /* ── Full page render (front + divider + back) ── */
-  const renderContent = () => (
-    <>
-      {/* FRONT */}
-      <div style={sideStyle}>
-        <FrontContent />
-      </div>
-
-      {/* Cut line */}
-      <div style={{
-        textAlign: 'center',
-        fontSize: '9px',
-        fontFamily: 'Arial, Helvetica, sans-serif',
-        color: '#555',
-        borderTop: '1px dashed #aaa',
-        borderBottom: '1px dashed #aaa',
-        padding: '1mm 0',
-        margin: '3mm 0',
-        letterSpacing: '2px',
-      }}>
-        ✂ &nbsp; FRONT — — — BACK &nbsp; ✂
-      </div>
-
-      {/* BACK */}
-      <div style={sideStyle}>
-        <BackContent />
-      </div>
-    </>
-  );
-
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', minHeight: '100vh', bgcolor: '#ffffff', position: 'relative' }}>
-      <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
+      <FormPrintStyles />
+      <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px', marginTop: '30px' }}>
+        <main className="form-print-area" ref={frontRef} style={{ marginBottom: '12px' }}>
+          <div className="form-print-scale">
+            <div className="form-page" style={pageStyle}>
+              <div style={sideStyle}>
+                <FrontContent />
+              </div>
+            </div>
+          </div>
+        </main>
 
-        {/* ══ VISIBLE ══ */}
         <div
-          ref={printRef}
-          id="leave-card-content"
-          style={{ ...pageStyle, marginTop: '30px', marginBottom: '20px' }}
-        >
-          {renderContent()}
-        </div>
-
-        {/* ══ HIDDEN CAPTURE (A4 landscape @ 96dpi = 1123px) ══ */}
-        <div
-          ref={captureRef}
+          className="no-print"
           style={{
-            ...pageStyle,
-            width: '1123px',
-            position: 'absolute',
-            top: '-10000px',
-            left: '-10000px',
-            visibility: 'hidden',
-            margin: '0',
+            textAlign: 'center',
+            fontSize: '9px',
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            color: '#555',
+            borderTop: '1px dashed #aaa',
+            borderBottom: '1px dashed #aaa',
+            padding: '1mm 0',
+            margin: '3mm auto',
+            letterSpacing: '2px',
+            maxWidth: `${FORM_LANDSCAPE_PRINTABLE_WIDTH_MM}mm`,
           }}
         >
-          {renderContent()}
+          FRONT — — — BACK
         </div>
+
+        <main className="form-print-area" ref={backRef} style={{ marginBottom: '20px' }}>
+          <div className="form-print-scale">
+            <div className="form-page" style={pageStyle}>
+              <div style={sideStyle}>
+                <BackContent />
+              </div>
+            </div>
+          </div>
+        </main>
       </Box>
 
-      {/* ══ Floating Action Buttons ══ */}
       <Box
         className="no-print forms-floating-actions"
         sx={{ position: 'fixed', bottom: '1in', right: 30, display: 'flex', flexDirection: 'row', gap: 2, zIndex: 1000 }}
       >
         <Zoom in style={{ transitionDelay: '0ms' }}>
           <Tooltip title="Print Form" placement="top">
-            <Fab aria-label="print" onClick={printPage}
-              sx={{ bgcolor: '#6D2323', '&:hover': { bgcolor: '#8a4747' }, width: 56, height: 56 }}>
+            <Fab
+              aria-label="print"
+              onClick={printPage}
+              sx={{ bgcolor: '#6D2323', '&:hover': { bgcolor: '#8a4747' }, width: 56, height: 56 }}
+            >
               <PrintIcon sx={{ color: '#fff' }} />
             </Fab>
           </Tooltip>
@@ -311,8 +261,11 @@ const LeaveCard = () => {
 
         <Zoom in style={{ transitionDelay: '100ms' }}>
           <Tooltip title="Download PDF" placement="top">
-            <Fab aria-label="download" onClick={downloadPDF}
-              sx={{ bgcolor: '#6D2323', '&:hover': { bgcolor: '#8a4747' }, width: 56, height: 56 }}>
+            <Fab
+              aria-label="download"
+              onClick={downloadPDF}
+              sx={{ bgcolor: '#6D2323', '&:hover': { bgcolor: '#8a4747' }, width: 56, height: 56 }}
+            >
               <PictureAsPdfIcon sx={{ color: '#fff' }} />
             </Fab>
           </Tooltip>
@@ -321,8 +274,12 @@ const LeaveCard = () => {
 
       <LoadingOverlay open={isGenerating} message="Generating Document..." />
 
-      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
         <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
           {snackbar.message}
         </Alert>

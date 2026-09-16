@@ -2,8 +2,6 @@ import React, { useState, useRef } from 'react';
 import logo from './logo.png';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import {
   Box,
   Fab,
@@ -13,13 +11,18 @@ import {
   Alert,
 } from '@mui/material';
 import LoadingOverlay from '../LoadingOverlay';
+import {
+  FormPrintStyles,
+  printFormHtmlPages,
+  downloadFormHtmlPages,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 /* ─────────────────────────────────────────────────────────────
    Constants
 ────────────────────────────────────────────────────────────── */
 const FONT   = 'Arial, Helvetica, sans-serif';
-const PAGE_W = '8.5in';
-const PAGE_H = '13in';
+const PAGE_W = `${FORM_PRINTABLE_WIDTH_MM}mm`;
 const PAD    = '0.25in 0.3in';
 
 /* ─────────────────────────────────────────────────────────────
@@ -63,51 +66,10 @@ const subRows = [
 ];
 
 /* ─────────────────────────────────────────────────────────────
-   Print-style injection
-────────────────────────────────────────────────────────────── */
-const PRINT_STYLE_ID = 'clearance-print-style';
-const injectPrintStyles = () => {
-  if (document.getElementById(PRINT_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = PRINT_STYLE_ID;
-  style.textContent = `
-@media print {
-  @page { size: 8.5in 13in portrait; margin: 0; }
-  html, body { margin: 0; padding: 0; background: white; }
-  .clearance-floating-actions, .MuiSnackbar-root, .MuiBackdrop-root, .no-print {
-    display: none !important;
-  }
-  .clearance-page {
-    width: 8.5in !important;
-    min-height: 13in !important;
-    page-break-after: always;
-    background: white !important;
-    box-sizing: border-box !important;
-  }
-  .clearance-page:last-child { page-break-after: auto; }
-  table { width: 100% !important; border-collapse: collapse !important; }
-  tr { page-break-inside: avoid !important; }
-}
-`;
-  document.head.appendChild(style);
-};
-
-/* ─────────────────────────────────────────────────────────────
    FRONT page content
 ────────────────────────────────────────────────────────────── */
 const FrontPage = () => (
-  <div
-    className="clearance-page"
-    style={{
-      width: PAGE_W,
-      minHeight: PAGE_H,
-      padding: PAD,
-      fontFamily: FONT,
-      fontSize: '11px',
-      backgroundColor: '#ffffff',
-      boxSizing: 'border-box',
-    }}
-  >
+  <>
     {/* CS Form label */}
     <div style={{ fontSize: '10px', fontWeight: 'bold', fontStyle: 'italic', marginBottom: '6px' }}>
       CS Form No. 7<br />Revised 2018
@@ -297,25 +259,14 @@ const FrontPage = () => (
         </tr>
       </tbody>
     </table>
-  </div>
+  </>
 );
 
 /* ─────────────────────────────────────────────────────────────
    BACK page content
 ────────────────────────────────────────────────────────────── */
 const BackPage = () => (
-  <div
-    className="clearance-page"
-    style={{
-      width: PAGE_W,
-      minHeight: PAGE_H,
-      padding: '0.35in 0.4in',
-      fontFamily: FONT,
-      fontSize: '11px',
-      backgroundColor: '#ffffff',
-      boxSizing: 'border-box',
-    }}
-  >
+  <>
     <p style={{ fontSize: '14px', fontStyle: 'italic', fontWeight: 'bold', marginBottom: '12px' }}>
       INSTRUCTIONS:
     </p>
@@ -354,7 +305,7 @@ const BackPage = () => (
     <div style={{ fontSize: '11px', fontStyle: 'italic', textAlign: 'right', marginTop: '20px' }}>
       Page 2 of 2
     </div>
-  </div>
+  </>
 );
 
 /* ═══════════════════════════════════════════════════════════
@@ -370,99 +321,32 @@ const Clearance = () => {
   const showSnackbar       = (message, severity = 'success') => setSnackbar({ open: true, message, severity });
   const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-  /* ── Shared: capture one ref to canvas ── */
-  const captureToCanvas = async (el) => {
-    const orig = {
-      position:   el.style.position,
-      left:       el.style.left,
-      top:        el.style.top,
-      visibility: el.style.visibility,
-      width:      el.style.width,
-    };
+  const collectPageHtml = (areaRef) =>
+    areaRef.current?.querySelector('.form-page')?.outerHTML ?? '';
 
-    // Pin to a known pixel width matching 8.5in @ 96dpi = 816px
-    el.style.position   = 'fixed';
-    el.style.left       = '-9999px';
-    el.style.top        = '0';
-    el.style.visibility = 'visible';
-    el.style.width      = '816px';
-
-    await new Promise((r) => setTimeout(r, 200));
-
-    const canvas = await html2canvas(el, {
-      scale:           2,
-      useCORS:         true,
-      backgroundColor: '#ffffff',
-      logging:         false,
-      width:           816,
-      allowTaint:      true,
-    });
-
-    // Restore
-    el.style.position   = orig.position;
-    el.style.left       = orig.left;
-    el.style.top        = orig.top;
-    el.style.visibility = orig.visibility;
-    el.style.width      = orig.width;
-
-    return canvas;
-  };
-
-  /* ── Print — opens a new window with both pages ── */
-  const printPage = () => {
-    injectPrintStyles();
-    const frontHtml = document.getElementById('clearance-front').innerHTML;
-    const backHtml  = document.getElementById('clearance-back').innerHTML;
-
-    const win = window.open('', '', 'width=1000,height=800');
-    win.document.write(`
-      <html>
-        <head>
-          <title>Clearance Form</title>
-          <style>
-            * { box-sizing: border-box; }
-            body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background: white; }
-            .page { width: 8.5in; min-height: 13in; padding: 0.25in 0.3in; page-break-after: always; }
-            .page:last-child { page-break-after: auto; }
-            table { width: 100%; border-collapse: collapse; }
-            @page { size: 8.5in 13in portrait; margin: 0; }
-          </style>
-        </head>
-        <body>
-          <div class="page">${frontHtml}</div>
-          <div class="page">${backHtml}</div>
-        </body>
-      </html>
-    `);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); win.close(); }, 600);
-  };
-
-  /* ── PDF — 2 pages: front + back ── */
-  const downloadPDF = async () => {
-    if (!frontRef.current || !backRef.current) return;
+  const printPage = async () => {
     try {
       setIsGenerating(true);
+      await printFormHtmlPages(
+        [collectPageHtml(frontRef), collectPageHtml(backRef)],
+        { title: 'Clearance Form' },
+      );
+    } catch (err) {
+      console.error('Print error:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      const [frontCanvas, backCanvas] = await Promise.all([
-        captureToCanvas(frontRef.current),
-        captureToCanvas(backRef.current),
-      ]);
-
-      // Legal: 8.5 × 13 inches
-      const pdf    = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-      const pw     = pdf.internal.pageSize.getWidth();
-      const ph     = pdf.internal.pageSize.getHeight();
-
-      // Page 1 — front
-      pdf.addImage(frontCanvas.toDataURL('image/png'), 'PNG', 0, 0, pw, ph);
-
-      // Page 2 — back
-      pdf.addPage();
-      pdf.addImage(backCanvas.toDataURL('image/png'), 'PNG', 0, 0, pw, ph);
-
-      pdf.save(`Clearance-Form-${new Date().toISOString().split('T')[0]}.pdf`);
+  const downloadPDF = async () => {
+    try {
+      setIsGenerating(true);
+      await downloadFormHtmlPages(
+        [collectPageHtml(frontRef), collectPageHtml(backRef)],
+        `Clearance-Form-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Clearance Form' },
+      );
       showSnackbar('PDF downloaded successfully (2 pages)', 'success');
     } catch (err) {
       console.error('PDF error:', err);
@@ -474,8 +358,8 @@ const Clearance = () => {
 
   /* ── Page separator label ── */
   const PageLabel = ({ text }) => (
-    <div style={{
-      width:       '8.5in',
+    <div className="no-print" style={{
+      width:       PAGE_W,
       margin:      '0 auto',
       padding:     '6px 0',
       textAlign:   'center',
@@ -491,21 +375,40 @@ const Clearance = () => {
     </div>
   );
 
+  const formPageStyle = {
+    width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+    margin: '0 auto',
+    background: '#fff',
+    boxSizing: 'border-box',
+    fontFamily: FONT,
+    fontSize: '11px',
+  };
+
   return (
+    <>
+    <FormPrintStyles />
     <Box sx={{ display: 'flex', justifyContent: 'center', minHeight: '100vh', bgcolor: '#ffffff', position: 'relative' }}>
       <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
 
         {/* ══ PAGE 1 — FRONT ══ */}
         <PageLabel text="PAGE 1 — FRONT" />
-        <div ref={frontRef} id="clearance-front">
-          <FrontPage />
-        </div>
+        <main className="form-print-area" ref={frontRef}>
+          <div className="form-print-scale">
+            <div className="form-page" style={{ ...formPageStyle, padding: PAD }}>
+              <FrontPage />
+            </div>
+          </div>
+        </main>
 
         {/* ══ PAGE 2 — BACK ══ */}
         <PageLabel text="PAGE 2 — BACK (Instructions)" />
-        <div ref={backRef} id="clearance-back">
-          <BackPage />
-        </div>
+        <main className="form-print-area" ref={backRef}>
+          <div className="form-print-scale">
+            <div className="form-page" style={{ ...formPageStyle, padding: '0.35in 0.4in' }}>
+              <BackPage />
+            </div>
+          </div>
+        </main>
 
       </Box>
 
@@ -552,6 +455,7 @@ const Clearance = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

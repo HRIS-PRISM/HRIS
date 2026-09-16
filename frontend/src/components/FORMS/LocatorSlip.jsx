@@ -1,7 +1,11 @@
 import React, { useState, useRef } from "react";
 import logo from "./logo.png";
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 import { 
   Box, 
   Fab, 
@@ -37,102 +41,33 @@ const formStyle = {
 };
 
 const LocatorSlip = () => {
-  const printRef  = useRef(null);
-  const captureRef = useRef(null);
+  const formRef = useRef(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const showSnackbar        = (message, severity = 'success') => setSnackbar({ open: true, message, severity });
   const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-  /* ── Native print — browser handles all scaling, same as Leave ── */
-  const printPage = () => {
-    const content = document.getElementById('locator-slip-content').innerHTML;
-    const printWindow = window.open('', '', 'width=900,height=650');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Print Locator Slip</title>
-          <style>
-            body {
-              font-family: ${FONT_FAMILY};
-              padding: 20px;
-              background: #fff;
-            }
-            @page {
-              size: A4 portrait;
-              margin: 0.4in;
-            }
-            img { max-width: 100%; }
-          </style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
-  };
-
-  /* ── PDF download — capture from dedicated hidden container, same as Leave ── */
-  const downloadPDF = async () => {
-    if (!captureRef.current) return;
+  const printPage = async () => {
     try {
       setIsGenerating(true);
-      const el = captureRef.current;
+      await printFormHtml(formRef.current, { title: 'Print Locator Slip' });
+    } catch (err) {
+      console.error('Error printing form:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      // Temporarily make visible for capture
-      el.style.position   = 'relative';
-      el.style.top        = '0';
-      el.style.left       = '0';
-      el.style.visibility = 'visible';
-
-      await new Promise((r) => setTimeout(r, 300));
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 794,
-        allowTaint: true,
-      });
-
-      // Hide again
-      el.style.position   = 'absolute';
-      el.style.top        = '-10000px';
-      el.style.left       = '-10000px';
-      el.style.visibility = 'hidden';
-
-      if (!canvas) throw new Error('Canvas generation failed');
-
-      const pdf    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const pageW  = pdf.internal.pageSize.getWidth();
-      const pageH  = pdf.internal.pageSize.getHeight();
-      const margin = 8;
-      const imgW   = pageW - margin * 2;
-      const imgH   = (canvas.height / canvas.width) * imgW;
-      const imgData = canvas.toDataURL('image/png');
-
-      let yPos       = margin;
-      let remainingH = imgH;
-      const usableH  = pageH - margin * 2;
-
-      while (remainingH > 0) {
-        const sliceH = Math.min(remainingH, usableH);
-        pdf.addImage(imgData, 'PNG', margin, yPos, imgW, imgH);
-        remainingH -= usableH;
-        if (remainingH > 0) {
-          pdf.addPage();
-          yPos = margin - (imgH - sliceH);
-        }
-      }
-
-      const fileName = `Locator-Slip-${new Date().toISOString().split('T')[0]}.pdf`;
-      pdf.save(fileName);
+  const downloadPDF = async () => {
+    try {
+      setIsGenerating(true);
+      await downloadFormHtml(
+        formRef.current,
+        `Locator-Slip-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Locator Slip' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (err) {
       console.error('Error generating PDF:', err);
@@ -261,53 +196,23 @@ const LocatorSlip = () => {
 
   return (
     <>
-      {/* Print CSS — same pattern as Leave */}
-      <style>{`
-        @media print {
-          @page { size: A4 portrait; margin: 0; }
-          body * { visibility: hidden; }
-          #locator-slip-content, #locator-slip-content * { visibility: visible; }
-          #locator-slip-content {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-          }
-          .no-print { display: none !important; }
-          .divider-line { border-top: 1px dashed #999 !important; }
-        }
-      `}</style>
+      <FormPrintStyles />
 
       <Box sx={{ display: 'flex', justifyContent: 'center', minHeight: '100vh', bgcolor: '#ffffff', position: 'relative' }}>
         <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
-
-          {/* ══ VISIBLE FORM FOR SCREEN ══ */}
-          <div
-            ref={printRef}
-            id="locator-slip-content"
-            style={formStyle}
-          >
-            {renderFormContent()}
-          </div>
-
-          {/* ══ HIDDEN CAPTURE CONTAINER (A4-optimized, same as Leave) ══ */}
-          <div
-            ref={captureRef}
-            style={{
-              ...formStyle,
-              width: '794px',       // Lock to A4 width @ 96 dpi
-              position: 'absolute',
-              top: '-10000px',
-              left: '-10000px',
-              visibility: 'hidden',
-              border: 'none',
-              padding: '8px',
-              margin: '0',
-            }}
-          >
-            {renderFormContent()}
-          </div>
-
+          <main className="form-print-area" ref={formRef}>
+            <div className="form-print-scale">
+              <div
+                className="form-page"
+                style={{
+                  ...formStyle,
+                  width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+                }}
+              >
+                {renderFormContent()}
+              </div>
+            </div>
+          </main>
         </Box>
 
         {/* FAB Buttons */}

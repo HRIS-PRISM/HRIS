@@ -92,6 +92,7 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
   const [employmentTypeConfigs, setEmploymentTypeConfigs] = useState([]);
   const [capacity, setCapacity] = useState({});
   const [totalCapacity, setTotalCapacity] = useState(0);
+  const [templateShape, setTemplateShape] = useState('multi');
   const [fileName, setFileName] = useState('');
   const [templates, setTemplates] = useState([]);
   const [activeTemplate, setActiveTemplate] = useState(null);
@@ -116,6 +117,7 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
       setEmploymentTypeConfigs(res.data.employmentTypeConfigs || []);
       setCapacity(res.data.capacity || {});
       setTotalCapacity(res.data.totalCapacity || 0);
+      setTemplateShape(res.data.templateShape || 'multi');
       setTemplates(res.data.templates || []);
       setActiveTemplate(res.data.activeTemplate || null);
       if (onActiveChange) onActiveChange(res.data.activeTemplate || null);
@@ -408,11 +410,9 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
             {tab === 1 && !loading && (
               <>
                 <Alert severity="info" sx={{ mb: 2, fontSize: '0.75rem', fontFamily: T.font }}>
-                  Choose which departments are allowed to download Appendix 33. &quot;Allowed (tabs automatic)&quot; is
-                  enough on its own: the export reuses the department&apos;s own sheet block when the template has one,
-                  and otherwise creates WTAX / PAY / DEDS tabs for it by copying an existing block. Pick a specific
-                  block only when you want that department written onto it. Leave as &quot;Not allowed for download&quot;
-                  to hide it from the download menu and block export for that code.
+                  {templateShape === 'generic'
+                    ? 'The Active template is a 4-tab file (SUMMARY, WTAX, PAY, DEDS). Allow a department here: a single-department download fills those four tabs, and an all-departments download creates a tab set plus a SUMMARY row for each allowed department that has data.'
+                    : 'Choose which departments are allowed to download Appendix 33. "Allowed (tabs automatic)" is enough on its own: the export reuses the department\'s own sheet block when the template has one, and otherwise creates WTAX / PAY / DEDS tabs for it by copying an existing block. Pick a specific block only when you want that department written onto it. Leave as "Not allowed for download" to hide it from the download menu and block export for that code.'}
                 </Alert>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {[...dbDepartments, ...extraMapped.map((code) => ({ code, description: 'Not in department table' }))].map((dept) => (
@@ -491,6 +491,7 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
               <>
                 <Alert severity="info" sx={{ mb: 2, fontSize: '0.75rem', fontFamily: T.font }}>
                   Upload as Inactive to keep the current payroll file, or tick “Set as Active” so the next export uses the new workbook immediately. Only the Active template is in use.
+                  A 4-tab file (SUMMARY, WTAX, PAY, DEDS) is accepted. A download for one department fills those four tabs; a download for all allowed departments clones a WTAX / PAY / DEDS set per department and adds a matching SUMMARY row for each, same as the original 13-block file.
                 </Alert>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
                   <AccentButton variant="contained" component="label" startIcon={<CloudUpload />} sx={{ bgcolor: T.accent, '&:hover': { bgcolor: T.accentDark } }}>

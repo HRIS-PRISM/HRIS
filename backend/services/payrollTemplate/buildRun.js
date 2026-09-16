@@ -12,21 +12,23 @@ const { getResolved, resolveScopeTemplate } = require('./positionOverrides');
 
 /**
  * Resolves which Appendix 33 block a payroll row belongs to.
- * Employment category (typeName) wins when mapped; otherwise department code.
+ * An allowed department code wins (so CCJE with tabs-automatic stays CCJE even when
+ * the employee is Temporary). Employment category is used only when the department
+ * is not on the allow-list (GEN.AD / TEMPO people in an unmapped office).
  *
  * @param {Object} row
  * @param {{departments: Object, employmentTypes: Object}} maps
  * @returns {{key:string, blueprintKey:string|null}|null}
  */
 function resolveRowScope(row, maps) {
-  const typeName = row.employmentTypeName == null ? '' : String(row.employmentTypeName).trim();
-  if (typeName && maps.employmentTypes?.[typeName]) {
-    const resolved = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);
-    if (resolved) return resolved;
-  }
   const code = row.department == null ? '' : String(row.department).trim();
   if (code && maps.departments?.[code]) {
     const resolved = resolveScopeTemplate(maps.departments[code], code);
+    if (resolved) return resolved;
+  }
+  const typeName = row.employmentTypeName == null ? '' : String(row.employmentTypeName).trim();
+  if (typeName && maps.employmentTypes?.[typeName]) {
+    const resolved = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);
     if (resolved) return resolved;
   }
   return null;
