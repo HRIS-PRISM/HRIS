@@ -1571,7 +1571,6 @@ const OfficialTimeForm = ({
   const [successAction, setSuccessAction] = useState("");
   const [lastSaved, setLastSaved] = useState(null);
   const [tamperDetected, setTamperDetected] = useState(false);
-  const [supervisorStatus, setSupervisorStatus] = useState(null);
 
   const serverRecordsRef = useRef([]);
   const checksumRef = useRef(null);
@@ -1663,16 +1662,6 @@ const OfficialTimeForm = ({
     return () => clearInterval(tamperCheckIntervalRef.current);
   }, [hasSearched]);
 
-  const fetchSupervisorStatus = useCallback(async () => {
-    try {
-      const r = await axios.get(`${API_BASE_URL}/officialtime/supervisor-assignment-status`, getAuthHeaders());
-      setSupervisorStatus(r.data);
-    } catch {
-      setSupervisorStatus({ hasAssignment: false, active: false });
-    }
-  }, []);
-
-  useEffect(() => { fetchSupervisorStatus(); }, [fetchSupervisorStatus]);
   useEffect(() => () => { if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current); }, []);
 
   // ── Employee select ──
@@ -1743,18 +1732,8 @@ const OfficialTimeForm = ({
     handleEmployeeSelect(emp);
   }, [embedded, initialContext, accessLoading, hasAccess, handleEmployeeSelect]);
 
-  const canUploadExcel = supervisorStatus?.active === true;
-
-  const uploadRestrictionMessage = useMemo(() => {
-    if (!supervisorStatus || supervisorStatus.active) return null;
-    if (!supervisorStatus.hasAssignment)
-      return "You don't have a supervisor assignment on record, so Excel uploads are disabled.";
-    if (supervisorStatus.expired)
-      return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" expired on ${formatDateLong(supervisorStatus.end) || supervisorStatus.end}. Uploads are disabled until it's renewed.`;
-    if (supervisorStatus.notStarted)
-      return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" hasn't started yet (starts ${formatDateLong(supervisorStatus.start) || supervisorStatus.start}). Uploads are disabled until then.`;
-    return "You are not currently authorized to upload Excel schedules.";
-  }, [supervisorStatus]);
+  const canUploadExcel = true;
+  const uploadRestrictionMessage = null;
 
   const handleEmployeeClear = useCallback(() => {
     setSelectedEmployee(null);

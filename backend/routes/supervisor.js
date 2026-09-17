@@ -18,7 +18,8 @@ const {
   grantSupervisorLeavePageAccess,
   revokeSupervisorLeavePageAccessIfUnassigned,
   DTR_SUPERVISOR_IDENTIFIER,
-  hasSupervisorAssignment
+  hasSupervisorAssignment,
+  sendSupervisorAssignmentNotice,
 } = require('../utils/supervisorPageAccess');
 
 const sanitizeAssignmentTitle = (role) => {
@@ -358,10 +359,13 @@ router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, as
       // Keep existing values if the client didn't send new ones.
       const newStart = start !== undefined && start !== null && start !== '' ? start : current.start;
       const newEnd   = end   !== undefined && end   !== null && end   !== '' ? end   : current.end;
+      const endDate = newEnd ? new Date(newEnd) : null;
+      const shouldReactivate =
+        endDate && !Number.isNaN(endDate.getTime()) && endDate.getTime() > Date.now();
 
       db.query(
-        'UPDATE supervisor_assignment SET role = ?, start = ?, end = ? WHERE id = ?',
-        [assignedRole, newStart, newEnd, id],
+        'UPDATE supervisor_assignment SET role = ?, start = ?, end = ?, status = ? WHERE id = ?',
+        [assignedRole, newStart, newEnd, shouldReactivate ? 0 : current.status, id],
         async (updateErr) => {
           if (updateErr) {
             logAudit({ employeeNumber: actorEmpNum }, 'Update Failed', 'supervisor_assignment', id, current.supervisorEmployeeNumber);
@@ -395,6 +399,14 @@ router.put('/api/supervisor-assignment/:id', authenticateToken, requireAdmin, as
               },
             );
           } catch (e) { console.error('[supervisor-leave] update log error:', e.message); }
+
+          if (shouldReactivate) {
+            try {
+              await grantSupervisorLeavePageAccess(current.supervisorEmployeeNumber);
+            } catch (grantErr) {
+              console.error('[supervisor-leave] reactivate page access grant error:', grantErr.message);
+            }
+          }
 
           res.json({
             id,

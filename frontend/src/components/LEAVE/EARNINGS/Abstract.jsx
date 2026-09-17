@@ -28,6 +28,12 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Autocomplete,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import {
@@ -299,12 +305,6 @@ const StatPill = ({ label, value, accent = false }) => (
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const DEPT_TITLES = {
-  "GEN.AD": "GENERAL ADMINISTRATION",
-  "GEN AD": "GENERAL ADMINISTRATION",
-  GA: "GENERAL ADMINISTRATION",
-};
-
 const ABSTRACT_BATCH_KEY = "hris.abstractExcelYearBatch.v1";
 const ABSTRACT_PREPARED_BY_KEY = "hris.abstractPreparedBy.v1";
 const DEFAULT_PREPARED_TITLE = "In-Charge, Attendance Section";
@@ -380,25 +380,49 @@ function mergeAbstractYearBatch(year, exportMonth, payloads) {
   return months;
 }
 
-function abstractDepartment(row, deptMap = {}, deptNameMap = {}, empCatMap = {}) {
+function rowDepartmentLabel(row, deptMap = {}, deptNameMap = {}) {
   const num = String(row?.employeeNumber ?? "");
-  const cat = String(
+  return String(
+    row?.departmentName || deptNameMap?.[num] || row?.departmentCode || deptMap?.[num] || "",
+  ).trim();
+}
+
+function rowEmploymentCategoryLabel(row, empCatMap = {}) {
+  const num = String(row?.employeeNumber ?? "");
+  return String(
     empCatMap?.[num]?.label ||
       row?.employmentCategory ||
       row?.abstractSourceRows?.[0]?.employment_category_label ||
       "",
-  ).toUpperCase();
-  if (cat.includes("CITY") && cat.includes("PAID")) return "CITY PAID";
-  if (/\bCASUAL\b/.test(cat)) return "CASUAL EMPLOYEE";
-  const raw = String(
-    row?.departmentName || deptNameMap?.[num] || row?.departmentCode || deptMap?.[num] || "",
-  )
-    .trim()
-    .toUpperCase();
-  if (!raw) return "GENERAL ADMINISTRATION";
-  if (DEPT_TITLES[raw]) return DEPT_TITLES[raw];
-  if (/GENERAL\s*ADMIN/.test(raw)) return "GENERAL ADMINISTRATION";
-  return raw;
+  ).trim();
+}
+
+function uniqueExportLabels(values) {
+  const byKey = new Map();
+  values.forEach((raw) => {
+    const label = String(raw || "").trim();
+    if (!label) return;
+    const key = label.toUpperCase();
+    if (!byKey.has(key)) byKey.set(key, label);
+  });
+  return [...byKey.values()].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
+}
+
+function labelInExportSelection(label, selection) {
+  if (!selection?.length) return true;
+  const key = String(label || "").trim().toUpperCase();
+  if (!key) return false;
+  return selection.some((item) => String(item || "").trim().toUpperCase() === key);
+}
+
+function rowMatchesExportPeriod(row, year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m) return true;
+  const period = getRowPeriodYearMonth(row);
+  return Number(period.y || y) === y && Number(period.m || m) === m;
 }
 
 export function Abstract({
@@ -421,6 +445,9 @@ export function Abstract({
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [preparedName, setPreparedName] = useState("");
   const [preparedTitle, setPreparedTitle] = useState(DEFAULT_PREPARED_TITLE);
+  const [exportBy, setExportBy] = useState("department");
+  const [exportSelection, setExportSelection] = useState("");
+  const [exportScope, setExportScope] = useState("deductions");
 
   // ── Filter state: search by employee # / name, plus optional year & month ──
   // These are independent of the `employee`/`year`/`month` props passed down
@@ -752,20 +779,84 @@ export function Abstract({
     }
   }, [displayRows, selectedPayrollKeys, isRowAlreadySent, isRowAlreadyInPayrollProcessing, effectiveYear, effectiveMonth]);
 
+  const periodAbstractRows = useMemo(
+    () => allAbstractRows.filter((row) => rowMatchesExportPeriod(row, effectiveYear, effectiveMonth)),
+    [allAbstractRows, effectiveYear, effectiveMonth],
+  );
+  const exportPeriodLabel = useMemo(() => {
+    const m = Math.min(Math.max(Number(effectiveMonth) || Number(month) || 1, 1), 12);
+    const y = effectiveYear || year || "";
+    return `${MONTH_ABBR[m - 1]} ${y}`.trim();
+  }, [effectiveMonth, effectiveYear, month, year]);
+
+  const exportDepartmentOptions = useMemo(
+    () => uniqueExportLabels(periodAbstractRows.map((row) => rowDepartmentLabel(row, deptMap, deptNameMap))),
+    [periodAbstractRows, deptMap, deptNameMap],
+  );
+  const exportCategoryOptions = useMemo(
+    () => uniqueExportLabels(periodAbstractRows.map((row) => rowEmploymentCategoryLabel(row, empCatMap))),
+    [periodAbstractRows, empCatMap],
+  );
+  const exportSelectionOptions = exportBy === "category" ? exportCategoryOptions : exportDepartmentOptions;
+
+  const rowsMatchingSelection = useMemo(() => {
+    const selected = String(exportSelection || "").trim();
+    if (!selected) return [];
+    return periodAbstractRows.filter((row) => {
+      const label = exportBy === "category"
+        ? rowEmploymentCategoryLabel(row, empCatMap)
+        : rowDepartmentLabel(row, deptMap, deptNameMap);
+      return labelInExportSelection(label, [selected]);
+    });
+  }, [periodAbstractRows, exportBy, exportSelection, deptMap, deptNameMap, empCatMap]);
+
+  const exportPreviewRows = useMemo(() => {
+    const rows = exportScope === "deductions"
+      ? rowsMatchingSelection.filter((row) => row.isDeduction)
+      : rowsMatchingSelection;
+    return [...rows].sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }),
+    );
+  }, [rowsMatchingSelection, exportScope]);
+
   const openExportDialog = useCallback(() => {
-    if (selectedPayrollKeys.size === 0) {
-      setSnackbar({ open: true, severity: "error", message: "Check employees before exporting Excel." });
+    if (periodAbstractRows.length === 0) {
+      setSnackbar({
+        open: true,
+        severity: "error",
+        message: "No employees in this period to export.",
+      });
       return;
     }
     setPreparedName(defaultPreparedName());
     setPreparedTitle(defaultPreparedTitle());
+    setExportBy("department");
+    setExportSelection("");
+    setExportScope("deductions");
     setExportDialogOpen(true);
-  }, [selectedPayrollKeys]);
+  }, [periodAbstractRows]);
 
   const handleExportExcel = useCallback(async () => {
-    const picked = displayRows.filter((row) => selectedPayrollKeys.has(row.key));
+    const selected = String(exportSelection || "").trim();
+    if (!selected) {
+      setSnackbar({
+        open: true,
+        severity: "error",
+        message: exportBy === "category"
+          ? "Select an employment category first."
+          : "Select a department first.",
+      });
+      return;
+    }
+    const picked = exportPreviewRows;
     if (!picked.length) {
-      setSnackbar({ open: true, severity: "error", message: "Check employees before exporting Excel." });
+      setSnackbar({
+        open: true,
+        severity: "error",
+        message: exportScope === "deductions"
+          ? "No employees with deductions match that selection."
+          : "No employees with records match that selection.",
+      });
       return;
     }
     const preparedBy = {
@@ -818,6 +909,9 @@ export function Abstract({
         };
       };
 
+      // The letter header must be the department or category the user picked,
+      // not the template default (GENERAL ADMINISTRATION).
+      const subject = selected.toUpperCase();
       const byMonth = new Map();
       picked.forEach((row) => {
         const period = getRowPeriodYearMonth(row);
@@ -826,38 +920,30 @@ export function Abstract({
         if (!y || !m) return;
         const key = `${y}-${m}`;
         if (!byMonth.has(key)) byMonth.set(key, { year: y, month: m, employees: [] });
-        const department = abstractDepartment(row, deptMap, deptNameMap, empCatMap);
         byMonth.get(key).employees.push({
           name: formName(row.name),
           dates: inclusiveDates(row),
           officialTime: "",
-          department,
-          subject: department,
+          department: subject,
+          subject,
           ...splitHours(row.unpaidHours),
         });
       });
 
       const currentMonths = [...byMonth.values()].sort((a, b) => a.year - b.year || a.month - b.month);
       if (!currentMonths.length) {
-        setSnackbar({ open: true, severity: "error", message: "Checked rows have no month to export." });
+        setSnackbar({ open: true, severity: "error", message: "These rows have no month to export." });
         return;
       }
-      const exportYear = Number(effectiveYear) || currentMonths[0].year;
-      const exportMonth = Number(effectiveMonth) || currentMonths[currentMonths.length - 1].month;
-      const yearPayloads = currentMonths.filter((item) => Number(item.year) === exportYear);
-      const months = mergeAbstractYearBatch(
-        exportYear,
-        exportMonth,
-        yearPayloads.length ? yearPayloads : currentMonths,
-      );
-      const start = months[0];
-      const end = months[months.length - 1];
+      const start = currentMonths[0];
+      const end = currentMonths[currentMonths.length - 1];
       const fileLabel = start.month === end.month
         ? `${MONTH_ABBR[(end.month || 1) - 1]} ${end.year}`
         : `${MONTH_ABBR[(start.month || 1) - 1]}-${MONTH_ABBR[(end.month || 1) - 1]} ${end.year}`;
+      const safeSubject = subject.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
       await downloadAbstractFormExcel({
-        filename: `Non Teaching ABSTRACT ${fileLabel}.xlsx`,
-        months,
+        filename: `Non Teaching ABSTRACT ${fileLabel} - ${safeSubject}.xlsx`,
+        months: currentMonths,
         preparedBy,
       });
       setExportDialogOpen(false);
@@ -872,7 +958,7 @@ export function Abstract({
     } finally {
       setExportingExcel(false);
     }
-  }, [displayRows, selectedPayrollKeys, deptMap, deptNameMap, empCatMap, month, year, effectiveYear, effectiveMonth, preparedName, preparedTitle]);
+  }, [exportPreviewRows, exportBy, exportSelection, exportScope, month, year, preparedName, preparedTitle]);
   // 15 cols: checkbox + audit + 13 data cols
   const TABLE_COL_SPAN = 15;
 
@@ -1081,7 +1167,7 @@ export function Abstract({
             </>
           )}
 
-          <Tooltip title={selectedPayrollKeys.size === 0 ? "Check employees to export" : "Export checked employees"}>
+          <Tooltip title={periodAbstractRows.length === 0 ? "No employees in this period to export" : "Export this month by department or employment category"}>
             <span>
               <Button
                 size="small"
@@ -1091,7 +1177,7 @@ export function Abstract({
                     : <DownloadIcon sx={{ fontSize: 14 }} />
                 }
                 onClick={openExportDialog}
-                disabled={exportingExcel || selectedPayrollKeys.size === 0}
+                disabled={exportingExcel || periodAbstractRows.length === 0}
                 sx={{
                   fontSize: "0.72rem", fontWeight: 700, textTransform: "none",
                   fontFamily: T.poppins, color: "#fff", borderRadius: "8px",
@@ -1668,11 +1754,11 @@ export function Abstract({
         </TableContainer>
       </Box>
 
-      {/* ── Prepared by ── */}
+      {/* ── Export filters + prepared by ── */}
       <Dialog
         open={exportDialogOpen}
         onClose={() => { if (!exportingExcel) setExportDialogOpen(false); }}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
         PaperProps={{ sx: { borderRadius: "14px" } }}
       >
@@ -1685,9 +1771,144 @@ export function Abstract({
             pb: 0.5,
           }}
         >
-          Prepared by
+          Export Abstract
         </DialogTitle>
         <DialogContent>
+          <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontFamily: T.poppins, mb: 1.5, lineHeight: 1.5 }}>
+            {exportPeriodLabel} abstract. Choose one department or one employment category. The letter header uses that name, not a default department.
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={exportBy}
+            disabled={exportingExcel}
+            onChange={(_, next) => {
+              if (!next) return;
+              setExportBy(next);
+              setExportSelection("");
+            }}
+            sx={{
+              mb: 1.5,
+              "& .MuiToggleButton-root": {
+                textTransform: "none",
+                fontFamily: T.poppins,
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                px: 1.5,
+                color: T.muted,
+                borderColor: T.accentBorder,
+                "&.Mui-selected": {
+                  color: "#fff",
+                  bgcolor: T.accent,
+                  "&:hover": { bgcolor: T.accentDark },
+                },
+              },
+            }}
+          >
+            <ToggleButton value="department">Department</ToggleButton>
+            <ToggleButton value="category">Employment Category</ToggleButton>
+          </ToggleButtonGroup>
+          <Autocomplete
+            size="small"
+            options={exportSelectionOptions}
+            value={exportSelection || null}
+            onChange={(_, next) => setExportSelection(next || "")}
+            disabled={exportingExcel}
+            noOptionsText={exportBy === "category" ? "No employment categories with records this month" : "No departments with records this month"}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label={exportBy === "category" ? "Employment Category" : "Department"}
+                placeholder={exportBy === "category" ? "Select an employment category" : "Select a department"}
+              />
+            )}
+            sx={{ ...filterInputSx, mb: 1.5 }}
+          />
+          <RadioGroup
+            value={exportScope}
+            onChange={(e) => setExportScope(e.target.value)}
+            sx={{ mb: 1.25 }}
+          >
+            <FormControlLabel
+              value="deductions"
+              disabled={exportingExcel}
+              control={<Radio size="small" sx={{ color: T.accent, "&.Mui-checked": { color: T.accent } }} />}
+              label="Only employees with deductions"
+              sx={{ "& .MuiFormControlLabel-label": { fontFamily: T.poppins, fontSize: "0.75rem" } }}
+            />
+            <FormControlLabel
+              value="all"
+              disabled={exportingExcel}
+              control={<Radio size="small" sx={{ color: T.accent, "&.Mui-checked": { color: T.accent } }} />}
+              label={`All employees under this ${exportBy === "category" ? "employment category" : "department"}`}
+              sx={{ "& .MuiFormControlLabel-label": { fontFamily: T.poppins, fontSize: "0.75rem" } }}
+            />
+          </RadioGroup>
+          <Box
+            sx={{
+              mb: 1.75,
+              border: `1px solid ${T.accentBorder}`,
+              borderRadius: "10px",
+              overflow: "hidden",
+            }}
+          >
+            <Box sx={{ px: 1.5, py: 1, bgcolor: exportPreviewRows.length ? T.accentFaint : "rgba(0,0,0,0.03)" }}>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: exportSelection && exportPreviewRows.length ? T.accent : T.muted, fontFamily: T.poppins }}>
+                {!exportSelection
+                  ? "Select a department or employment category to see who has records."
+                  : exportPreviewRows.length
+                    ? `${exportPreviewRows.length} employee${exportPreviewRows.length === 1 ? "" : "s"} with records will be exported.`
+                    : "No employees with records match this selection."}
+              </Typography>
+              {exportSelection ? (
+                <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontFamily: T.poppins, mt: 0.35 }}>
+                  Letter header: {String(exportSelection).toUpperCase()}
+                  {rowsMatchingSelection.length !== exportPreviewRows.length
+                    ? ` · ${rowsMatchingSelection.length} in this ${exportBy === "category" ? "category" : "department"}, ${exportPreviewRows.length} with deductions`
+                    : ""}
+                </Typography>
+              ) : null}
+            </Box>
+            {exportPreviewRows.length > 0 && (
+              <Box sx={{ maxHeight: 180, overflow: "auto" }}>
+                {exportPreviewRows.map((row) => (
+                  <Box
+                    key={row.key}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      px: 1.5,
+                      py: 0.7,
+                      borderTop: `1px solid ${T.divider}`,
+                    }}
+                  >
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: T.text, fontFamily: T.poppins, lineHeight: 1.3 }} noWrap>
+                        {row.name || "—"}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>
+                        #{row.employeeNumber}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      size="small"
+                      label={row.isDeduction ? "Deduction" : "No deduction"}
+                      sx={{
+                        height: 20,
+                        fontSize: "0.62rem",
+                        fontFamily: T.poppins,
+                        fontWeight: 700,
+                        bgcolor: row.isDeduction ? T.salaryChipBg : T.coveredChipBg,
+                        color: row.isDeduction ? T.salaryChipColor : T.coveredChipColor,
+                        border: `1px solid ${row.isDeduction ? T.salaryChipBorder : T.coveredChipBorder}`,
+                      }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
           <Typography sx={{ fontSize: "0.78rem", color: T.muted, fontFamily: T.poppins, mb: 1.75, lineHeight: 1.5 }}>
             This name appears under Prepared by on every letter page. It defaults to the admin who is exporting.
           </Typography>
@@ -1701,7 +1922,7 @@ export function Abstract({
             placeholder="e.g. Maria Angelyca Lumpayao"
             sx={{ ...filterInputSx, mb: 1.5 }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !exportingExcel) handleExportExcel();
+              if (e.key === "Enter" && !exportingExcel && exportPreviewRows.length) handleExportExcel();
             }}
           />
           <TextField
@@ -1725,7 +1946,7 @@ export function Abstract({
           <Button
             variant="contained"
             onClick={handleExportExcel}
-            disabled={exportingExcel || !String(preparedName || "").trim()}
+            disabled={exportingExcel || !String(preparedName || "").trim() || exportPreviewRows.length === 0}
             sx={{
               textTransform: "none",
               fontFamily: T.poppins,
